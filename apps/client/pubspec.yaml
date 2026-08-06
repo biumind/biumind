@@ -43,7 +43,7 @@ dependencies:
   # Local DB
   drift: ^2.21.0
   sqlite3_flutter_libs: ^0.5.27
-  path_provider: ^2.1.5
+  path_provider: ^2.1.6
   path: ^1.9.1
 
   # JSON / freezed
