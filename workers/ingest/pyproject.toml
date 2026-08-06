@@ -20,11 +20,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pdf      = ["pypdf>=4.0,<6"]
+pdf      = ["pypdf>=4.0,<7"]
 ocr      = ["pytesseract>=0.3.10,<1", "Pillow>=10,<12"]
 whisper  = ["faster-whisper>=1.0,<2"]
 all      = [
-  "pypdf>=4.0,<6",
+  "pypdf>=4.0,<7",
   "pytesseract>=0.3.10,<1",
   "Pillow>=10,<12",
   "faster-whisper>=1.0,<2",
