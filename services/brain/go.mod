@@ -11,7 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.1.0
 	github.com/nats-io/nats.go v1.52.0
-	github.com/yuin/goldmark v1.7.13
+	github.com/yuin/goldmark v1.8.5
 )
 
 require (
