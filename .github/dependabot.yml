@@ -5,8 +5,11 @@
 # 13 PRs every Monday, drowning the queue. The schedule below batches
 # weekly so reviewers see one diff per area per week.
 #
-# Major-version bumps need a human (API breakage). Minor + patch can be
-# auto-merged via Mergify if your repo enables it.
+# Every gomod entry ends with a catch-all `all` group (minor + patch
+# only) so each module produces at most ~1 grouped PR per week instead
+# of one PR per dependency. Major-version bumps are NOT grouped: they
+# still arrive as individual PRs since API breakage needs a human.
+# Minor + patch can be auto-merged via Mergify if your repo enables it.
 
 version: 2
 updates:
@@ -21,37 +24,64 @@ updates:
         patterns: ["go.opentelemetry.io/*"]
       grpc:
         patterns: ["google.golang.org/grpc*", "google.golang.org/protobuf"]
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /packages/go-sdk/biu
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
     labels: ["dependencies", "go", "shared-sdk"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/identity
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/hub
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/brain
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/runtime
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/realtime
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/sandbox
@@ -61,31 +91,54 @@ updates:
     groups:
       kubernetes:
         patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/deploy
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/channels
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/app_center
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /services/authz
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: gomod
     directory: /sdks/go
     schedule: { interval: weekly, day: monday }
     labels: ["dependencies", "go", "sdk"]
+    groups:
+      all:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # ─── Flutter pub ─────────────────────────────────────────
   - package-ecosystem: pub
