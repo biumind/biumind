@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:biumind/services/settings_repo.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// 可控故障的 fake secure storage — 模拟 Android ROM/备份恢复后 keychain

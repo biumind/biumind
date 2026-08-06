@@ -1,6 +1,5 @@
 // titleFromPrompt —— thread 自动改名单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/domain/thread_title.dart';

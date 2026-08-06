@@ -1,7 +1,6 @@
 // ChatRepo reactions —— P0-1 单测。
 // 设计文档 docs/BiuMind-Chat-UI-Benchmark-Optimization.md。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';

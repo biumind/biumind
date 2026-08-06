@@ -10,7 +10,6 @@ import 'dart:io';
 
 import 'package:biumind/features/code/domain/artifact.dart';
 import 'package:biumind/features/code/workspace/passthrough_workspace.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 

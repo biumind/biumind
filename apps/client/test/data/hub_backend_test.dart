@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:biumind/core/ai/ai_surface.dart';
 import 'package:biumind/data/api/hub_backend.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Spawns a local HttpServer that emits a scripted SSE response when

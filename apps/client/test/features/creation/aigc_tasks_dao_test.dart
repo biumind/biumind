@@ -1,7 +1,6 @@
 // AigcTasksDao — drift 持久化层单测.
 // 用 AppDb.memory() 跑 in-memory sqlite, 不依赖文件系统.
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';

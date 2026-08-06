@@ -1,7 +1,6 @@
 // M13.5 Tier2 — Entry.fromJson parses transcript_segments for synced playback.
 
 import 'package:biumind/features/apps/builtin/rss/models.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

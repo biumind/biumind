@@ -4,7 +4,6 @@
 // provider 异步, 留 widget integration test; 这里只覆盖纯函数。
 
 import 'package:biumind/data/sidebar_badges.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

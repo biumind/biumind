@@ -3,8 +3,6 @@
 // upgrade_modal / order_history_page (smoke) / plan_compare_page (smoke).
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/membership/domain/checkout.dart';

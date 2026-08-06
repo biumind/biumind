@@ -13,7 +13,6 @@ import 'package:biumind/data/api/sdkproto/v1/data/system.dart';
 import 'package:biumind/data/api/sdkproto/v1/data/user.dart';
 import 'package:biumind/data/api/sdkproto/v1/lifecycle.dart';
 import 'package:biumind/data/api/sdkproto/v1/service.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -6,7 +6,6 @@
 
 import 'dart:convert';
 import 'package:archive/archive.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/wiki/presentation/mermaid/mermaid_url.dart';

@@ -1,7 +1,6 @@
 // AgentStatus 事件解析/回写测试(PERI-1d)。daemon hook watcher 发
 // {type:agent_status,status:running|input_required},客户端据此可靠切换任务状态。
 import 'package:biumind/features/code/domain/code_task.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

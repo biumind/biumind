@@ -6,7 +6,6 @@
 import 'dart:convert';
 
 import 'package:biumind/features/skills/sync/skill_events_realtime.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

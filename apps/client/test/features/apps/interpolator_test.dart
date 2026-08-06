@@ -4,7 +4,6 @@
 // asserts here are deliberately tight.
 
 import 'package:biumind/features/apps/domain/interpolator.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

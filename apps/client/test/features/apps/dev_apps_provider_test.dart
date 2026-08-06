@@ -6,7 +6,6 @@
 // the dev list.
 
 import 'package:biumind/data/dev_apps_provider.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

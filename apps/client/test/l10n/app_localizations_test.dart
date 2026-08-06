@@ -5,7 +5,6 @@
 // widget tree wiring and run sub-millisecond.
 
 import 'package:flutter/widgets.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/l10n/app_localizations.dart';

@@ -12,7 +12,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/api/biu_client.dart';

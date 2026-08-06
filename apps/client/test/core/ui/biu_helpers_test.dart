@@ -1,8 +1,6 @@
 // 基础组件 widget tests — 确保 Phase A helpers 不崩 + 关键属性透传。
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/app/theme/effects.dart';

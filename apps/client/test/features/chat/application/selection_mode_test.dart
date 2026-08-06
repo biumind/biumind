@@ -1,6 +1,5 @@
 // SelectionModeNotifier —— P0-3 多选状态机单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/application/selection_mode_controller.dart';

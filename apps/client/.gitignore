@@ -48,8 +48,13 @@ app.*.map.json
 editor-web/dist/
 editor-web/node_modules/
 # editor bundle 由 `make editor-web-build` 同步过来; 不入仓
+# （保留 .gitkeep 让目录存在, 否则 flutter analyze 报 asset_directory_does_not_exist）
 web/editor/
-assets/editor/
+assets/editor/*
+!assets/editor/assets/
+!assets/editor/.gitkeep
+assets/editor/assets/*
+!assets/editor/assets/.gitkeep
 
 # 发布产物 (CI/本机验证生成; releases.json 不进 git, 见 docs/BiuMind-Client-Build.md)
 /biumind-*.apk

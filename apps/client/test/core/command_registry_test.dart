@@ -1,5 +1,4 @@
 import 'package:biumind/core/commands/command_registry.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

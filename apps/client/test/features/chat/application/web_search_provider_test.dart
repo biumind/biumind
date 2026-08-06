@@ -1,6 +1,5 @@
 // WebSearchHint —— 联网搜索一次性开关单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/application/web_search_provider.dart';

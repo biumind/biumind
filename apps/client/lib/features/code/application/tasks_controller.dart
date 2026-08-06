@@ -413,6 +413,17 @@ class CodeTasksController extends StateNotifier<List<CodeTask>> {
     if (firstLine.length <= 50) return firstLine;
     return '${firstLine.substring(0, 47)}…';
   }
+
+  /// 删除任务 — 同步删 db + 清理 worktree (默认强删, 任务历史用户已经决定不要)。
+  Future<void> deleteTask(String taskId, {bool purgeWorktree = true}) async {
+    if (purgeWorktree) {
+      try {
+        await _workspaces.purge(taskId);
+      } catch (_) {/* worktree 已被手动删 / git 报错时忽略 */}
+    }
+    await _dao.deleteById(taskId);
+    state = state.where((t) => t.id != taskId).toList();
+  }
 }
 
 // ─── Providers ───────────────────────────────────────────
@@ -513,18 +524,6 @@ extension CodeTasksControllerActions on CodeTasksController {
   Future<void> purgeWorkspace(String taskId) async {
     await _workspaces.purge(taskId);
   }
-
-  /// 删除任务 — 同步删 db + 清理 worktree (默认强删, 任务历史用户已经决定不要)。
-  Future<void> deleteTask(String taskId, {bool purgeWorktree = true}) async {
-    if (purgeWorktree) {
-      try {
-        await _workspaces.purge(taskId);
-      } catch (_) {/* worktree 已被手动删 / git 报错时忽略 */}
-    }
-    await _dao.deleteById(taskId);
-    state = state.where((t) => t.id != taskId).toList();
-  }
-
 }
 
 /// 主区当前显示的任务 id（null = 空状态）

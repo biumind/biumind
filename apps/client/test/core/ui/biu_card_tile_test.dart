@@ -1,8 +1,6 @@
 // BiuCard / BiuTile widget tests — 验证默认 / hover / selected 三态。
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/app/theme/font_size.dart';

@@ -3,7 +3,6 @@
 // shape + that detection doesn't throw.
 
 import 'package:biumind/core/platform/platform_caps.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

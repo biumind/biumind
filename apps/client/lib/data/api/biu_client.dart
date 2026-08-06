@@ -333,7 +333,7 @@ class BiuClient {
 /// 测试可以传内存 fake。frames 是 broadcast / single-subscribe 都行
 /// （BiuClient 自己只 listen 一次）。
 abstract class BiuTransport {
-  /// 下行帧 stream。每条 element 是 server push 的原始 String / List<int>。
+  /// 下行帧 stream。每条 element 是 server push 的原始 String / `List<int>`。
   /// BiuClient 只处理 String 类型；Binary 直接 drop。
   Stream<dynamic> get frames;
 

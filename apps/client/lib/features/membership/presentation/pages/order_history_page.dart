@@ -34,7 +34,7 @@ class OrderHistoryPage extends ConsumerWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(16),
             itemBuilder: (ctx, i) => _OrderCard(order: orders[i]),
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemCount: orders.length,
           );
         },

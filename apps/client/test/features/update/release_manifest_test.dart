@@ -4,7 +4,6 @@
 // 覆盖 schema/release/v1 契约的关键字段。纯逻辑无网络/mock。
 
 import 'package:biumind/features/update/domain/release_manifest.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pub_semver/pub_semver.dart';
 

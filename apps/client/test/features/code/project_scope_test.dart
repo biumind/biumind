@@ -3,7 +3,6 @@
 
 import 'package:biumind/features/code/application/projects_controller.dart';
 import 'package:biumind/features/code/domain/code_task.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 CodeTask task(String id, String? projectId) => CodeTask(

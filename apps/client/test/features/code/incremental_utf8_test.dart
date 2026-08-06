@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:biumind/features/code/data/incremental_utf8.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Uint8List bytes(String s) => Uint8List.fromList(utf8.encode(s));

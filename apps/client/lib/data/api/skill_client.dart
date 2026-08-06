@@ -103,8 +103,8 @@ class Skill {
   final SkillManifest manifest;
   final String content;
   final String contentHash;
-  /// Map<vpath, ResourceMeta> — vpath shapes:
-  ///   references/<file>  / scripts/<file>  / assets/<file>
+  /// `Map<vpath, ResourceMeta>` — vpath shapes:
+  ///   `references/<file>`  / `scripts/<file>`  / `assets/<file>`
   /// Empty for bundled / inline-only skills.
   final Map<String, SkillResource> resources;
   final List<String> paths;
@@ -112,7 +112,7 @@ class Skill {
   final String zipFileSha256;
   /// Set on staged skills proposing to replace an active row — the
   /// predecessor's id. Empty otherwise. Powers the diff hint in the
-  /// detail drawer ("基于 v<hash>") so reviewers know what changed.
+  /// detail drawer ("基于 `v<hash>`") so reviewers know what changed.
   final String updateOfId;
   final DateTime createdAt;
   final DateTime updatedAt;

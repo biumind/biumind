@@ -1,6 +1,5 @@
 // InThreadSearchController —— Cmd+F 线程内搜索状态机单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/application/in_thread_search_controller.dart';

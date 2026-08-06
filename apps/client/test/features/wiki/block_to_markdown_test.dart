@@ -1,6 +1,5 @@
 import 'package:biumind/data/wiki_repository.dart';
 import 'package:biumind/features/wiki/presentation/reader/block_to_markdown.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RepoBlock _block({

@@ -5,7 +5,7 @@
 //
 // 内部状态:
 //   * `_isDark`         — 由 main.dart::BiuMindApp.builder 在每次 build 同步
-//   * `_currentPalette` — 由 buildTheme() 调用前设置;读色全走当前色板
+//   * `palette`         — 由 buildTheme() 调用前设置;读色全走当前色板
 //
 // 所有 getter 标 @Deprecated,但保留运行时正确 — 老代码颜色会跟当前色板同步切。
 // 若用户切到非紫色板 (Phase 3 后),`BiuTokens.purple` 实际返回当前 brand。
@@ -23,7 +23,9 @@ class BiuTokens {
 
   // ─── 全局状态 (theme builder 同步) ────────────────────────────
   static bool _isDark = false;
-  static PaletteId _currentPalette = PaletteId.inkblueOrange;
+
+  /// 由 main.dart 在每次 build 前同步 (跟 brightness 一起)。
+  static PaletteId palette = PaletteId.inkblueOrange;
 
   /// 顶层 ThemeBinding 改这个; widget 重 build 自动用新值。
   static set brightness(Brightness b) {
@@ -33,15 +35,8 @@ class BiuTokens {
   static Brightness get brightness =>
       _isDark ? Brightness.dark : Brightness.light;
 
-  /// 由 main.dart 在每次 build 前同步 (跟 brightness 一起)。
-  static set palette(PaletteId p) {
-    _currentPalette = p;
-  }
-
-  static PaletteId get palette => _currentPalette;
-
   // ── 内部 helper ──────────────────────────────────────────────
-  static PaletteSpec get _spec => paletteSpecOf(_currentPalette);
+  static PaletteSpec get _spec => paletteSpecOf(palette);
   static NeutralTokens get _n =>
       NeutralTokens.forBrightness(_isDark ? Brightness.dark : Brightness.light);
   static Brightness get _b => _isDark ? Brightness.dark : Brightness.light;

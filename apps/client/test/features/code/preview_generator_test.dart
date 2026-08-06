@@ -14,7 +14,6 @@ import 'dart:typed_data';
 
 import 'package:biumind/features/code/domain/artifact.dart';
 import 'package:biumind/features/code/workspace/preview_generator.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;

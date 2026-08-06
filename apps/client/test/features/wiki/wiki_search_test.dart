@@ -1,6 +1,5 @@
 import 'package:biumind/data/wiki_repository.dart';
 import 'package:biumind/features/wiki/application/wiki_search.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 RepoPage _page({

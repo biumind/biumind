@@ -142,7 +142,7 @@ class NoteNotes extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// NoteTags —— 个人标签（服务端 scope_key='personal:<uid>' 单用户，
+/// NoteTags —— 个人标签（服务端 `scope_key='personal:<uid>'` 单用户，
 /// 本地不必再存 scope）。创建幂等，flush 成功后 rekey。
 @DataClassName('LocalNoteTag')
 class NoteTags extends Table {
@@ -293,7 +293,7 @@ class SseCursors extends Table {
 /// 不持久化产物 url (cas:sha 是云端引用, 不存本地). 仅持久化 task 元数据 +
 /// outputs JSON 供重启秒回 UI.
 ///
-/// outputs_json 是 List<TaskOutput> JSON, params_json 是 Map<String, dynamic>
+/// outputs_json 是 `List<TaskOutput>` JSON, params_json 是 `Map<String, dynamic>`
 /// JSON. 状态机字段 status / progress 跟 CreationTask 一致.
 @DataClassName('LocalAigcTask')
 class AigcTasks extends Table {

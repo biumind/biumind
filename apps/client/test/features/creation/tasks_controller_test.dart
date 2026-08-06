@@ -9,7 +9,6 @@ import 'package:biumind/data/sse/sse_cursors_dao.dart';
 import 'package:biumind/features/creation/application/tasks_controller.dart';
 import 'package:biumind/features/creation/data/aigc_client.dart';
 import 'package:biumind/features/creation/domain/creation_task.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeAigcClient extends AigcClient {

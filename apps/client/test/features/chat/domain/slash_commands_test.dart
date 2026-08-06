@@ -1,6 +1,5 @@
 // SlashCommands —— composer 斜杠命令解析单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/domain/slash_commands.dart';

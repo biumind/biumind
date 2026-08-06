@@ -4,7 +4,6 @@
 // catch them at the parsing seam.
 
 import 'package:biumind/features/apps/domain/view_spec.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

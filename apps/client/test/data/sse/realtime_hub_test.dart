@@ -7,7 +7,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' show MockClient, MockClientHandler;
@@ -438,7 +437,7 @@ void main() {
         }),
         loadLastEventId: () async => null,
         saveLastEventId: (_) async {},
-        onDesync: (_, __) async {},
+        onDesync: (_, _) async {},
       );
 
       final framesA = <RealtimeFrame>[];
@@ -478,7 +477,7 @@ void main() {
             _StreamingMockClient((_) async => _sseResponse(ctrl.stream)),
         loadLastEventId: () async => null,
         saveLastEventId: (_) async {},
-        onDesync: (_, __) async => throw Exception('refetch failed'),
+        onDesync: (_, _) async => throw Exception('refetch failed'),
       );
 
       final frames = <RealtimeFrame>[];
