@@ -73,7 +73,7 @@ dependencies:
   # Markdown rendering for AI chat replies (code blocks / lists / links).
   # gpt_markdown handles partial / streaming markdown gracefully (won't
   # blow up on a half-open ``` while text is still arriving).
-  gpt_markdown: ^1.0.19
+  gpt_markdown: ^1.1.8
 
   # Word-level diff for selection-edit previews (S3 P1-6). Pure Dart, no native.
   diff_match_patch: ^0.4.1
