@@ -5,10 +5,10 @@
 #   # local dry-run, no upload, no signing:
 #   goreleaser release --snapshot --clean --skip=publish,sign
 #
-#   # actual release: tag the repo with `biu-vX.Y.Z` and let
+#   # actual release: tag the repo with `biu/vX.Y.Z` and let
 #   # .github/workflows/release-biu.yml call goreleaser.
 #
-# What this produces per `biu-vX.Y.Z` tag:
+# What this produces per `biu/vX.Y.Z` tag:
 #
 #   - dist/biu_<version>_<os>_<arch>.tar.gz   for darwin & linux × amd64 & arm64
 #   - dist/checksums.txt                       SHA256 of every artefact

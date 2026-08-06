@@ -1,6 +1,8 @@
 # Release pipeline for the biu CLI.
 #
-# Trigger: push a tag matching `biu-v*` (e.g. `biu-v0.1.0`). GoReleaser
+# Trigger: push a tag matching `biu/v*` (e.g. `biu/v0.1.0`). The slash
+# prefix is required — GoReleaser parses the tag as semver and only
+# strips a `prefix/` before the version, not a `prefix-`. GoReleaser
 # builds darwin/linux × amd64/arm64 binaries from
 # `apps/cli/biu/.goreleaser.yml`, uploads them to a draft GitHub
 # release, and (when HOMEBREW_TAP_GITHUB_TOKEN is set) opens a PR to
@@ -21,11 +23,11 @@ name: Release biu CLI
 on:
   push:
     tags:
-      - "biu-v*"
+      - "biu/v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (without the 'biu-v' prefix, e.g. 0.1.0)"
+        description: "Version to release (without the 'biu/v' prefix, e.g. 0.1.0)"
         required: true
         type: string
 
@@ -53,7 +55,7 @@ jobs:
         id: ver
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=biu-v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=biu/v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
