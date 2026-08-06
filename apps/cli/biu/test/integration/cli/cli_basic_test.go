@@ -52,7 +52,7 @@ func TestB1_Version(t *testing.T) {
 // "exit 0, 3 段全 ✓"; without an upstream model-relay we can't get exit 0,
 // so we wire one up and verify the full happy path.
 func TestB2_Doctor(t *testing.T) {
-	model-relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	modelRelay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/healthz") {
 			w.WriteHeader(200)
 			_, _ = w.Write([]byte("ok"))
@@ -60,14 +60,14 @@ func TestB2_Doctor(t *testing.T) {
 		}
 		w.WriteHeader(404)
 	}))
-	defer model-relay.Close()
+	defer modelRelay.Close()
 
 	sb := harness.NewSandbox(t)
 	// Tell biu to use our fake model-relay via the runtime --model-relay-url flag —
 	// avoids having to fabricate a config.toml just for this check.
 	r := harness.RunBiu(t, harness.RunOpts{
 		Sandbox: sb,
-		Args:    []string{"--model-relay-url", model-relay.URL, "doctor"},
+		Args:    []string{"--model-relay-url", modelRelay.URL, "doctor"},
 	})
 	out := stripANSI(r.Stdout)
 	// We allow either exit 0 (everything green) or exit 1 (some
