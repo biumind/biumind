@@ -662,7 +662,7 @@ jobs:
           echo "version $VERSION matches pubspec $PUBSPEC"
 
       - name: Download all asset metadata
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: asset-*
           merge-multiple: true
