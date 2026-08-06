@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/events.json",
+  "title": "BiuMind SDK v1 — Hook Event Enum + Base",
+  "description": "HOOK_EVENTS 共 27 种。所有 HookInput 共享 BaseHookInput 字段（session_id / transcript_path / cwd / permission_mode? / agent_id? / agent_type?）。每个具体 hook 用 hook_event_name 区分。",
+  "$defs": {
+    "HookEvent": {
+      "type": "string",
+      "enum": [
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Notification",
+        "UserPromptSubmit",
+        "SessionStart",
+        "SessionEnd",
+        "Stop",
+        "StopFailure",
+        "SubagentStart",
+        "SubagentStop",
+        "PreCompact",
+        "PostCompact",
+        "PermissionRequest",
+        "PermissionDenied",
+        "Setup",
+        "TeammateIdle",
+        "TaskCreated",
+        "TaskCompleted",
+        "Elicitation",
+        "ElicitationResult",
+        "ConfigChange",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "InstructionsLoaded",
+        "CwdChanged",
+        "FileChanged"
+      ]
+    },
+    "BaseHookInput": {
+      "type": "object",
+      "required": ["session_id", "transcript_path", "cwd", "hook_event_name"],
+      "properties": {
+        "session_id": { "type": "string" },
+        "transcript_path": { "type": "string" },
+        "cwd": { "type": "string" },
+        "hook_event_name": { "$ref": "#/$defs/HookEvent" },
+        "permission_mode": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "agent_type": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "hooks/index.json#/$defs/HookInput",
+  "session_id": "s1",
+  "transcript_path": "/tmp/t.jsonl",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": { "command": "ls" },
+  "tool_use_id": "tu1"
+}

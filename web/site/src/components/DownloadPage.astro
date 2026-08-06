@@ -1,0 +1,341 @@
+---
+import Icon from './Icons.astro';
+import { useTranslations, type Locale } from '../i18n';
+
+interface Props {
+  locale: Locale;
+}
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+const desktopButtons = [
+  { key: 'macos-arm64', label: t.download.desktop.macSilicon, primary: true },
+  { key: 'macos-intel', label: t.download.desktop.macIntel, primary: false },
+  { key: 'windows-x64', label: t.download.desktop.windows, primary: false },
+  { key: 'linux-deb', label: t.download.desktop.linuxDeb, primary: false },
+  { key: 'linux-appimage', label: t.download.desktop.linuxAppImage, primary: false },
+];
+---
+
+<!-- Header -->
+<section class="border-b border-border-subtle">
+  <div class="container-page py-16 md:py-24">
+    <div class="mx-auto max-w-prose text-center">
+      <h1 class="text-balance text-[44px] font-semibold leading-tight tracking-tightest text-ink md:text-[56px]">
+        {t.download.title}
+      </h1>
+      <p class="mx-auto mt-4 max-w-[560px] text-pretty text-[16px] leading-relaxed text-ink-secondary">
+        {t.download.subtitle}
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- 桌面 -->
+<section class="section-tight">
+  <div class="container-page">
+    <div class="grid gap-10 md:grid-cols-[1fr_2fr] md:items-start">
+      <div>
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="desktop" />
+        </div>
+        <h2 class="mt-4 text-[24px] font-semibold tracking-tightest text-ink">{t.download.desktop.title}</h2>
+        <p class="mt-2 text-[14px] leading-relaxed text-ink-secondary">{t.download.desktop.body}</p>
+      </div>
+      <!-- 检测到系统提示条 (client-side script 填充; 检测不到则隐藏) -->
+      <div id="dl-detected" class="hidden rounded-md border border-border-subtle bg-surface-muted px-4 py-3 text-[13px] text-ink-secondary">
+      </div>
+
+      <div class="grid gap-2.5 sm:grid-cols-2" id="desktop-buttons">
+        {
+          desktopButtons.map((btn) => (
+            <a
+              href="#"
+              data-dl-key={btn.key}
+              class={
+                btn.primary
+                  ? 'dl-btn btn-primary justify-between !py-3.5 !px-4 text-[14px]'
+                  : 'dl-btn btn-secondary justify-between !py-3.5 !px-4 text-[14px]'
+              }
+            >
+              <span class="flex flex-col gap-0.5">
+                <span class="dl-btn-label">{btn.label}</span>
+                <span class="dl-btn-meta text-[11px] font-normal text-ink-muted" data-dl-meta />
+              </span>
+              <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 2v9m0 0L4 7m4 4 4-4M3 14h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </a>
+          ))
+        }
+      </div>
+      <!-- 未签名安装说明 (client-side script 填充; 仅在推荐到 mac/win 且 signed=false 时显示) -->
+      <div id="dl-unsigned-note" class="hidden mt-4 rounded-md border border-amber-300/40 bg-amber-50/60 px-4 py-3 text-[12px] leading-relaxed text-ink-secondary">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 移动 -->
+<section class="section-tight border-t border-border-subtle">
+  <div class="container-page">
+    <div class="grid gap-10 md:grid-cols-[1fr_2fr] md:items-start">
+      <div>
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="mobile" />
+        </div>
+        <h2 class="mt-4 text-[24px] font-semibold tracking-tightest text-ink">{t.download.mobile.title}</h2>
+        <p class="mt-2 text-[14px] leading-relaxed text-ink-secondary">{t.download.mobile.body}</p>
+      </div>
+      <div class="grid gap-2.5 sm:grid-cols-2">
+        <a class="btn-secondary justify-between !py-3.5 !px-4 text-[14px] opacity-50 pointer-events-none cursor-default" aria-disabled="true">
+          <span class="flex items-center gap-2">
+            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M17.05 20.28c-.98.95-2.05.8-3.08.36-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.36C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
+            </svg>
+            {t.download.mobile.ios}
+          </span>
+          <span class="text-[11px] text-ink-muted">{t.download.soon}</span>
+        </a>
+        <a href="#" class="dl-btn btn-secondary justify-between !py-3.5 !px-4 text-[14px]" data-dl-key="android-apk">
+          <span class="flex flex-col gap-0.5">
+            <span class="flex items-center gap-2">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M17.523 15.34a1.07 1.07 0 1 1 0-2.137 1.07 1.07 0 0 1 0 2.137m-11.045 0a1.07 1.07 0 1 1 0-2.138 1.07 1.07 0 0 1 0 2.138m11.43-6.119 2.137-3.7a.444.444 0 0 0-.768-.444l-2.16 3.744a13.34 13.34 0 0 0-10.175 0l-2.16-3.744a.444.444 0 0 0-.768.444l2.137 3.7C2.514 10.31.69 13.054.36 16.348h23.28c-.33-3.294-2.154-6.038-5.732-7.127" />
+              </svg>
+              {t.download.mobile.androidApk}
+            </span>
+            <span class="dl-btn-meta text-[11px] font-normal text-ink-muted" data-dl-meta />
+          </span>
+          <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2v9m0 0L4 7m4 4 4-4M3 14h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 浏览器 -->
+<section class="section-tight border-t border-border-subtle">
+  <div class="container-page">
+    <div class="grid gap-10 md:grid-cols-[1fr_2fr] md:items-start">
+      <div>
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="browser" />
+        </div>
+        <h2 class="mt-4 text-[24px] font-semibold tracking-tightest text-ink">{t.download.web.title}</h2>
+        <p class="mt-2 text-[14px] leading-relaxed text-ink-secondary">{t.download.web.body}</p>
+      </div>
+      <div>
+        <a href="/app" target="_blank" rel="noopener" class="btn-primary !py-3.5 !px-5 text-[14px]">
+          {t.download.web.cta}
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- biu CLI -->
+<section class="section-tight border-t border-border-subtle">
+  <div class="container-page">
+    <div class="grid gap-10 md:grid-cols-[1fr_2fr] md:items-start">
+      <div>
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="cli" />
+        </div>
+        <h2 class="mt-4 text-[24px] font-semibold tracking-tightest text-ink">{t.download.cli.title}</h2>
+        <p class="mt-2 text-[14px] leading-relaxed text-ink-secondary">{t.download.cli.body}</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <p class="mb-2 text-[12px] font-medium uppercase tracking-wider text-ink-secondary">
+            {t.download.cli.install}
+          </p>
+          <div class="rounded-md bg-[#0F172A] px-4 py-3.5 font-mono text-[13px] text-[#E2E8F0]">
+            <span class="text-[#94A3B8]">$</span> curl -fsSL https://get.biumind.ai/cli | sh
+          </div>
+        </div>
+        <div>
+          <p class="mb-2 text-[12px] font-medium uppercase tracking-wider text-ink-secondary">
+            {t.download.cli.verify}
+          </p>
+          <div class="rounded-md bg-[#0F172A] px-4 py-3.5 font-mono text-[13px] text-[#E2E8F0]">
+            <span class="text-[#94A3B8]">$</span> biu --version
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 系统要求 -->
+<section class="section-tight border-t border-border-subtle bg-surface">
+  <div class="container-page">
+    <h2 class="text-[24px] font-semibold tracking-tightest text-ink">{t.download.requirements.title}</h2>
+    <div class="mt-6 overflow-hidden rounded-md border border-border">
+      <table class="w-full text-left text-[14px]">
+        <tbody>
+          {
+            t.download.requirements.rows.map((row, i) => (
+              <tr class={i !== 0 ? 'border-t border-border-subtle' : ''}>
+                <th class="bg-surface-muted px-5 py-3 align-top font-medium text-ink" style="width:200px">
+                  {row.platform}
+                </th>
+                <td class="px-5 py-3 text-ink-secondary">{row.req}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script is:inline define:vars={{
+  i18n: {
+    version: t.download.version,
+    size: t.download.size,
+    detected: t.download.detected,
+    recommended: t.download.recommended,
+    unsignedTitle: t.download.unsignedTitle,
+    unsignedMac: t.download.unsignedMac,
+    unsignedWin: t.download.unsignedWin,
+    fetchFailed: t.download.fetchFailed,
+    soon: t.download.soon,
+  },
+  locale,
+}}>
+  // 阶段 4: 运行期 fetch /downloads/releases.json 填充下载按钮。
+  // 官网是纯静态 Astro 站, releases.json 由 site nginx /downloads/ 反代 MinIO 直出,
+  // 不进 git 不进 public/。fetch 失败静默降级 (按钮保持 # + 隐藏动态文案)。
+  (async () => {
+    const btns = document.querySelectorAll('a.dl-btn[data-dl-key]');
+    if (!btns.length) return;
+    let manifest;
+    try {
+      const res = await fetch('/downloads/releases.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('releases.json HTTP ' + res.status);
+      manifest = await res.json();
+    } catch (e) {
+      // 拉不到: 顶部提示条显示 fetchFailed (不静默), 按钮保持占位
+      const box = document.getElementById('dl-detected');
+      if (box) { box.textContent = i18n.fetchFailed; box.classList.remove('hidden'); }
+      return;
+    }
+    if (!manifest || !Array.isArray(manifest.assets)) return;
+
+    // asset 按 platform 索引
+    const byPlatform = {};
+    for (const a of manifest.assets) byPlatform[a.platform] = a;
+    const lang = locale === 'en' ? 'en' : 'zh';
+
+    // 给每个按钮填 href + 版本/大小; 无产物的平台显示"即将上线"并禁用 (避免 href="#" 死链)
+    const versionLabel = manifest.version ? `${i18n.version} ${manifest.version}` : '';
+    btns.forEach((btn) => {
+      const key = btn.getAttribute('data-dl-key');
+      const asset = byPlatform[key];
+      const meta = btn.querySelector('[data-dl-meta]');
+      if (!asset) {
+        // 该平台本轮无产物 → 禁用按钮 + 标"即将上线" (不再 href="#")
+        btn.removeAttribute('href');
+        btn.classList.add('dl-soon');
+        btn.setAttribute('aria-disabled', 'true');
+        if (meta) meta.textContent = i18n.soon;
+        return;
+      }
+      btn.setAttribute('href', asset.url);
+      if (meta) {
+        const parts = [];
+        if (versionLabel) parts.push(versionLabel);
+        if (asset.size) parts.push(`${i18n.size} ${(asset.size / 1048576).toFixed(1)} MB`);
+        meta.textContent = parts.join(' · ');
+      }
+    });
+
+    // ── OS + arch 精准识别, 高亮推荐按钮 ──
+    function detectOs() {
+      const ua = navigator.userAgent || '';
+      const platform = (navigator.platform || '') + ' ' + ua;
+      if (/Win/i.test(platform)) return { key: 'windows-x64', label: 'Windows' };
+      if (/Mac/i.test(platform)) {
+        // Safari UA/platform 永远报 Intel, 无法可靠区分 arm64/intel。
+        // 默认推荐 arm64 (主流), Intel 按钮仍可见可点。
+        return { key: 'macos-arm64', label: 'macOS · Apple Silicon' };
+      }
+      if (/Linux/i.test(platform)) return { key: 'linux-appimage', label: 'Linux' };
+      if (/Android/i.test(ua)) return { key: 'android-apk', label: 'Android' };
+      return null;
+    }
+
+    let detected = detectOs();
+    // Chromium 异步拿真实 arch 修正 macOS arm64/intel
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues && detected && detected.key === 'macos-arm64') {
+      try {
+        const hev = await navigator.userAgentData.getHighEntropyValues(['architecture', 'platform']);
+        if (hev.platform === 'macOS' && hev.architecture === 'x86') {
+          detected = { key: 'macos-intel', label: 'macOS · Intel' };
+        }
+      } catch (_) {}
+    }
+
+    if (detected) {
+      const recommendedBtn = document.querySelector(`a.dl-btn[data-dl-key="${detected.key}"]`);
+      if (recommendedBtn && recommendedBtn.getAttribute('href')) {
+        recommendedBtn.classList.add('dl-recommended');
+        // 推荐 badge (JS 插入, 文案来自 i18n)
+        const badge = document.createElement('span');
+        badge.className = 'dl-badge';
+        badge.textContent = i18n.recommended;
+        recommendedBtn.appendChild(badge);
+        // 顶部提示条
+        const detectedBox = document.getElementById('dl-detected');
+        if (detectedBox) {
+          detectedBox.textContent = i18n.detected.replace('{os}', detected.label);
+          detectedBox.classList.remove('hidden');
+        }
+        // 未签名说明 (推荐到 mac/win 且该 asset signed=false)
+        const asset = byPlatform[detected.key];
+        if (asset && asset.signed === false) {
+          const noteBox = document.getElementById('dl-unsigned-note');
+          if (noteBox) {
+            const isMac = detected.key.startsWith('macos');
+            const hint = (asset.installHint && asset.installHint[lang]) ||
+                         (isMac ? i18n.unsignedMac : i18n.unsignedWin);
+            noteBox.innerHTML = `<strong>${i18n.unsignedTitle}</strong><br/>${hint}`;
+            noteBox.classList.remove('hidden');
+          }
+        }
+      }
+    }
+  })();
+</script>
+
+<style>
+  /* 无产物的平台按钮: 灰化 + 不可点 (本轮未发该平台, 标"即将上线") */
+  a.dl-btn.dl-soon {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: default;
+  }
+  /* 推荐按钮高亮: 加 ring */
+  a.dl-btn.dl-recommended {
+    box-shadow: 0 0 0 2px var(--purple, #5B5BD6);
+  }
+  a.dl-btn .dl-badge {
+    position: absolute;
+    top: -8px;
+    right: 10px;
+    background: var(--purple, #5B5BD6);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 999px;
+    line-height: 1.4;
+  }
+  a.dl-btn { position: relative; }
+</style>

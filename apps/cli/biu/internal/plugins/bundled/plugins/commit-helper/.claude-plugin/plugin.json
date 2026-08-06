@@ -1,0 +1,6 @@
+{
+  "name": "commit-helper",
+  "version": "1.0.0",
+  "description": "Stage analysis + conventional commit message + safe push",
+  "author": { "name": "BiuMind" }
+}

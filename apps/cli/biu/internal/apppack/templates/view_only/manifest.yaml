@@ -1,0 +1,36 @@
+identifier: {{slug}}
+version: 0.1.0
+name: {{slug}}
+description: TODO — view-only App (no Go backend)
+author: TODO
+category: productivity
+kind: view
+
+permissions:
+  - wiki.read
+
+actions:
+  - name: list_recent
+    description: List the user's recent items (proxied to wiki.read)
+    risk: low
+    input_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          default: 20
+
+views:
+  - id: home
+    route: /apps/{{slug}}
+    title: {{slug}}
+    layout: list
+    data_source:
+      action: list_recent
+      input:
+        limit: 20
+    item_template:
+      kind: card
+      title: ${item.title}
+      subtitle: ${item.updated_at | relative_time}
+      body: ${item.summary | truncate(120)}

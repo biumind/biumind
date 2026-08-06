@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/permission.json",
+  "title": "BiuMind SDK v1 — Permission Hook",
+  "description": "PermissionRequest hook — runtime 询问 client 是否允许。注意跟 control/permission.json 中的 PermissionRequest 是不同载体（hook input vs control request）。",
+  "$defs": {
+    "PermissionRequest": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "tool_name", "tool_input"],
+          "properties": {
+            "hook_event_name": { "const": "PermissionRequest" },
+            "tool_name": { "type": "string" },
+            "tool_input": {},
+            "permission_suggestions": { "type": "array" }
+          }
+        }
+      ]
+    }
+  }
+}

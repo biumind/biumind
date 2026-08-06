@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-ssr
+*.log
+.env
+.env.local
+.env.*.local
+.DS_Store
+.vite
+*.tsbuildinfo
+
+# unplugin-auto-import / unplugin-vue-components 在 dev/build 时重新生成；
+# 提交它们只会带来无意义的 diff。
+auto-imports.d.ts
+components.d.ts

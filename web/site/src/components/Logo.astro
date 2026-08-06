@@ -1,0 +1,132 @@
+---
+// BiuMind 品牌 logo —— 横版 (mark + 文字) 或 mark-only。
+// Mark 使用 BiuMark 共享组件，path 数据来自原始 PNG 的高精度矢量化。
+// 默认完全静态，Hover 时电路染紫脉冲 + 手做"点头"动作。
+// 所有动画对 prefers-reduced-motion 用户禁用。
+import BiuMark from './BiuMark.astro';
+
+interface Props {
+  class?: string;
+  variant?: 'horizontal' | 'mark';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  link?: boolean;
+  ariaLabel?: string;
+  hoverAnim?: boolean;
+}
+const {
+  class: className = '',
+  variant = 'horizontal',
+  size = 'md',
+  link = true,
+  ariaLabel = 'BiuMind',
+  hoverAnim = true,
+} = Astro.props;
+
+const markCls = {
+  sm: 'h-5',
+  md: 'h-7',
+  lg: 'h-10',
+  xl: 'h-24',
+}[size];
+
+const textCls = {
+  sm: 'text-[13px]',
+  md: 'text-[16px]',
+  lg: 'text-[22px]',
+  xl: 'text-[40px]',
+}[size];
+
+const Tag = link ? 'a' : 'div';
+const tagProps: Record<string, string> = link ? { href: '/' } : {};
+---
+
+<Tag
+  class={`biu-logo ${hoverAnim ? 'biu-logo--hoverable' : ''} group inline-flex items-center gap-2.5 ${className}`}
+  aria-label={ariaLabel}
+  {...tagProps}
+>
+  <BiuMark
+    class={`biu-logo__mark ${markCls}`}
+    prefix="biu-logo"
+    inkColor="currentColor"
+    circuitColor="var(--logo-circuit, currentColor)"
+  />
+
+  {
+    variant === 'horizontal' && (
+      <span class={`biu-logo__type font-semibold tracking-tightest text-ink ${textCls}`}>
+        BiuMind
+      </span>
+    )
+  }
+</Tag>
+
+<style is:global>
+  /* ── Logo 基础 ─────────────────────────────────────────── */
+  .biu-logo {
+    color: var(--ink);
+    --logo-circuit: var(--ink);
+    transition: --logo-circuit 220ms ease;
+  }
+  .biu-logo__mark {
+    display: block;
+    width: auto;
+    flex-shrink: 0;
+    overflow: visible;
+  }
+  .biu-logo__circuits {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+  }
+  .biu-logo__circuit {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: fill 220ms ease;
+  }
+  .biu-logo__hand {
+    transform-box: fill-box;
+    transform-origin: 78% 92%;
+  }
+
+  /* ── Hover 微动画（P1） ────────────────────────────────── */
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .biu-logo--hoverable:hover .biu-logo__circuit {
+      fill: var(--purple) !important;
+    }
+    .biu-logo--hoverable:hover .biu-logo__circuit--l {
+      animation: biu-logo-circuit 760ms cubic-bezier(0.34, 1.4, 0.64, 1);
+      animation-delay: 0ms;
+    }
+    .biu-logo--hoverable:hover .biu-logo__circuit--m {
+      animation: biu-logo-circuit 760ms cubic-bezier(0.34, 1.4, 0.64, 1);
+      animation-delay: 90ms;
+    }
+    .biu-logo--hoverable:hover .biu-logo__circuit--r {
+      animation: biu-logo-circuit 760ms cubic-bezier(0.34, 1.4, 0.64, 1);
+      animation-delay: 180ms;
+    }
+    .biu-logo--hoverable:hover .biu-logo__hand {
+      animation: biu-logo-hand 560ms cubic-bezier(0.5, 0, 0.2, 1);
+    }
+  }
+
+  @keyframes biu-logo-circuit {
+    0%   { transform: translateY(2%) scale(1); opacity: 0.7; }
+    45%  { transform: translateY(-1%) scale(1.04); opacity: 1; }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  @keyframes biu-logo-hand {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    35%      { transform: translate(-0.6%, -1%) rotate(-2.5deg); }
+  }
+
+  /* ── 可访问性 ──────────────────────────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .biu-logo *,
+    .biu-logo *::before,
+    .biu-logo *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+</style>

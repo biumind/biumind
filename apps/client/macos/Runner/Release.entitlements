@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- BiuMind Desktop is a developer-tool app (like VSCode / Cursor / iTerm):
+	     it spawns user-controlled subprocesses (biu, claude, codex,
+	     git, bash) and reads/writes arbitrary paths inside the user's project.
+	     macOS app-sandbox is incompatible with both behaviors, so we don't
+	     run sandboxed. The app is distributed via DMG (not Mac App Store) so
+	     this is consistent with shipping channels. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- NOTE: keychain-access-groups deliberately NOT here.
+	     Adding it requires a development signing certificate even for
+	     release builds (Xcode rejects unsigned builds with the entitlement).
+	     SecureSettingsRepo handles missing keychain gracefully by falling
+	     back to ~/.biumind/settings.json. When you ship a signed build via
+	     release-client.yml, re-add:
+
+	         <key>keychain-access-groups</key>
+	         <array>
+	             <string>$(AppIdentifierPrefix)com.biumind.app</string>
+	         </array>
+
+	     and set DEVELOPMENT_TEAM in macos/Runner.xcodeproj. -->
+</dict>
+</plist>

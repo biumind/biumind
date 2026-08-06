@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "id": "1",
+      "title": "示例条目 1",
+      "summary": "view-only App 在 dev 模式下读取此 fixture 渲染列表。运行：biu app run --dev --mock fixtures/",
+      "updated_at": "2026-05-30T10:00:00Z"
+    },
+    {
+      "id": "2",
+      "title": "示例条目 2",
+      "summary": "把 fixtures/<action>.json 改成你想要的形状即可，AppViewHost 会按 item_template 渲染。",
+      "updated_at": "2026-05-29T09:30:00Z"
+    }
+  ]
+}

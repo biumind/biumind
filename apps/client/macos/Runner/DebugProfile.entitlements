@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- BiuMind Desktop is a developer-tool app (like VSCode / Cursor / iTerm):
+	     it spawns user-controlled subprocesses (biu, claude, codex,
+	     git, bash) and reads/writes arbitrary paths inside the user's project.
+	     macOS app-sandbox is incompatible with both behaviors, so we don't
+	     run sandboxed. The app is distributed via DMG (not Mac App Store) so
+	     this is consistent with shipping channels. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<!-- Subprocess spawn (biu, git, ...). Codesign requires this entitlement
+	     for hardened runtime apps that exec children with their own
+	     dynamic libraries. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

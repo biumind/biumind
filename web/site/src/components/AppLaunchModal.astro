@@ -1,0 +1,561 @@
+---
+// 全站点击 /app 链接时弹出的提示 modal。
+//   - 全局拦截 a[href="/app"] / a[href^="/app/"] 的 click
+//   - 桌面 / 移动 设备分别推荐对应客户端（CSS 媒体查询切变体）
+//   - 关闭 (× / Esc / 蒙层) = 取消跳转
+//   - "不再提示" 勾选 → localStorage 持久化，未勾每次都弹
+//   - 调试可加 ?force=1 强制弹
+import BiuMark from './BiuMark.astro';
+import Icon from './Icons.astro';
+import { useTranslations, getLocale, pathFor } from '../i18n';
+
+const locale = getLocale(Astro.url.pathname);
+const t = useTranslations(locale);
+---
+
+<div
+  id="biu-app-modal"
+  class="biu-app-modal"
+  aria-hidden="true"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="biu-app-modal-title"
+>
+  <div class="biu-app-modal__backdrop" data-app-modal-close></div>
+
+  <div class="biu-app-modal__panel" role="document">
+    <button
+      type="button"
+      class="biu-app-modal__close"
+      aria-label={t.appLaunch.close}
+      data-app-modal-close
+    >
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      </svg>
+    </button>
+
+    <!-- ──────── 桌面变体 ──────── -->
+    <div class="biu-app-modal__variant biu-app-modal__variant--desktop">
+      <div class="biu-app-modal__mark-wrap">
+        <BiuMark
+          class="biu-app-modal__mark"
+          prefix="biu-app-modal-mark"
+          inkColor="#18181B"
+          circuitColor="var(--purple)"
+        />
+      </div>
+
+      <h2 id="biu-app-modal-title" class="biu-app-modal__title">
+        {t.appLaunch.desktop.title}
+      </h2>
+      <p class="biu-app-modal__subtitle">{t.appLaunch.desktop.subtitle}</p>
+
+      <ul class="biu-app-modal__perks">
+        {
+          t.appLaunch.desktop.perks.map((perk, i) => (
+            <li class="biu-app-modal__perk">
+              <span class="biu-app-modal__perk-icon">
+                <Icon name={['cli', 'channel', 'hub', 'cloud'][i] as any} />
+              </span>
+              <div>
+                <div class="biu-app-modal__perk-label">{perk.label}</div>
+                <div class="biu-app-modal__perk-sub">{perk.sub}</div>
+              </div>
+            </li>
+          ))
+        }
+      </ul>
+
+      <div class="biu-app-modal__actions">
+        <a
+          href={pathFor(locale, '/download')}
+          class="biu-app-modal__cta-primary"
+        >
+          {t.appLaunch.desktop.primary}
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2v9m0 0L4 7m4 4 4-4M3 14h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+        <button type="button" class="biu-app-modal__cta-secondary" data-app-modal-continue>
+          {t.appLaunch.desktop.secondary}
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ──────── 移动变体 ──────── -->
+    <div class="biu-app-modal__variant biu-app-modal__variant--mobile">
+      <div class="biu-app-modal__mark-wrap">
+        <BiuMark
+          class="biu-app-modal__mark biu-app-modal__mark--small"
+          prefix="biu-app-modal-mark-m"
+          inkColor="#18181B"
+          circuitColor="var(--purple)"
+        />
+      </div>
+
+      <h2 class="biu-app-modal__title biu-app-modal__title--mobile">
+        {t.appLaunch.mobile.title}
+      </h2>
+      <p class="biu-app-modal__subtitle">{t.appLaunch.mobile.subtitle}</p>
+
+      <div class="biu-app-modal__store-grid">
+        <a href={pathFor(locale, '/download')} class="biu-app-modal__store">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M17.05 20.28c-.98.95-2.05.8-3.08.36-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.36C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+          </svg>
+          <span>{t.appLaunch.mobile.ios}</span>
+        </a>
+        <a href={pathFor(locale, '/download')} class="biu-app-modal__store">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M17.523 15.34a1.07 1.07 0 1 1 0-2.137 1.07 1.07 0 0 1 0 2.137m-11.045 0a1.07 1.07 0 1 1 0-2.138 1.07 1.07 0 0 1 0 2.138m11.43-6.119 2.137-3.7a.444.444 0 0 0-.768-.444l-2.16 3.744a13.34 13.34 0 0 0-10.175 0l-2.16-3.744a.444.444 0 0 0-.768.444l2.137 3.7C2.514 10.31.69 13.054.36 16.348h23.28c-.33-3.294-2.154-6.038-5.732-7.127"/>
+          </svg>
+          <span>{t.appLaunch.mobile.android}</span>
+        </a>
+      </div>
+
+      <button type="button" class="biu-app-modal__cta-secondary" data-app-modal-continue>
+        {t.appLaunch.mobile.secondary}
+        <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- ──────── "不再提示" ──────── -->
+    <label class="biu-app-modal__remember">
+      <input type="checkbox" id="biu-app-modal-remember" />
+      <span class="biu-app-modal__remember-box" aria-hidden="true">
+        <svg viewBox="0 0 12 12" fill="none">
+          <path d="M2.5 6 5 8.5 9.5 4" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="biu-app-modal__remember-label">{t.appLaunch.remember}</span>
+    </label>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY = 'biu_app_launch_ack';
+  const FORCE_PARAM = 'force';
+  const modal = document.getElementById('biu-app-modal');
+  const checkbox = document.getElementById(
+    'biu-app-modal-remember'
+  ) as HTMLInputElement | null;
+
+  if (modal && checkbox) {
+    let pendingHref: string | null = null;
+    let pendingTarget: string | null = null;
+
+    const isForced = () => {
+      try {
+        return new URLSearchParams(window.location.search).get(FORCE_PARAM) === '1';
+      } catch {
+        return false;
+      }
+    };
+    const shouldSkip = () => {
+      if (isForced()) return false;
+      try {
+        return localStorage.getItem(STORAGE_KEY) === 'web';
+      } catch {
+        return false;
+      }
+    };
+
+    const open = (href: string, target: string | null) => {
+      pendingHref = href;
+      pendingTarget = target;
+      modal.classList.add('is-open');
+      modal.setAttribute('aria-hidden', 'false');
+      document.documentElement.classList.add('biu-app-modal-locked');
+      // 焦点到主 CTA — 当前显示的变体（CSS 决定 desktop / mobile）
+      const cta = modal.querySelector<HTMLElement>(
+        '.biu-app-modal__variant:not([hidden]) .biu-app-modal__cta-primary, .biu-app-modal__variant:not([hidden]) .biu-app-modal__store'
+      );
+      window.requestAnimationFrame(() => cta?.focus());
+    };
+
+    const close = () => {
+      modal.classList.remove('is-open');
+      modal.setAttribute('aria-hidden', 'true');
+      document.documentElement.classList.remove('biu-app-modal-locked');
+      pendingHref = null;
+      pendingTarget = null;
+    };
+
+    // isMobileVariant — 与 CSS 媒体查询 (line ~532) 保持一致.
+    // 在 mobile 变体下点 "在浏览器中继续", href 用 /m (uni-app H5 小程序),
+    // 而不是默认的 /app (Flutter Web 桌面客户端) — 移动端 Flutter Web
+    // 体验差, 应导向适配过移动端的 H5.
+    const isMobileVariant = () => {
+      try {
+        return window.matchMedia('(pointer: coarse), (max-width: 520px)')
+          .matches;
+      } catch {
+        return false;
+      }
+    };
+
+    const continueToWeb = () => {
+      if (checkbox.checked) {
+        try {
+          localStorage.setItem(STORAGE_KEY, 'web');
+        } catch {
+          /* private mode 等 — 静默 */
+        }
+      }
+      const fallback = isMobileVariant() ? '/m' : '/app';
+      // 移动端忽略 pendingHref (通常是 /app), 强制走 /m. 桌面端保留
+      // pendingHref 让用户从哪个入口点击就回哪 (download / hero 等).
+      const href = isMobileVariant() ? fallback : pendingHref || fallback;
+      const target = pendingTarget || '_blank';
+      // 用户主动确认才打开新标签 — 不会被弹窗拦截器拦
+      window.open(href, target, 'noopener,noreferrer');
+      close();
+    };
+
+    // ── 全局拦截 /app 链接点击 ──
+    document.addEventListener('click', (e) => {
+      const target = e.target as Element | null;
+      if (!target || !('closest' in target)) return;
+      const a = (target as Element).closest<HTMLAnchorElement>(
+        'a[href="/app"], a[href^="/app/"], a[href^="/app?"]'
+      );
+      if (!a) return;
+
+      // 中键 / Cmd+点 / Shift+点 — 让浏览器自然行为
+      const me = e as MouseEvent;
+      if (me.button === 1 || me.metaKey || me.ctrlKey || me.shiftKey || me.altKey) return;
+
+      if (shouldSkip()) return;
+
+      e.preventDefault();
+      open(a.getAttribute('href') || '/app', a.getAttribute('target'));
+    });
+
+    // ── 关闭交互 ──
+    modal.querySelectorAll<HTMLElement>('[data-app-modal-close]').forEach((el) => {
+      el.addEventListener('click', close);
+    });
+    modal.querySelectorAll<HTMLElement>('[data-app-modal-continue]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        continueToWeb();
+      });
+    });
+
+    // ── Esc ──
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('is-open')) {
+        close();
+      }
+    });
+  }
+</script>
+
+<style is:global>
+  /* ── Lock body scroll while modal is open ──────────── */
+  html.biu-app-modal-locked,
+  html.biu-app-modal-locked body {
+    overflow: hidden;
+  }
+
+  /* ── Modal root ───────────────────────────────────────── */
+  .biu-app-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .biu-app-modal.is-open {
+    display: flex;
+    animation: biu-modal-fade-in 220ms ease;
+  }
+
+  .biu-app-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 15, 25, 0.45);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    cursor: pointer;
+  }
+
+  /* ── Panel ────────────────────────────────────────────── */
+  .biu-app-modal__panel {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow:
+      0 30px 80px -20px rgba(15, 15, 25, 0.35),
+      0 0 0 1px rgba(15, 15, 25, 0.05);
+    padding: 32px 28px 22px;
+    animation: biu-modal-pop-in 280ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+
+  @keyframes biu-modal-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes biu-modal-pop-in {
+    0%   { opacity: 0; transform: translateY(12px) scale(0.96); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ── Close button ─────────────────────────────────────── */
+  .biu-app-modal__close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-secondary);
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .biu-app-modal__close:hover {
+    background: var(--surface-muted);
+    color: var(--ink);
+  }
+  .biu-app-modal__close svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* ── Mark area ────────────────────────────────────────── */
+  .biu-app-modal__mark-wrap {
+    width: 64px;
+    height: auto;
+    margin-bottom: 16px;
+    filter: drop-shadow(0 12px 18px rgba(91, 91, 214, 0.18));
+  }
+  .biu-app-modal__mark {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+  }
+  .biu-app-modal__mark--small {
+    width: 56px;
+  }
+
+  /* ── Title / subtitle ─────────────────────────────────── */
+  .biu-app-modal__title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    line-height: 1.2;
+    margin: 0 0 8px;
+  }
+  .biu-app-modal__subtitle {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-secondary);
+    margin: 0 0 20px;
+  }
+
+  /* ── Perks list (desktop) ─────────────────────────────── */
+  .biu-app-modal__perks {
+    list-style: none;
+    margin: 0 0 24px;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 16px;
+  }
+  .biu-app-modal__perk {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .biu-app-modal__perk-icon {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    background: var(--purple-soft);
+    color: var(--purple);
+  }
+  .biu-app-modal__perk-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+  .biu-app-modal__perk-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .biu-app-modal__perk-sub {
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    line-height: 1.4;
+    margin-top: 2px;
+  }
+
+  /* ── Actions ──────────────────────────────────────────── */
+  .biu-app-modal__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .biu-app-modal__cta-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--purple);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: background 160ms ease, transform 160ms ease;
+  }
+  .biu-app-modal__cta-primary:hover {
+    background: #4a4abf;
+  }
+  .biu-app-modal__cta-primary:focus-visible {
+    outline: 2px solid var(--purple);
+    outline-offset: 2px;
+  }
+  .biu-app-modal__cta-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ink-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    cursor: pointer;
+    transition: color 160ms ease, background 160ms ease;
+  }
+  .biu-app-modal__cta-secondary:hover {
+    color: var(--purple);
+    background: var(--purple-light);
+  }
+
+  /* ── Mobile store buttons ─────────────────────────────── */
+  .biu-app-modal__store-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .biu-app-modal__store {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 160ms ease;
+  }
+  .biu-app-modal__store:hover {
+    background: #2a2a2e;
+  }
+  .biu-app-modal__store svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* ── Remember checkbox ────────────────────────────────── */
+  .biu-app-modal__remember {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--ink-muted);
+    font-size: 12.5px;
+  }
+  .biu-app-modal__remember input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+  }
+  .biu-app-modal__remember-box {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1.5px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 160ms ease, border-color 160ms ease;
+    flex-shrink: 0;
+  }
+  .biu-app-modal__remember-box svg {
+    width: 12px;
+    height: 12px;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .biu-app-modal__remember input:checked + .biu-app-modal__remember-box {
+    background: var(--purple);
+    border-color: var(--purple);
+  }
+  .biu-app-modal__remember input:checked + .biu-app-modal__remember-box svg {
+    opacity: 1;
+  }
+  .biu-app-modal__remember:hover .biu-app-modal__remember-box {
+    border-color: var(--purple);
+  }
+  .biu-app-modal__remember input:focus-visible + .biu-app-modal__remember-box {
+    outline: 2px solid var(--purple);
+    outline-offset: 2px;
+  }
+
+  /* ── 设备分变体：默认显示桌面版 ───────────────────────── */
+  .biu-app-modal__variant--mobile { display: none; }
+  .biu-app-modal__variant--desktop { display: block; }
+
+  @media (pointer: coarse), (max-width: 520px) {
+    .biu-app-modal__variant--desktop { display: none; }
+    .biu-app-modal__variant--mobile { display: block; }
+    .biu-app-modal__panel { padding: 28px 22px 18px; }
+    .biu-app-modal__title { font-size: 20px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .biu-app-modal.is-open,
+    .biu-app-modal__panel {
+      animation: none !important;
+    }
+  }
+</style>

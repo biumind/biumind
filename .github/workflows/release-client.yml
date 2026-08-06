@@ -1,0 +1,736 @@
+# Client release pipeline (GitHub Actions). 客户端打包/发版统一走本 workflow
+# + schema/release/v1 契约 + 产物命名约定。
+#
+# Release pipeline for the BiuMind desktop client.
+#
+# Trigger: push a tag matching `client-v*` (e.g. `client-v0.3.0`). The
+# workflow builds release artefacts for each supported platform and
+# attaches them to a draft GitHub release.
+#
+# macOS — produces a .dmg from `flutter build macos --release`. Code
+# signing + notarization are gated on the presence of the optional
+# secrets listed below; without them the DMG is unsigned and macOS
+# Gatekeeper will warn the user on first launch (acceptable for
+# beta channels, NOT for general release).
+#
+# Linux / Windows — placeholders kept here so the matrix doesn't go
+# stale; finish them before Flutter desktop GA.
+#
+# Optional secrets for signing (set in repo settings → Secrets):
+#   APPLE_ID                       — your Apple developer account email
+#   APPLE_TEAM_ID                  — 10-char team id from developer.apple.com
+#   APPLE_APP_SPECIFIC_PASSWORD    — app-specific password for `notarytool`
+#   APPLE_CERT_P12_BASE64          — base64-encoded Developer ID Application
+#                                     certificate (.p12 export)
+#   APPLE_CERT_PASSWORD            — password protecting the .p12
+#
+# Optional secrets for iOS .ipa (in addition to the macOS set above):
+#   IOS_DIST_CERT_P12_BASE64       — base64-encoded iOS Distribution
+#                                     certificate (.p12)
+#   IOS_DIST_CERT_PASSWORD         — password protecting the iOS .p12
+#   IOS_PROVISIONING_PROFILE_BASE64 — base64-encoded App Store provisioning
+#                                     profile (.mobileprovision)
+#   IOS_BUNDLE_IDENTIFIER          — e.g. com.biumind.app (matches profile)
+#   IOS_PROVISIONING_PROFILE_NAME  — name of the profile (matches its
+#                                     "Name" attribute, used by xcodebuild)
+
+name: Release client
+
+# Triggered by either:
+#   * `client-v0.1.0`         — full release; all platforms build
+#   * `client-macos-v0.1.0`   — macOS DMG only
+#   * `client-android-v0.1.0` — Android AAB+APK only
+#   * `client-ios-v0.1.0`     — iOS IPA only
+#   * workflow_dispatch with `platform` input — manual single-platform
+#
+# Each job runs `if` checks against `inputs.platform` and the tag
+# prefix so the matrix is naturally filtered.
+on:
+  push:
+    tags:
+      - "client-v*"
+      - "client-macos-v*"
+      - "client-android-v*"
+      - "client-ios-v*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to build (empty → all)"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - macos
+          - android
+          - ios
+
+permissions:
+  contents: write     # needed to create the GitHub Release
+
+# A reusable expression — ``true`` when this workflow should run a job
+# for the given platform. Read by every job's `if:` line. Tags decide
+# the platform unless workflow_dispatch overrides via inputs.platform.
+# If a `client-v*` tag is pushed, all platforms run (full release).
+env:
+  # We can't define helper expressions in env; instead each job uses
+  # an `if` of the form:
+  #   github.event_name == 'workflow_dispatch' && inputs.platform == 'macos' ||
+  #   startsWith(github.ref_name, 'client-macos-v') ||
+  #   startsWith(github.ref_name, 'client-v')
+  _: ""
+
+jobs:
+  macos-dmg:
+    name: macOS .dmg
+    if: |
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.platform == 'macos' || inputs.platform == ''))
+      || startsWith(github.ref_name, 'client-macos-v')
+      || (startsWith(github.ref_name, 'client-v') && !startsWith(github.ref_name, 'client-macos-v') && !startsWith(github.ref_name, 'client-android-v') && !startsWith(github.ref_name, 'client-ios-v'))
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # client-v0.1.0 / client-macos-v0.1.0 → 0.1.0 (strip 平台前缀 + v)。
+      # releases.json 契约要求 version 无 v 无 build (见 schema/release/v1)。
+      # 产物文件名也用此 version: biumind-{version}-macos-arm64.dmg。
+      - name: Resolve version
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#client-}"
+          v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "resolved version: $v"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Milkdown 编辑器 bundle 不入仓（.gitignore 忽略 assets/editor/ 和
+      # web/editor/），必须现场构建，否则原生端编辑器区域白屏
+      # （index.html / chunks 404）。test 断言做构建期守卫，缺产物直接 fail。
+      - name: Build editor bundle (Milkdown)
+        working-directory: apps/client/editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build macos --release
+
+      # ── biu CLI sidecar + 独立产物 ───────────────────────────
+      # biu 是 desktop 本机 daemon(见 deploy/desktop/macos/build_dmg.sh 头部
+      # 注释 + apps/client/lib/data/agent_plane/biu_daemon_manager.dart):
+      # 打进 .app Resources 让 daemon 开箱即起(binary 查找第 4 优先级);
+      # 同时发 4 平台裸二进制进 releases.json (biu-* platform 枚举,
+      # schema/release/v1),供 client 在本机没装 biu 时自动下载安装到
+      # ~/.local/bin/biu。文件名对齐 biumind-{version}-{platform} 约定,
+      # upload-release.sh 的 biumind-${VER}* glob 发布 OSS 时会自动带上。
+      - name: Set up Go (biu CLI build)
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/cli/biu/go.mod
+
+      - name: Build biu CLI (app sidecar + 4-platform standalone)
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          VERSION="${{ steps.ver.outputs.version }}"
+          APP_RES="$GITHUB_WORKSPACE/apps/client/build/macos/Build/Products/Release/biumind.app/Contents/Resources"
+          # sidecar: macos-14 runner = arm64,与 build_dmg.sh 行为一致。
+          mkdir -p "$APP_RES"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+            -o "$APP_RES/biu" ./cmd/biu
+          # 独立裸二进制 (CGO_ENABLED=0 交叉编译无依赖)
+          for target in "darwin arm64 macos-arm64" "darwin amd64 macos-x64" "linux amd64 linux-x64" "linux arm64 linux-arm64"; do
+            set -- $target
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
+              go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+              -o "$GITHUB_WORKSPACE/apps/client/biumind-${VERSION}-biu-$3" ./cmd/biu
+          done
+          ls -la "$GITHUB_WORKSPACE/apps/client/biumind-${VERSION}"-biu-*
+
+      # ── Optional code signing ─────────────────────────────────
+      - name: Decode signing certificate
+        id: cert
+        if: env.APPLE_CERT_P12_BASE64 != ''
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+        run: |
+          set -e
+          KEYCHAIN="$RUNNER_TEMP/biumind-build.keychain-db"
+          KEYCHAIN_PWD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          # ↓ keep the new keychain on the search list; signing will use the
+          # default keychain otherwise.
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+
+          echo "$APPLE_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$KEYCHAIN" \
+            -P "${{ secrets.APPLE_CERT_PASSWORD }}" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PWD" "$KEYCHAIN" >/dev/null
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Resolve the actual identity name for `codesign --sign`.
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | grep "Developer ID Application" | head -n1 \
+            | awk -F\" '{print $2}')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::Developer ID Application identity not found in keychain"
+            exit 1
+          fi
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Sign .app
+        if: steps.cert.outputs.identity != ''
+        run: |
+          codesign --force --options runtime --timestamp --deep \
+            --sign "${{ steps.cert.outputs.identity }}" \
+            build/macos/Build/Products/Release/biumind.app
+
+      # ── Build .dmg ────────────────────────────────────────────
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create .dmg
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          DMG="biumind-${VERSION}-macos-arm64.dmg"
+          create-dmg \
+            --volname "BiuMind" \
+            --window-size 600 380 \
+            --icon-size 96 \
+            --app-drop-link 420 180 \
+            --icon "biumind.app" 180 180 \
+            --no-internet-enable \
+            "$DMG" \
+            "build/macos/Build/Products/Release/biumind.app"
+          echo "DMG_PATH=$PWD/$DMG" >> "$GITHUB_ENV"
+          echo "DMG_FILENAME=$DMG" >> "$GITHUB_ENV"
+
+      # ── Optional notarization ────────────────────────────────
+      - name: Notarize and staple
+        if: ${{ steps.cert.outputs.identity != '' && secrets.APPLE_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+
+      - name: Upload DMG to release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.DMG_PATH }}
+            biumind-${{ steps.ver.outputs.version }}-biu-*
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── releases.json asset 元信息 (供 manifest job 合并) ──────
+      # 产物文件名/size/sha256/signed/arch。manifest job 下载所有
+      # asset-* artifact 合并成 releases.json (见 schema/release/v1)。
+      - name: Compute asset metadata
+        run: |
+          SIZE=$(stat -f%z "$DMG_PATH")
+          SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+          if [ -n "${{ steps.cert.outputs.identity }}" ]; then SIGNED=true; else SIGNED=false; fi
+          cat > asset-macos.json <<EOF
+          [{"platform":"macos-arm64","filename":"${DMG_FILENAME}","sha256":"${SHA}","size":${SIZE},"signed":${SIGNED},"arch":"arm64"}]
+          EOF
+          cat asset-macos.json
+          # biu CLI 独立产物元信息 (biu-* platform 枚举,见 schema/release/v1)
+          VERSION="${{ steps.ver.outputs.version }}"
+          echo '[' > asset-biu.json
+          first=1
+          for p in macos-arm64 macos-x64 linux-x64 linux-arm64; do
+            f="biumind-${VERSION}-biu-${p}"
+            BSIZE=$(stat -f%z "$f")
+            BSHA=$(shasum -a 256 "$f" | awk '{print $1}')
+            case "$p" in *arm64) BARCH=arm64;; *) BARCH=x64;; esac
+            if [ $first -eq 0 ]; then printf ',' >> asset-biu.json; fi
+            first=0
+            printf '\n  {"platform":"biu-%s","filename":"%s","sha256":"%s","size":%s,"signed":false,"arch":"%s"}' \
+              "$p" "$f" "$BSHA" "$BSIZE" "$BARCH" >> asset-biu.json
+          done
+          printf '\n]\n' >> asset-biu.json
+          cat asset-biu.json
+
+      - name: Upload asset metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-macos
+          path: |
+            asset-macos.json
+            asset-biu.json
+          retention-days: 1
+
+  android-aab:
+    name: Android .aab
+    if: |
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.platform == 'android' || inputs.platform == ''))
+      || startsWith(github.ref_name, 'client-android-v')
+      || (startsWith(github.ref_name, 'client-v') && !startsWith(github.ref_name, 'client-macos-v') && !startsWith(github.ref_name, 'client-android-v') && !startsWith(github.ref_name, 'client-ios-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # client-v0.1.0 / client-android-v0.1.0 → 0.1.0 (见 releases.json 契约)
+      - name: Resolve version
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#client-}"
+          v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "resolved version: $v"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Milkdown 编辑器 bundle 不入仓（.gitignore 忽略 assets/editor/ 和
+      # web/editor/），必须现场构建，否则原生端编辑器区域白屏
+      # （index.html / chunks 404）。test 断言做构建期守卫，缺产物直接 fail。
+      - name: Build editor bundle (Milkdown)
+        working-directory: apps/client/editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      # ── Optional release signing ──────────────────────────────
+      # Gated on ANDROID_KEYSTORE_BASE64 — without it the build
+      # uses Flutter's debug signing key. Debug-signed .aab can be
+      # side-loaded for internal beta but Play Console will reject
+      # it on upload, so production releases MUST set the secrets.
+      #
+      # Required secrets (all four together; one missing → debug build):
+      #   ANDROID_KEYSTORE_BASE64    base64 of the upload keystore .jks
+      #   ANDROID_KEYSTORE_PASSWORD
+      #   ANDROID_KEY_ALIAS
+      #   ANDROID_KEY_PASSWORD
+      - name: Decode keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          mkdir -p android/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode \
+            > android/keystore/upload.jks
+          # Project's android/app/build.gradle expects key.properties
+          # at android/key.properties. See Flutter docs:
+          # https://docs.flutter.dev/deployment/android#signing-the-app
+          cat > android/key.properties <<EOF
+          storeFile=keystore/upload.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Build .aab (release)
+        run: flutter build appbundle --release
+
+      - name: Build .apk (release, for sideload)
+        run: flutter build apk --release
+
+      - name: Rename + collect artefacts
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mv build/app/outputs/bundle/release/app-release.aab \
+             build/app/outputs/biumind-${VERSION}.aab
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/biumind-${VERSION}-android.apk
+          echo "AAB_PATH=$PWD/build/app/outputs/biumind-${VERSION}.aab" >> "$GITHUB_ENV"
+          echo "APK_PATH=$PWD/build/app/outputs/biumind-${VERSION}-android.apk" >> "$GITHUB_ENV"
+          echo "APK_FILENAME=biumind-${VERSION}-android.apk" >> "$GITHUB_ENV"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.AAB_PATH }}
+            ${{ env.APK_PATH }}
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── releases.json asset 元信息 (只含 APK; AAB 是 Play Store 专用不进官网直下) ──
+      - name: Compute asset metadata
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          SIZE=$(stat -c%s "$APK_PATH")
+          SHA=$(sha256sum "$APK_PATH" | awk '{print $1}')
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then SIGNED=true; else SIGNED=false; fi
+          cat > asset-android.json <<EOF
+          [{"platform":"android-apk","filename":"${APK_FILENAME}","sha256":"${SHA}","size":${SIZE},"signed":${SIGNED},"arch":"universal"}]
+          EOF
+          cat asset-android.json
+
+      - name: Upload asset metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-android
+          path: asset-android.json
+          retention-days: 1
+
+  # ── iOS .ipa ──────────────────────────────────────────────
+  # Builds an App Store-ready .ipa. Gated on every secret in the
+  # IOS_* set being present — without them the job runs `flutter
+  # build ios --no-codesign` only and uploads the unsigned .app
+  # bundle for QA inspection (still useful for catching build
+  # regressions on PRs that touch native iOS plumbing).
+  ios-ipa:
+    name: iOS .ipa
+    if: |
+      (github.event_name == 'workflow_dispatch' &&
+        (inputs.platform == 'ios' || inputs.platform == ''))
+      || startsWith(github.ref_name, 'client-ios-v')
+      || (startsWith(github.ref_name, 'client-v') && !startsWith(github.ref_name, 'client-macos-v') && !startsWith(github.ref_name, 'client-android-v') && !startsWith(github.ref_name, 'client-ios-v'))
+    runs-on: macos-14
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Milkdown 编辑器 bundle 不入仓（.gitignore 忽略 assets/editor/ 和
+      # web/editor/），必须现场构建，否则原生端编辑器区域白屏
+      # （index.html / chunks 404）。test 断言做构建期守卫，缺产物直接 fail。
+      - name: Build editor bundle (Milkdown)
+        working-directory: apps/client/editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: Detect signing readiness
+        id: ios_signing
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_BUNDLE_IDENTIFIER: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+        run: |
+          if [ -n "$IOS_DIST_CERT_P12_BASE64" ] \
+             && [ -n "$IOS_PROVISIONING_PROFILE_BASE64" ] \
+             && [ -n "$IOS_BUNDLE_IDENTIFIER" ]; then
+            echo "ready=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::iOS signing secrets not set — will build" \
+              "an unsigned .app bundle only (no .ipa export)."
+          fi
+
+      # ── Unsigned path: archive-as-CI-artifact ───────────────
+      - name: Build (unsigned)
+        if: steps.ios_signing.outputs.ready != 'true'
+        run: flutter build ios --release --no-codesign
+
+      - name: Tarball unsigned .app
+        if: steps.ios_signing.outputs.ready != 'true'
+        run: |
+          VERSION="${GITHUB_REF_NAME#client-}"
+          tar -C build/ios/iphoneos -czf \
+            "biumind-${VERSION}-unsigned.app.tar.gz" Runner.app
+          echo "UNSIGNED_PATH=$PWD/biumind-${VERSION}-unsigned.app.tar.gz" \
+            >> "$GITHUB_ENV"
+
+      - name: Upload unsigned bundle
+        if: steps.ios_signing.outputs.ready != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: biumind-ios-unsigned
+          path: ${{ env.UNSIGNED_PATH }}
+          retention-days: 14
+
+      # ── Signed path: full .ipa export ───────────────────────
+      - name: Decode iOS distribution certificate
+        if: steps.ios_signing.outputs.ready == 'true'
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          set -e
+          KEYCHAIN="$RUNNER_TEMP/biumind-ios.keychain-db"
+          KEYCHAIN_PWD="$(openssl rand -hex 32)"
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed s/\"//g)
+
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode \
+            > "$RUNNER_TEMP/ios-dist.p12"
+          security import "$RUNNER_TEMP/ios-dist.p12" \
+            -k "$KEYCHAIN" \
+            -P "$IOS_DIST_CERT_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PWD" "$KEYCHAIN" >/dev/null
+          rm -f "$RUNNER_TEMP/ios-dist.p12"
+          echo "KEYCHAIN_PATH=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PWD=$KEYCHAIN_PWD" >> "$GITHUB_ENV"
+
+      - name: Install provisioning profile
+        if: steps.ios_signing.outputs.ready == 'true'
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -e
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          PROFILE="$PROFILE_DIR/biumind.mobileprovision"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          # Resolve the profile UUID for Xcode's PROVISIONING_PROFILE_SPECIFIER.
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" \
+            /dev/stdin <<<"$(security cms -D -i "$PROFILE")")
+          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+
+      - name: Render ExportOptions.plist
+        if: steps.ios_signing.outputs.ready == 'true'
+        env:
+          BUNDLE_ID: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+        run: |
+          cat > ios/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key><string>$PROFILE_NAME</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Build iOS (no codesign)
+        if: steps.ios_signing.outputs.ready == 'true'
+        run: flutter build ios --release --no-codesign
+
+      - name: Archive
+        if: steps.ios_signing.outputs.ready == 'true'
+        env:
+          BUNDLE_ID: ${{ secrets.IOS_BUNDLE_IDENTIFIER }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -e
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            archive
+
+      - name: Export .ipa
+        if: steps.ios_signing.outputs.ready == 'true'
+        run: |
+          set -e
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/ipa"
+          VERSION="${GITHUB_REF_NAME#client-}"
+          IPA_SRC=$(ls "$RUNNER_TEMP/ipa"/*.ipa | head -n1)
+          IPA_DST="$PWD/biumind-${VERSION}.ipa"
+          mv "$IPA_SRC" "$IPA_DST"
+          echo "IPA_PATH=$IPA_DST" >> "$GITHUB_ENV"
+
+      - name: Upload .ipa to release
+        if: steps.ios_signing.outputs.ready == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: ${{ env.IPA_PATH }}
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── releases.json 清单 (官网 /download 页 + 客户端更新检测的单一事实源) ──
+  # 下载各平台 job 产出的 asset-* artifact, 合并成 releases.json
+  # (见 schema/release/v1/manifest.json 契约), 上传到 GH Release。
+  # iOS 不在官网直下 (走 App Store/TestFlight), 不产 asset artifact。
+  # 用 if: always() 让某平台 job skipped 时仍跑 (收集所有实际产出的)。
+  manifest:
+    name: releases.json
+    if: always()
+    needs: [macos-dmg, android-aab]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#client-}"
+          v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      # 防漂移: tag 版本必须 == pubspec.yaml version 的 X.Y.Z
+      - name: Verify version matches pubspec
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          PUBSPEC=$(grep '^version:' apps/client/pubspec.yaml | awk '{print $2}')
+          PUBSPEC_VER="${PUBSPEC%%+*}"
+          if [ "$VERSION" != "$PUBSPEC_VER" ]; then
+            echo "::error::tag version ($VERSION) != pubspec version ($PUBSPEC_VER)"
+            exit 1
+          fi
+          echo "version $VERSION matches pubspec $PUBSPEC"
+
+      - name: Download all asset metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: asset-*
+          merge-multiple: true
+
+      # 合并所有 asset-*.json (每个是 JSON 数组) → 单数组, 拼装 releases.json。
+      # 产物 url 走 CNAME 域名 (operator 在仓库变量配 RELEASES_DOWNLOAD_BASE, e.g. https://releases.your-domain.com；→ OSS, 非 endpoint 避 ApkDownloadForbidden); releases.json 本身经 nginx。
+      # channel=stable, notes 从 GH release body 取。
+      - name: Assemble releases.json
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          # CNAME 域名 (非 OSS endpoint) — 阿里云对 APK 经 endpoint 公网下载返 ApkDownloadForbidden
+          # operator 必须在 GitHub Settings → Secrets and variables → Actions → Variables 配 RELEASES_DOWNLOAD_BASE
+          DOWNLOAD_BASE: ${{ vars.RELEASES_DOWNLOAD_BASE }}
+        run: |
+          set -e
+          # 合并所有 asset 数组
+          ASSETS=$(find . -name 'asset-*.json' -print0 \
+            | xargs -0 cat | jq -s 'add // []')
+          ASSET_COUNT=$(echo "$ASSETS" | jq 'length')
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "::error::no asset metadata found — no platform job produced artefacts"
+            exit 1
+          fi
+          # 给每个 asset 注入 url (官网域名 + filename)
+          ASSETS=$(echo "$ASSETS" | jq --arg base "$DOWNLOAD_BASE" \
+            'map(. + {url: ($base + "/" + .filename)})')
+          # 构建 releases.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg releasedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson assets "$ASSETS" \
+            '{
+              version: $version,
+              releasedAt: $releasedAt,
+              channel: "stable",
+              notes: "",
+              notesEn: "",
+              minClientVersion: $version,
+              assets: $assets
+            }' > releases.json
+          echo "--- releases.json ---"
+          cat releases.json
+
+      - name: Validate releases.json structure
+        run: |
+          # 基本结构校验 (完整 schema 校验在本地 task schema:validate)
+          jq -e '.version and .releasedAt and .channel and (.assets | length >= 1)' releases.json
+          # 每个 asset 必须有 platform/url/filename/size/sha256/signed
+          jq -e '.assets[] | has("platform") and has("url") and has("filename") and has("size") and has("sha256") and has("signed")' releases.json
+          echo "✓ releases.json structure OK"
+
+      - name: Upload releases.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: releases.json
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  #
+  # ── Linux .AppImage / .deb (TODO) ─────────────────────────
+  # Flutter Linux desktop is stable enough for internal builds but
+  # AppImage packaging needs an extra step (linuxdeploy). Skipping
+  # for now so we don't ship a half-broken artefact.
+  #
+  # ── Windows .msix (TODO) ──────────────────────────────────
+  # Same story — Flutter has `flutter pub run msix:create` but it
+  # needs a code-signing cert similar to macOS. Defer until we have
+  # a Windows beta channel.

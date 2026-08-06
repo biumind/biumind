@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/initialize.json",
+  "title": "BiuMind SDK v1 — Initialize Control",
+  "description": "subtype=initialize。响应：可用 hook + permission_mode + 当前 model。",
+  "$defs": {
+    "Initialize": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "initialize" },
+        "hooks": { "type": "object" },
+        "sdkMcpServers": { "type": "array" },
+        "jsonSchema": { "type": "object" },
+        "systemPrompt": { "type": "string" },
+        "appendSystemPrompt": { "type": "string" },
+        "agents": { "type": "object" },
+        "promptSuggestions": { "type": "boolean" },
+        "agentProgressSummaries": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "InitializeResponse": {
+      "type": "object",
+      "description": "initialize 返回 commands / agents / permission_mode 等。",
+      "additionalProperties": true
+    }
+  }
+}

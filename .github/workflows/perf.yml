@@ -1,0 +1,63 @@
+# Scheduled perf benchmark.
+#
+# Runs daily against the staging cluster. Required secrets:
+#   PERF_MODEL_RELAY_URL, PERF_MODEL_RELAY_BEARER
+#   PERF_BRAIN_URL, PERF_BRAIN_BEARER, PERF_PROJECT_ID
+#
+# Without those secrets the workflow no-ops (early exit) — the Action
+# stays green so a fresh fork doesn't fail before staging is wired.
+
+name: Perf
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # 06:17 UTC daily — off-peak for ALL regions
+  workflow_dispatch:        # manual trigger from GH UI
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if no perf target configured
+        if: ${{ !secrets.PERF_MODEL_RELAY_URL }}
+        run: |
+          echo "::warning::PERF_MODEL_RELAY_URL secret not set — skipping perf run"
+          echo "SKIP=1" >> $GITHUB_ENV
+
+      - name: Install k6
+        if: ${{ env.SKIP != '1' }}
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update && sudo apt-get install -y k6
+
+      - name: Hub relay
+        if: ${{ env.SKIP != '1' }}
+        env:
+          MODEL_RELAY_URL:    ${{ secrets.PERF_MODEL_RELAY_URL }}
+          MODEL_RELAY_BEARER: ${{ secrets.PERF_MODEL_RELAY_BEARER }}
+        run: k6 run deploy/perf/k6/hub-relay.js
+
+      - name: Brain recall
+        if: ${{ env.SKIP != '1' && secrets.PERF_BRAIN_URL != '' }}
+        env:
+          BRAIN_URL:    ${{ secrets.PERF_BRAIN_URL }}
+          BRAIN_BEARER: ${{ secrets.PERF_BRAIN_BEARER }}
+          PROJECT_ID:   ${{ secrets.PERF_PROJECT_ID }}
+        run: k6 run deploy/perf/k6/brain-recall.js
+
+      - name: Upload k6 summaries
+        if: always() && env.SKIP != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: summary.json
+          if-no-files-found: ignore
+          retention-days: 30

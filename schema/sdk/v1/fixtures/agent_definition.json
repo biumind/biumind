@@ -1,0 +1,8 @@
+{
+  "$schema": "agents.json#/$defs/AgentDefinition",
+  "description": "research agent",
+  "prompt": "you are a researcher",
+  "model": "claude-3-7",
+  "tools": ["Bash", "Read"],
+  "whenToUse": "for research tasks"
+}

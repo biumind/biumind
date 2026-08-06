@@ -1,0 +1,489 @@
+syntax = "proto3";
+
+package biumind.aigc.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "biumind/common/v1/common.proto";
+
+// AIGC 服务：文生图 / 文生视频 / 数字人 / 爆款解析
+//
+// 设计参考：
+//   docs/BiuMind-AIGC-Migration-Plan.md
+//   docs/BiuMind-AIGC-Storage-Design.md
+//   docs/BiuMind-AIGC-Client-Progress-Design.md
+//
+// 实时通道：任务进度通过 aigc.task.update 事件经由 services/realtime 走 SSE
+// 多 topic 推给桌面/移动/Web 端；小程序复用 chat WS multiplex（见 I8 反转条款）。
+service AigcService {
+  // ────── 生成任务 ──────
+  rpc SubmitGeneration(SubmitGenerationRequest) returns (SubmitGenerationResponse) {}
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {}
+  rpc ListMyTasks(ListMyTasksRequest) returns (ListMyTasksResponse) {}
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse) {}
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse) {}
+  rpc SetTaskVisibility(SetTaskVisibilityRequest) returns (SetTaskVisibilityResponse) {}
+
+  // ────── 模型 / 供应商 ──────
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse) {}
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse) {}
+
+  // ────── 公开画廊 ──────
+  rpc ListGallery(ListGalleryRequest) returns (ListGalleryResponse) {}
+
+  // ────── 数字人角色 / 音色 ──────
+  rpc CreateCharacter(CreateCharacterRequest) returns (CreateCharacterResponse) {}
+  rpc ListCharacters(ListCharactersRequest) returns (ListCharactersResponse) {}
+  rpc DeleteCharacter(DeleteCharacterRequest) returns (DeleteCharacterResponse) {}
+  rpc ListVoices(ListVoicesRequest) returns (ListVoicesResponse) {}
+
+  // ────── 爆款解析 ──────
+  rpc RegisterHotparseUpload(RegisterHotparseUploadRequest) returns (RegisterHotparseUploadResponse) {}
+  rpc ParseHotparseUrl(ParseHotparseUrlRequest) returns (ParseHotparseUrlResponse) {}
+  rpc AnalyzeHotparse(AnalyzeHotparseRequest) returns (AnalyzeHotparseResponse) {}
+
+  // ────── 提示词优化（服务端流式 SSE）──────
+  rpc OptimizePrompt(OptimizePromptRequest) returns (stream OptimizePromptResponse) {}
+}
+
+// ════════════════════════════════════════════════════════════
+// 枚举
+// ════════════════════════════════════════════════════════════
+
+enum TaskType {
+  TASK_TYPE_UNSPECIFIED = 0;
+  TASK_TYPE_IMAGE = 1;
+  TASK_TYPE_VIDEO = 2;
+  TASK_TYPE_DIGITAL_HUMAN = 3;
+  TASK_TYPE_HOTPARSE = 4;
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_PENDING = 1;       // 已入库，等 worker 拉取
+  TASK_STATUS_QUEUED = 2;        // worker 已拉取，上游排队
+  TASK_STATUS_RUNNING = 3;       // 上游生成中（progress 0-100）
+  TASK_STATUS_COMPLETED = 4;
+  TASK_STATUS_FAILED = 5;
+  TASK_STATUS_BLOCKED = 6;       // 内容审核拦截
+  TASK_STATUS_CANCELLED = 7;
+}
+
+enum OutputKind {
+  OUTPUT_KIND_UNSPECIFIED = 0;
+  OUTPUT_KIND_IMAGE = 1;
+  OUTPUT_KIND_VIDEO = 2;
+  OUTPUT_KIND_AUDIO = 3;
+  OUTPUT_KIND_COVER = 4;
+}
+
+enum HotparseSource {
+  HOTPARSE_SOURCE_UNSPECIFIED = 0;
+  HOTPARSE_SOURCE_UPLOAD = 1;
+  HOTPARSE_SOURCE_DOUYIN = 2;
+  HOTPARSE_SOURCE_XHS = 3;
+  HOTPARSE_SOURCE_BILIBILI = 4;
+  HOTPARSE_SOURCE_KUAISHOU = 5;
+  HOTPARSE_SOURCE_WECHAT_CHANNEL = 6;
+}
+
+// ════════════════════════════════════════════════════════════
+// 核心类型
+// ════════════════════════════════════════════════════════════
+
+message Task {
+  string id = 1;
+  string user_id = 2;
+  string org_id = 3;
+  TaskType type = 4;
+  string model_code = 5;
+  string provider_code = 6;
+  string prompt = 7;
+  string negative_prompt = 8;
+  GenerationParams params = 9;
+
+  TaskStatus status = 10;
+  int32 progress = 11;
+  string error_code = 12;
+  string error_message = 13;
+
+  int64 cost_credits = 14;
+  int64 refunded_credits = 15;
+  bool is_public = 16;
+
+  // 推理缓存命中（v2 启用，对用户透明）
+  bool cache_hit = 17;
+
+  repeated TaskOutput outputs = 18;
+
+  // admin 视野：上游 provider 返回的 taskId
+  string external_task_id = 19;
+
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp queued_at = 21;
+  google.protobuf.Timestamp started_at = 22;
+  google.protobuf.Timestamp completed_at = 23;
+}
+
+message TaskOutput {
+  int32 idx = 1;
+  OutputKind kind = 2;
+
+  // CAS 主键 + URL 协议（沿用 brain `cas:<sha>` 协议）
+  string sha256 = 3;
+  string url = 4;            // "cas:<sha>" 或 "https://cdn..."
+  string storage_key = 5;    // MinIO 桶内 key（admin 视野）
+
+  string blurhash = 6;       // 28 字符占位（v2 启用）
+  string cover_sha = 7;      // 视频专用，指向同 task 内 cover 行
+
+  string mime_type = 8;
+  int64 file_size = 9;
+  int32 width = 10;
+  int32 height = 11;
+  int32 duration_ms = 12;
+
+  string moderation_status = 13;  // pending | pass | block | review
+}
+
+message GenerationParams {
+  // 通用
+  string aspect_ratio = 1;          // "16:9" / "9:16" / "1:1" / "4:3" / "3:4"
+  string resolution = 2;            // "720p" / "1080p" / "4k"
+  int32 num_outputs = 3;            // 一次出几张/几个
+
+  // 视频专用
+  int32 duration_seconds = 4;
+  string first_frame_url = 5;       // "cas:<sha>"
+  string last_frame_url = 6;
+  repeated string reference_image_urls = 7;
+
+  // 数字人专用
+  string character_id = 8;
+  string audio_url = 9;
+  string voice_id = 10;
+
+  // 爆款解析
+  string hotparse_video_id = 11;
+
+  // 控制
+  int64 seed = 12;                  // -1 = 随机
+  bool prompt_optimize = 13;        // 是否走 AI 提示词优化
+  string style = 14;                // 部分模型支持的风格枚举
+
+  // 模型专属参数（不在标准字段内的，透传）
+  google.protobuf.Struct extra = 99;
+}
+
+// 血缘 DAG 一条边：child_sha 由 parent_sha 经 op 派生而来。
+// 详见 BiuMind-AIGC-Storage-Design.md §2 支柱 1。
+message AssetLineage {
+  string child_sha = 1;
+  string parent_sha = 2;
+  string op = 3;                    // remix | edit | inpaint | upscale |
+                                    // i2v | extract_frame | style_transfer |
+                                    // first_frame | reference | cache_hit
+  google.protobuf.Struct op_params = 4;
+  string child_task_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// ════════════════════════════════════════════════════════════
+// 提交 / 查询任务
+// ════════════════════════════════════════════════════════════
+
+message SubmitGenerationRequest {
+  TaskType type = 1;
+  string model_code = 2;
+  string prompt = 3;
+  string negative_prompt = 4;
+  GenerationParams params = 5;
+  bool is_public = 6;
+
+  // 「做同款」/「重新编辑」/「图生视频」时填上一张图的 sha，建血缘 DAG
+  string parent_sha = 7;
+  string lineage_op = 8;            // 与 AssetLineage.op 同枚举集合
+}
+
+message SubmitGenerationResponse {
+  Task task = 1;
+  int64 estimated_seconds = 2;      // 预计耗时（用于 UI 显示）
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+  bool include_lineage = 2;         // 是否带血缘 DAG（详情页用）
+}
+
+message GetTaskResponse {
+  Task task = 1;
+  repeated AssetLineage parents = 2;   // 上溯祖谱
+  repeated AssetLineage children = 3;  // 下溯派生
+}
+
+message ListMyTasksRequest {
+  // 空集合 = 全部状态。client 进度追踪轮询时传 [PENDING, QUEUED, RUNNING]。
+  repeated TaskStatus statuses = 1;
+  TaskType type = 2;                // UNSPECIFIED = 全部类型
+  bool include_deleted = 3;         // admin 视野
+  biumind.common.v1.Pagination pagination = 4;
+}
+
+message ListMyTasksResponse {
+  repeated Task tasks = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
+  Task task = 1;
+}
+
+// 软删：30 天缓冲后由 GC job 物理删除（含 outputs / derivatives / public 镜像）。
+message DeleteTaskRequest {
+  repeated string task_ids = 1;
+}
+
+message DeleteTaskResponse {
+  int32 deleted_count = 1;
+}
+
+message SetTaskVisibilityRequest {
+  repeated string task_ids = 1;
+  bool is_public = 2;
+}
+
+message SetTaskVisibilityResponse {
+  int32 updated_count = 1;
+}
+
+// ════════════════════════════════════════════════════════════
+// 模型 / 供应商
+// ════════════════════════════════════════════════════════════
+
+message Model {
+  string code = 1;                  // "wanx-2.6-t2v" / "doubao-seedream-4.0"
+  TaskType type = 2;
+  string display_name = 3;          // "通义万相 2.6"
+  string provider_code = 4;
+  int64 price_credits = 5;          // 每次基础积分（按参数 extra 加价）
+  google.protobuf.Struct pricing_rule = 6;
+
+  // config 字段定义（参考 zhiying tb_ai_model.video_config / image_config）：
+  //   {
+  //     "aspect_ratios": [{"key":"16:9","value":"16:9"}, ...],
+  //     "resolutions":   [{"key":"720p","value":"720p"}, ...],
+  //     "duration":      {"min":5,"max":60,"step":1,"default":8},
+  //     "features":      {"reference_image":"Y","first_frame":"Y","last_frame":"Y","reference_image_count":5}
+  //   }
+  google.protobuf.Struct config = 7;
+
+  bool enabled = 8;
+  int32 sort_order = 9;
+}
+
+message ListModelsRequest {
+  TaskType type = 1;                // UNSPECIFIED = 全部
+  bool include_disabled = 2;        // admin 视野
+}
+
+message ListModelsResponse {
+  repeated Model models = 1;
+}
+
+message Provider {
+  string code = 1;                  // "dashscope" / "volcengine"
+  string name = 2;
+  string base_url = 3;
+  int32 priority = 4;
+  bool enabled = 5;
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+}
+
+// ════════════════════════════════════════════════════════════
+// 公开画廊
+// ════════════════════════════════════════════════════════════
+
+message GalleryItem {
+  string task_id = 1;
+  string creator_display_name = 2;
+  TaskType type = 3;
+  string prompt = 4;
+  string model_code = 5;
+  repeated TaskOutput outputs = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListGalleryRequest {
+  TaskType type = 1;                // UNSPECIFIED = 全部
+  string keyword = 2;               // 全文匹配 prompt（v2 走 CLIP 语义搜索）
+  biumind.common.v1.Pagination pagination = 3;
+}
+
+message ListGalleryResponse {
+  repeated GalleryItem items = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+// ════════════════════════════════════════════════════════════
+// 数字人 / 音色
+// ════════════════════════════════════════════════════════════
+
+message Character {
+  string id = 1;
+  string user_id = 2;               // 空 = 系统内置
+  string name = 3;
+  string avatar_url = 4;            // "cas:<sha>"
+  string voice_default = 5;
+  google.protobuf.Struct config = 6;
+  bool is_public = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message CreateCharacterRequest {
+  string name = 1;
+  string avatar_url = 2;
+  string voice_default = 3;
+  google.protobuf.Struct config = 4;
+  bool is_public = 5;
+}
+
+message CreateCharacterResponse {
+  Character character = 1;
+}
+
+message ListCharactersRequest {
+  bool include_public = 1;          // 包含系统内置
+  biumind.common.v1.Pagination pagination = 2;
+}
+
+message ListCharactersResponse {
+  repeated Character characters = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+message DeleteCharacterRequest {
+  string id = 1;
+}
+
+message DeleteCharacterResponse {}
+
+message Voice {
+  string id = 1;
+  string name = 2;
+  string preview_url = 3;
+  string gender = 4;                // male | female | child | neutral
+  string language = 5;              // zh-CN / en-US / ...
+}
+
+message ListVoicesRequest {}
+
+message ListVoicesResponse {
+  repeated Voice voices = 1;
+}
+
+// ════════════════════════════════════════════════════════════
+// 爆款解析
+// ════════════════════════════════════════════════════════════
+
+message HotparseVideo {
+  string id = 1;
+  string user_id = 2;
+  HotparseSource source = 3;
+  string source_url = 4;
+  string cover_url = 5;             // "cas:<sha>"
+  string storage_url = 6;
+  int32 duration_ms = 7;
+  google.protobuf.Struct metadata = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+// 客户端先经 brain `/v1/files` multipart 通道上传文件得到 sha256，
+// 再调本接口注册一条 hotparse_videos 记录。
+message RegisterHotparseUploadRequest {
+  string filename = 1;
+  string sha256 = 2;
+  int64 file_size = 3;
+}
+
+message RegisterHotparseUploadResponse {
+  HotparseVideo video = 1;
+}
+
+message ParseHotparseUrlRequest {
+  string url = 1;                   // 抖音 / 小红书 / B 站等平台 URL
+}
+
+message ParseHotparseUrlResponse {
+  HotparseVideo video = 1;
+}
+
+message AnalyzeHotparseRequest {
+  string video_id = 1;
+  string model_code = 2;
+  string prompt = 3;
+}
+
+message AnalyzeHotparseResponse {
+  Task task = 1;                    // 复用 Task（type=HOTPARSE）
+}
+
+// ════════════════════════════════════════════════════════════
+// 提示词优化（服务端流式）
+// ════════════════════════════════════════════════════════════
+
+message OptimizePromptRequest {
+  string prompt = 1;
+  string model_code = 2;            // 可选：根据目标模型偏好优化
+  int32 duration_seconds = 3;       // 视频任务时长（影响 prompt 结构）
+}
+
+message OptimizePromptResponse {
+  string delta = 1;                 // 增量文本
+  bool done = 2;
+  string final_prompt = 3;          // done=true 时给最终 prompt
+}
+
+// ════════════════════════════════════════════════════════════
+// 推送事件（NATS subjects / Realtime SSE event / WS frame payload）
+// ════════════════════════════════════════════════════════════
+//
+// NATS subjects:
+//   aigc.task.submit                services/aigc → workers/aigc
+//   aigc.task.update                workers/aigc → realtime → client
+//   aigc.task.cancel                services/aigc → workers/aigc
+//   aigc.semantic.index             workers/aigc → semantic indexer (v2)
+//   aigc.moderation.scan            workers/aigc → moderation worker
+//
+// Realtime SSE topic（桌面/移动/Web）:
+//   aigc.user.{user_id}.tasks       订阅自己所有任务的更新事件
+//
+// 小程序 chat WS frame：
+//   { kind: "aigc_task_update", session_id, seq, payload: TaskUpdateEvent }
+
+message TaskUpdateEvent {
+  string task_id = 1;
+  TaskStatus status = 2;
+  int32 progress = 3;
+
+  // status=COMPLETED 时一次性带回 outputs 元数据（含 sha / blurhash / 尺寸），
+  // 客户端无需再 GET 详情。详见 Client-Progress-Design §4.1。
+  repeated TaskOutput outputs = 4;
+
+  string error_code = 5;
+  string error_message = 6;
+  int64 refunded_credits = 7;       // status=FAILED|BLOCKED 时主动告知
+
+  google.protobuf.Timestamp updated_at = 8;
+
+  // 单调递增序号，client 用于 last_event_id 续传（NATS JetStream backlog 1h 内可补）
+  int64 seq = 9;
+}

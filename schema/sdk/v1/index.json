@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/index.json",
+  "title": "BiuMind SDK Protocol v1 — Root",
+  "description": "顶层入口。引用 data / control / service 三个 union。每个端从这里 import 即可获得整套类型。",
+  "$defs": {
+    "SDKMessage": {
+      "$ref": "data/index.json#/$defs/SDKMessage"
+    },
+    "SDKControlRequest": {
+      "$ref": "control/wrappers.json#/$defs/SDKControlRequest"
+    },
+    "SDKControlResponse": {
+      "$ref": "control/wrappers.json#/$defs/SDKControlResponse"
+    },
+    "StdinMessage": {
+      "$ref": "service.json#/$defs/StdinMessage"
+    },
+    "StdoutMessage": {
+      "$ref": "service.json#/$defs/StdoutMessage"
+    }
+  }
+}

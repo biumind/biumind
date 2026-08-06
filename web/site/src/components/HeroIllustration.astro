@@ -1,0 +1,362 @@
+---
+// Hero 思考动画 ——
+//   中心：BiuMark 大尺寸（高保真矢量化的原 logo）
+//   进场：头淡入 → 电路从下向上揭开 → 手从右下滑入（约 1.6s）
+//   idle：电路紫色慢脉冲 + 同心思考波纹扩散
+//   周围：3 张产品卡（Wiki / Agent / Graph）轨道悬浮 + 鼠标视差
+//   尊重 prefers-reduced-motion 与 mobile pointer:coarse
+import BiuMark from './BiuMark.astro';
+---
+
+<div
+  id="hero-illustration"
+  class="hero-illu parallax-host relative aspect-square w-full max-w-[520px] mx-auto select-none"
+  aria-hidden="true"
+>
+  <!-- 紫色径向光晕 -->
+  <div
+    class="absolute inset-0 rounded-full opacity-70 blur-3xl"
+    style="background: radial-gradient(closest-side, #DCD9FA 0%, #EEEDFB 40%, transparent 70%);"
+  >
+  </div>
+
+  <!-- 思考波纹（围绕 logo 的同心圆，慢扩散） -->
+  <div class="hero-illu__rings">
+    <span class="hero-illu__ring" style="--delay: 0s"></span>
+    <span class="hero-illu__ring" style="--delay: 1.4s"></span>
+    <span class="hero-illu__ring" style="--delay: 2.8s"></span>
+  </div>
+
+  <!-- 中心大 mark -->
+  <div class="hero-illu__mark-wrap parallax-card" data-depth="0">
+    <BiuMark
+      class="hero-illu__mark"
+      prefix="hero-illu"
+      inkColor="#18181B"
+      circuitColor="var(--purple)"
+    />
+  </div>
+
+  <!-- 轨道卡片：Wiki -->
+  <div data-depth="-22" class="parallax-card hero-illu__card hero-illu__card--wiki">
+    <div class="hero-illu__card-head">
+      <span class="hero-illu__dot-rgb"></span>
+      <span class="hero-illu__dot-rgb hero-illu__dot-rgb--y"></span>
+      <span class="hero-illu__dot-rgb hero-illu__dot-rgb--g"></span>
+      <span class="ml-2 text-[11px] text-ink-muted">Wiki · 知识中枢</span>
+    </div>
+    <div class="space-y-1.5">
+      <div class="text-[12px] font-semibold text-ink">2026 Q2 调研</div>
+      <div class="h-1.5 w-3/4 rounded-full bg-surface-muted"></div>
+      <div class="h-1.5 w-5/6 rounded-full bg-surface-muted"></div>
+      <div class="h-1.5 w-2/3 rounded-full bg-surface-muted"></div>
+    </div>
+  </div>
+
+  <!-- 轨道卡片：Agent -->
+  <div data-depth="22" class="parallax-card hero-illu__card hero-illu__card--agent">
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] font-medium text-ink-secondary">Agent · #423</span>
+      <span class="inline-flex items-center gap-1 rounded-full bg-[#10B981]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#10B981]">
+        <span class="h-1.5 w-1.5 rounded-full bg-[#10B981]"></span>
+        running
+      </span>
+    </div>
+    <div class="mt-2 text-[12px] font-semibold text-ink">修一个 Bug</div>
+    <div class="mt-1.5 flex items-center gap-2 text-[11px] text-ink-secondary">
+      <span class="text-[#10B981]">✓</span>
+      定位 useEffect 死循环
+    </div>
+    <div class="flex items-center gap-2 text-[11px] text-ink-secondary">
+      <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--purple)]"></span>
+      跑测试 · 24/87
+    </div>
+  </div>
+
+  <!-- 轨道卡片：Graph -->
+  <div data-depth="-12" class="parallax-card hero-illu__card hero-illu__card--graph">
+    <div class="text-[10px] font-medium uppercase tracking-wider text-ink-secondary">Graph</div>
+    <svg viewBox="0 0 100 70" class="mt-1 h-auto w-full" aria-hidden="true">
+      <line x1="50" y1="35" x2="20" y2="15" stroke="#E7E5E4" stroke-width="1"/>
+      <line x1="50" y1="35" x2="80" y2="15" stroke="#E7E5E4" stroke-width="1"/>
+      <line x1="50" y1="35" x2="20" y2="55" stroke="#E7E5E4" stroke-width="1"/>
+      <line x1="50" y1="35" x2="80" y2="55" stroke="#E7E5E4" stroke-width="1"/>
+      <circle cx="50" cy="35" r="6" fill="#5B5BD6"/>
+      <circle cx="20" cy="15" r="3.5" fill="#fff" stroke="#5B5BD6" stroke-width="1.5"/>
+      <circle cx="80" cy="15" r="3.5" fill="#fff" stroke="#5B5BD6" stroke-width="1.5"/>
+      <circle cx="20" cy="55" r="3.5" fill="#fff" stroke="#5B5BD6" stroke-width="1.5"/>
+      <circle cx="80" cy="55" r="3.5" fill="#fff" stroke="#5B5BD6" stroke-width="1.5"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isCoarse = window.matchMedia('(pointer: coarse)').matches;
+
+  const host = document.getElementById('hero-illustration');
+  if (host) {
+    if (!reduceMotion) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting) {
+              host.classList.add('is-entering');
+              io.disconnect();
+              break;
+            }
+          }
+        },
+        { threshold: 0.2 }
+      );
+      io.observe(host);
+    } else {
+      host.classList.add('is-entering');
+    }
+
+    if (!reduceMotion && !isCoarse) {
+      const cards = host.querySelectorAll<HTMLElement>('.parallax-card');
+      let raf = 0;
+      let targetX = 0,
+        targetY = 0;
+      let curX = 0,
+        curY = 0;
+
+      const tick = () => {
+        curX += (targetX - curX) * 0.08;
+        curY += (targetY - curY) * 0.08;
+        cards.forEach((card) => {
+          const depth = parseFloat(card.dataset.depth || '0');
+          card.style.setProperty('--px', `${curX * depth}px`);
+          card.style.setProperty('--py', `${curY * depth}px`);
+        });
+        if (Math.abs(targetX - curX) > 0.001 || Math.abs(targetY - curY) > 0.001) {
+          raf = requestAnimationFrame(tick);
+        } else {
+          raf = 0;
+        }
+      };
+
+      const onMove = (e: MouseEvent) => {
+        const rect = host.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        targetX = (e.clientX - cx) / rect.width;
+        targetY = (e.clientY - cy) / rect.height;
+        if (!raf) raf = requestAnimationFrame(tick);
+      };
+
+      window.addEventListener('mousemove', onMove, { passive: true });
+    }
+  }
+</script>
+
+<style>
+  /* ── 视差卡片基础 ─────────────────────────────────────── */
+  .parallax-card {
+    --px: 0px;
+    --py: 0px;
+    transform: translate3d(var(--px), var(--py), 0);
+    transition: transform 80ms linear;
+  }
+
+  /* ── 思考波纹 ─────────────────────────────────────────── */
+  .hero-illu__rings {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .hero-illu__ring {
+    position: absolute;
+    width: 38%;
+    aspect-ratio: 1;
+    border-radius: 9999px;
+    border: 1.5px solid var(--purple);
+    opacity: 0;
+    animation: hero-ring 4.2s ease-out infinite;
+    animation-delay: var(--delay, 0s);
+  }
+  @keyframes hero-ring {
+    0%   { transform: scale(0.5); opacity: 0; }
+    20%  { opacity: 0.32; }
+    100% { transform: scale(1.85); opacity: 0; }
+  }
+
+  /* ── 中心 mark ────────────────────────────────────────── */
+  .hero-illu__mark-wrap {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 50%;
+    aspect-ratio: 932.67 / 1553.95;   /* 与 BiuMark viewBox 对齐 */
+    transform-origin: center;
+    z-index: 2;
+    filter: drop-shadow(0 30px 50px rgba(91, 91, 214, 0.18));
+    /* 实际定位：减一半宽高让中心点居中 */
+    margin-left: -25%;
+    margin-top: calc(-25% * 1.666);
+    will-change: transform;
+  }
+  .hero-illu__mark {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── 进场前的状态 ──────────────────────────────────────── */
+  /* 头：scale + fade */
+  .hero-illu__head {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transform: scale(0.92);
+  }
+  /* 电路：从下向上揭开（clip-path） */
+  .hero-illu__circuits {
+    /* clip-path inset 顺序：top right bottom left */
+    clip-path: inset(0 0 100% 0);
+  }
+  .hero-illu__circuit {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+  }
+  /* 手：从右下滑入 */
+  .hero-illu__hand {
+    opacity: 0;
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+    transform: translate(8%, 6%);
+  }
+
+  /* ── 进场播放（IntersectionObserver 触发） ────────────── */
+  .is-entering .hero-illu__head {
+    animation: hero-head-in 0.7s cubic-bezier(0.34, 1.3, 0.64, 1) forwards;
+  }
+  .is-entering .hero-illu__circuits {
+    animation: hero-circuits-reveal 0.85s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+    animation-delay: 0.45s;
+  }
+  .is-entering .hero-illu__circuit--l {
+    animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards;
+    animation-delay: 0.55s;
+  }
+  .is-entering .hero-illu__circuit--m {
+    animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards;
+    animation-delay: 0.85s;
+  }
+  .is-entering .hero-illu__circuit--r {
+    animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards;
+    animation-delay: 1.15s;
+  }
+  .is-entering .hero-illu__hand {
+    animation: hero-hand-in 0.65s cubic-bezier(0.5, 0, 0.2, 1) forwards;
+    animation-delay: 0.9s;
+  }
+
+  /* ── idle 持续动画 ─────────────────────────────────────── */
+  /* 完成后切到慢脉冲：用第二个动画 chain（multi-anim） */
+  .is-entering .hero-illu__circuit--l { animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards 0.55s, hero-circuit-pulse 2.6s ease-in-out 1.4s infinite; }
+  .is-entering .hero-illu__circuit--m { animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards 0.85s, hero-circuit-pulse 2.6s ease-in-out 1.7s infinite; }
+  .is-entering .hero-illu__circuit--r { animation: hero-circuit-pop 0.4s cubic-bezier(0.34, 1.6, 0.64, 1) backwards 1.15s, hero-circuit-pulse 2.6s ease-in-out 2.0s infinite; }
+
+  @keyframes hero-head-in {
+    0%   { opacity: 0; transform: scale(0.92); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes hero-circuits-reveal {
+    0%   { clip-path: inset(0 0 100% 0); }
+    100% { clip-path: inset(0 0 0 0); }
+  }
+  @keyframes hero-circuit-pop {
+    0%   { opacity: 0; transform: translateY(8%) scale(0.7); }
+    70%  { opacity: 1; transform: translateY(-2%) scale(1.06); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes hero-circuit-pulse {
+    0%, 100% { opacity: 1; filter: none; }
+    50%      { opacity: 0.65; filter: drop-shadow(0 0 4px rgba(91, 91, 214, 0.55)); }
+  }
+  @keyframes hero-hand-in {
+    0%   { opacity: 0; transform: translate(8%, 6%) rotate(-4deg); }
+    70%  { opacity: 1; transform: translate(-0.5%, -0.5%) rotate(0.5deg); }
+    100% { opacity: 1; transform: translate(0, 0) rotate(0); }
+  }
+
+  /* ── 轨道卡片 ─────────────────────────────────────────── */
+  .hero-illu__card {
+    position: absolute;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 14px;
+    z-index: 3;
+    opacity: 0;
+  }
+
+  .hero-illu__card--wiki {
+    left: 4%;
+    top: 8%;
+    width: 42%;
+    box-shadow: 0 24px 48px -24px rgba(91, 91, 214, 0.18);
+  }
+  .hero-illu__card--agent {
+    right: 2%;
+    bottom: 10%;
+    width: 44%;
+    box-shadow: 0 36px 72px -24px rgba(91, 91, 214, 0.28);
+  }
+  .hero-illu__card--graph {
+    left: 6%;
+    bottom: 6%;
+    width: 28%;
+    padding: 10px;
+    box-shadow: 0 20px 40px -20px rgba(91, 91, 214, 0.20);
+  }
+
+  .is-entering .hero-illu__card--wiki  { animation: hero-card-in 0.7s ease-out 1.4s forwards, hero-float-a 7s ease-in-out 2.1s infinite; }
+  .is-entering .hero-illu__card--agent { animation: hero-card-in 0.7s ease-out 1.6s forwards, hero-float-b 8s ease-in-out 2.3s infinite; }
+  .is-entering .hero-illu__card--graph { animation: hero-card-in 0.7s ease-out 1.8s forwards, hero-float-c 9s ease-in-out 2.5s infinite; }
+
+  .hero-illu__card-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding-bottom: 8px;
+  }
+  .hero-illu__dot-rgb { width: 8px; height: 8px; border-radius: 9999px; background: #FF5F57; }
+  .hero-illu__dot-rgb--y { background: #FEBC2E; }
+  .hero-illu__dot-rgb--g { background: #28C840; }
+
+  @keyframes hero-card-in {
+    0%   { opacity: 0; transform: translate3d(var(--px, 0), calc(var(--py, 0px) + 12px), 0) scale(0.96); }
+    100% { opacity: 1; transform: translate3d(var(--px, 0), var(--py, 0), 0) scale(1); }
+  }
+  @keyframes hero-float-a {
+    0%, 100% { transform: translate3d(var(--px, 0), var(--py, 0), 0); }
+    50%      { transform: translate3d(var(--px, 0), calc(var(--py, 0px) - 6px), 0); }
+  }
+  @keyframes hero-float-b {
+    0%, 100% { transform: translate3d(var(--px, 0), var(--py, 0), 0); }
+    50%      { transform: translate3d(var(--px, 0), calc(var(--py, 0px) + 7px), 0); }
+  }
+  @keyframes hero-float-c {
+    0%, 100% { transform: translate3d(var(--px, 0), var(--py, 0), 0); }
+    50%      { transform: translate3d(var(--px, 0), calc(var(--py, 0px) - 5px), 0); }
+  }
+
+  /* ── prefers-reduced-motion ───────────────────────────── */
+  @media (prefers-reduced-motion: reduce) {
+    .hero-illu__head,
+    .hero-illu__circuits,
+    .hero-illu__circuit,
+    .hero-illu__hand {
+      opacity: 1 !important;
+      transform: none !important;
+      clip-path: none !important;
+      animation: none !important;
+    }
+    .hero-illu__ring { display: none; }
+    .hero-illu__card { opacity: 1 !important; animation: none !important; }
+  }
+</style>

@@ -1,0 +1,11 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlRequest",
+  "type": "control_request",
+  "request_id": "r-perm-1",
+  "request": {
+    "subtype": "can_use_tool",
+    "tool_name": "Bash",
+    "input": { "command": "ls" },
+    "tool_use_id": "tu-1"
+  }
+}

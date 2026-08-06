@@ -1,0 +1,95 @@
+# Release pipeline for the biu CLI.
+#
+# Trigger: push a tag matching `biu-v*` (e.g. `biu-v0.1.0`). GoReleaser
+# builds darwin/linux × amd64/arm64 binaries from
+# `apps/cli/biu/.goreleaser.yml`, uploads them to a draft GitHub
+# release, and (when HOMEBREW_TAP_GITHUB_TOKEN is set) opens a PR to
+# biumind/homebrew-tap.
+#
+# Manual dispatch is also supported for re-runs without re-tagging:
+#   GitHub → Actions → Release biu CLI → Run workflow → enter version.
+#
+# Optional repository secrets:
+#   HOMEBREW_TAP_GITHUB_TOKEN   — fine-grained PAT scoped to
+#                                 biumind/homebrew-tap with
+#                                 contents:write + pull-requests:write.
+#                                 Without it the brew formula step is
+#                                 skipped silently.
+
+name: Release biu CLI
+
+on:
+  push:
+    tags:
+      - "biu-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (without the 'biu-v' prefix, e.g. 0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # GoReleaser writes the GitHub release
+
+jobs:
+  goreleaser:
+    name: GoReleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/cli/biu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GoReleaser needs the full history to compute changelog.
+          fetch-depth: 0
+
+      # workflow_dispatch path: synthesize the tag-equivalent ref so
+      # GoReleaser computes the right .Version. We do this by setting
+      # GORELEASER_CURRENT_TAG which overrides the auto-detected tag.
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=biu-v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/cli/biu/go.mod
+          cache: true
+          cache-dependency-path: apps/cli/biu/go.sum
+
+      - name: Verify build
+        run: go build ./...
+
+      - name: Run tests
+        # Race-detector adds 30-50% wall time but it's cheap insurance
+        # before cutting an artefact.
+        run: go test -race ./...
+
+      - name: Set up GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          install-only: true
+
+      - name: Run GoReleaser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional — empty when the secret isn't configured.
+          # GoReleaser's brew step gracefully skips on empty token.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          goreleaser release --clean --config .goreleaser.yml
+
+      - name: Show artefacts
+        if: always()
+        run: ls -la dist/

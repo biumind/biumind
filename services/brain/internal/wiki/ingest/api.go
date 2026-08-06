@@ -1,0 +1,349 @@
+// HTTP surface for ingest tasks.
+//
+//	POST  /v1/wiki/projects/{pid}/ingest                       create + publish
+//	GET   /v1/wiki/projects/{pid}/ingest/tasks                 list (newest first)
+//	GET   /v1/wiki/projects/{pid}/ingest/tasks/{tid}           detail
+//	GET   /v1/wiki/projects/{pid}/ingest/tasks/{tid}/events    SSE 历史重放
+//	POST  /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel    request cancel
+//
+// 旧 /v1/wiki/ingest/{taskId} 形态已废弃（B0.5 决策），客户端必须带 project
+// 上下文调用。
+//
+// SSE 端点（events）用于客户端重连后从 events_outbox 拉取该 task 的历史
+// 事件序列；当前 stub 直接关闭流，B2 完整实现。
+//
+// 所有非创建端点都重新校验 ownership —— 仅靠 task id 查询会让 guess-the-uuid
+// 攻击者窥视他人任务。
+package ingest
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
+	"github.com/biumind/biumind/services/brain/internal/publisher"
+	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
+	"github.com/google/uuid"
+)
+
+// Server wires the ingest API. Publisher is required — without it,
+// creating a task would land a row no one ever picks up. The handler
+// rejects the create POST when Publisher is nil so failures surface at
+// configuration time, not as silently-stuck tasks.
+type Server struct {
+	Store     *Store
+	Wiki      *wikistore.Store
+	Publisher publisher.Publisher
+	Verifier  *bauth.Verifier
+	Logger    *slog.Logger
+}
+
+func NewServer(s *Store, w *wikistore.Store, p publisher.Publisher, v *bauth.Verifier, l *slog.Logger) *Server {
+	return &Server{Store: s, Wiki: w, Publisher: p, Verifier: v, Logger: l}
+}
+
+func (s *Server) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest", s.requireAuth(s.handleCreate))
+	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks", s.requireAuth(s.handleList))
+	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks/{tid}", s.requireAuth(s.handleGet))
+	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks/{tid}/events", s.requireAuth(s.handleEvents))
+	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel", s.requireAuth(s.handleCancel))
+}
+
+// ─── Wire payloads ──────────────────────────────────────────────
+
+type createReq struct {
+	SourceID *string `json:"source_id"`
+	RawText  string  `json:"raw_text"`
+	Title    string  `json:"title"`
+}
+
+// taskOut is the public projection. We hide owner_id (already implied
+// by JWT) but expose project_id since callers index tasks per project.
+type taskOut struct {
+	ID                string         `json:"id"`
+	ProjectID         string         `json:"project_id"`
+	SourceID          *string        `json:"source_id,omitempty"`
+	Title             string         `json:"title"`
+	Status            string         `json:"status"`
+	Error             string         `json:"error,omitempty"`
+	Progress          map[string]any `json:"progress,omitempty"`
+	ResultPages       []string       `json:"result_pages"`
+	CancelRequestedAt *string        `json:"cancel_requested_at,omitempty"`
+	StartedAt         *string        `json:"started_at,omitempty"`
+	FinishedAt        *string        `json:"finished_at,omitempty"`
+	CreatedAt         string         `json:"created_at"`
+	UpdatedAt         string         `json:"updated_at"`
+}
+
+func taskJSON(t *Task) taskOut {
+	out := taskOut{
+		ID: t.ID.String(), ProjectID: t.ProjectID.String(),
+		Title: t.Title, Status: t.Status, Error: t.Error,
+		Progress:    t.Progress,
+		ResultPages: make([]string, 0, len(t.ResultPages)),
+		CreatedAt:   t.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:   t.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	if t.SourceID != nil {
+		v := t.SourceID.String()
+		out.SourceID = &v
+	}
+	for _, p := range t.ResultPages {
+		out.ResultPages = append(out.ResultPages, p.String())
+	}
+	if t.CancelRequestedAt != nil {
+		v := t.CancelRequestedAt.UTC().Format(time.RFC3339)
+		out.CancelRequestedAt = &v
+	}
+	if t.StartedAt != nil {
+		v := t.StartedAt.UTC().Format(time.RFC3339)
+		out.StartedAt = &v
+	}
+	if t.FinishedAt != nil {
+		v := t.FinishedAt.UTC().Format(time.RFC3339)
+		out.FinishedAt = &v
+	}
+	return out
+}
+
+// ─── Handlers ───────────────────────────────────────────────────
+
+func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	pid, err := uuid.Parse(r.PathValue("pid"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_project_id", "")
+		return
+	}
+	uid, ok := s.requireProjectOwner(w, r, pid)
+	if !ok {
+		return
+	}
+	if s.Publisher == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_publisher",
+			"ingest worker bus not configured on this brain")
+		return
+	}
+	var req createReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	var sid *uuid.UUID
+	if req.SourceID != nil && *req.SourceID != "" {
+		v, err := uuid.Parse(*req.SourceID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_source_id", err.Error())
+			return
+		}
+		sid = &v
+	}
+	if sid == nil && req.RawText == "" {
+		writeErr(w, http.StatusBadRequest, "missing_input",
+			"provide source_id or raw_text")
+		return
+	}
+	t, err := s.Store.Create(r.Context(), CreateInput{
+		ProjectID: pid, OwnerID: uid, SourceID: sid,
+		RawText: req.RawText, Title: req.Title,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	// Publish to NATS so workers/wiki-llm picks it up. We *do not* roll
+	// back the row on publish failure — the row is still useful (user
+	// sees it as pending), and an operator-level reaper can republish
+	// stuck pending tasks. Keeping create transactional with publish
+	// would tie the API SLA to NATS uptime; cheaper to accept this.
+	payload := map[string]any{
+		"task_id":    t.ID.String(),
+		"project_id": t.ProjectID.String(),
+		"owner_id":   t.OwnerID.String(),
+		"title":      t.Title,
+		"raw_text":   t.RawText,
+	}
+	if t.SourceID != nil {
+		payload["source_id"] = t.SourceID.String()
+	}
+	pubCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if err := s.Publisher.Publish(pubCtx,
+		"wiki.ingest.requested", "wiki.ingest.requested", payload); err != nil {
+		s.Logger.Warn("wiki ingest publish failed",
+			"task_id", t.ID, "err", err)
+	}
+	s.Logger.DebugContext(r.Context(), "wiki ingest: task created",
+		"task_id", t.ID, "project_id", pid, "user_id", uid,
+		"source_id", sid, "raw_bytes", len(req.RawText), "title", t.Title)
+	writeJSON(w, http.StatusCreated, taskJSON(t))
+}
+
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	pid, err := uuid.Parse(r.PathValue("pid"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_project_id", "")
+		return
+	}
+	if _, ok := s.requireProjectOwner(w, r, pid); !ok {
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		var n int
+		if _, err := fmt.Sscanf(v, "%d", &n); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	tasks, err := s.Store.ListByProject(r.Context(), pid, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	out := make([]taskOut, 0, len(tasks))
+	for _, t := range tasks {
+		out = append(out, taskJSON(t))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": out})
+}
+
+func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadOwnedTask(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, taskJSON(t))
+}
+
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadOwnedTask(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.RequestCancel(r.Context(), t.ID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			// Task became terminal between Get and Cancel — race we
+			// treat as user-visible 409: their cancel request didn't
+			// take because the work is already finished.
+			writeErr(w, http.StatusConflict, "already_terminal", t.Status)
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted,
+		map[string]any{"id": t.ID.String(), "cancel_requested": true})
+}
+
+// ─── Auth helpers ──────────────────────────────────────────────
+
+// requireProjectOwner verifies the JWT user owns the project. Returns
+// owner uuid and ok=true on success; writes the appropriate error
+// response and ok=false otherwise.
+func (s *Server) requireProjectOwner(w http.ResponseWriter, r *http.Request, pid uuid.UUID) (uuid.UUID, bool) {
+	claims := bauth.MustClaims(r.Context())
+	uid, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "bad_user", "")
+		return uuid.Nil, false
+	}
+	proj, err := s.Wiki.GetProject(r.Context(), pid)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "not_found", "project")
+		return uuid.Nil, false
+	}
+	if proj.OwnerID != uid {
+		writeErr(w, http.StatusForbidden, "forbidden", "")
+		return uuid.Nil, false
+	}
+	return uid, true
+}
+
+// loadOwnedTask handles the {tid} path param: parse, fetch, ownership
+// check, and verify the task's project_id matches the URL {pid} (so a
+// task uuid from project A can't be queried via project B's URL).
+func (s *Server) loadOwnedTask(w http.ResponseWriter, r *http.Request) (*Task, bool) {
+	tid, err := uuid.Parse(r.PathValue("tid"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_task_id", "")
+		return nil, false
+	}
+	pid, err := uuid.Parse(r.PathValue("pid"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_project_id", "")
+		return nil, false
+	}
+	t, err := s.Store.Get(r.Context(), tid)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "not_found", "task")
+			return nil, false
+		}
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return nil, false
+	}
+	claims := bauth.MustClaims(r.Context())
+	uid, err := uuid.Parse(claims.UserID)
+	if err != nil || uid != t.OwnerID || t.ProjectID != pid {
+		// Indistinguishable 404 — don't leak existence to non-owners or
+		// across-project guess attempts.
+		writeErr(w, http.StatusNotFound, "not_found", "task")
+		return nil, false
+	}
+	return t, true
+}
+
+// handleEvents 是 SSE 历史重放 stub。完整实现（B2）从 events_outbox
+// 表读 (task_id=tid) 的所有事件并按顺序回写为 `event:`+`data:` SSE 帧。
+// 当前 stub 校验 ownership 后直接发一帧 placeholder 并关闭。
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadOwnedTask(w, r)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	_, _ = fmt.Fprintf(w, "event: stub\ndata: {\"task_id\":%q,\"status\":%q}\n\n",
+		t.ID.String(), t.Status)
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
+func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if len(auth) < 8 || auth[:7] != "Bearer " {
+			writeErr(w, http.StatusUnauthorized, "missing_bearer", "")
+			return
+		}
+		claims, err := s.Verifier.Verify(auth[7:])
+		if err != nil {
+			writeErr(w, http.StatusUnauthorized, "invalid_token", err.Error())
+			return
+		}
+		next(w, r.WithContext(bauth.WithClaims(r.Context(), claims)))
+	}
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func writeErr(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]any{
+		"error": map[string]any{"code": code, "message": msg},
+	})
+}

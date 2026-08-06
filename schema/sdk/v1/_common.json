@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/_common.json",
+  "title": "BiuMind SDK v1 — Common Types",
+  "description": "共享类型：UUID / 时间戳 / ModelUsage / NonNullableUsage / RoleEnum / 嵌套 Anthropic message body。Open by default — additionalProperties 允许未来字段。",
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Timestamp": {
+      "type": "integer",
+      "description": "Unix epoch milliseconds"
+    },
+    "RoleEnum": {
+      "type": "string",
+      "enum": ["user", "assistant", "system", "tool"]
+    },
+    "NonNullableUsage": {
+      "type": "object",
+      "description": "Anthropic API usage 子集（cache_read_input_tokens 等）。各端 SDK 可能附加 server_tool_use 等扩展字段。",
+      "additionalProperties": true
+    },
+    "ModelUsage": {
+      "type": "object",
+      "required": [
+        "inputTokens",
+        "outputTokens",
+        "cacheReadInputTokens",
+        "cacheCreationInputTokens",
+        "webSearchRequests",
+        "costUSD",
+        "contextWindow",
+        "maxOutputTokens"
+      ],
+      "properties": {
+        "inputTokens": { "type": "integer" },
+        "outputTokens": { "type": "integer" },
+        "cacheReadInputTokens": { "type": "integer" },
+        "cacheCreationInputTokens": { "type": "integer" },
+        "webSearchRequests": { "type": "integer" },
+        "costUSD": { "type": "number" },
+        "contextWindow": { "type": "integer" },
+        "maxOutputTokens": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "AnthropicMessage": {
+      "type": "object",
+      "description": "Anthropic Messages API 的 message 对象（role + content[] blocks）。content block 内部结构差异大，这里不展开。",
+      "required": ["role"],
+      "properties": {
+        "role": { "$ref": "#/$defs/RoleEnum" },
+        "content": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array" }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "RateLimitInfo": {
+      "type": "object",
+      "description": "Anthropic 速率限制返回头解析后的结构。",
+      "additionalProperties": true
+    }
+  }
+}

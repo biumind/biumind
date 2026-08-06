@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "hookCmd": {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Timeout in seconds (0 = none).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "command"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Permissions, hooks, env, and per-project overrides for biu. Same shape applies to ~/.biumind/settings.json, .biumind/settings.json, and .biumind/settings.local.json.",
+  "properties": {
+    "$schema": {
+      "description": "Optional pointer to this schema; lets IDEs auto-validate without project config.",
+      "type": "string"
+    },
+    "claudeMdExcludes": {
+      "description": "Glob patterns of BIUMIND.md / CLAUDE.md files to skip when loading project memory.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Environment variables exported into the agent process at session start.",
+      "type": "object"
+    },
+    "hooks": {
+      "additionalProperties": {
+        "items": {
+          "properties": {
+            "hooks": {
+              "items": {
+                "$ref": "#/$defs/hookCmd"
+              },
+              "type": "array"
+            },
+            "matcher": {
+              "description": "Optional tool-name regex.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "hooks"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "description": "Lifecycle commands keyed by event name (PreToolUse, PostToolUse, UserPromptSubmit, …).",
+      "type": "object"
+    },
+    "model": {
+      "description": "Override the default model when this layer is active.",
+      "type": "string"
+    },
+    "permissions": {
+      "properties": {
+        "additionalDirectories": {
+          "description": "Extra cwd ancestors the agent is allowed to read/write.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allow": {
+          "description": "Tool(content) rules that pre-approve calls. Format: `Tool(pattern)` — Tool ∈ {Bash, Read, Edit, Write, Glob, Grep, …, *}; pattern is a glob/prefix.",
+          "items": {
+            "pattern": "^[A-Za-z*]+(\\(.*\\))?$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ask": {
+          "description": "Tool(content) rules that always prompt regardless of mode. Format: `Tool(pattern)` — Tool ∈ {Bash, Read, Edit, Write, Glob, Grep, …, *}; pattern is a glob/prefix.",
+          "items": {
+            "pattern": "^[A-Za-z*]+(\\(.*\\))?$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "defaultMode": {
+          "description": "Mode applied at session start; can be flipped at runtime with /mode.",
+          "enum": [
+            "default",
+            "acceptEdits",
+            "plan",
+            "bypassPermissions",
+            "dontAskAgain",
+            "ask",
+            "accept_edits",
+            "bypass",
+            "dontAsk",
+            "dont_ask",
+            "auto_edit",
+            "full_access"
+          ],
+          "type": "string"
+        },
+        "deny": {
+          "description": "Tool(content) rules that block calls outright; deny wins over allow. Format: `Tool(pattern)` — Tool ∈ {Bash, Read, Edit, Write, Glob, Grep, …, *}; pattern is a glob/prefix.",
+          "items": {
+            "pattern": "^[A-Za-z*]+(\\(.*\\))?$",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "sandbox": {
+      "description": "Filesystem allow/deny lists for the Bash tool's sandbox layer. See docs/biu/sandbox.md for a full guide. Path values may use `~` (home), `${VAR}` (env), and `${PROJECT_ROOT}` (project cwd); relative paths are dropped. Three-layer merge is union-only — project / local can ADD entries, none can remove or override earlier layers' entries.",
+      "properties": {
+        "fsReadAllowWithinDeny": {
+          "description": "Re-permits reads inside an fsReadDeny entry. Example: block ~/.aws but keep ~/.aws/config readable.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fsReadDeny": {
+          "description": "Paths the sandbox blocks reads to. Use for credentials and secrets (~/.ssh, ~/.aws, ~/.config/gcloud).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fsWriteAllowExtra": {
+          "description": "Extra writable roots beyond the project cwd. Example: ${PROJECT_ROOT}/build, /tmp/biu-cache.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fsWriteDenyWithinAllow": {
+          "description": "Surgical write denies inside an fsWriteAllowExtra root. The complement of fsReadAllowWithinDeny.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "statusLine": {
+      "description": "User shell command rendered as the right cluster of the REPL status bar. The command receives a small JSON payload on stdin; first line of stdout becomes the segment text. Errors / non-zero exits silently degrade to no segment.",
+      "properties": {
+        "command": {
+          "description": "Shell snippet executed via /bin/sh -c.",
+          "type": "string"
+        },
+        "timeoutMs": {
+          "description": "Cap on execution time in milliseconds. 0 → package default (5 s).",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "description": "Reserved for future shapes; today only \"command\" is supported.",
+          "enum": [
+            "command"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  "title": "biu settings.json",
+  "type": "object"
+}

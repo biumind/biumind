@@ -1,0 +1,192 @@
+# BiuMind 顶层 Taskfile
+# 安装 Task: brew install go-task
+# 列任务: task --list
+version: '3'
+
+vars:
+  GO_PACKAGES: ./apps/cli/biu/... ./services/... ./packages/go-sdk/...
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  bootstrap:
+    desc: 安装所有开发依赖（一次性）
+    cmds:
+      - tools/scripts/bootstrap.sh
+
+  # ─── Proto ────────────────────────────────────────
+  proto:lint:
+    desc: lint proto 文件
+    dir: packages/proto
+    cmds:
+      - buf lint
+
+  proto:generate:
+    desc: 生成 Go / Dart / TS 代码
+    dir: packages/proto
+    cmds:
+      - buf generate
+
+  proto:breaking:
+    desc: 检查 breaking change vs main
+    dir: packages/proto
+    cmds:
+      - buf breaking --against '.git#branch=main'
+
+  # ─── Build / Test ─────────────────────────────────
+  build:
+    desc: 编译所有 Go 服务
+    cmds:
+      - go build {{.GO_PACKAGES}}
+
+  test:
+    desc: 全量测试（Go + Dart + Python）
+    deps: [test:go, test:dart, test:py]
+
+  test:go:
+    desc: Go 测试
+    cmds:
+      - go test -race -coverprofile=coverage.out {{.GO_PACKAGES}}
+
+  test:dart:
+    desc: Flutter / Dart 测试
+    dir: apps/client
+    cmds:
+      - flutter test
+
+  test:py:
+    desc: Python workers 测试
+    dir: workers
+    cmds:
+      - uv run pytest
+
+  # ─── Lint ─────────────────────────────────────────
+  lint:
+    desc: 全量 lint
+    deps: [lint:go, lint:dart, lint:proto]
+
+  lint:go:
+    cmds:
+      - go vet {{.GO_PACKAGES}}
+      - staticcheck {{.GO_PACKAGES}}
+      - golangci-lint run
+
+  lint:dart:
+    dir: apps/client
+    cmds: [flutter analyze]
+
+  lint:proto: { cmds: [task proto:lint] }
+
+  lint:invariants:
+    desc: 校验架构不变量（I1-I9 / C1-C11）
+    cmds:
+      - tools/scripts/check_invariants.sh
+
+  # ─── Editor bundle（§⑤ Milkdown WYSIWYG）──────────
+  editor-web:build:
+    desc: 构建 Milkdown 编辑器 bundle（editor-web → assets/editor + web/editor，双写）
+    dir: apps/client/editor-web
+    cmds:
+      - npm run build
+
+  editor-web:test:
+    desc: editor-web 单元 + 往返保真测试（§⑤ G5：[[wikilink]]/frontmatter/fence 往返）
+    dir: apps/client/editor-web
+    cmds:
+      - npm test
+
+  editor-web:dev:
+    desc: editor-web vite dev（HMR 调试 wikilink remark / stringify options）
+    dir: apps/client/editor-web
+    cmds:
+      - npm run dev
+
+  schema:validate:
+    desc: 校验所有 JSON Schema（sdk/v1 协议 + release/v1 发行清单）
+    cmds:
+      - go run ./tools/schema-validate --root schema/sdk/v1
+      - go run ./tools/schema-validate --root schema/release/v1
+
+  release:dev-manifest:
+    desc: 上传假 releases.json 到本地 MinIO releases bucket (官网/客户端联调用)
+    cmds:
+      - |
+        PODMAN=$$(command -v podman || command -v docker)
+        "$$PODMAN" run --rm --network biumind_biu-net -v "$$PWD/schema/release/v1/fixtures/manifest.sample.json:/data/r.json:ro" --entrypoint /bin/sh \
+          docker.io/minio/mc:latest \
+          -c 'mc alias set local http://minio:9000 biumind biumind_minio_dev >/dev/null && mc cp /data/r.json local/releases/releases.json && echo "uploaded releases.json (version 0.1.0, 6 assets) → curl http://localhost:8088/downloads/releases.json"'
+
+  # ─── Per-service shortcuts ────────────────────────
+  model-relay:run:
+    desc: 本地跑 model-relay
+    dir: services/model-relay
+    cmds: [go run ./cmd/model-relay]
+
+  model-relay:test:
+    dir: services/model-relay
+    cmds: [go test -race ./...]
+
+  model-relay:migrate-aigc-dictionary:
+    desc: P4.S3.3 — 一次性把 aigc.{providers,models} 全量 backfill 到 model_relay.* (idempotent UPSERT, manual_override 行受保护). 段 3.4 删 aigc 字典表前必跑.
+    cmds:
+      - docker exec -i biu-postgres psql -U biumind -d biu_core < services/model-relay/scripts/migrate_aigc_dictionary.sql
+
+  identity:run:
+    dir: services/identity
+    cmds: [go run ./cmd/identity]
+
+  authz:run:
+    dir: services/authz
+    cmds: [go run ./cmd/authz]
+
+  realtime:run:
+    dir: services/realtime
+    cmds: [go run ./cmd/realtime]
+
+  aigc:run:
+    desc: 本地跑 aigc 服务
+    dir: services/aigc
+    cmds: [go run ./cmd/aigc]
+
+  aigc:test:
+    dir: services/aigc
+    cmds: [go test -race ./...]
+
+  cli:install:
+    desc: 装 biu CLI 到 ~/.local/bin
+    dir: apps/cli/biu
+    cmds:
+      - mkdir -p ~/.local/bin
+      - go build -o ~/.local/bin/biu ./cmd/biu
+
+  cli:run:
+    dir: apps/cli/biu
+    cmds: [go run ./cmd/biu]
+
+  # ─── docker-compose 测试环境 ───────────────────────
+  compose:up-infra:
+    dir: deploy/docker-compose
+    cmds: [make up-infra]
+
+  compose:up:
+    dir: deploy/docker-compose
+    cmds: [make up]
+
+  compose:down:
+    dir: deploy/docker-compose
+    cmds: [make down]
+
+  compose:health:
+    dir: deploy/docker-compose
+    cmds: [make health]
+
+  # ─── CI 复现 ──────────────────────────────────────
+  ci-local:
+    desc: 本地复现 CI 流程
+    cmds:
+      - task lint
+      - task proto:lint
+      - task test
+      - task build

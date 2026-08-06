@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>BiuMind Clipper — 设置</title>
+  <style>
+    body { width: 420px; margin: 0; padding: 16px; font: 13px/1.5 system-ui, -apple-system, "PingFang SC", sans-serif; color: #1a1a1a; }
+    h1 { font-size: 14px; margin: 0 0 12px; }
+    label { display: block; margin: 10px 0 4px; font-size: 12px; color: #444; }
+    input[type="text"], input[type="password"] {
+      width: 100%; box-sizing: border-box; padding: 7px 8px; font-size: 13px;
+      border: 1px solid #ccc; border-radius: 4px; font-family: ui-monospace, Menlo, monospace;
+    }
+    button { padding: 8px 14px; font-size: 13px; border: none; border-radius: 4px;
+             background: #2962ff; color: #fff; cursor: pointer; }
+    .row { display: flex; gap: 8px; margin-top: 12px; }
+    .hint { font-size: 11px; color: #666; margin-top: 4px; }
+    .status { margin-top: 12px; font-size: 12px; padding: 6px 8px; border-radius: 4px; }
+    .ok    { background: #e8f5e9; color: #1b5e20; }
+    .warn  { background: #fff3cd; color: #5e4400; }
+    .error { background: #ffe5e5; color: #7a1f1f; }
+    .help { font-size: 11px; color: #666; margin-top: 16px; padding-top: 10px; border-top: 1px solid #eee; }
+    code { background: #f6f6f6; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  </style>
+</head>
+<body>
+<h1>BiuMind Clipper 设置</h1>
+
+<label for="serverUrl">服务器地址</label>
+<input id="serverUrl" type="text" placeholder="https://api.biumind.com" />
+<div class="hint">指向 brain 服务的 base URL（不含 <code>/v1/...</code>）</div>
+
+<label for="jwtToken">登录令牌（JWT）</label>
+<input id="jwtToken" type="password" placeholder="eyJhbGc..." />
+<div class="hint">从 BiuMind 客户端复制 — 请勿分享给他人</div>
+
+<div class="row">
+  <button id="saveBtn">保存</button>
+  <button id="testBtn" style="background: #555;">测试连接</button>
+</div>
+
+<div id="status" class="status warn" style="display: none;"></div>
+
+<h2 style="font-size: 13px; margin: 18px 0 8px;">默认行为</h2>
+<div class="row" style="gap: 6px; align-items: center;">
+  <input id="autoIngestDefault" type="checkbox" />
+  <label for="autoIngestDefault" style="font-size: 12px;">
+    保存后默认自动转 wiki 页（CoT ingest）
+  </label>
+</div>
+<div class="hint">
+  选中后弹窗与右键菜单都会在 clip 完成后立即创建 ingest 任务。
+  重复源（同 URL+内容）始终不会重复 ingest。
+</div>
+
+<div class="help">
+  ⌘/Ctrl + Shift + S 打开扩展弹窗。<br />
+  在网页上选中文字后右键可仅保存选中片段；弹窗内的「仅保存当前选中文字」复选框用于同样目的。
+</div>
+
+<script src="options.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^wd-(.*)": "wot-design-uni/components/wd-$1/wd-$1.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/me/login",
+      "style": {
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/chat/index",
+      "style": { "navigationBarTitleText": "对话" }
+    },
+    {
+      "path": "pages/threads/index",
+      "style": { "navigationBarTitleText": "会话" }
+    },
+    {
+      "path": "pages/wiki/index",
+      "style": { "navigationBarTitleText": "Wiki" }
+    },
+    {
+      "path": "pages/notes/index",
+      "style": { "navigationBarTitleText": "速记" }
+    },
+    {
+      "path": "pages/notify/index",
+      "style": { "navigationBarTitleText": "通知" }
+    },
+    {
+      "path": "pages/me/index",
+      "style": {
+        "navigationBarTitleText": "我的"
+      }
+    },
+    {
+      "path": "pages/me/register",
+      "style": {
+        "navigationBarTitleText": "注册"
+      }
+    },
+    {
+      "path": "pages/me/forgot",
+      "style": {
+        "navigationBarTitleText": "找回密码"
+      }
+    },
+    {
+      "path": "pages/me/oauth-return",
+      "style": {
+        "navigationBarTitleText": "登录中"
+      }
+    },
+    {
+      "path": "pages/me/about",
+      "style": {
+        "navigationBarTitleText": "关于 BiuMind"
+      }
+    },
+    {
+      "path": "pages/legal/privacy",
+      "style": {
+        "navigationBarTitleText": "隐私政策"
+      }
+    },
+    {
+      "path": "pages/legal/terms",
+      "style": {
+        "navigationBarTitleText": "用户协议"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#3b82f6",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/chat/index",
+        "text": "对话",
+        "iconPath": "static/tabbar/chat-normal.png",
+        "selectedIconPath": "static/tabbar/chat-active.png"
+      },
+      {
+        "pagePath": "pages/threads/index",
+        "text": "会话",
+        "iconPath": "static/tabbar/threads-normal.png",
+        "selectedIconPath": "static/tabbar/threads-active.png"
+      },
+      {
+        "pagePath": "pages/wiki/index",
+        "text": "Wiki",
+        "iconPath": "static/tabbar/wiki-normal.png",
+        "selectedIconPath": "static/tabbar/wiki-active.png"
+      },
+      {
+        "pagePath": "pages/notify/index",
+        "text": "通知",
+        "iconPath": "static/tabbar/notify-normal.png",
+        "selectedIconPath": "static/tabbar/notify-active.png"
+      },
+      {
+        "pagePath": "pages/me/index",
+        "text": "我的",
+        "iconPath": "static/tabbar/me-normal.png",
+        "selectedIconPath": "static/tabbar/me-active.png"
+      }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f6f7fb"
+  }
+}

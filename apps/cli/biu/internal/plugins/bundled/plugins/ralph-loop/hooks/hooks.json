@@ -1,0 +1,12 @@
+{
+  "description": "ralph-loop — re-submits the loop prompt on Stop until ralph.done exists",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "internal", "handler": "ralph-loop:stop" }
+        ]
+      }
+    ]
+  }
+}

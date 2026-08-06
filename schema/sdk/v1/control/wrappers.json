@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/wrappers.json",
+  "title": "BiuMind SDK v1 — Control Wrappers",
+  "description": "外壳：SDKControlRequest / SDKControlResponse / SDKControlCancelRequest。把 21 个 ControlRequestInner 包成 type=control_request 的 frame。",
+  "$defs": {
+    "SDKControlRequest": {
+      "type": "object",
+      "required": ["type", "request_id", "request"],
+      "properties": {
+        "type": { "const": "control_request" },
+        "request_id": { "type": "string" },
+        "request": {
+          "oneOf": [
+            { "$ref": "initialize.json#/$defs/Initialize" },
+            { "$ref": "interrupt.json#/$defs/Interrupt" },
+            { "$ref": "permission.json#/$defs/PermissionRequest" },
+            { "$ref": "set_model.json#/$defs/SetModel" },
+            { "$ref": "set_model.json#/$defs/SetPermissionMode" },
+            { "$ref": "set_model.json#/$defs/SetMaxThinkingTokens" },
+            { "$ref": "mcp.json#/$defs/McpStatus" },
+            { "$ref": "mcp.json#/$defs/McpMessage" },
+            { "$ref": "mcp.json#/$defs/McpSetServers" },
+            { "$ref": "mcp.json#/$defs/McpReconnect" },
+            { "$ref": "mcp.json#/$defs/McpToggle" },
+            { "$ref": "context.json#/$defs/GetContextUsage" },
+            { "$ref": "hook_callback.json#/$defs/HookCallback" },
+            { "$ref": "rewind.json#/$defs/RewindFiles" },
+            { "$ref": "cancel.json#/$defs/CancelAsyncMessage" },
+            { "$ref": "seed.json#/$defs/SeedReadState" },
+            { "$ref": "reload.json#/$defs/ReloadPlugins" },
+            { "$ref": "stop.json#/$defs/StopTask" },
+            { "$ref": "settings.json#/$defs/ApplyFlagSettings" },
+            { "$ref": "settings.json#/$defs/GetSettings" },
+            { "$ref": "elicitation.json#/$defs/Elicitation" }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "ControlSuccess": {
+      "type": "object",
+      "required": ["subtype", "request_id"],
+      "properties": {
+        "subtype": { "const": "success" },
+        "request_id": { "type": "string" },
+        "response": {}
+      },
+      "additionalProperties": true
+    },
+    "ControlError": {
+      "type": "object",
+      "required": ["subtype", "request_id", "error"],
+      "properties": {
+        "subtype": { "const": "error" },
+        "request_id": { "type": "string" },
+        "error": { "type": "string" },
+        "pending_permission_requests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SDKControlRequest" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "SDKControlResponse": {
+      "type": "object",
+      "required": ["type", "response"],
+      "properties": {
+        "type": { "const": "control_response" },
+        "response": {
+          "oneOf": [
+            { "$ref": "#/$defs/ControlSuccess" },
+            { "$ref": "#/$defs/ControlError" }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "SDKControlCancelRequest": {
+      "type": "object",
+      "required": ["type", "request_id"],
+      "properties": {
+        "type": { "const": "control_cancel_request" },
+        "request_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

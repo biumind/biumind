@@ -1,0 +1,6 @@
+{
+  "name": "learning",
+  "version": "1.0.0",
+  "description": "Output style: pause at decision points to ask the user what they'd choose, then explain trade-offs",
+  "author": { "name": "BiuMind" }
+}

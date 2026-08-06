@@ -1,0 +1,28 @@
+{
+  "$schema": "data/result.json#/$defs/SDKResultSuccess",
+  "type": "result",
+  "subtype": "success",
+  "duration_ms": 1000,
+  "duration_api_ms": 800,
+  "is_error": false,
+  "num_turns": 3,
+  "result": "done",
+  "stop_reason": "end_turn",
+  "total_cost_usd": 0.01,
+  "usage": {},
+  "modelUsage": {
+    "claude-3-7": {
+      "inputTokens": 10,
+      "outputTokens": 20,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.01,
+      "contextWindow": 200000,
+      "maxOutputTokens": 4096
+    }
+  },
+  "permission_denials": [],
+  "uuid": "r1",
+  "session_id": "s1"
+}

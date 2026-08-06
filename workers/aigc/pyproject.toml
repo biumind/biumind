@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biumind-aigc-worker"
+version = "0.1.0"
+description = "AIGC generation worker (DashScope / VolcEngine) for BiuMind aigc service"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "BiuMind" }]
+
+# Heavy dependencies are optional — base install only needs nats-py + httpx
+# (足够跑文生图 HTTP 调用 + NATS 通信). Pillow / ffmpeg-python 在 P3-5 storage
+# persist 时按需启用.
+dependencies = [
+  "nats-py>=2.7,<3",
+  "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+storage = [
+  "boto3>=1.34,<2",        # MinIO / S3 SDK
+  "Pillow>=10,<12",         # 缩略图派生
+  "ffmpeg-python>=0.2,<1",  # 视频探测 + cover 抽取
+  "blurhash-python>=1.2,<2",
+]
+hotparse = [
+  "yt-dlp>=2024.12",        # 爆款解析 Phase2 平台提取 (B站/抖音); 配合 ffmpeg
+]
+all = [
+  "boto3>=1.34,<2",
+  "Pillow>=10,<12",
+  "ffmpeg-python>=0.2,<1",
+  "blurhash-python>=1.2,<2",
+  "yt-dlp>=2024.12",
+]
+dev = [
+  "pytest>=8",
+  "pytest-asyncio>=0.23",
+  "respx>=0.21,<1",         # httpx mock
+]
+
+[project.scripts]
+biumind-aigc-worker = "biumind_aigc.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["biumind_aigc*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

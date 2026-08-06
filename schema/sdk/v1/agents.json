@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/agents.json",
+  "title": "BiuMind SDK v1 — Agent / Model / Account / SlashCommand",
+  "description": "SlashCommand / AgentInfo / AgentDefinition / ModelInfo / AccountInfo。",
+  "$defs": {
+    "SlashCommand": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "argumentHint": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "AgentInfo": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "model": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "AgentDefinition": {
+      "type": "object",
+      "required": ["description", "prompt"],
+      "properties": {
+        "description": { "type": "string" },
+        "prompt": { "type": "string" },
+        "model": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "mcp_servers": { "type": "array", "items": { "type": "string" } },
+        "whenToUse": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "ModelInfo": {
+      "type": "object",
+      "required": ["id", "displayName"],
+      "properties": {
+        "id": { "type": "string" },
+        "displayName": { "type": "string" },
+        "contextWindow": { "type": "integer" },
+        "maxOutputTokens": { "type": "integer" },
+        "default": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "AccountInfo": {
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "organization": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

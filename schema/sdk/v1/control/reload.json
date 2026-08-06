@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/reload.json",
+  "title": "BiuMind SDK v1 — Reload Plugins Control",
+  "description": "subtype=reload_plugins。",
+  "$defs": {
+    "ReloadPlugins": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "reload_plugins" }
+      },
+      "additionalProperties": true
+    },
+    "ReloadPluginsResponse": {
+      "type": "object",
+      "required": ["error_count"],
+      "properties": {
+        "commands": { "type": "array" },
+        "agents": { "type": "array" },
+        "plugins": { "type": "array" },
+        "mcpServers": { "type": "array" },
+        "error_count": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

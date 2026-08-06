@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/permission.json",
+  "title": "BiuMind SDK v1 — Permission Control",
+  "description": "subtype=can_use_tool。runtime → client 询问 tool 是否允许。响应在 permissions.json#/$defs/PermissionResult（S1-4 填）。",
+  "$defs": {
+    "PermissionRequest": {
+      "type": "object",
+      "required": ["subtype", "tool_name", "input", "tool_use_id"],
+      "properties": {
+        "subtype": { "const": "can_use_tool" },
+        "tool_name": { "type": "string" },
+        "input": {},
+        "permission_suggestions": { "type": "array" },
+        "blocked_path": { "type": "string" },
+        "decision_reason": { "type": "string" },
+        "title": { "type": "string" },
+        "display_name": { "type": "string" },
+        "tool_use_id": { "type": "string" },
+        "agent_id": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "security-guard",
+  "version": "1.0.0",
+  "description": "Detects secrets in tool inputs and blocks Edit/Write to sensitive paths (~/.ssh, ~/.aws, .env)",
+  "author": { "name": "BiuMind" }
+}

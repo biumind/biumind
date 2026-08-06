@@ -1,0 +1,46 @@
+# Build context 优化 — 服务/worker 的 Dockerfile 实际只需要:
+#   services/<svc>/        (该服务自己)
+#   workers/<svc>/         (该 worker 自己)
+#   packages/go-sdk/biu    (Go 服务的共享 SDK)
+#   go.work / go.work.sum  (Go workspace)
+#
+
+# 不参与服务镜像构建的大目录
+apps/
+# 例外：brain / runtime go.mod replace ../../apps/cli/biu，需要这棵进 build context
+!apps/cli/biu
+docs/
+# 例外：site Dockerfile docs-builder stage 需要 docs/ + mkdocs.yml 进 build context
+# （烤 mkdocs 文档进 site 镜像，nginx /docs serve）。docs/ 仅 3.3M。
+!docs/
+build/
+mkdocs.yml
+!mkdocs.yml
+
+# VCS / IDE / OS
+.git/
+.github/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Flutter / Node 产物(任何子目录里出现都排除)
+**/.dart_tool/
+**/build/
+**/node_modules/
+**/.next/
+**/dist/
+
+# Python 缓存
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.venv/
+**/venv/
+
+# 测试 / 临时
+**/*.log
+**/coverage/
+**/.coverage
+**/tmp/

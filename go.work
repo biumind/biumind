@@ -1,0 +1,26 @@
+go 1.26.0
+
+// 模块按 Phase 加入，避免引用未实现的目录
+use (
+	./apps/cli/biu
+	./apps/cli/biu-pty-bridge
+	./packages/go-sdk/biu
+	./sdks/go
+	./services/aigc
+	./services/app_center
+	./services/authz
+	./services/brain
+	./services/channels
+	./services/deploy
+	./services/model-relay
+	./services/identity
+	./services/realtime
+	./services/runtime
+	./services/sandbox
+	./tools/schema-validate
+	./tools/smoke
+)
+
+// 待加入（在 services/<svc>/go.mod 创建后取消注释）:
+// 	./services/billing
+// 	./services/presence

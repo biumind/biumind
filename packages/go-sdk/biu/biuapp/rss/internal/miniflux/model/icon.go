@@ -1,0 +1,32 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package model // import "github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/model"
+
+import (
+	"encoding/base64"
+)
+
+// Icon represents a website icon (favicon)
+type Icon struct {
+	ID         int64  `json:"id"`
+	Hash       string `json:"hash"`
+	MimeType   string `json:"mime_type"`
+	Content    []byte `json:"-"`
+	ExternalID string `json:"external_id"`
+}
+
+// DataURL returns the data URL of the icon.
+func (i *Icon) DataURL() string {
+	return i.MimeType + ";base64," + base64.StdEncoding.EncodeToString(i.Content)
+}
+
+// Icons represents a list of icons.
+type Icons []*Icon
+
+// FeedIcon is a junction table between feeds and icons.
+type FeedIcon struct {
+	FeedID         int64  `json:"feed_id"`
+	IconID         int64  `json:"icon_id"`
+	ExternalIconID string `json:"external_icon_id"`
+}

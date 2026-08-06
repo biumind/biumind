@@ -1,0 +1,98 @@
+{
+  "name": "biu",
+  "displayName": "BiuMind biu",
+  "description": "Drive the biu CLI agent loop from VS Code via the local bridge.",
+  "version": "0.1.0",
+  "publisher": "biumind",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/biumind/biumind"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "biu.newSession",
+        "title": "BiuMind: New Session",
+        "category": "BiuMind"
+      },
+      {
+        "command": "biu.sendSelection",
+        "title": "BiuMind: Send Selection to Agent",
+        "category": "BiuMind"
+      },
+      {
+        "command": "biu.sendPrompt",
+        "title": "BiuMind: Send Prompt…",
+        "category": "BiuMind"
+      },
+      {
+        "command": "biu.showStatus",
+        "title": "BiuMind: Show Bridge Status",
+        "category": "BiuMind"
+      },
+      {
+        "command": "biu.cancelTurn",
+        "title": "BiuMind: Cancel Current Turn",
+        "category": "BiuMind"
+      }
+    ],
+    "configuration": {
+      "title": "BiuMind",
+      "properties": {
+        "biu.binaryPath": {
+          "type": "string",
+          "default": "biu",
+          "description": "Path to the `biu` binary. Leave as `biu` to use the one on PATH."
+        },
+        "biu.bridgePort": {
+          "type": "integer",
+          "default": 0,
+          "description": "Port to bind the local bridge to. 0 = pick free."
+        },
+        "biu.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically launch `biu bridge` on extension activation."
+        },
+        "biu.permissionMode": {
+          "type": "string",
+          "enum": ["default", "acceptEdits", "plan", "bypassPermissions"],
+          "default": "default",
+          "description": "Initial permission mode for new sessions. Visible in the status bar."
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorHasSelection",
+          "command": "biu.sendSelection",
+          "group": "biumind"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -p ./ -w",
+    "package": "vsce package --no-yarn"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.3"
+  }
+}

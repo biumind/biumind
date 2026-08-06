@@ -1,0 +1,70 @@
+"""Worker configuration loaded from env vars.
+
+Subject naming follows the same biumind.<env>.brain.* convention used by
+the Go publisher (services/brain/internal/publisher.NewBus) so a NATS
+client tail tail-subscribes work uniformly across services::
+
+    BIUMIND_NATS_URL          NATS url; default nats://localhost:4222
+    BIUMIND_ENV               environment slug; default "dev"
+    BIUMIND_WIKI_LLM_QUEUE    queue group; default "brain-wiki-llm"
+    BIUMIND_WIKI_LLM_TIMEOUT_S per-task budget; default 600 (10 min)
+
+LLM endpoint — the worker calls biumind hub (not the model provider
+directly), so credential management stays in hub::
+
+    BIUMIND_HUB_URL           e.g. http://hub:7001
+    BIUMIND_HUB_TOKEN         service-to-service token (issued by identity)
+    BIUMIND_WIKI_LLM_MODEL    default "claude-haiku-4-5-20251001"
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Config:
+    nats_url: str
+    env: str
+    queue_group: str
+    timeout_s: int
+
+    hub_url: str
+    hub_token: str
+    model: str
+
+    # Brain reverse callback. Used by the source-id-only ingest path
+    # (P2-B) — when a task arrives with no inline raw_text, the worker
+    # GETs /v1/internal/wiki/sources/{id} on brain to fetch the source
+    # body. Empty brain_url disables the path; the worker falls back to
+    # rejecting source-id-only tasks with a clear failure reason.
+    brain_url: str
+    internal_token: str
+
+    @property
+    def request_subject(self) -> str:
+        # Subscribed to (brain → worker).
+        return f"biumind.{self.env}.brain.wiki.ingest.requested"
+
+    @property
+    def update_subject(self) -> str:
+        # Published to (worker → brain): status / page-added / terminal.
+        return f"biumind.{self.env}.brain.wiki.ingest.update"
+
+    @classmethod
+    def from_env(cls, env: dict | None = None) -> "Config":
+        e = env if env is not None else os.environ
+        return cls(
+            nats_url=(e.get("BIUMIND_NATS_URL")
+                      or e.get("NATS_URL")
+                      or "nats://localhost:4222"),
+            env=e.get("BIUMIND_ENV", "dev"),
+            queue_group=e.get("BIUMIND_WIKI_LLM_QUEUE", "brain-wiki-llm"),
+            timeout_s=int(e.get("BIUMIND_WIKI_LLM_TIMEOUT_S", "600")),
+            hub_url=e.get("BIUMIND_HUB_URL", ""),
+            hub_token=e.get("BIUMIND_HUB_TOKEN", ""),
+            model=e.get("BIUMIND_WIKI_LLM_MODEL", "claude-haiku-4-5-20251001"),
+            brain_url=e.get("BIUMIND_BRAIN_URL", ""),
+            internal_token=e.get("BIUMIND_INTERNAL_TOKEN", ""),
+        )

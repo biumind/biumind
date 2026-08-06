@@ -1,0 +1,62 @@
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    uid: tempo
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki
+        mappedTags: [{ key: 'service.name', value: 'job' }]
+        mapTagNamesEnabled: true
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
+        filterByTraceID: true
+      tracesToMetrics:
+        datasourceUid: prom
+        spanStartTimeShift: -1m
+        spanEndTimeShift: 1m
+      serviceMap:
+        datasourceUid: prom
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    uid: loki
+    jsonData:
+      derivedFields:
+        - datasourceUid: tempo
+          matcherRegex: '"trace_id":"(\w+)"'
+          name: trace_id
+          url: '$${__value.raw}'
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prom
+    isDefault: true
+
+  # W3-6: PG biu_core (billing.events + identity.credit_logs).
+  # MVP 阶段 dashboard 直接查这个; 未来 R2.1 切 ClickHouse 时换 datasource
+  # uid 引用 (dashboard JSON 内 datasource.uid='biumind_pg').
+  - name: BiuMindPG
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    uid: biumind_pg
+    user: $POSTGRES_USER
+    secureJsonData:
+      password: $POSTGRES_PASSWORD
+    jsonData:
+      database: $POSTGRES_DB
+      sslmode: disable
+      maxOpenConns: 4
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+      timescaledb: false

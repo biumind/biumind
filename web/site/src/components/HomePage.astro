@@ -1,0 +1,247 @@
+---
+import HeroIllustration from './HeroIllustration.astro';
+import Icon from './Icons.astro';
+import { useTranslations, pathFor, type Locale } from '../i18n';
+
+interface Props {
+  locale: Locale;
+}
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+const featureIcons = ['brain', 'code', 'creation', 'cloud', 'channel', 'apps'] as const;
+const platformIcons = ['desktop', 'mobile', 'browser', 'cli'] as const;
+---
+
+<!-- ╭──── 1. HERO ────╮ -->
+<section class="relative overflow-hidden">
+  <div class="container-page grid items-center gap-10 pt-16 pb-20 md:grid-cols-[1.1fr_1fr] md:pt-24 md:pb-32 lg:gap-16">
+    <div class="relative z-10">
+      <h1 class="text-balance text-[44px] font-semibold leading-[1.05] tracking-tightest text-ink md:text-[64px] lg:text-[72px]">
+        {t.hero.title}
+      </h1>
+      <p class="mt-5 text-pretty text-[18px] text-ink md:text-[20px]">
+        {t.hero.subtitle}
+      </p>
+      <p class="mt-3 max-w-[520px] text-pretty text-[15px] leading-relaxed text-ink-secondary md:text-[16px]">
+        {t.hero.description}
+      </p>
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href={pathFor(locale, '/download')} class="btn-primary !px-5 !py-3 text-[15px]">
+          {t.hero.ctaPrimary}
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M3 8h10m0 0L9 4m4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+        <a href="/app" target="_blank" rel="noopener" class="btn-secondary !px-5 !py-3 text-[15px]">
+          {t.hero.ctaWeb}
+          <svg class="h-4 w-4" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+        <a href="#scenarios" class="btn-ghost !px-2.5 !py-1.5 text-[14px]">{t.hero.ctaSecondary}</a>
+      </div>
+      <p class="mt-6 text-[12px] tracking-wide text-ink-muted">{t.hero.platforms}</p>
+    </div>
+
+    <div class="relative">
+      <HeroIllustration />
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 2. 场景演示 ────╮ -->
+<section id="scenarios" class="section border-t border-border-subtle bg-surface">
+  <div class="container-page">
+    <div class="max-w-prose">
+      <p class="eyebrow">{t.scenarios.eyebrow}</p>
+      <h2 class="mt-2 text-balance text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[40px]">
+        {t.scenarios.title}
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-5 md:grid-cols-2">
+      {
+        t.scenarios.items.map((item, i) => (
+          <article class="card-hover group p-7">
+            <div class="flex items-start gap-3">
+              <span class="mt-1 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-xs bg-purple-soft text-[12px] font-semibold text-[var(--purple)]">
+                {i + 1}
+              </span>
+              <h3 class="text-[18px] font-semibold tracking-tightest text-ink">{item.title}</h3>
+            </div>
+            <p class="mt-3 pl-9 text-[14px] leading-relaxed text-ink-secondary">{item.body}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 3. 六大功能 ────╮ -->
+<section id="features" class="section">
+  <div class="container-page">
+    <div class="max-w-prose">
+      <p class="eyebrow">{t.features.eyebrow}</p>
+      <h2 class="mt-2 text-balance text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[40px]">
+        {t.features.title}
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-px overflow-hidden rounded-lg border border-border bg-border md:grid-cols-3">
+      {
+        t.features.items.map((item, i) => (
+          <div class="bg-surface p-7 transition-colors hover:bg-purple-light">
+            <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+              <Icon name={featureIcons[i]} />
+            </div>
+            <h3 class="mt-4 text-[16px] font-semibold tracking-tightest text-ink">{item.title}</h3>
+            <p class="mt-2 text-[14px] leading-relaxed text-ink-secondary">{item.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 4. 三种用户 ────╮ -->
+<section class="section border-t border-border-subtle bg-surface">
+  <div class="container-page">
+    <div class="max-w-prose">
+      <p class="eyebrow">{t.users.eyebrow}</p>
+      <h2 class="mt-2 text-balance text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[40px]">
+        {t.users.title}
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-5 md:grid-cols-3">
+      {
+        t.users.items.map((item) => (
+          <article class="card flex flex-col p-7">
+            <h3 class="text-[18px] font-semibold tracking-tightest text-ink">{item.title}</h3>
+            <p class="mt-3 flex-1 text-[14px] leading-relaxed text-ink-secondary">{item.body}</p>
+            <p class="mt-5 border-l-2 border-[var(--purple)] pl-3 text-[13px] italic text-ink-secondary">
+              {item.quote}
+            </p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 5. 跨端体验 ────╮ -->
+<section class="section">
+  <div class="container-page">
+    <div class="text-center">
+      <p class="eyebrow">{t.platforms.eyebrow}</p>
+      <h2 class="mx-auto mt-2 max-w-prose text-balance text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[40px]">
+        {t.platforms.title}
+      </h2>
+      <p class="mx-auto mt-4 max-w-[560px] text-pretty text-[15px] leading-relaxed text-ink-secondary">
+        {t.platforms.description}
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-2 gap-5 md:grid-cols-4">
+      {
+        t.platforms.items.map((item, i) => (
+          <div class="card flex flex-col items-center px-5 py-8 text-center">
+            <div class="inline-flex h-11 w-11 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+              <Icon name={platformIcons[i]} class="h-6 w-6" />
+            </div>
+            <h3 class="mt-4 text-[15px] font-semibold tracking-tightest text-ink">{item.name}</h3>
+            <p class="mt-1 text-[12px] text-ink-muted">{item.sub}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 6. 部署模式 ────╮ -->
+<section class="section border-t border-border-subtle bg-surface">
+  <div class="container-page">
+    <div class="max-w-prose">
+      <p class="eyebrow">{t.deploy.eyebrow}</p>
+      <h2 class="mt-2 text-balance text-[32px] font-semibold leading-tight tracking-tightest text-ink md:text-[40px]">
+        {t.deploy.title}
+      </h2>
+    </div>
+
+    <div class="mt-12 grid gap-5 md:grid-cols-2">
+      <div class="card flex flex-col p-8">
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="cloud" />
+        </div>
+        <h3 class="mt-4 text-[20px] font-semibold tracking-tightest text-ink">{t.deploy.cloud.title}</h3>
+        <p class="mt-2 flex-1 text-[14px] leading-relaxed text-ink-secondary">{t.deploy.cloud.body}</p>
+        <div class="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 self-start">
+          <a href={pathFor(locale, '/download')} class="btn-primary">{t.deploy.cloud.cta}</a>
+          <a href="/app" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[13px] font-medium text-[var(--purple)] hover:underline">
+            {t.deploy.cloud.openWeb}
+            <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="card flex flex-col p-8">
+        <div class="inline-flex h-10 w-10 items-center justify-center rounded-sm bg-purple-soft text-[var(--purple)]">
+          <Icon name="hub" />
+        </div>
+        <h3 class="mt-4 text-[20px] font-semibold tracking-tightest text-ink">{t.deploy.selfhost.title}</h3>
+        <p class="mt-2 flex-1 text-[14px] leading-relaxed text-ink-secondary">{t.deploy.selfhost.body}</p>
+        <div class="mt-5 rounded-md bg-[#0F172A] px-4 py-3 font-mono text-[12px] text-[#E2E8F0]">
+          <span class="text-[#94A3B8]">$</span> docker compose up -d
+        </div>
+        <a href="/docs/BiuMind-Self-Hosted-Deployment/" class="btn-secondary mt-6 self-start">{t.deploy.selfhost.cta}</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ╭──── 7. Final CTA ────╮ -->
+<section class="section-tight">
+  <div class="container-page">
+    <div class="relative overflow-hidden rounded-xl bg-[var(--purple)] px-8 py-16 text-center md:px-16 md:py-20">
+      <div
+        class="absolute inset-0 opacity-30"
+        style="background-image: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18) 0, transparent 40%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.12) 0, transparent 40%);"
+      >
+      </div>
+      <div class="relative">
+        <h2 class="text-balance text-[32px] font-semibold leading-tight tracking-tightest text-white md:text-[40px]">
+          {t.finalCta.title}
+        </h2>
+        <p class="mx-auto mt-3 max-w-[480px] text-[15px] text-white/80">{t.finalCta.subtitle}</p>
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href={pathFor(locale, '/download')}
+            class="inline-flex items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-[15px] font-medium text-[var(--purple)] transition-colors hover:bg-purple-soft"
+          >
+            {t.finalCta.primary}
+          </a>
+          <a
+            href="https://github.com/"
+            class="inline-flex items-center justify-center gap-2 rounded-md border border-white/30 px-5 py-3 text-[15px] font-medium text-white transition-colors hover:bg-white/10"
+          >
+            {t.finalCta.secondary}
+          </a>
+        </div>
+        <a
+          href="/app"
+          target="_blank"
+          rel="noopener"
+          class="mt-5 inline-flex items-center gap-1 text-[13px] font-medium text-white/85 transition-colors hover:text-white"
+        >
+          {t.finalCta.webHint}
+          <svg class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M5 11l6-6m0 0H6m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

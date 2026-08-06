@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/post_turn.json",
+  "title": "BiuMind SDK v1 — SDK Post-Turn Summary",
+  "description": "type=system + subtype=post_turn_summary。Anthropic Code 实测在 user 触发后异步生成。",
+  "$defs": {
+    "SDKPostTurnSummary": {
+      "type": "object",
+      "required": [
+        "type", "subtype", "summarizes_uuid", "status_category", "status_detail",
+        "is_noteworthy", "title", "description", "recent_action", "needs_action",
+        "artifact_urls", "uuid", "session_id"
+      ],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "post_turn_summary" },
+        "summarizes_uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "status_category": { "type": "string" },
+        "status_detail": { "type": "string" },
+        "is_noteworthy": { "type": "boolean" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "recent_action": { "type": "string" },
+        "needs_action": { "type": "boolean" },
+        "artifact_urls": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

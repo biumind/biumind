@@ -1,0 +1,5 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlCancelRequest",
+  "type": "control_cancel_request",
+  "request_id": "r-perm-1"
+}

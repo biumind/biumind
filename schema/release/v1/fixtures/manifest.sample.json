@@ -1,0 +1,91 @@
+{
+  "$schema": "https://biumind.dev/release/v1/manifest.json",
+  "version": "0.1.0",
+  "releasedAt": "2026-07-13T08:00:00Z",
+  "channel": "stable",
+  "notes": "首个官网直下版本。未签名,首次打开请参照下载页说明。",
+  "notesEn": "First direct-download release. Unsigned — see install hints on the download page.",
+  "minClientVersion": "0.1.0",
+  "assets": [
+    {
+      "platform": "macos-arm64",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-macos-arm64.dmg",
+      "filename": "biumind-0.1.0-macos-arm64.dmg",
+      "size": 78643200,
+      "sha256": "a3f5d2e1b9c8a7b6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2",
+      "signed": false,
+      "arch": "arm64",
+      "installHint": {
+        "zh": "首次打开:右键点击应用 → 打开(或在系统设置 → 隐私与安全 → 仍要打开)。",
+        "en": "First launch: right-click the app → Open (or System Settings → Privacy & Security → Open Anyway)."
+      }
+    },
+    {
+      "platform": "macos-intel",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-macos-intel.dmg",
+      "filename": "biumind-0.1.0-macos-intel.dmg",
+      "size": 83886080,
+      "sha256": "b4e6f3a2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4",
+      "signed": false,
+      "arch": "x64"
+    },
+    {
+      "platform": "windows-x64",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-windows-x64.exe",
+      "filename": "biumind-0.1.0-windows-x64.exe",
+      "size": 104857600,
+      "sha256": "c5a7b9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8c5",
+      "signed": false,
+      "arch": "x64",
+      "installHint": {
+        "zh": "SmartScreen 警告:点击「更多信息」→「仍要运行」。",
+        "en": "SmartScreen warning: click 'More info' → 'Run anyway'."
+      }
+    },
+    {
+      "platform": "linux-appimage",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-linux-x64.AppImage",
+      "filename": "biumind-0.1.0-linux-x64.AppImage",
+      "size": 94371840,
+      "sha256": "d6b8c0d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9d6",
+      "signed": false,
+      "arch": "x64"
+    },
+    {
+      "platform": "linux-deb",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-linux-x64.deb",
+      "filename": "biumind-0.1.0-linux-x64.deb",
+      "size": 89128960,
+      "sha256": "e7c9d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9e7",
+      "signed": false,
+      "arch": "x64"
+    },
+    {
+      "platform": "android-apk",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-android.apk",
+      "filename": "biumind-0.1.0-android.apk",
+      "size": 62914560,
+      "sha256": "f8d0e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0f8",
+      "signed": false,
+      "arch": "universal"
+    },
+    {
+      "platform": "biu-macos-arm64",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-biu-macos-arm64",
+      "filename": "biumind-0.1.0-biu-macos-arm64",
+      "size": 33554432,
+      "sha256": "09e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1",
+      "signed": false,
+      "arch": "arm64"
+    },
+    {
+      "platform": "biu-linux-x64",
+      "url": "https://releases.your-biumind.example.com/biumind-0.1.0-biu-linux-x64",
+      "filename": "biumind-0.1.0-biu-linux-x64",
+      "size": 34603008,
+      "sha256": "1af2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
+      "signed": false,
+      "arch": "x64"
+    }
+  ]
+}

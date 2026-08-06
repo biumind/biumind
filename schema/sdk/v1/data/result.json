@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/result.json",
+  "title": "BiuMind SDK v1 — SDK Result Message",
+  "description": "type=result（oneOf[SDKResultSuccess, SDKResultError]）。subtype=success | error_max_turns | error_during_execution | error_*。",
+  "$defs": {
+    "SDKResultSuccess": {
+      "type": "object",
+      "required": [
+        "type", "subtype", "duration_ms", "duration_api_ms", "is_error",
+        "num_turns", "result", "stop_reason", "total_cost_usd", "usage",
+        "modelUsage", "permission_denials", "uuid", "session_id"
+      ],
+      "properties": {
+        "type": { "const": "result" },
+        "subtype": { "const": "success" },
+        "duration_ms": { "type": "integer" },
+        "duration_api_ms": { "type": "integer" },
+        "is_error": { "const": false },
+        "num_turns": { "type": "integer" },
+        "result": { "type": "string" },
+        "stop_reason": { "type": ["string", "null"] },
+        "total_cost_usd": { "type": "number" },
+        "usage": { "$ref": "../_common.json#/$defs/NonNullableUsage" },
+        "modelUsage": {
+          "type": "object",
+          "additionalProperties": { "$ref": "../_common.json#/$defs/ModelUsage" }
+        },
+        "permission_denials": { "type": "array" },
+        "structured_output": {},
+        "fast_mode_state": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKResultError": {
+      "type": "object",
+      "required": [
+        "type", "subtype", "duration_ms", "duration_api_ms", "is_error",
+        "num_turns", "total_cost_usd", "usage", "modelUsage",
+        "permission_denials", "errors", "uuid", "session_id"
+      ],
+      "properties": {
+        "type": { "const": "result" },
+        "subtype": {
+          "type": "string",
+          "pattern": "^error_"
+        },
+        "duration_ms": { "type": "integer" },
+        "duration_api_ms": { "type": "integer" },
+        "is_error": { "const": true },
+        "num_turns": { "type": "integer" },
+        "total_cost_usd": { "type": "number" },
+        "usage": { "$ref": "../_common.json#/$defs/NonNullableUsage" },
+        "modelUsage": {
+          "type": "object",
+          "additionalProperties": { "$ref": "../_common.json#/$defs/ModelUsage" }
+        },
+        "permission_denials": { "type": "array" },
+        "errors": { "type": "array" },
+        "stop_reason": { "type": ["string", "null"] },
+        "fast_mode_state": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKResultMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/SDKResultSuccess" },
+        { "$ref": "#/$defs/SDKResultError" }
+      ]
+    }
+  }
+}

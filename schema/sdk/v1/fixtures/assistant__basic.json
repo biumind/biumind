@@ -1,0 +1,7 @@
+{
+  "$schema": "data/assistant.json#/$defs/SDKAssistantMessage",
+  "type": "assistant",
+  "message": { "role": "assistant", "content": "ok" },
+  "uuid": "a1",
+  "session_id": "s1"
+}

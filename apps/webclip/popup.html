@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>BiuMind Clipper</title>
+  <style>
+    /* 紧凑 popup 尺寸 — Chrome 不接 vh/vw,固定像素 */
+    html, body { width: 360px; margin: 0; padding: 0; font: 13px/1.4 system-ui, -apple-system, "PingFang SC", sans-serif; color: #1a1a1a; }
+    main { padding: 12px; }
+    h1 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: #444; }
+    label { display: block; margin: 8px 0 2px; font-size: 11px; color: #666; }
+    input[type="text"], select { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 13px;
+                                  border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+    button { width: 100%; padding: 8px 10px; font-size: 13px; border: none; border-radius: 4px;
+             background: #2962ff; color: #fff; cursor: pointer; margin-top: 10px; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    .preview { font-size: 11px; color: #666; max-height: 80px; overflow: auto;
+               background: #f6f6f6; border-radius: 4px; padding: 6px 8px; margin-top: 6px;
+               white-space: pre-wrap; word-break: break-word; }
+    .status { font-size: 11px; padding: 6px 8px; border-radius: 4px; margin-bottom: 8px; }
+    .status.ok      { background: #e8f5e9; color: #1b5e20; }
+    .status.warn    { background: #fff3cd; color: #5e4400; }
+    .status.error   { background: #ffe5e5; color: #7a1f1f; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row label { margin: 0; font-size: 12px; color: #444; }
+    .seg { display: flex; border: 1px solid #ccc; border-radius: 4px; overflow: hidden; }
+    .seg label { flex: 1; margin: 0; padding: 6px 0; text-align: center; font-size: 12px;
+                 color: #444; background: #fff; cursor: pointer; }
+    .seg label:has(input:checked) { background: #2962ff; color: #fff; }
+    .seg input { position: absolute; opacity: 0; pointer-events: none; }
+    .footer { margin-top: 10px; font-size: 11px; color: #888; display: flex; justify-content: space-between; }
+    a { color: #2962ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>BiuMind Clipper</h1>
+  <div id="status" class="status warn">加载中…</div>
+
+  <label>保存目标</label>
+  <div class="seg">
+    <label><input type="radio" name="target" value="wiki" checked />存到知识库</label>
+    <label><input type="radio" name="target" value="note" />存到笔记</label>
+  </div>
+
+  <div id="projectRow">
+    <label for="project">项目</label>
+    <select id="project"><option>—</option></select>
+  </div>
+
+  <label for="title">标题</label>
+  <input id="title" type="text" placeholder="自动从页面抓取" />
+
+  <label>预览</label>
+  <div id="preview" class="preview">…</div>
+
+  <div class="row" style="margin-top: 10px;">
+    <input id="useSelection" type="checkbox" />
+    <label for="useSelection">仅保存当前选中文字</label>
+  </div>
+
+  <div class="row" style="margin-top: 6px;" id="autoIngestRow">
+    <input id="autoIngest" type="checkbox" />
+    <label for="autoIngest">保存后自动转成 wiki 页（CoT ingest）</label>
+  </div>
+
+  <button id="clipBtn" disabled>保存到 BiuMind</button>
+
+  <div class="footer">
+    <a id="optionsLink" href="#">设置</a>
+    <span id="version"></span>
+  </div>
+</main>
+<script src="popup.js" type="module"></script>
+</body>
+</html>

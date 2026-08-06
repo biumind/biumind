@@ -1,0 +1,183 @@
+# Release SDKs to PyPI / npm / Go module proxy.
+#
+# Per-language tag prefix so polyglot SDKs can ship independently:
+#
+#   sdk-py-v0.1.0        → publish biumind to PyPI
+#   sdk-node-v0.1.0      → publish @biumind/sdk to npm
+#   sdk-go-v0.1.0        → tag the Go module so proxy.golang.org picks it up
+#                          (no separate publish step — Go modules are git-resolved)
+#
+# Optional inputs on workflow_dispatch let an operator do a dry-run
+# (build + check, no publish) before cutting the real tag.
+
+name: Release SDKs
+
+on:
+  push:
+    tags:
+      - "sdk-py-v*"
+      - "sdk-node-v*"
+      - "sdk-go-v*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which SDK to release"
+        required: true
+        type: choice
+        options: [python, node, go]
+      version:
+        description: "Version (e.g. 0.1.0); used for the package version, not as a git tag"
+        required: true
+        type: string
+      dry_run:
+        description: "Build + verify only; skip publish"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # gh release for the Go SDK
+  id-token: write   # OIDC for PyPI Trusted Publishers
+
+jobs:
+  python:
+    name: PyPI (biumind)
+    if: |
+      startsWith(github.ref_name, 'sdk-py-v')
+      || (github.event_name == 'workflow_dispatch' && inputs.target == 'python')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi    # configures Trusted Publisher
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_NAME" == sdk-py-v* ]]; then
+            v="${GITHUB_REF_NAME#sdk-py-v}"
+          else
+            v="${{ inputs.version }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Patch pyproject.toml version
+        working-directory: sdks/python
+        run: |
+          # Replace the line `version = "x.y.z"` once.
+          python - <<EOF
+          import re, pathlib
+          p = pathlib.Path("pyproject.toml")
+          t = p.read_text()
+          new = re.sub(r'^version\s*=\s*".*?"',
+                       f'version = "${{ steps.ver.outputs.version }}"',
+                       t, count=1, flags=re.M)
+          p.write_text(new)
+          EOF
+
+      - name: Build sdist + wheel
+        working-directory: sdks/python
+        run: |
+          pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI (skipped on dry_run)
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist
+
+  node:
+    name: npm (@biumind/sdk)
+    if: |
+      startsWith(github.ref_name, 'sdk-node-v')
+      || (github.event_name == 'workflow_dispatch' && inputs.target == 'node')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_NAME" == sdk-node-v* ]]; then
+            v="${GITHUB_REF_NAME#sdk-node-v}"
+          else
+            v="${{ inputs.version }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Patch package.json version
+        working-directory: sdks/node
+        run: |
+          npm version "${{ steps.ver.outputs.version }}" \
+            --no-git-tag-version --allow-same-version
+
+      - name: Test
+        working-directory: sdks/node
+        run: npm test
+
+      - name: Publish (skipped on dry_run)
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/node
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  go:
+    # Go modules are resolved via git tags; "release" means cutting a
+    # tag the proxy can fetch. We additionally create a GitHub Release
+    # so consumers see the changelog without spelunking commit history.
+    name: Go (sdks/go)
+    if: |
+      startsWith(github.ref_name, 'sdk-go-v')
+      || (github.event_name == 'workflow_dispatch' && inputs.target == 'go')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sdks/go/go.mod
+
+      - name: Verify build + tests pass
+        working-directory: sdks/go
+        run: |
+          go build ./...
+          go test -count=1 ./...
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_NAME" == sdk-go-v* ]]; then
+            v="${GITHUB_REF_NAME#sdk-go-}"   # keep leading "v"
+          else
+            v="v${{ inputs.version }}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run && github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Go SDK ${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          # Hint to consumers that this is the Go-SDK module specifically;
+          # the same repo also produces other artefacts.
+          body: |
+            Go SDK release: `github.com/biumind/biumind/sdks/go@${{ steps.ver.outputs.version }}`
+
+            ```bash
+            go get github.com/biumind/biumind/sdks/go@${{ steps.ver.outputs.version }}
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

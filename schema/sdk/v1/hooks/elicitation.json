@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/elicitation.json",
+  "title": "BiuMind SDK v1 — Elicitation Hooks",
+  "description": "Elicitation hook（worker 触发）/ ElicitationResult（用户填表后回传给 worker）。Hook 形态跟 control/elicitation.json 字段一致，但走 hook input 通道。",
+  "$defs": {
+    "Elicitation": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "mcp_server_name", "message"],
+          "properties": {
+            "hook_event_name": { "const": "Elicitation" },
+            "mcp_server_name": { "type": "string" },
+            "message": { "type": "string" },
+            "mode": { "type": "string", "enum": ["form", "url"] },
+            "url": { "type": "string" },
+            "elicitation_id": { "type": "string" },
+            "requested_schema": { "type": "object", "additionalProperties": true }
+          }
+        }
+      ]
+    },
+    "ElicitationResult": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "mcp_server_name", "action"],
+          "properties": {
+            "hook_event_name": { "const": "ElicitationResult" },
+            "mcp_server_name": { "type": "string" },
+            "elicitation_id": { "type": "string" },
+            "mode": { "type": "string", "enum": ["form", "url"] },
+            "action": { "type": "string", "enum": ["accept", "decline", "cancel"] },
+            "content": { "type": "object", "additionalProperties": true }
+          }
+        }
+      ]
+    }
+  }
+}

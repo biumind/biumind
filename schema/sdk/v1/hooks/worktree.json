@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/worktree.json",
+  "title": "BiuMind SDK v1 — Worktree Hooks",
+  "description": "WorktreeCreate / WorktreeRemove — git worktree 生命周期。",
+  "$defs": {
+    "WorktreeCreate": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "name"],
+          "properties": {
+            "hook_event_name": { "const": "WorktreeCreate" },
+            "name": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "WorktreeRemove": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "worktree_path"],
+          "properties": {
+            "hook_event_name": { "const": "WorktreeRemove" },
+            "worktree_path": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

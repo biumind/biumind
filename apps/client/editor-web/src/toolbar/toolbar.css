@@ -1,0 +1,102 @@
+/* 常驻格式工具栏。颜色走 light.css / dark.css 的 --kc-editor-* 变量，明暗主题自动适配。 */
+
+.kc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--kc-editor-border);
+  background: var(--kc-editor-bg);
+  user-select: none;
+}
+
+.kc-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--kc-editor-fg);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kc-tb-btn:hover:not(:disabled) {
+  background: var(--kc-editor-code-bg);
+}
+
+.kc-tb-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.kc-tb-btn.kc-tb-active {
+  color: var(--kc-editor-accent);
+  background: var(--kc-editor-code-bg);
+}
+
+.kc-tb-text {
+  font-size: 12px;
+}
+
+.kc-tb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.kc-tb-heading {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.kc-tb-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--kc-editor-border);
+}
+
+.kc-tb-sep:last-child {
+  display: none;
+}
+
+.kc-tb-spacer {
+  flex: 1;
+}
+
+/* 窄屏（手机/窄右栏断点 520px）：单行横向滚动，不再折行吃纵向空间。
+   宽屏维持上方 wrap 布局不变。 */
+@media (max-width: 520px) {
+  .kc-toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .kc-toolbar::-webkit-scrollbar {
+    height: 3px;
+  }
+
+  .kc-toolbar::-webkit-scrollbar-thumb {
+    background: var(--kc-editor-border);
+    border-radius: 2px;
+  }
+
+  .kc-tb-btn,
+  .kc-tb-sep {
+    flex-shrink: 0;
+  }
+}
+
+/* Crepe 容器：占满工具栏以下空间，内部滚动 */
+.kc-editor-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

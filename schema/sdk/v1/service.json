@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/service.json",
+  "title": "BiuMind SDK v1 — Service Wrappers",
+  "description": "顶层 wrapper —— WebSocket 帧的根类型。\n\nStdinMessage：客户端 → 服务端方向。包含 SDKMessage（user 输入）+ ControlRequest（控制）+ ControlCancelRequest + UpdateEnvironmentVariables（lifecycle）。\nStdoutMessage：服务端 → 客户端方向。包含全部 SDKMessage（assistant/system 等）+ ControlRequest（permission ask 反向）+ ControlResponse + 全部 BiuMind lifecycle 帧。",
+  "$defs": {
+    "StdinMessage": {
+      "oneOf": [
+        { "$ref": "data/index.json#/$defs/SDKMessage" },
+        { "$ref": "control/wrappers.json#/$defs/SDKControlRequest" },
+        { "$ref": "control/wrappers.json#/$defs/SDKControlCancelRequest" },
+        { "$ref": "lifecycle.json#/$defs/UpdateEnvironmentVariables" }
+      ]
+    },
+    "StdoutMessage": {
+      "oneOf": [
+        { "$ref": "data/index.json#/$defs/SDKMessage" },
+        { "$ref": "control/wrappers.json#/$defs/SDKControlRequest" },
+        { "$ref": "control/wrappers.json#/$defs/SDKControlResponse" },
+        { "$ref": "lifecycle.json#/$defs/KeepAlive" },
+        { "$ref": "lifecycle.json#/$defs/SessionDesynced" },
+        { "$ref": "lifecycle.json#/$defs/SessionPaused" },
+        { "$ref": "lifecycle.json#/$defs/SessionResumed" },
+        { "$ref": "lifecycle.json#/$defs/SessionPrimaryPromoted" },
+        { "$ref": "lifecycle.json#/$defs/BiumindCompactStarted" },
+        { "$ref": "lifecycle.json#/$defs/BiumindCompactFinished" }
+      ]
+    }
+  }
+}

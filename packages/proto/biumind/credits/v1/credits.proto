@@ -1,0 +1,243 @@
+syntax = "proto3";
+
+package biumind.credits.v1;
+
+import "google/protobuf/timestamp.proto";
+import "biumind/common/v1/common.proto";
+
+// Credits 服务（归 identity 域实现）：双账户积分系统
+//
+//   永久积分（permanent）   —— 单充买入 / 永不过期
+//   时效积分（time_limited）—— 套餐附赠 / 活动赠送，按 expires_at 过期
+//
+// 扣减策略（必须严格遵守）：优先扣最早过期的时效包 → 扣完再扣下一个时效包 → 最后扣永久。
+// 退款策略：按 credit_logs.ref_id 找到原扣减明细，原路径返回到对应 credit_packages。
+//
+// 设计参考：
+//   docs/BiuMind-AIGC-Storage-Design.md §2.4
+//   docs/BiuMind-AIGC-Migration-Plan.md §2.4
+//   zhiying-backend/新用户积分设计文档.md（行为基线）
+service CreditsService {
+  // ────── 余额 / 流水 ──────
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {}
+  rpc ListPackages(ListPackagesRequest) returns (ListPackagesResponse) {}
+  rpc ListLogs(ListLogsRequest) returns (ListLogsResponse) {}
+
+  // ────── 内部 RPC（仅 service 间调用，不对外暴露 REST）──────
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse) {}
+  rpc Refund(RefundRequest) returns (RefundResponse) {}
+  rpc Grant(GrantRequest) returns (GrantResponse) {}     // 充值 / 套餐附赠 / 活动赠送
+
+  // ────── 充值（v1 mock；v2 接 Stripe / 微信 / 支付宝）──────
+  rpc Recharge(RechargeRequest) returns (RechargeResponse) {}
+  rpc ListRechargeOptions(ListRechargeOptionsRequest) returns (ListRechargeOptionsResponse) {}
+}
+
+// ════════════════════════════════════════════════════════════
+// 枚举
+// ════════════════════════════════════════════════════════════
+
+enum PackageKind {
+  PACKAGE_KIND_UNSPECIFIED = 0;
+  PACKAGE_KIND_PERMANENT = 1;
+  PACKAGE_KIND_TIME_LIMITED = 2;
+}
+
+enum PackageSource {
+  PACKAGE_SOURCE_UNSPECIFIED = 0;
+  PACKAGE_SOURCE_RECHARGE = 1;        // 用户单充
+  PACKAGE_SOURCE_PLAN_GRANT = 2;      // 套餐附赠（Pro/Team 每月）
+  PACKAGE_SOURCE_REWARD = 3;          // 活动 / 邀请奖励
+  PACKAGE_SOURCE_REFUND = 4;          // 退款回填
+  PACKAGE_SOURCE_ADMIN = 5;           // 后台手动调整
+}
+
+enum LogRefType {
+  LOG_REF_TYPE_UNSPECIFIED = 0;
+  LOG_REF_TYPE_AIGC_TASK = 1;         // AIGC 生成任务扣减
+  LOG_REF_TYPE_CHAT_MESSAGE = 2;      // chat 消息扣减（v2）
+  LOG_REF_TYPE_RECHARGE = 3;          // 充值入账
+  LOG_REF_TYPE_PLAN_GRANT = 4;        // 套餐附赠
+  LOG_REF_TYPE_REFUND = 5;            // 退款
+  LOG_REF_TYPE_REWARD = 6;
+  LOG_REF_TYPE_ADMIN = 7;
+}
+
+// ════════════════════════════════════════════════════════════
+// 核心类型
+// ════════════════════════════════════════════════════════════
+
+// 双账户余额（聚合视图，UI 显示用）
+message Balance {
+  string user_id = 1;
+  int64 permanent_balance = 2;
+  int64 time_limited_balance = 3;
+  // 最早过期的时效包过期时间（UI 显示「时效积分将于 X 月 Y 日过期」）
+  google.protobuf.Timestamp time_limited_earliest_expires = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// 单笔积分包（同 user 可能有多个时效包）
+message Package {
+  string id = 1;
+  string user_id = 2;
+  PackageKind kind = 3;
+  PackageSource source = 4;
+  int64 initial_amount = 5;
+  int64 remaining = 6;
+  google.protobuf.Timestamp expires_at = 7;       // PERMANENT 时为零值
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// 流水：每次扣减 / 充值 / 退款都记一行
+message Log {
+  string id = 1;
+  string user_id = 2;
+
+  // 正数 = 入账（充值 / 赠送 / 退款），负数 = 出账（消费）
+  int64 delta = 3;
+  // 出账时为本笔扣减的明细 JSON：[{package_id, amount}, ...]
+  // 退款时按这份明细原路径返还。
+  string consume_breakdown_json = 4;
+
+  // 操作后的总余额（permanent + time_limited），用于对账
+  int64 balance_after = 5;
+
+  LogRefType ref_type = 6;
+  string ref_id = 7;                  // task_id / order_id / 等
+  string remark = 8;
+
+  // 退款专用：指向原扣减 log（用于幂等检查 & 路径还原）
+  string refund_of_log_id = 9;
+
+  google.protobuf.Timestamp created_at = 10;
+}
+
+// ════════════════════════════════════════════════════════════
+// 余额 / 流水查询
+// ════════════════════════════════════════════════════════════
+
+message GetBalanceRequest {
+  // 留空 = 当前登录用户。admin 可指定 user_id。
+  string user_id = 1;
+}
+
+message GetBalanceResponse {
+  Balance balance = 1;
+}
+
+message ListPackagesRequest {
+  string user_id = 1;
+  PackageKind kind = 2;               // UNSPECIFIED = 全部
+  bool include_exhausted = 3;         // remaining == 0 的也返回（admin 视野）
+  biumind.common.v1.Pagination pagination = 4;
+}
+
+message ListPackagesResponse {
+  repeated Package packages = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+message ListLogsRequest {
+  string user_id = 1;
+  LogRefType ref_type = 2;            // UNSPECIFIED = 全部
+  google.protobuf.Timestamp since = 3;
+  biumind.common.v1.Pagination pagination = 4;
+}
+
+message ListLogsResponse {
+  repeated Log logs = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+// ════════════════════════════════════════════════════════════
+// 内部 RPC：扣减 / 退款 / 入账
+// ════════════════════════════════════════════════════════════
+
+message ConsumeRequest {
+  string user_id = 1;
+  int64 amount = 2;                   // 必须 > 0
+  LogRefType ref_type = 3;
+  string ref_id = 4;
+  string remark = 5;
+
+  // 幂等键：同 (user_id, idempotency_key) 重复请求只扣一次。
+  // 调用方推荐用 task_id / order_id 作为幂等键。
+  string idempotency_key = 6;
+}
+
+message ConsumeResponse {
+  Log log = 1;
+  Balance balance = 2;
+}
+
+message RefundRequest {
+  // 必须指定原扣减 log 的 id；从中读取 breakdown，原路径返还到 packages。
+  string original_log_id = 1;
+  int64 amount = 2;                   // 必须 ≤ original_log.|delta|；支持部分退款
+  string remark = 3;
+
+  // 幂等键：同 (original_log_id, idempotency_key) 重复退款只生效一次
+  string idempotency_key = 4;
+}
+
+message RefundResponse {
+  Log log = 1;
+  Balance balance = 2;
+}
+
+message GrantRequest {
+  string user_id = 1;
+  int64 amount = 2;
+  PackageKind kind = 3;
+  PackageSource source = 4;
+  // 仅 TIME_LIMITED 时有意义；PERMANENT 忽略
+  google.protobuf.Timestamp expires_at = 5;
+  string remark = 6;
+  string idempotency_key = 7;
+}
+
+message GrantResponse {
+  Package package = 1;
+  Balance balance = 2;
+}
+
+// ════════════════════════════════════════════════════════════
+// 充值（v1 mock；v2 接真支付）
+// ════════════════════════════════════════════════════════════
+
+// 充值套餐选项（运营配置）
+message RechargeOption {
+  string id = 1;
+  string display_name = 2;            // "1000 积分包"
+  int64 credits_amount = 3;           // 入账积分数
+  PackageKind kind = 4;               // 多数选 PERMANENT
+  int64 price_micro_cny = 5;          // 价格（人民币分 × 1000）
+  int32 valid_days = 6;               // TIME_LIMITED 时有效期；PERMANENT 时为 0
+  bool enabled = 7;
+  int32 sort_order = 8;
+}
+
+message ListRechargeOptionsRequest {}
+
+message ListRechargeOptionsResponse {
+  repeated RechargeOption options = 1;
+}
+
+message RechargeRequest {
+  string option_id = 1;
+  // v1 mock：直接入账，不走支付。
+  // v2：返回 payment_intent，前端跳支付页 / 弹微信支付二维码，
+  //     支付回调（Webhook）后再调 Grant。
+  string idempotency_key = 2;
+}
+
+message RechargeResponse {
+  // v1 直接 Grant 后返回
+  Log log = 1;
+  Balance balance = 2;
+
+  // v2 字段（占位）：
+  string payment_intent_url = 3;      // 支付页 URL
+  string payment_intent_id = 4;
+}

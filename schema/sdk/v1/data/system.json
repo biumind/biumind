@@ -1,0 +1,285 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/system.json",
+  "title": "BiuMind SDK v1 — SDK System Messages",
+  "description": "SDK System 消息集合：type=system + 多个 subtype，外加几个特殊 type（auth_status / rate_limit_event / prompt_suggestion）。Open by default — 字段表见 Schema-Mapping §4。",
+  "$defs": {
+    "SDKSystemBase": {
+      "type": "object",
+      "required": ["uuid", "session_id"],
+      "properties": {
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      }
+    },
+    "SDKSystemInit": {
+      "type": "object",
+      "required": [
+        "type", "subtype", "agents", "apiKeySource", "betas", "claude_code_version",
+        "cwd", "tools", "mcp_servers", "model", "permissionMode", "slash_commands",
+        "output_style", "uuid", "session_id"
+      ],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "init" },
+        "agents": { "type": "array" },
+        "apiKeySource": { "type": "string" },
+        "betas": { "type": "array", "items": { "type": "string" } },
+        "claude_code_version": { "type": "string" },
+        "cwd": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "mcp_servers": { "type": "array" },
+        "model": { "type": "string" },
+        "permissionMode": { "type": "string" },
+        "slash_commands": { "type": "array" },
+        "output_style": { "type": "string" },
+        "skills": { "type": "array" },
+        "plugins": { "type": "array" },
+        "fast_mode_state": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKSystemStatus": {
+      "type": "object",
+      "required": ["type", "subtype", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "status" },
+        "status": { "type": ["string", "null"] },
+        "permissionMode": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKCompactBoundary": {
+      "type": "object",
+      "required": ["type", "subtype", "compact_metadata", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "compact_boundary" },
+        "compact_metadata": {
+          "type": "object",
+          "required": ["trigger", "pre_tokens"],
+          "properties": {
+            "trigger": { "type": "string" },
+            "pre_tokens": { "type": "integer" },
+            "preserved_segment": {}
+          },
+          "additionalProperties": true
+        },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKAPIRetry": {
+      "type": "object",
+      "required": ["type", "subtype", "attempt", "max_retries", "retry_delay_ms", "error", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "api_retry" },
+        "attempt": { "type": "integer" },
+        "max_retries": { "type": "integer" },
+        "retry_delay_ms": { "type": "integer" },
+        "error_status": { "type": ["integer", "string"] },
+        "error": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKLocalCommandOutput": {
+      "type": "object",
+      "required": ["type", "subtype", "content", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "local_command_output" },
+        "content": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKHookStarted": {
+      "type": "object",
+      "required": ["type", "subtype", "hook_id", "hook_name", "hook_event", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "hook_started" },
+        "hook_id": { "type": "string" },
+        "hook_name": { "type": "string" },
+        "hook_event": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKHookProgress": {
+      "type": "object",
+      "required": ["type", "subtype", "hook_id", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "hook_progress" },
+        "hook_id": { "type": "string" },
+        "hook_name": { "type": "string" },
+        "hook_event": { "type": "string" },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "output": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKHookResponse": {
+      "type": "object",
+      "required": ["type", "subtype", "hook_id", "outcome", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "hook_response" },
+        "hook_id": { "type": "string" },
+        "hook_name": { "type": "string" },
+        "hook_event": { "type": "string" },
+        "exit_code": { "type": ["integer", "null"] },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "error", "cancelled"]
+        },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "output": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKAuthStatus": {
+      "type": "object",
+      "required": ["type", "isAuthenticating", "output", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "auth_status" },
+        "isAuthenticating": { "type": "boolean" },
+        "output": { "type": "array", "items": { "type": "string" } },
+        "error": { "type": ["string", "null"] },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKFilesPersisted": {
+      "type": "object",
+      "required": ["type", "subtype", "files", "failed", "processed_at", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "files_persisted" },
+        "files": { "type": "array", "items": { "type": "string" } },
+        "failed": { "type": "array" },
+        "processed_at": { "$ref": "../_common.json#/$defs/Timestamp" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKTaskNotification": {
+      "type": "object",
+      "required": ["type", "subtype", "task_id", "status", "output_file", "summary", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "task_notification" },
+        "task_id": { "type": "string" },
+        "tool_use_id": { "type": "string" },
+        "status": { "type": "string" },
+        "output_file": { "type": "string" },
+        "summary": { "type": "string" },
+        "usage": {},
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKTaskStarted": {
+      "type": "object",
+      "required": ["type", "subtype", "task_id", "description", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "task_started" },
+        "task_id": { "type": "string" },
+        "tool_use_id": { "type": "string" },
+        "description": { "type": "string" },
+        "task_type": { "type": "string" },
+        "workflow_name": { "type": "string" },
+        "prompt": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKTaskProgress": {
+      "type": "object",
+      "required": ["type", "subtype", "task_id", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "task_progress" },
+        "task_id": { "type": "string" },
+        "last_tool_name": { "type": "string" },
+        "summary": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKSessionStateChanged": {
+      "type": "object",
+      "required": ["type", "subtype", "state", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "session_state_changed" },
+        "state": {
+          "type": "string",
+          "enum": ["idle", "running", "requires_action"]
+        },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKRateLimitEvent": {
+      "type": "object",
+      "required": ["type", "rate_limit_info", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "rate_limit_event" },
+        "rate_limit_info": { "$ref": "../_common.json#/$defs/RateLimitInfo" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKElicitationComplete": {
+      "type": "object",
+      "required": ["type", "subtype", "mcp_server_name", "elicitation_id", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "elicitation_complete" },
+        "mcp_server_name": { "type": "string" },
+        "elicitation_id": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKPromptSuggestion": {
+      "type": "object",
+      "required": ["type", "suggestion", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "prompt_suggestion" },
+        "suggestion": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

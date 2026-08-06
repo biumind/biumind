@@ -1,0 +1,19 @@
+{
+  "description": "hookify — enforces user-stated 'don't do X' rules from local memory",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "internal", "handler": "hookify:pre-tool" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "internal", "handler": "hookify:user-prompt" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+node_modules
+dist
+unpackage
+.cache
+.git
+.idea
+.vscode
+*.log
+.env.local
+.env.*.local
+README.md

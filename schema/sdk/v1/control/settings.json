@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/settings.json",
+  "title": "BiuMind SDK v1 — Settings Control",
+  "description": "ApplyFlagSettings + GetSettings。GetSettingsResponse 详见 ../settings.json (S1-4)。",
+  "$defs": {
+    "ApplyFlagSettings": {
+      "type": "object",
+      "required": ["subtype", "settings"],
+      "properties": {
+        "subtype": { "const": "apply_flag_settings" },
+        "settings": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "GetSettings": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "get_settings" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

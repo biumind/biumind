@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package biumind.authz.v1;
+
+import "biumind/common/v1/common.proto";
+
+service AuthzService {
+  // 单点决策
+  rpc Check(CheckRequest) returns (CheckResponse) {}
+
+  // 批量决策（同 principal+action，多个 resource）
+  rpc BatchCheck(BatchCheckRequest) returns (BatchCheckResponse) {}
+
+  // 列出 principal 在某 action 下能访问的 resource ids
+  rpc ListAuthorized(ListAuthorizedRequest) returns (ListAuthorizedResponse) {}
+}
+
+message CheckRequest {
+  biumind.common.v1.Principal principal = 1;
+  string action = 2;                       // "wiki:Page::read"
+  biumind.common.v1.ResourceRef resource = 3;
+  map<string, string> context = 4;         // 额外环境信息
+}
+
+message CheckResponse {
+  Decision decision = 1;
+  string reason = 2;                       // 命中的策略 id
+  repeated string matched_policies = 3;
+  bool from_cache = 4;
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  DECISION_ALLOW = 1;
+  DECISION_DENY = 2;
+}
+
+message BatchCheckItem {
+  string action = 1;
+  biumind.common.v1.ResourceRef resource = 2;
+}
+
+message BatchCheckRequest {
+  biumind.common.v1.Principal principal = 1;
+  repeated BatchCheckItem items = 2;
+}
+
+message BatchCheckResponse {
+  repeated CheckResponse decisions = 1;     // 与 items 同序
+}
+
+message ListAuthorizedRequest {
+  biumind.common.v1.Principal principal = 1;
+  string action = 2;
+  string resource_type = 3;                 // "wiki:Page"
+  repeated string candidate_ids = 4;        // 可选预过滤
+  biumind.common.v1.Pagination pagination = 5;
+}
+
+message ListAuthorizedResponse {
+  repeated string allowed_ids = 1;
+  biumind.common.v1.Page page = 2;
+}

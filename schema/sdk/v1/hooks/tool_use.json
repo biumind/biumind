@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/tool_use.json",
+  "title": "BiuMind SDK v1 — Tool Use Hooks",
+  "description": "PreToolUse / PostToolUse / PostToolUseFailure / PermissionDenied — 4 个跟 tool 调用关联的 hook。",
+  "$defs": {
+    "PreToolUse": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "tool_name", "tool_input", "tool_use_id"],
+          "properties": {
+            "hook_event_name": { "const": "PreToolUse" },
+            "tool_name": { "type": "string" },
+            "tool_input": {},
+            "tool_use_id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "PostToolUse": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "tool_name", "tool_input", "tool_response", "tool_use_id"],
+          "properties": {
+            "hook_event_name": { "const": "PostToolUse" },
+            "tool_name": { "type": "string" },
+            "tool_input": {},
+            "tool_response": {},
+            "tool_use_id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "PostToolUseFailure": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "tool_name", "tool_input", "tool_use_id", "error"],
+          "properties": {
+            "hook_event_name": { "const": "PostToolUseFailure" },
+            "tool_name": { "type": "string" },
+            "tool_input": {},
+            "tool_use_id": { "type": "string" },
+            "error": { "type": "string" },
+            "is_interrupt": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "PermissionDenied": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "tool_name", "tool_input", "tool_use_id", "reason"],
+          "properties": {
+            "hook_event_name": { "const": "PermissionDenied" },
+            "tool_name": { "type": "string" },
+            "tool_input": {},
+            "tool_use_id": { "type": "string" },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

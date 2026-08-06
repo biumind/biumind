@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/biumind_ext.json",
+  "title": "BiuMind SDK v1 — BiuMind Extensions",
+  "description": "BiuMind 业务扩展类型 —— CreateSessionReq / Session / Mode / EnvironmentInfo。这些是 HTTP 控制端点的请求/响应，不进入 WS 帧 union，但跟 SDK Protocol 同生命周期。",
+  "$defs": {
+    "Mode": {
+      "type": "string",
+      "enum": ["chat", "agent", "task"]
+    },
+    "CreateSessionReq": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "$ref": "#/$defs/Mode" },
+        "environment_id": {
+          "type": "string",
+          "description": "Agent / Task 模式必填；Chat 模式忽略"
+        },
+        "thread_id": {
+          "type": "string",
+          "description": "关联 chat.threads 表，可选"
+        },
+        "model": { "type": "string" },
+        "system_prompt": { "type": "string" },
+        "biumind_attachment_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "MinIO file_id 列表 —— 上传后引用"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Session": {
+      "type": "object",
+      "required": ["session_id", "session_token", "mode", "server_seq_start"],
+      "properties": {
+        "session_id": { "type": "string" },
+        "session_token": {
+          "type": "string",
+          "description": "短期 30min token；WebSocket Authorization 头使用"
+        },
+        "mode": { "$ref": "#/$defs/Mode" },
+        "server_seq_start": {
+          "type": "integer",
+          "description": "服务端起始 seq —— since_seq 重连用"
+        },
+        "jetstream_subject_in": { "type": "string" },
+        "jetstream_subject_out": { "type": "string" },
+        "environment_id": { "type": "string" },
+        "thread_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "EnvironmentInfo": {
+      "type": "object",
+      "required": ["environment_id", "worker_kind", "machine_name", "state"],
+      "properties": {
+        "environment_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "worker_kind": {
+          "type": "string",
+          "enum": ["biu_daemon", "biu_cli", "runtime"]
+        },
+        "machine_name": { "type": "string" },
+        "os_arch": { "type": "string" },
+        "git_info": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "state": {
+          "type": "string",
+          "enum": ["online", "offline", "draining"]
+        },
+        "last_seen_at": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

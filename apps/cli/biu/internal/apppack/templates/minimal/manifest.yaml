@@ -1,0 +1,23 @@
+identifier: {{slug}}
+version: 0.1.0
+name: {{slug}}
+description: TODO — one-line description (≤ 200 chars)
+author: TODO
+category: utility
+kind: backend
+
+actions:
+  - name: hello
+    description: Return a friendly greeting
+    risk: low
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          default: world
+    output_schema:
+      type: object
+      properties:
+        message:
+          type: string

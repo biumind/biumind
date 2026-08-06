@@ -1,0 +1,12 @@
+{
+  "description": "security-guard — refuses tool calls that look like secret leaks or credential-store edits",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "internal", "handler": "security-guard:pre-tool" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "data/tool.json#/$defs/SDKToolProgress",
+  "type": "tool_progress",
+  "tool_use_id": "tu1",
+  "tool_name": "Bash",
+  "elapsed_time_seconds": 1.5,
+  "uuid": "tp1",
+  "session_id": "s1"
+}

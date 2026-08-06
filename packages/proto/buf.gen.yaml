@@ -1,0 +1,29 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/biumind/biumind/packages/proto/gen/go
+plugins:
+  # Go
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go
+    out: gen/go
+    opt: paths=source_relative
+
+  # Dart (for Flutter client)
+  - remote: buf.build/protocolbuffers/dart
+    out: gen/dart
+    opt: grpc
+
+  # TypeScript (for webclip + future docs site)
+  - remote: buf.build/bufbuild/es
+    out: gen/ts
+    opt:
+      - target=ts
+  - remote: buf.build/connectrpc/es
+    out: gen/ts
+    opt:
+      - target=ts

@@ -1,0 +1,7 @@
+{
+  "$schema": "mcp.json#/$defs/McpServerConfig",
+  "type": "stdio",
+  "command": "supabase-mcp",
+  "args": ["--port", "8000"],
+  "env": { "SUPABASE_URL": "https://example.supabase.co" }
+}

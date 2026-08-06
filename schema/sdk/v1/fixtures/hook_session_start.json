@@ -1,0 +1,9 @@
+{
+  "$schema": "hooks/index.json#/$defs/HookInput",
+  "session_id": "s1",
+  "transcript_path": "/tmp/t.jsonl",
+  "cwd": "/repo",
+  "hook_event_name": "SessionStart",
+  "source": "cli",
+  "model": "claude-3-7"
+}

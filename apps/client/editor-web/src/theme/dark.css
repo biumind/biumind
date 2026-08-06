@@ -1,0 +1,14 @@
+:root.dark {
+  --kc-editor-bg: #0a0a0f;
+  --kc-editor-fg: #e6edf3;
+  --kc-editor-muted: #8b949e;
+  --kc-editor-border: #30363d;
+  --kc-editor-accent: #8b5cf6;
+  --kc-editor-code-bg: #16161d;
+  --kc-editor-link: #58a6ff;
+}
+
+:root.dark, :root.dark body {
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-fg);
+}

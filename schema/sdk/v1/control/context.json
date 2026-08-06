@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/context.json",
+  "title": "BiuMind SDK v1 — Get Context Usage Control",
+  "description": "GetContextUsage 请求 + GetContextUsageResponse。响应是大型嵌套结构（categories / grid / memory / mcp / agents / skills / messageBreakdown / apiUsage），各端只关心自己用的部分，所以这里大多用 open object。",
+  "$defs": {
+    "GetContextUsage": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "get_context_usage" }
+      },
+      "additionalProperties": true
+    },
+    "GetContextUsageResponse": {
+      "type": "object",
+      "required": ["totalTokens", "maxTokens"],
+      "properties": {
+        "totalTokens": { "type": "integer" },
+        "maxTokens": { "type": "integer" },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "tokens"],
+            "properties": {
+              "name": { "type": "string" },
+              "tokens": { "type": "integer" },
+              "color": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "gridRows": {
+          "type": "array",
+          "description": "可视化网格（每行 token 数）。"
+        },
+        "memoryFiles": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "mcpTools": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "agents": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "messageBreakdown": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "apiUsage": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

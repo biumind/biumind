@@ -1,0 +1,10 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlRequest",
+  "type": "control_request",
+  "request_id": "r-init-1",
+  "request": {
+    "subtype": "initialize",
+    "systemPrompt": "you are helpful",
+    "promptSuggestions": true
+  }
+}

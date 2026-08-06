@@ -1,0 +1,6 @@
+{
+  "name": "plugin-dev",
+  "version": "1.0.0",
+  "description": "Tooling for biu plugin authors — scaffold, validate, package, sign",
+  "author": { "name": "BiuMind" }
+}

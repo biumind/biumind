@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/compact.json",
+  "title": "BiuMind SDK v1 — Compact Hooks",
+  "description": "PreCompact（即将压缩）/ PostCompact（已压缩，含 summary）。",
+  "$defs": {
+    "PreCompact": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "trigger", "custom_instructions"],
+          "properties": {
+            "hook_event_name": { "const": "PreCompact" },
+            "trigger": { "type": "string" },
+            "custom_instructions": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "PostCompact": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "trigger", "compact_summary"],
+          "properties": {
+            "hook_event_name": { "const": "PostCompact" },
+            "trigger": { "type": "string" },
+            "compact_summary": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

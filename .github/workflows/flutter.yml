@@ -1,0 +1,48 @@
+# Flutter CI — analyze + test the client app.
+#
+# We don't run integration_test or build for every platform here; that
+# happens on tagged releases via a separate workflow. This is the fast
+# pre-merge gate.
+
+name: Flutter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/flutter.yml"
+  pull_request:
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/flutter.yml"
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: analyze (lints + dart analyze)
+        run: flutter analyze
+
+      - name: test
+        run: flutter test --reporter expanded

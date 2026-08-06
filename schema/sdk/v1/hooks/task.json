@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/task.json",
+  "title": "BiuMind SDK v1 — Task Hooks",
+  "description": "TaskCreated / TaskCompleted — 后台任务生命周期。BiuMind 在 Task 模式里也用这两个 hook。",
+  "$defs": {
+    "TaskCreated": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "task_id", "task_subject"],
+          "properties": {
+            "hook_event_name": { "const": "TaskCreated" },
+            "task_id": { "type": "string" },
+            "task_subject": { "type": "string" },
+            "task_description": { "type": "string" },
+            "teammate_name": { "type": "string" },
+            "team_name": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "TaskCompleted": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "task_id", "task_subject"],
+          "properties": {
+            "hook_event_name": { "const": "TaskCompleted" },
+            "task_id": { "type": "string" },
+            "task_subject": { "type": "string" },
+            "task_description": { "type": "string" },
+            "teammate_name": { "type": "string" },
+            "team_name": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

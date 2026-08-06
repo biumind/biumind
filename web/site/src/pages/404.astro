@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Logo from '../components/Logo.astro';
+---
+
+<BaseLayout title="404 · BiuMind" description="页面走丢了。">
+  <section class="container-page flex min-h-[70vh] flex-col items-center justify-center py-24 text-center">
+    <Logo variant="mark" size="lg" link={false} hoverAnim={false} />
+
+    <h1 class="mt-8 text-balance text-[44px] font-semibold leading-tight tracking-tightest text-ink md:text-[56px]">
+      页面走丢了
+    </h1>
+    <p class="mx-auto mt-4 max-w-[440px] text-pretty text-[15px] leading-relaxed text-ink-secondary md:text-[16px]">
+      你访问的页面不存在，可能已经搬家或拼写有误。<br />
+      Take a deep breath. Let's go home.
+    </p>
+
+    <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+      <a href="/" class="btn-primary !px-5 !py-3 text-[15px]">回首页</a>
+      <a href="/download" class="btn-secondary !px-5 !py-3 text-[15px]">下载客户端</a>
+    </div>
+
+    <p class="mt-12 font-mono text-[12px] text-ink-muted">404 · NOT_FOUND</p>
+  </section>
+</BaseLayout>

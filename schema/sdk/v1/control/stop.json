@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/stop.json",
+  "title": "BiuMind SDK v1 — Stop Task Control",
+  "description": "subtype=stop_task。",
+  "$defs": {
+    "StopTask": {
+      "type": "object",
+      "required": ["subtype", "task_id"],
+      "properties": {
+        "subtype": { "const": "stop_task" },
+        "task_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

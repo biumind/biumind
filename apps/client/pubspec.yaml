@@ -1,0 +1,181 @@
+name: biumind
+description: BiuMind Agentics — your AI second brain with engineering team and cloud workspace.
+publish_to: 'none'
+version: 0.1.12+1
+
+environment:
+  sdk: ^3.11.5
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # Emoji 反应选择器（chat message reaction）—— 1500+ emoji，8 分类，null-safe
+  emoji_picker_flutter: ^4.4.0
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Routing
+  go_router: ^14.6.2
+
+  # Networking — package:http is the cross-platform default (works on
+  # web via XHR/Fetch). dio is kept for legacy paths but we prefer http
+  # for new code so the same code runs natively + on Flutter Web.
+  http: ^1.2.2
+  http_parser: ^4.1.2
+  dio: ^5.7.0
+  # Agent Plane WS client (S5-1): connect to brain /v1/agent/sessions/:id/stream
+  # 跨平台：native socket + web SockJS 兼容。
+  web_socket_channel: ^3.0.3
+  # 编码模块 M2 真终端渲染器(纯 Dart)。只用 Terminal/TerminalView 渲染从本地
+  # bridge 收到的 PTY 字节流(code_pty_chunk);本地 PTY 在 biu CLI,不用 xterm
+  # 自带的 flutter_pty。
+  xterm: ^4.0.0
+  # External link opening (web search result rows). Wraps platform-
+  # specific browser intents on every Flutter target.
+  url_launcher: ^6.3.1
+
+  # Local DB
+  drift: ^2.21.0
+  sqlite3_flutter_libs: ^0.5.27
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  # JSON / freezed
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Platform / OS integration
+  flutter_secure_storage: ^9.2.2
+  package_info_plus: ^8.1.2
+
+  # Utils
+  intl: ^0.20.1
+  collection: ^1.19.0
+  meta: ^1.16.0
+  uuid: ^4.5.1
+  crypto: ^3.0.3
+  image: ^4.5.0
+  logging: ^1.3.0
+  # 客户端更新检测: 解析 releases.json version 比对当前版本。
+  # 原 transitive (via riverpod_generator), 提升为 direct 防lock 刷新断。
+  pub_semver: ^2.1.4
+
+  # M8.4 RSS Today TTS 简报播放. just_audio 7 端覆盖 + 直接从内存
+  # bytes (StreamAudioSource) 播放, 跟我们 base64→Uint8List 流程契合.
+  just_audio: ^0.9.42
+
+  # Markdown rendering for AI chat replies (code blocks / lists / links).
+  # gpt_markdown handles partial / streaming markdown gracefully (won't
+  # blow up on a half-open ``` while text is still arriving).
+  gpt_markdown: ^1.0.19
+
+  # Word-level diff for selection-edit previews (S3 P1-6). Pure Dart, no native.
+  diff_match_patch: ^0.4.1
+
+  # Lightweight SVG path-data parser. Used by lib/shared/brand/biu_mark.dart
+  # to render the BiuMind logo via CustomPainter — same potrace-vectorized
+  # path data as the website (~25 KB string) is shared verbatim.
+  path_drawing: ^1.0.1
+
+  # Multi-pane split view with draggable dividers. Used by the coding
+  # workbench (lib/features/code/) for its 4-area IDE-style layout.
+  multi_split_view: ^3.5.0
+
+  # Cross-platform file picker for the Skills `install from .biuskill`
+  # path (lib/features/skills/presentation/install_dialog.dart). Chosen
+  # over file_picker for the smaller native footprint + first-party
+  # support across desktop / mobile / web.
+  file_selector: ^1.0.3
+  desktop_drop: ^0.7.1
+  pasteboard: ^0.5.0
+
+  # Embedded WebView for App Center user_webview Apps (M12). Single
+  # shared profile per design decision §M12 — Kimi/豆包/Poe 等外部站点
+  # 走 webview_flutter 嵌入展示，登录态由浏览器 same-origin 隔离，不再
+  # 维护 per-install profile。
+  webview_flutter: ^4.10.0
+  webview_flutter_wkwebview: ^3.18.0   # iOS / macOS
+  webview_flutter_android: ^4.0.0      # Android
+  flutter_tts: ^4.2.5
+  archive: ^4.0.9
+  flutter_highlight: ^0.7.0
+  flutter_svg: ^2.3.0
+  flutter_widget_from_html_core: ^0.17.2
+  flutter_math_fork: ^0.7.4
+
+  # Wiki 模块依赖（B1.x）：
+  # - shared_preferences: 项目浏览器 expanded 分组状态持久化
+  # - flutter_inappwebview: core/editor/editor_native_view.dart 给原生端加载
+  #   Milkdown bundle（InAppLocalhostServer）；webview_flutter 不够用，因为
+  #   bundle 用 ESM module 必须经 http:// 协议加载，不能 file://。
+  # - web: core/editor/editor_web_view.dart 给 Web 端 iframe + postMessage
+  #   桥接（dart:js_interop 配套 typed bindings）。
+  # 加完后必须 `flutter pub get` 才能让 dart analyze / build 通过。
+  shared_preferences: ^2.3.3
+  flutter_inappwebview: ^6.1.5
+  web: ^1.1.0
+  image_picker: ^1.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.13
+  riverpod_generator: ^2.6.4
+  drift_dev: ^2.21.2
+  # drift 的传递依赖 — 迁移测试 (migration_v22_to_v25_test) 用它手搓旧版本
+  # 库 (NativeDatabase.opened) 触发 onUpgrade;db.g.dart 只懂当前 schema,
+  # 无法测旧库迁移,故显式声明。仅 dev,不向用户发包。
+  sqlite3: ^2.9.4
+  freezed: ^2.5.7
+  json_serializable: ^6.9.0
+  msix: ^3.16.7
+  # gpt_markdown 的传递依赖 — 测试里直接 import `Math` widget 验证 LaTeX
+  # 渲染时显式声明, 避免 depend_on_referenced_packages lint 噪音。
+  # custom_lint / riverpod_lint disabled until analyzer_plugin 0.12.0 catches
+  # up with the analyzer 7.x Element2 API — they break `dart run build_runner`.
+  # custom_lint: ^0.7.0
+  # riverpod_lint: ^2.6.4
+
+# MSIX packaging config — consumed by `dart run msix:create` on Windows.
+  path_provider_platform_interface: any
+msix_config:
+  display_name: BiuMind
+  publisher_display_name: BiuMind
+  identity_name: app.biu.biumind
+  msix_version: 0.1.0.0
+  logo_path: windows/runner/resources/app_icon.png
+  capabilities: internetClient
+
+dependency_overrides:
+  # analyzer_plugin 0.12.0 (pulled in transitively via riverpod_generator →
+  # riverpod_analyzer_utils → custom_lint_core 0.7.1) doesn't compile against
+  # analyzer 7.x's Element2 API. Pin to 0.13.4 — the last release that still
+  # targets analyzer ^7.x and so keeps build_runner happy.
+  analyzer_plugin: ">=0.13.0 <0.13.5"
+
+flutter:
+  generate: true
+  uses-material-design: true
+  assets:
+    # newsnow 官方图标 (MIT, ourongxing/newsnow), 用于 RSS 榜单卡片 logo.
+    - assets/rss_icons/
+    # LLM provider 品牌 logo (simple-icons CC0): anthropic/openai/google/
+    # deepseek/doubao(=bytedance logo). 国内其余 + azure fallback 首字母+品牌色.
+    - assets/icons/provider/
+    # Milkdown WYSIWYG bundle (assets/editor/) — 由 `make editor-web-build`
+    # 从 apps/client/editor-web/dist/ 同步过来。Web 端走 web/editor/ iframe，
+    # 原生端通过 InAppLocalhostServer 加载 assets/editor/index.html。
+    # 已启用（N1b 笔记编辑器接线时生成并注册）；若删了 assets/editor/
+    # 需先重跑 `make editor-web-build` 再 flutter pub get。
+    # 注意：assets 目录声明不递归 —— Vite 产物在 assets/editor/assets/
+    # 子目录（JS/CSS chunks），必须单独声明，否则原生端 rootBundle.load
+    # 取不到，编辑器白屏。
+    - assets/editor/
+    - assets/editor/assets/

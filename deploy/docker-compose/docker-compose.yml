@@ -1,0 +1,257 @@
+# BiuMind 测试环境基础设施（infra profile）
+# 默认 `docker compose up -d` 起 infra；完整组合见 Makefile。
+# observability 已移出 include — 用 `make up-obs` / `up-all`（DESIGN.md §12）
+
+name: biumind
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+networks:
+  biu-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  nats-data:
+  searxng-data:
+  k3s-data:
+  # Identity RSA 签名密钥 — 首启生成 0600，后续复用保 token 有效（DESIGN.md §9）
+  identity-keys:
+  # App Center 内置 tasks App 文件持久化 — 刻意不进 DB（JSON fsync 单文件，DESIGN.md §14）
+  app-center-data:
+
+services:
+  # Postgres 16 + pgvector（中文分词 zhparser fallback 见 DESIGN.md §15）
+  postgres:
+    profiles: [infra, services, workers, all]
+    # QUICKSTART 用 stock pgvector 镜像（无 zhparser）。中文 FTS 用 ./postgres/Dockerfile（当前 Debian Trixie 编译坏，待修）
+    image: ${INFRA_REGISTRY:-docker.io}/pgvector/pgvector:pg16
+    container_name: biu-postgres
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-biumind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-biumind_dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-biu_core}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [biu-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-biumind} -d ${POSTGRES_DB:-biu_core}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Redis 7（缓存 / 限流 / Presence TTL）
+  redis:
+    profiles: [infra, services, all]
+    image: ${INFRA_REGISTRY:-docker.io}/library/redis:7-alpine
+    container_name: biu-redis
+    <<: [*restart, *logging]
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:-biumind_redis_dev}
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "yes"
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks: [biu-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-biumind_redis_dev}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO（对象存储：原始文档 / 媒体 / 构建产物）
+  minio:
+    profiles: [infra, services, workers, all]
+    image: ${INFRA_REGISTRY:-docker.io}/minio/minio:latest
+    container_name: biu-minio
+    <<: [*restart, *logging]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-biumind}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    networks: [biu-net]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO 启动后建 bucket + ILM（one-shot，DESIGN.md §16）
+  minio-bootstrap:
+    profiles: [infra, services, workers, all]
+    image: ${INFRA_REGISTRY:-docker.io}/minio/mc:latest
+    container_name: biu-minio-bootstrap
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-biumind}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
+      MINIO_BUCKET: ${MINIO_BUCKET:-biumind}
+    networks: [biu-net]
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/$$MINIO_BUCKET &&
+      mc mb --ignore-existing local/$${MINIO_BUCKET}-snapshots &&
+      mc mb --ignore-existing local/$${MINIO_BUCKET}-deploy &&
+      mc anonymous set download local/$${MINIO_BUCKET}-deploy &&
+      mc mb --ignore-existing local/biumind-aigc-uploads &&
+      mc mb --ignore-existing local/biumind-aigc-outputs &&
+      mc mb --ignore-existing local/biumind-aigc-derivatives &&
+      mc mb --ignore-existing local/biumind-aigc-public &&
+      mc mb --ignore-existing local/biumind-aigc-temp &&
+      mc anonymous set download local/biumind-aigc-public &&
+      mc mb --ignore-existing local/releases &&
+      mc anonymous set download local/releases &&
+      mc ilm rule add local/biumind-aigc-uploads --expire-days 30 || true &&
+      mc ilm rule add local/biumind-aigc-derivatives --expire-days 30 || true &&
+      mc ilm rule add local/biumind-aigc-temp --expire-days 1 || true &&
+      echo 'MinIO buckets ready (incl. aigc-{uploads,outputs,derivatives,public,temp}, releases)'
+      "
+    restart: "no"
+
+  # NATS JetStream（跨语言队列 / 事件总线，DESIGN.md §17）
+  nats:
+    profiles: [infra, services, workers, all]
+    image: ${INFRA_REGISTRY:-docker.io}/library/nats:2.10-alpine
+    container_name: biu-nats
+    <<: [*restart, *logging]
+    command:
+      - "-c"
+      - "/etc/nats/nats.conf"
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+    volumes:
+      - ./nats/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    networks: [biu-net]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # SearxNG（自托管 Web 搜索）
+  searxng:
+    profiles: [infra, services, all]
+    image: ${INFRA_REGISTRY:-docker.io}/searxng/searxng:latest
+    container_name: biu-searxng
+    <<: [*restart, *logging]
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8888}/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-biumind_searxng_dev_secret_change_me}
+    ports:
+      - "${SEARXNG_PORT:-8888}:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-data:/var/cache/searxng
+    networks: [biu-net]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Envoy（API 网关：JWT / ratelimit / SSE / mTLS）— 跳默认 ENTRYPOINT 见 DESIGN.md §18
+  envoy:
+    profiles: [services, all]
+    image: ${INFRA_REGISTRY:-docker.io}/envoyproxy/envoy:v1.31-latest
+    container_name: biu-envoy
+    <<: [*restart, *logging]
+    entrypoint: ["envoy"]
+    command:
+      - "-c"
+      - "/etc/envoy/envoy.yaml"
+      - "--service-cluster"
+      - "biumind-gateway"
+      - "--log-level"
+      - "info"
+    ports:
+      - "${GATEWAY_PORT:-8080}:10000"
+      - "${ENVOY_ADMIN_PORT:-9901}:9901"
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    networks: [biu-net]
+    depends_on:
+      - identity
+      - authz
+      - realtime
+      - model-relay
+      - runtime
+      - brain
+
+  # k3s — single-node K8s for Sandbox K8s driver。profile=k8s 默认不起（heavyweight）
+  # 用法: docker compose --profile k8s up -d k3s
+  # kubeconfig 写到 ./k3s/kubeconfig.yaml；Sandbox 用 KUBECONFIG= 指过去
+  # macOS Docker Desktop 内核在 Linux VM 内，gVisor(runsc) 装不了 RuntimeClass — 留空用默认 containerd
+  k3s:
+    profiles: [k8s, all]
+    image: ${INFRA_REGISTRY:-docker.io}/rancher/k3s:v1.31.4-k3s1
+    container_name: biu-k3s
+    <<: [*restart, *logging]
+    privileged: true
+    command:
+      - server
+      - --disable=traefik
+      - --disable=servicelb
+      - --disable=metrics-server
+      - --tls-san=k3s
+      - --tls-san=localhost
+      - --tls-san=127.0.0.1
+      - --kube-apiserver-arg=feature-gates=ProcMountType=true
+      - --write-kubeconfig=/output/kubeconfig.yaml
+      - --write-kubeconfig-mode=666
+    environment:
+      K3S_KUBECONFIG_OUTPUT: /output/kubeconfig.yaml
+      K3S_KUBECONFIG_MODE: "666"
+    ports:
+      - "${K3S_API_PORT:-6443}:6443"
+    volumes:
+      - k3s-data:/var/lib/rancher/k3s
+      - ./k3s:/output
+    networks: [biu-net]
+    healthcheck:
+      test: ["CMD-SHELL", "kubectl get nodes >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+# 业务服务 / 工作进程 / 前端层 在独立 compose 文件，经 include 合并
+include:
+  - docker-compose.services.yml
+  - docker-compose.web.yml
+  - docker-compose.workers.yml

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/subagent.json",
+  "title": "BiuMind SDK v1 — Subagent Hooks",
+  "description": "SubagentStart / SubagentStop / TeammateIdle — Task tool 子 agent 生命周期。",
+  "$defs": {
+    "SubagentStart": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "agent_id", "agent_type"],
+          "properties": {
+            "hook_event_name": { "const": "SubagentStart" },
+            "agent_id": { "type": "string" },
+            "agent_type": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "SubagentStop": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "stop_hook_active", "agent_id", "agent_transcript_path", "agent_type"],
+          "properties": {
+            "hook_event_name": { "const": "SubagentStop" },
+            "stop_hook_active": { "type": "boolean" },
+            "agent_id": { "type": "string" },
+            "agent_transcript_path": { "type": "string" },
+            "agent_type": { "type": "string" },
+            "last_assistant_message": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "TeammateIdle": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "teammate_name", "team_name"],
+          "properties": {
+            "hook_event_name": { "const": "TeammateIdle" },
+            "teammate_name": { "type": "string" },
+            "team_name": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

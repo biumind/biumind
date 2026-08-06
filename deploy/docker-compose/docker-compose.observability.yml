@@ -1,0 +1,176 @@
+# BiuMind 可观测性栈（observability profile）
+# OTel Collector → Tempo(traces) / Loki(logs) / Prom(metrics) → Grafana 统一 UI
+# 已移出 base include — 用 `make up-obs` / `up-all`，或显式 -f 加载（DESIGN.md §12）
+
+name: biumind
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "2"
+
+volumes:
+  tempo-data:
+  loki-data:
+  prom-data:
+  grafana-data:
+  alertmanager-data:
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    profiles: [observability, all]
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: biu-otel
+    <<: [*restart, *logging]
+    command: ["--config=/etc/otel/collector.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otel/collector.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks: [biu-net]
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+  # Tempo（分布式 trace 后端）
+  tempo:
+    profiles: [observability, all]
+    image: grafana/tempo:2.6.0
+    container_name: biu-tempo
+    <<: [*restart, *logging]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./otel/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks: [biu-net]
+
+  # Loki（日志后端）
+  loki:
+    profiles: [observability, all]
+    image: grafana/loki:3.2.0
+    container_name: biu-loki
+    <<: [*restart, *logging]
+    command: ["-config.file=/etc/loki.yaml"]
+    volumes:
+      - ./otel/loki.yaml:/etc/loki.yaml:ro
+      - loki-data:/var/loki
+    ports:
+      - "3100:3100"
+    networks: [biu-net]
+
+  # Prometheus（测试用；生产替换为 Mimir）
+  prometheus:
+    profiles: [observability, all]
+    image: prom/prometheus:v2.55.0
+    container_name: biu-prom
+    <<: [*restart, *logging]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-remote-write-receiver"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./otel/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prom-data:/prometheus
+    # 不绑 host — admin UI 经 identity /v1/admin/monitor/query 代理访问（debug: docker exec biu-prom wget ...）
+    networks: [biu-net]
+    depends_on:
+      - alertmanager
+
+  # Alertmanager — 告警路由（不绑 host，只 prom 内网调）
+  alertmanager:
+    profiles: [observability, all]
+    image: prom/alertmanager:v0.27.0
+    container_name: biu-alertmanager
+    <<: [*restart, *logging]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    networks: [biu-net]
+
+  # Postgres Exporter
+  postgres-exporter:
+    profiles: [observability, all]
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: biu-pg-exporter
+    <<: [*restart, *logging]
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable"
+    networks: [biu-net]
+    depends_on: [prometheus]
+
+  # Redis Exporter
+  redis-exporter:
+    profiles: [observability, all]
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: biu-redis-exporter
+    <<: [*restart, *logging]
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    networks: [biu-net]
+    depends_on: [prometheus]
+
+  # cAdvisor — 容器 CPU/MEM 指标（不绑 host，只 prom 内网抓）
+  cadvisor:
+    profiles: [observability, all]
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: biu-cadvisor
+    <<: [*restart, *logging]
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [biu-net]
+
+  # Node Exporter — host 系统资源（不绑 host，只 prom 内网抓）
+  node-exporter:
+    profiles: [observability, all]
+    image: prom/node-exporter:v1.8.2
+    container_name: biu-node-exporter
+    <<: [*restart, *logging]
+    command:
+      - "--path.rootfs=/host"
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    networks: [biu-net]
+
+  # Grafana（统一 UI；trace + log + metric 关联）— 不绑 host，admin UI 自画图表已够
+  grafana:
+    profiles: [observability, all]
+    image: grafana/grafana:11.2.0
+    container_name: biu-grafana
+    <<: [*restart, *logging]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-biumind}
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor traceqlSearch metricsSummary
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # BiuMindPG datasource provisioning 用（Grafana 8+ $VAR 展开）
+      POSTGRES_USER: ${POSTGRES_USER:-biumind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-biumind_dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-biu_core}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks: [biu-net]
+    depends_on:
+      - prometheus

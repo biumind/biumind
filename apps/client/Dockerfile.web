@@ -1,0 +1,86 @@
+ARG INFRA_REGISTRY=docker.io
+# BiuMind Web Client — multi-stage build.
+#
+# Stage 1: build the Flutter Web app (debian-slim + 自装 Flutter SDK).
+# Stage 2: serve via tiny nginx with SPA fallback + asset caching.
+#
+# 为啥不用 cirrusci/flutter / ghcr cirruslabs:
+#   ${INFRA_REGISTRY} 代理 dockerhub 的 cirrusci/flutter tag 命名跟 ghcr 不一致,
+#   3.27.0 在 dockerhub 上没对应 tag. ghcr 国内拉很慢.
+#   debian-slim + flutter SDK tar (storage.flutter-io.cn 国内镜像) 最稳.
+#
+# Build context = apps/client/.  ARG BASE_HREF=/app/ 跟 site nginx /app/ 路径前缀对齐.
+#
+# Build:
+#   docker build -f Dockerfile.web --build-arg BASE_HREF=/app/ -t biumind/web-client:dev .
+
+ARG BASE_HREF=/app/
+
+FROM ${INFRA_REGISTRY}/library/debian:bookworm-slim AS build
+ARG BASE_HREF
+ARG FLUTTER_VERSION=3.44.0    # Dart 3.12.0; pubspec 要 sdk ^3.11.5
+
+# Flutter 国内镜像 (Google 镜像在国内可用)
+ENV PUB_HOSTED_URL=https://pub.flutter-io.cn \
+    FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn \
+    PATH="/opt/flutter/bin:${PATH}"
+
+# Step 1: 装基础工具 (apt 走阿里云镜像)
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' \
+        /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends \
+        git curl ca-certificates xz-utils unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Step 2: 拉 Flutter SDK tar (实测 3.44.0 linux = ~1.54GB, 不是早前注释以为的 700MB).
+# 慢速国内链路 (~1.4MB/s) 下 1.5GB 需 ~18min, 且连接会偶发 "wedge" (半死: 下几百 KB 后
+# recv 挂住, --speed-time 未必能唤醒). 早前 --max-time 480 单次封顶 + 无续传 → 每次没下完/
+# 卡死就被砍且从头来 → 永远下不完.
+# 用显式 shell 重试循环 (不依赖 curl --retry 与 --max-time 的版本相关语义):
+#   每次 curl 独立 --max-time 300 (5min 硬上限, 强杀 wedge 连接, 不管 speed-time 是否生效)
+#   -C - 断点续传 → 被砍后下次从已下字节接着下, 成功分片累积
+#   循环里 curl 成功 (下完最后字节, 退出 0) 即 break; 20 次冗余远超 ~4 个干净分片所需
+RUN set -eu; \
+    url="https://storage.flutter-io.cn/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"; \
+    for i in $(seq 1 20); do \
+      if curl --fail --location --silent --show-error \
+              --connect-timeout 30 \
+              --speed-limit 10240 --speed-time 60 \
+              --max-time 300 \
+              -C - -o /tmp/flutter.tar.xz "$url"; then \
+        echo "flutter SDK download complete (attempt $i)"; break; \
+      fi; \
+      echo "attempt $i incomplete/stalled, resuming in 5s..."; sleep 5; \
+    done; \
+    tar -xJf /tmp/flutter.tar.xz -C /opt && \
+    rm /tmp/flutter.tar.xz
+
+# Step 3: 配置 Flutter + 预拉 web 工具链 (dart-sdk + canvaskit), build 时不再下
+RUN git config --global --add safe.directory /opt/flutter && \
+    flutter config --no-analytics --enable-web && \
+    flutter precache --web --no-android --no-ios --no-linux --no-windows --no-macos --no-fuchsia
+
+WORKDIR /src
+# 先拷依赖文件 + pub get, 利用 layer 缓存
+COPY pubspec.yaml pubspec.lock ./
+RUN flutter pub get
+
+# 拷源码 + 构建 (BASE_HREF 注入 <base href="..."> 到 index.html)
+COPY . ./
+RUN flutter build web --release --base-href "$BASE_HREF"
+
+# ───── runtime: 静态文件由 nginx 提供 ─────
+FROM ${INFRA_REGISTRY}/library/nginx:alpine
+
+# 显式清掉 proxy 环境变量 — CI build 可能传 http_proxy 给 build stage 拉 Flutter SDK 用.
+# BuildKit 的 special proxy ARG 理论上不持久化,
+# 但 alpine busybox wget 对 proxy 行为敏感, 显式 ENV "" 兜底防止 healthcheck 走代理.
+ENV http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= \
+    no_proxy= NO_PROXY= all_proxy= ALL_PROXY=
+
+COPY --from=build /src/build/web/ /usr/share/nginx/html/
+COPY nginx.web.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+# 跟 web/site 镜像 healthcheck 完全一致 (--spider 只 HEAD, 不读 body, 最简单)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s \
+  CMD wget -q --spider http://localhost/healthz

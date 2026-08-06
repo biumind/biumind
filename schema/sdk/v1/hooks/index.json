@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/index.json",
+  "title": "BiuMind SDK v1 — Hook Input Union",
+  "description": "顶层 HookInput union (oneOf, discriminator: hook_event_name)。覆盖全部 27 个 hook event。",
+  "$defs": {
+    "HookInput": {
+      "oneOf": [
+        { "$ref": "tool_use.json#/$defs/PreToolUse" },
+        { "$ref": "tool_use.json#/$defs/PostToolUse" },
+        { "$ref": "tool_use.json#/$defs/PostToolUseFailure" },
+        { "$ref": "tool_use.json#/$defs/PermissionDenied" },
+        { "$ref": "permission.json#/$defs/PermissionRequest" },
+        { "$ref": "notification.json#/$defs/Notification" },
+        { "$ref": "notification.json#/$defs/UserPromptSubmit" },
+        { "$ref": "session.json#/$defs/SessionStart" },
+        { "$ref": "session.json#/$defs/SessionEnd" },
+        { "$ref": "session.json#/$defs/Stop" },
+        { "$ref": "session.json#/$defs/StopFailure" },
+        { "$ref": "session.json#/$defs/Setup" },
+        { "$ref": "subagent.json#/$defs/SubagentStart" },
+        { "$ref": "subagent.json#/$defs/SubagentStop" },
+        { "$ref": "subagent.json#/$defs/TeammateIdle" },
+        { "$ref": "compact.json#/$defs/PreCompact" },
+        { "$ref": "compact.json#/$defs/PostCompact" },
+        { "$ref": "task.json#/$defs/TaskCreated" },
+        { "$ref": "task.json#/$defs/TaskCompleted" },
+        { "$ref": "elicitation.json#/$defs/Elicitation" },
+        { "$ref": "elicitation.json#/$defs/ElicitationResult" },
+        { "$ref": "config.json#/$defs/ConfigChange" },
+        { "$ref": "instructions.json#/$defs/InstructionsLoaded" },
+        { "$ref": "worktree.json#/$defs/WorktreeCreate" },
+        { "$ref": "worktree.json#/$defs/WorktreeRemove" },
+        { "$ref": "filesystem.json#/$defs/CwdChanged" },
+        { "$ref": "filesystem.json#/$defs/FileChanged" }
+      ]
+    }
+  }
+}

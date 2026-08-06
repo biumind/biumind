@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/filesystem.json",
+  "title": "BiuMind SDK v1 — Filesystem Hooks",
+  "description": "CwdChanged / FileChanged — 客户端 IDE 检测到 cwd / 文件变化时通知 worker。",
+  "$defs": {
+    "CwdChanged": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "old_cwd", "new_cwd"],
+          "properties": {
+            "hook_event_name": { "const": "CwdChanged" },
+            "old_cwd": { "type": "string" },
+            "new_cwd": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "FileChanged": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "file_path", "event"],
+          "properties": {
+            "hook_event_name": { "const": "FileChanged" },
+            "file_path": { "type": "string" },
+            "event": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

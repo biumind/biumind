@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* BiuMind 设计 token —— 与 apps/client/lib/app/theme.dart BiuTokens 同源 */
+    --purple: #5B5BD6;
+    --purple-soft: #EEEDFB;
+    --purple-light: #F5F4FE;
+    --green: #10B981;
+    --bg: #FAFAFA;
+    --surface: #FFFFFF;
+    --surface-muted: #F4F4F5;
+    --border: #E7E5E4;
+    --border-subtle: #EEEDEC;
+    --ink: #18181B;
+    --ink-secondary: #52525B;
+    --ink-muted: #9CA3AF;
+
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 20px;
+
+    color-scheme: light;
+  }
+
+  html {
+    @apply antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  ::selection {
+    background: var(--purple-soft);
+    color: var(--purple);
+  }
+
+  /* Headings — Linear / Vercel 风：紧字距 + 重字重 */
+  h1, h2, h3, h4 {
+    @apply tracking-tightest font-semibold;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-content px-6 md:px-10;
+  }
+
+  /* 主按钮 */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-[var(--purple)] px-4 py-2.5
+           text-[14px] font-medium text-white transition-colors duration-200
+           hover:bg-[#4a4abf];
+  }
+
+  /* 次要按钮 */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-border bg-white px-4 py-2.5
+           text-[14px] font-medium text-ink transition-colors duration-200
+           hover:bg-surface-muted;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-sm px-2.5 py-1.5
+           text-[13px] font-medium text-ink-secondary transition-colors duration-200
+           hover:text-ink hover:bg-surface-muted;
+  }
+
+  .card {
+    @apply rounded-md border border-border bg-surface;
+  }
+
+  .card-hover {
+    @apply rounded-md border border-border bg-surface transition-all duration-200
+           hover:border-[var(--purple)] hover:shadow-[0_0_0_3px_var(--purple-light)];
+  }
+
+  /* Section 通用间距 */
+  .section {
+    @apply py-20 md:py-28;
+  }
+
+  .section-tight {
+    @apply py-14 md:py-20;
+  }
+
+  .eyebrow {
+    @apply text-[12px] font-medium uppercase tracking-[0.12em] text-ink-secondary;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* 鼠标视差用，避免 overscroll 抖 */
+  .parallax-host {
+    transform-style: preserve-3d;
+    perspective: 1200px;
+    will-change: transform;
+  }
+}

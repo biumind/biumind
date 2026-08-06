@@ -1,0 +1,41 @@
+# apps/client 自己的 build context — 跟仓库根 .dockerignore 互不影响 (docker
+# 只看 context 目录下的 .dockerignore).
+#
+# 排除一切构建产物 / 平台 SDK 缓存, 只保留 flutter build web 真正需要的源码.
+
+# Flutter / Dart 产物
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# 平台特有产物 (web build 不需要)
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+macos/Pods/
+android/.gradle/
+android/app/build/
+linux/build/
+windows/build/
+windows/flutter/ephemeral/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.iml
+
+# 测试产物 / 覆盖率
+coverage/
+test/.test_coverage.dart
+
+# 日志 / tmp
+*.log
+tmp/
+
+# Jenkins / git 自带文件不需要进 image
+.git/
+.gitignore

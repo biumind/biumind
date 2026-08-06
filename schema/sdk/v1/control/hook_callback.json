@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/hook_callback.json",
+  "title": "BiuMind SDK v1 — Hook Callback Control",
+  "description": "subtype=hook_callback。runtime → client 询问 hook 输出。HookInput 详见 hooks/index.json (S1-4)。",
+  "$defs": {
+    "HookCallback": {
+      "type": "object",
+      "required": ["subtype", "callback_id", "input"],
+      "properties": {
+        "subtype": { "const": "hook_callback" },
+        "callback_id": { "type": "string" },
+        "input": {
+          "description": "HookInput union — 见 hooks/index.json。",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "tool_use_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

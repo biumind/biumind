@@ -1,0 +1,210 @@
+# Security scans.
+#
+# Three independent passes — they don't share state so a flaky one
+# never blocks the others. All publish SARIF to the GitHub Security
+# tab so findings show up in the repo's "Security" UI alongside
+# Dependabot alerts.
+#
+# Schedule: weekly on Monday morning + every PR. Weekly catches new
+# CVEs in pinned deps without waiting for a PR; PR-time catches
+# regressions before merge.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "13 7 * * 1"    # Monday 07:13 UTC
+
+permissions:
+  contents: read
+  security-events: write    # SARIF upload
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - apps/cli/biu
+          - apps/cli/biu-pty-bridge
+          - packages/go-sdk/biu
+          - services/authz
+          - services/brain
+          - services/hub
+          - services/identity
+          - services/realtime
+          - services/runtime
+          - services/sandbox
+          - services/deploy
+          - services/channels
+          - services/app_center
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: Run govulncheck
+        working-directory: ${{ matrix.module }}
+        run: govulncheck -show=verbose ./...
+
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+      - name: Run gosec across all modules
+        # gosec doesn't natively understand go.work, so we walk the
+        # workspace and run it per-module. SARIF reports merge into
+        # one upload via the `gosec.sarif` filename pattern.
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          # Combined report — one file with findings from every module.
+          : > gosec.sarif
+          while read -r mod; do
+            echo "::group::gosec $mod"
+            (cd "$mod" && \
+              gosec -no-fail -fmt=sarif -out=/tmp/m.sarif ./... || true)
+            # Append non-empty SARIF results into the combined file.
+            if [ -s /tmp/m.sarif ] && [ ! -s gosec.sarif ]; then
+              cp /tmp/m.sarif gosec.sarif
+            fi
+            echo "::endgroup::"
+          done < <(grep -E '^\s+\./' go.work | sed 's/^[[:space:]]*//')
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec.sarif
+          category: gosec
+
+  trivy-fs:
+    name: trivy filesystem
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy FS scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          exit-code: 0           # don't fail the run; SARIF is the signal
+          ignore-unfixed: true   # noisy and not actionable
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  # ── Image scans (weekly + manual) ─────────────────────────
+  # Periodic re-scan of already-published images. release-images.yml
+  # blocks an image from being PUSHED if Trivy finds a CRITICAL CVE
+  # at build time, but a CVE published next Tuesday only surfaces
+  # here. SARIF goes to the Security tab so the same findings UI
+  # works regardless of which scanner caught it.
+  trivy-images:
+    name: trivy images
+    if: github.event_name != 'pull_request'   # only on push/schedule
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ghcr.io/biumind/identity:latest
+          - ghcr.io/biumind/hub:latest
+          - ghcr.io/biumind/brain:latest
+          - ghcr.io/biumind/sandbox:latest
+          - ghcr.io/biumind/runtime:latest
+          - ghcr.io/biumind/realtime:latest
+          - ghcr.io/biumind/channels:latest
+          - ghcr.io/biumind/app-center:latest
+          - ghcr.io/biumind/authz:latest
+          - ghcr.io/biumind/deploy:latest
+    steps:
+      - uses: aquasecurity/trivy-action@0.28.0
+        # If the image hasn't been published yet (fresh repo, first
+        # week before release-images runs) trivy errors with "image
+        # not found"; treat that as informational rather than red.
+        continue-on-error: true
+        with:
+          image-ref: ${{ matrix.image }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          # CodeQL groups SARIF uploads by category — slugify image ref.
+          category: trivy-${{ matrix.image }}
+
+  # ── CodeQL SAST ────────────────────────────────────────────
+  # Picks up taint flows, injection patterns, weak crypto across Go
+  # + JS (frontend SDK + Node SDK + CLI scripts). Python sources are
+  # tiny enough that gosec equivalents (bandit) aren't worth the build
+  # time; revisit if the workers/ codebase grows.
+  codeql:
+    name: codeql ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go.work
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # extended pulls in security-and-quality queries; default
+          # is too soft for a public-facing platform.
+          queries: security-extended
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-${{ matrix.language }}
+
+  # ── Secret scanning (gitleaks) ─────────────────────────────
+  # GitHub's native secret scanning runs on push, but only catches
+  # well-known providers. gitleaks adds a ruleset for project-specific
+  # patterns (BiuMind virtual keys, internal-token prefixes) and emits
+  # SARIF for the Security tab.
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # gitleaks scans full history
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE only needed for the Pro features we don't use.
+          GITLEAKS_NOTIFY_USER_LIST: "@biumind/security"

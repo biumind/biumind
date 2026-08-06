@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import DownloadPage from '../../components/DownloadPage.astro';
+import { useTranslations } from '../../i18n';
+
+const t = useTranslations('en');
+---
+
+<BaseLayout title={`${t.download.title} · BiuMind`} description={t.download.subtitle}>
+  <DownloadPage locale="en" />
+</BaseLayout>

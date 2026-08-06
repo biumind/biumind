@@ -1,0 +1,624 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package sanitizer // import "github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/sanitizer"
+
+import (
+	"io"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/config"
+	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/urlcleaner"
+	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/urllib"
+
+	"golang.org/x/net/html"
+)
+
+var (
+	allowedHTMLTagsAndAttributes = map[string][]string{
+		"a":          {"href", "title", "id"},
+		"abbr":       {"title"},
+		"acronym":    {"title"},
+		"aside":      {},
+		"audio":      {"src"},
+		"blockquote": {},
+		"b":          {},
+		"br":         {},
+		"caption":    {},
+		"cite":       {},
+		"code":       {},
+		"dd":         {"id"},
+		"del":        {},
+		"dfn":        {},
+		"dl":         {"id"},
+		"dt":         {"id"},
+		"em":         {},
+		"figcaption": {},
+		"figure":     {},
+		"h1":         {"id"},
+		"h2":         {"id"},
+		"h3":         {"id"},
+		"h4":         {"id"},
+		"h5":         {"id"},
+		"h6":         {"id"},
+		"hr":         {},
+		"i":          {},
+		"iframe":     {"width", "height", "frameborder", "src", "allowfullscreen"},
+		"img":        {"alt", "title", "src", "srcset", "sizes", "width", "height", "fetchpriority", "decoding"},
+		"ins":        {},
+		"kbd":        {},
+		"li":         {"id"},
+		"ol":         {"id"},
+		"p":          {},
+		"picture":    {},
+		"pre":        {},
+		"q":          {"cite"},
+		"rp":         {},
+		"rt":         {},
+		"rtc":        {},
+		"ruby":       {},
+		"s":          {},
+		"small":      {},
+		"samp":       {},
+		"source":     {"src", "type", "srcset", "sizes", "media"},
+		"strong":     {},
+		"sub":        {},
+		"sup":        {"id"},
+		"table":      {},
+		"td":         {"rowspan", "colspan"},
+		"tfoot":      {},
+		"th":         {"rowspan", "colspan"},
+		"thead":      {},
+		"time":       {"datetime"},
+		"tr":         {},
+		"u":          {},
+		"ul":         {"id"},
+		"var":        {},
+		"video":      {"poster", "height", "width", "src"},
+		"wbr":        {},
+
+		// MathML: https://w3c.github.io/mathml-core/ and https://developer.mozilla.org/en-US/docs/Web/MathML/Reference/Element
+		"annotation":     {},
+		"annotation-xml": {},
+		"maction":        {},
+		"math":           {"xmlns"},
+		"merror":         {},
+		"mfrac":          {},
+		"mi":             {},
+		"mmultiscripts":  {},
+		"mn":             {},
+		"mo":             {},
+		"mover":          {},
+		"mpadded":        {},
+		"mphantom":       {},
+		"mprescripts":    {},
+		"mroot":          {},
+		"mrow":           {},
+		"ms":             {},
+		"mspace":         {},
+		"msqrt":          {},
+		"mstyle":         {},
+		"msub":           {},
+		"msubsup":        {},
+		"msup":           {},
+		"mtable":         {},
+		"mtd":            {},
+		"mtext":          {},
+		"mtr":            {},
+		"munder":         {},
+		"munderover":     {},
+		"semantics":      {},
+	}
+
+	iframeAllowList = map[string]struct{}{
+		"bandcamp.com":         {},
+		"cdn.embedly.com":      {},
+		"dailymotion.com":      {},
+		"framatube.org":        {},
+		"open.spotify.com":     {},
+		"player.bilibili.com":  {},
+		"player.twitch.tv":     {},
+		"player.vimeo.com":     {},
+		"soundcloud.com":       {},
+		"vk.com":               {},
+		"w.soundcloud.com":     {},
+		"youtube-nocookie.com": {},
+		"youtube.com":          {},
+	}
+
+	blockedResourceURLSubstrings = []string{
+		"api.flattr.com",
+		"www.facebook.com/sharer.php",
+		"feeds.feedburner.com",
+		"feedsportal.com",
+		"linkedin.com/shareArticle",
+		"pinterest.com/pin/create/button/",
+		"stats.wordpress.com",
+		"twitter.com/intent/tweet",
+		"twitter.com/share",
+		"x.com/intent/tweet",
+		"x.com/share",
+	}
+
+	dataAttributeAllowedPrefixes = []string{
+		"data:image/avif",
+		"data:image/apng",
+		"data:image/png",
+		"data:image/svg",
+		"data:image/svg+xml",
+		"data:image/jpg",
+		"data:image/jpeg",
+		"data:image/gif",
+		"data:image/webp",
+	}
+)
+
+// SanitizerOptions holds options for the HTML sanitizer.
+type SanitizerOptions struct {
+	OpenLinksInNewTab bool
+}
+
+// SanitizeHTML takes raw HTML input and removes any disallowed tags and attributes.
+func SanitizeHTML(baseURL, rawHTML string, sanitizerOptions *SanitizerOptions) string {
+	var buffer strings.Builder
+
+	// Educated guess about how big the sanitized HTML will be,
+	// to reduce the amount of buffer re-allocations in this function.
+	estimatedRatio := len(rawHTML) * 3 / 4
+	buffer.Grow(estimatedRatio)
+
+	// We need to surround `rawHTML` with body tags so that html.Parse
+	// will consider it a valid html document.
+	doc, err := html.Parse(io.MultiReader(
+		strings.NewReader("<body>"),
+		strings.NewReader(rawHTML),
+		strings.NewReader("</body>"),
+	))
+	if err != nil {
+		return ""
+	}
+
+	/* The structure of `doc` is always:
+	<html>
+	<head>...</head>
+	<body>..</body>
+	</html>
+	*/
+	body := doc.FirstChild.FirstChild.NextSibling
+
+	// Errors are a non-issue, so they're handled in filterAndRenderHTML
+	parsedBaseUrl, _ := url.Parse(baseURL)
+	for c := body.FirstChild; c != nil; c = c.NextSibling {
+		if err := filterAndRenderHTML(&buffer, c, parsedBaseUrl, sanitizerOptions); err != nil {
+			return ""
+		}
+	}
+
+	return buffer.String()
+}
+
+func findAllowedIframeSourceDomain(iframeSourceURL string) (string, bool) {
+	iframeSourceDomain := urllib.DomainWithoutWWW(iframeSourceURL)
+
+	if _, ok := iframeAllowList[iframeSourceDomain]; ok {
+		return iframeSourceDomain, true
+	}
+
+	if ytDomain := config.Opts.YouTubeEmbedDomain(); ytDomain != "" && iframeSourceDomain == strings.TrimPrefix(ytDomain, "www.") {
+		return iframeSourceDomain, true
+	}
+
+	if invidiousInstance := config.Opts.InvidiousInstance(); invidiousInstance != "" && iframeSourceDomain == strings.TrimPrefix(invidiousInstance, "www.") {
+		return iframeSourceDomain, true
+	}
+
+	return "", false
+}
+
+func filterAndRenderHTML(buf *strings.Builder, n *html.Node, parsedBaseUrl *url.URL, sanitizerOptions *SanitizerOptions) error {
+	if n == nil {
+		return nil
+	}
+
+	switch n.Type {
+	case html.TextNode:
+		buf.WriteString(html.EscapeString(n.Data))
+	case html.ElementNode:
+		tag := n.Data
+		if shouldIgnoreTag(n, tag) {
+			return nil
+		}
+
+		_, ok := allowedHTMLTagsAndAttributes[tag]
+		if !ok {
+			// The tag isn't allowed, but we're still interested in its content
+			return filterAndRenderHTMLChildren(buf, n, parsedBaseUrl, sanitizerOptions)
+		}
+
+		htmlAttributes, hasAllRequiredAttributes := sanitizeAttributes(parsedBaseUrl, tag, n.Attr, sanitizerOptions)
+		if !hasAllRequiredAttributes {
+			if tag == "iframe" {
+				// A blocked iframe should not have its inner content rendered.
+				return nil
+			}
+			// The tag doesn't have every required attributes but we're still interested in its content
+			return filterAndRenderHTMLChildren(buf, n, parsedBaseUrl, sanitizerOptions)
+		}
+		buf.WriteByte('<')
+		buf.WriteString(n.Data)
+		if htmlAttributes != "" {
+			buf.WriteByte(' ')
+			buf.WriteString(htmlAttributes)
+		}
+		buf.WriteByte('>')
+
+		if isSelfContainedTag(tag) {
+			return nil
+		}
+
+		if tag != "iframe" {
+			// iframes aren't allowed to have child nodes.
+			filterAndRenderHTMLChildren(buf, n, parsedBaseUrl, sanitizerOptions)
+		}
+
+		buf.WriteString("</")
+		buf.WriteString(n.Data)
+		buf.WriteByte('>')
+	default:
+	}
+	return nil
+}
+
+func filterAndRenderHTMLChildren(buf *strings.Builder, n *html.Node, parsedBaseUrl *url.URL, sanitizerOptions *SanitizerOptions) error {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if err := filterAndRenderHTML(buf, c, parsedBaseUrl, sanitizerOptions); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasRequiredAttributes(s *mandatoryAttributesStruct, tagName string) bool {
+	switch tagName {
+	case "a":
+		return s.href
+	case "iframe":
+		return s.src
+	case "source", "img":
+		return s.src || s.srcset
+	}
+	return true
+}
+
+func isBlockedResource(absoluteURL string) bool {
+	for _, blockedURL := range blockedResourceURLSubstrings {
+		if strings.Contains(absoluteURL, blockedURL) {
+			return true
+		}
+	}
+	return false
+}
+
+func isBlockedTag(tagName string) bool {
+	switch tagName {
+	case "noscript", "script", "style":
+		return true
+	}
+	return false
+}
+
+func isExternalResourceAttribute(attribute string) bool {
+	switch attribute {
+	case "src", "href", "poster", "cite":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHidden(n *html.Node) bool {
+	for _, attr := range n.Attr {
+		if attr.Key == "hidden" {
+			return true
+		}
+	}
+	return false
+}
+
+func isPixelTracker(tagName string, attributes []html.Attribute) bool {
+	if tagName != "img" {
+		return false
+	}
+	hasHeight := false
+	hasWidth := false
+
+	for _, attribute := range attributes {
+		if attribute.Val == "1" || attribute.Val == "0" {
+			switch attribute.Key {
+			case "height":
+				hasHeight = true
+			case "width":
+				hasWidth = true
+			}
+		}
+	}
+
+	return hasHeight && hasWidth
+}
+
+func isPositiveInteger(value string) bool {
+	if value == "" {
+		return false
+	}
+	if number, err := strconv.Atoi(value); err == nil {
+		return number > 0
+	}
+	return false
+}
+
+func isSelfContainedTag(tag string) bool {
+	switch tag {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input",
+		"link", "meta", "param", "source", "track", "wbr":
+		return true
+	}
+	return false
+}
+
+func isValidDataAttribute(value string) bool {
+	for _, prefix := range dataAttributeAllowedPrefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isValidDecodingValue(value string) bool {
+	switch value {
+	case "sync", "async", "auto":
+		return true
+	}
+	return false
+}
+
+func isValidFetchPriorityValue(value string) bool {
+	switch value {
+	case "high", "low", "auto":
+		return true
+	}
+	return false
+}
+
+func rewriteIframeURL(link string) string {
+	u, err := url.Parse(link)
+	if err != nil {
+		return link
+	}
+
+	switch strings.TrimPrefix(u.Hostname(), "www.") {
+	case "youtube.com":
+		if pathWithoutEmbed, ok := strings.CutPrefix(u.Path, "/embed/"); ok {
+			if len(u.RawQuery) > 0 {
+				return config.Opts.YouTubeEmbedUrlOverride() + pathWithoutEmbed + "?" + u.RawQuery
+			}
+			return config.Opts.YouTubeEmbedUrlOverride() + pathWithoutEmbed
+		}
+	case "player.vimeo.com":
+		// See https://help.vimeo.com/hc/en-us/articles/12426260232977-About-Player-parameters
+		if strings.HasPrefix(u.Path, "/video/") {
+			if len(u.RawQuery) > 0 {
+				return link + "&dnt=1"
+			}
+			return link + "?dnt=1"
+		}
+	}
+
+	return link
+}
+
+type mandatoryAttributesStruct struct {
+	href   bool
+	src    bool
+	srcset bool
+}
+
+func trackAttributes(s *mandatoryAttributesStruct, attributeName string) {
+	switch attributeName {
+	case "href":
+		s.href = true
+	case "src":
+		s.src = true
+	case "srcset":
+		s.srcset = true
+	}
+}
+
+func sanitizeAttributes(parsedBaseUrl *url.URL, tagName string, attributes []html.Attribute, sanitizerOptions *SanitizerOptions) (string, bool) {
+	var htmlAttrs strings.Builder
+	// Rough estimate: most attributes are short; ~24 bytes (key + ="value") is
+	// a reasonable starting point. Avoids early grows for typical elements.
+	htmlAttrs.Grow(len(attributes) * 24)
+
+	// writeAttr appends key="value" to htmlAttrs, prefixing with a single
+	// space when not the first written attribute. value is HTML-escaped.
+	writeAttr := func(key, value string) {
+		htmlAttrs.WriteByte(' ')
+		htmlAttrs.WriteString(key)
+		htmlAttrs.WriteString(`="`)
+		htmlAttrs.WriteString(html.EscapeString(value))
+		htmlAttrs.WriteByte('"')
+	}
+
+	// Keep track of mandatory attributes for some tags
+	mandatoryAttributes := mandatoryAttributesStruct{false, false, false}
+
+	var isAnchorLink bool
+	var isYouTubeEmbed bool
+
+	// We know the element is present, as the tag was validated in the caller of `sanitizeAttributes`
+	allowedAttributes := allowedHTMLTagsAndAttributes[tagName]
+
+	for _, attribute := range attributes {
+		if !slices.Contains(allowedAttributes, attribute.Key) {
+			continue
+		}
+
+		value := attribute.Val
+
+		switch tagName {
+		case "math":
+			if attribute.Key == "xmlns" {
+				value = "http://www.w3.org/1998/Math/MathML"
+			}
+		case "img":
+			switch attribute.Key {
+			case "fetchpriority":
+				if !isValidFetchPriorityValue(value) {
+					continue
+				}
+			case "decoding":
+				if !isValidDecodingValue(value) {
+					continue
+				}
+			case "width", "height":
+				if !isPositiveInteger(value) {
+					continue
+				}
+			case "srcset":
+				value = sanitizeSrcsetAttr(parsedBaseUrl, value)
+				if value == "" {
+					continue
+				}
+			}
+		case "source":
+			if attribute.Key == "srcset" {
+				value = sanitizeSrcsetAttr(parsedBaseUrl, value)
+				if value == "" {
+					continue
+				}
+			}
+		}
+
+		if isExternalResourceAttribute(attribute.Key) {
+			switch {
+			case tagName == "iframe":
+				iframeSourceDomain, trustedIframeDomain := findAllowedIframeSourceDomain(attribute.Val)
+				if !trustedIframeDomain {
+					return "", false
+				}
+
+				value = rewriteIframeURL(attribute.Val)
+
+				if iframeSourceDomain == "youtube.com" || iframeSourceDomain == "youtube-nocookie.com" {
+					isYouTubeEmbed = true
+				}
+			case tagName == "img" && attribute.Key == "src" && isValidDataAttribute(attribute.Val):
+				value = attribute.Val
+			case tagName == "a" && attribute.Key == "href" && strings.HasPrefix(attribute.Val, "#"):
+				value = attribute.Val
+				isAnchorLink = true
+			default:
+				if isBlockedResource(value) {
+					return "", false
+				}
+
+				var err error
+				value, err = urllib.ResolveToAbsoluteURLWithParsedBaseURL(parsedBaseUrl, value)
+				if err != nil {
+					continue
+				}
+
+				if !HasValidURIScheme(value) {
+					continue
+				}
+
+				// Skip the parse + RemoveTrackingParameters round trip when there
+				// is no query string to clean, which is common for <img>.
+				if strings.IndexByte(value, '?') >= 0 {
+					parsedValueUrl, _ := url.Parse(value)
+					// TODO use feedURL instead of baseURL twice.
+					if cleanedURL, err := urlcleaner.RemoveTrackingParameters(parsedBaseUrl, parsedBaseUrl, parsedValueUrl); err == nil {
+						value = cleanedURL
+					}
+				}
+			}
+		}
+
+		trackAttributes(&mandatoryAttributes, attribute.Key)
+		writeAttr(attribute.Key, value)
+	}
+
+	if !hasRequiredAttributes(&mandatoryAttributes, tagName) {
+		return "", false
+	}
+
+	if !isAnchorLink {
+		switch tagName {
+		case "a":
+			writeAttr("rel", "noopener noreferrer")
+			writeAttr("referrerpolicy", "no-referrer")
+			if sanitizerOptions.OpenLinksInNewTab {
+				writeAttr("target", "_blank")
+			}
+		case "video", "audio":
+			htmlAttrs.WriteString(" controls")
+		case "iframe":
+			writeAttr("sandbox", "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox")
+			writeAttr("loading", "lazy")
+
+			// Note: the referrerpolicy seems to be required to avoid YouTube error 153 video player configuration error
+			// See https://developers.google.com/youtube/terms/required-minimum-functionality#embedded-player-api-client-identity
+			if isYouTubeEmbed {
+				writeAttr("referrerpolicy", "strict-origin-when-cross-origin")
+			}
+
+		case "img":
+			writeAttr("loading", "lazy")
+		}
+	}
+
+	return strings.TrimLeft(htmlAttrs.String(), " "), true
+}
+
+func sanitizeSrcsetAttr(parsedBaseURL *url.URL, value string) string {
+	candidates := ParseSrcSetAttribute(value)
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	sanitizedCandidates := make([]*imageCandidate, 0, len(candidates))
+
+	for _, imageCandidate := range candidates {
+		absoluteURL, err := urllib.ResolveToAbsoluteURLWithParsedBaseURL(parsedBaseURL, imageCandidate.ImageURL)
+		if err != nil {
+			continue
+		}
+
+		if !HasValidURIScheme(absoluteURL) || isBlockedResource(absoluteURL) {
+			continue
+		}
+
+		imageCandidate.ImageURL = absoluteURL
+		sanitizedCandidates = append(sanitizedCandidates, imageCandidate)
+	}
+
+	return imageCandidates(sanitizedCandidates).String()
+}
+
+func shouldIgnoreTag(n *html.Node, tag string) bool {
+	if isPixelTracker(tag, n.Attr) {
+		return true
+	}
+	if isBlockedTag(tag) {
+		return true
+	}
+	if isHidden(n) {
+		return true
+	}
+
+	return false
+}

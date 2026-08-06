@@ -1,0 +1,6 @@
+{
+  "$schema": "permissions.json#/$defs/PermissionUpdate",
+  "type": "setMode",
+  "mode": "acceptEdits",
+  "destination": "session"
+}

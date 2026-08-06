@@ -1,0 +1,62 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# editor-web (Milkdown WYSIWYG bundle) — build outputs and node_modules
+editor-web/dist/
+editor-web/node_modules/
+# editor bundle 由 `make editor-web-build` 同步过来; 不入仓
+web/editor/
+assets/editor/
+
+# 发布产物 (CI/本机验证生成; releases.json 不进 git, 见 docs/BiuMind-Client-Build.md)
+/biumind-*.apk
+/biumind-*.aab
+/biumind-*.ipa
+/biumind-*.dmg
+/biumind-*.app.tar.gz
+/releases.json
+/asset-*.json
+

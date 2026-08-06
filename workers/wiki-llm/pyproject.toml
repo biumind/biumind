@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biumind-wiki-llm-worker"
+version = "0.1.0"
+description = "Multi-page CoT wiki ingest worker (LLM-driven) for BiuMind Brain"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "BiuMind" }]
+
+# Stays deliberately tiny: NATS for transport, httpx for the brain
+# callback fallback. The LLM SDK is intentionally NOT a dependency —
+# this worker calls the biumind hub via plain HTTP so swapping providers
+# is a config concern rather than a code concern.
+dependencies = [
+  "nats-py>=2.7,<3",
+  "httpx>=0.27,<0.30",
+  # pyyaml is the only mature option for YAML in stdlib-friendly Python;
+  # ruamel.yaml does roundtrip-preserving but is heavier and we don't
+  # need it (frontmatter callers rewrite via ``rawBlock`` not via the
+  # parsed dict, so we only consume YAML, never emit it).
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.23,<1",
+]
+
+[project.scripts]
+biumind-wiki-llm = "wiki_llm.__main__:main"
+
+[tool.setuptools]
+packages = ["wiki_llm", "wiki_llm.domain"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

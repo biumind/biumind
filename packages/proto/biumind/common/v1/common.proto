@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package biumind.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// 统一的 Principal: User / Service / AgentVirtualKey
+message Principal {
+  string id = 1;
+  PrincipalKind kind = 2;
+  string display_name = 3;
+  string org_id = 4;
+  repeated string team_ids = 5;
+  repeated string roles = 6;
+  string device_id = 7;
+}
+
+enum PrincipalKind {
+  PRINCIPAL_KIND_UNSPECIFIED = 0;
+  PRINCIPAL_KIND_USER = 1;
+  PRINCIPAL_KIND_SERVICE = 2;
+  PRINCIPAL_KIND_AGENT_VIRTUAL_KEY = 3;
+}
+
+// 统一的资源引用：urn:biumind:<service>:<type>:<id>
+message ResourceRef {
+  string service = 1;       // "wiki" / "graph" / "hub" ...
+  string type = 2;          // "Page" / "Node" / "Model" ...
+  string id = 3;
+  // 可选元数据，用于 Authz 决策
+  map<string, string> attributes = 4;
+}
+
+message Pagination {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message Page {
+  string next_page_token = 1;
+  int32 total_size = 2;
+}
+
+// 标准错误
+message Error {
+  string code = 1;          // "PERMISSION_DENIED" / "QUOTA_EXCEEDED" / ...
+  string message = 2;
+  map<string, string> details = 3;
+  string trace_id = 4;
+}
+
+// 用量 / 计费片段
+message Usage {
+  int64 tokens_in = 1;
+  int64 tokens_out = 2;
+  int64 cache_read_tokens = 3;
+  int64 cache_write_tokens = 4;
+  int64 cost_micro_usd = 5;
+  string model = 6;
+  string provider = 7;
+  google.protobuf.Timestamp ts = 8;
+}

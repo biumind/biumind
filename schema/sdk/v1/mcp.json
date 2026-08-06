@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/mcp.json",
+  "title": "BiuMind SDK v1 — MCP Server Config",
+  "description": "5 个 McpServerConfig 类型 + McpServerStatus。type discriminator 区分 stdio / sse / http / sdk / claudeai-proxy。",
+  "$defs": {
+    "McpStdioServerConfig": {
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "type": { "const": "stdio" },
+        "command": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpSSEServerConfig": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "sse" },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpHttpServerConfig": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "http" },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpSdkServerConfig": {
+      "type": "object",
+      "required": ["type", "name"],
+      "properties": {
+        "type": { "const": "sdk" },
+        "name": { "type": "string" },
+        "instance": {}
+      },
+      "additionalProperties": true
+    },
+    "McpClaudeAIProxyServerConfig": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "claudeai-proxy" },
+        "url": { "type": "string" },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpServerConfig": {
+      "oneOf": [
+        { "$ref": "#/$defs/McpStdioServerConfig" },
+        { "$ref": "#/$defs/McpSSEServerConfig" },
+        { "$ref": "#/$defs/McpHttpServerConfig" },
+        { "$ref": "#/$defs/McpSdkServerConfig" },
+        { "$ref": "#/$defs/McpClaudeAIProxyServerConfig" }
+      ]
+    },
+    "McpServerStatus": {
+      "type": "object",
+      "required": ["name", "status"],
+      "properties": {
+        "name": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["connected", "failed", "needs-auth", "pending", "disabled"]
+        },
+        "serverInfo": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "data/post_turn.json#/$defs/SDKPostTurnSummary",
+  "type": "system",
+  "subtype": "post_turn_summary",
+  "summarizes_uuid": "u100",
+  "status_category": "success",
+  "status_detail": "done",
+  "is_noteworthy": false,
+  "title": "Edit",
+  "description": "Edited file",
+  "recent_action": "edit",
+  "needs_action": false,
+  "artifact_urls": [],
+  "uuid": "pts1",
+  "session_id": "s1"
+}

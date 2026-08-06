@@ -1,0 +1,6 @@
+{
+  "name": "explanatory",
+  "version": "1.0.0",
+  "description": "Output style: explain implementation choices and codebase patterns alongside code changes",
+  "author": { "name": "BiuMind" }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/index.json",
+  "title": "BiuMind SDK v1 — SDK Message Union",
+  "description": "顶层 SDKMessage union (oneOf, discriminator: type)。覆盖全部 28 个 variant + post_turn_summary（subtype 区分）。",
+  "$defs": {
+    "SDKMessage": {
+      "oneOf": [
+        { "$ref": "user.json#/$defs/SDKUserMessage" },
+        { "$ref": "user.json#/$defs/SDKUserMessageReplay" },
+        { "$ref": "assistant.json#/$defs/SDKAssistantMessage" },
+        { "$ref": "assistant.json#/$defs/SDKPartialAssistantMessage" },
+        { "$ref": "result.json#/$defs/SDKResultMessage" },
+        { "$ref": "system.json#/$defs/SDKSystemInit" },
+        { "$ref": "system.json#/$defs/SDKSystemStatus" },
+        { "$ref": "system.json#/$defs/SDKCompactBoundary" },
+        { "$ref": "system.json#/$defs/SDKAPIRetry" },
+        { "$ref": "system.json#/$defs/SDKLocalCommandOutput" },
+        { "$ref": "system.json#/$defs/SDKHookStarted" },
+        { "$ref": "system.json#/$defs/SDKHookProgress" },
+        { "$ref": "system.json#/$defs/SDKHookResponse" },
+        { "$ref": "system.json#/$defs/SDKAuthStatus" },
+        { "$ref": "system.json#/$defs/SDKFilesPersisted" },
+        { "$ref": "system.json#/$defs/SDKTaskNotification" },
+        { "$ref": "system.json#/$defs/SDKTaskStarted" },
+        { "$ref": "system.json#/$defs/SDKTaskProgress" },
+        { "$ref": "system.json#/$defs/SDKSessionStateChanged" },
+        { "$ref": "system.json#/$defs/SDKRateLimitEvent" },
+        { "$ref": "system.json#/$defs/SDKElicitationComplete" },
+        { "$ref": "system.json#/$defs/SDKPromptSuggestion" },
+        { "$ref": "tool.json#/$defs/SDKToolProgress" },
+        { "$ref": "tool.json#/$defs/SDKToolUseSummary" },
+        { "$ref": "post_turn.json#/$defs/SDKPostTurnSummary" },
+        { "$ref": "streamlined.json#/$defs/SDKStreamlinedText" },
+        { "$ref": "streamlined.json#/$defs/SDKStreamlinedToolUseSummary" }
+      ]
+    }
+  }
+}

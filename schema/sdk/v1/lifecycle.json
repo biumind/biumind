@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/lifecycle.json",
+  "title": "BiuMind SDK v1 — Lifecycle (BiuMind own)",
+  "description": "BiuMind 自有 lifecycle 帧 —— 不在标准 SDK 协议。多副本 / JetStream 持久化 / 客户端断线重连等场景使用。type 字段以 'biumind.' 前缀（KeepAlive / UpdateEnvironmentVariables 例外，沿用 SDK 风格命名）。",
+  "$defs": {
+    "KeepAlive": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "keep_alive" },
+        "ts": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "UpdateEnvironmentVariables": {
+      "type": "object",
+      "required": ["type", "variables"],
+      "properties": {
+        "type": { "const": "update_environment_variables" },
+        "variables": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "SessionDesynced": {
+      "type": "object",
+      "required": ["type", "session_id"],
+      "properties": {
+        "type": { "const": "biumind.session_desynced" },
+        "session_id": { "type": "string" },
+        "final_result_url": { "type": "string" },
+        "since_seq": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "SessionPaused": {
+      "type": "object",
+      "required": ["type", "session_id"],
+      "properties": {
+        "type": { "const": "biumind.session_paused" },
+        "session_id": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SessionResumed": {
+      "type": "object",
+      "required": ["type", "session_id"],
+      "properties": {
+        "type": { "const": "biumind.session_resumed" },
+        "session_id": { "type": "string" },
+        "since_seq": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "SessionPrimaryPromoted": {
+      "type": "object",
+      "required": ["type", "session_id", "primary_replica"],
+      "properties": {
+        "type": { "const": "biumind.session_primary_promoted" },
+        "session_id": { "type": "string" },
+        "primary_replica": {
+          "type": "string",
+          "description": "新 primary replica 标识（pod name 或 environment_id）"
+        }
+      },
+      "additionalProperties": true
+    },
+    "BiumindCompactStarted": {
+      "type": "object",
+      "description": "biumindkit 把 compact 拆成 started/finished 两事件，上游协议只有 SDKCompactBoundary（finish 语义）—— 这两个 BiuMind 扩展帧补 started 语义 + Tokens 报告。",
+      "required": ["type", "session_id", "reason", "tokens_before"],
+      "properties": {
+        "type": { "const": "biumind.compact_started" },
+        "session_id": { "type": "string" },
+        "reason": { "type": "string", "description": "auto / manual / size_limit 等" },
+        "tokens_before": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "BiumindCompactFinished": {
+      "type": "object",
+      "required": ["type", "session_id", "tokens_before", "tokens_after", "tokens_saved"],
+      "properties": {
+        "type": { "const": "biumind.compact_finished" },
+        "session_id": { "type": "string" },
+        "tokens_before": { "type": "integer" },
+        "tokens_after": { "type": "integer" },
+        "tokens_saved": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,131 @@
+# Dependabot configuration.
+#
+# Why a per-module list? Each Go module has its own go.sum; Dependabot
+# can't share a single update PR across them. Auto-discovery would emit
+# 13 PRs every Monday, drowning the queue. The schedule below batches
+# weekly so reviewers see one diff per area per week.
+#
+# Major-version bumps need a human (API breakage). Minor + patch can be
+# auto-merged via Mergify if your repo enables it.
+
+version: 2
+updates:
+  # ─── Go modules ──────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: /apps/cli/biu
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "go"]
+    groups:
+      otel:
+        patterns: ["go.opentelemetry.io/*"]
+      grpc:
+        patterns: ["google.golang.org/grpc*", "google.golang.org/protobuf"]
+
+  - package-ecosystem: gomod
+    directory: /packages/go-sdk/biu
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "go", "shared-sdk"]
+
+  - package-ecosystem: gomod
+    directory: /services/identity
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/hub
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/brain
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/runtime
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/realtime
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/sandbox
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+    # K8s libs change weekly upstream; group so we don't drown.
+    groups:
+      kubernetes:
+        patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+
+  - package-ecosystem: gomod
+    directory: /services/deploy
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/channels
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/app_center
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /services/authz
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go"]
+
+  - package-ecosystem: gomod
+    directory: /sdks/go
+    schedule: { interval: weekly, day: monday }
+    labels: ["dependencies", "go", "sdk"]
+
+  # ─── Flutter pub ─────────────────────────────────────────
+  - package-ecosystem: pub
+    directory: /apps/client
+    schedule: { interval: weekly, day: tuesday }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "flutter"]
+    groups:
+      riverpod:
+        patterns: ["*riverpod*"]
+      drift:
+        patterns: ["drift*"]
+
+  # ─── Python ──────────────────────────────────────────────
+  - package-ecosystem: pip
+    directory: /workers/ingest
+    schedule: { interval: weekly, day: tuesday }
+    labels: ["dependencies", "python"]
+
+  - package-ecosystem: pip
+    directory: /sdks/python
+    schedule: { interval: weekly, day: tuesday }
+    labels: ["dependencies", "python", "sdk"]
+
+  # ─── npm ─────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /sdks/node
+    schedule: { interval: weekly, day: tuesday }
+    labels: ["dependencies", "node", "sdk"]
+
+  # ─── GitHub Actions ──────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: wednesday }
+    labels: ["dependencies", "ci"]
+
+  # ─── Docker base images ──────────────────────────────────
+  # Picks up FROM lines in every Dockerfile so we get nudges when a
+  # new patch release of distroless / python:3.12-slim drops.
+  - package-ecosystem: docker
+    directory: /workers/ingest
+    schedule: { interval: weekly, day: wednesday }
+    labels: ["dependencies", "docker"]

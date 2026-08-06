@@ -1,0 +1,37 @@
+# 测试 override（Jenkins 部署用）
+# 用法：跟主 compose 一起 -f 加载在最后，override base：
+#   docker compose -f docker-compose.yml -f docker-compose.test.override.yml up -d ...
+#
+# 目标：NPM 是唯一公网入口。所有服务/基础设施不绑 host 端口，走 biumind_biu-net docker 内网。
+# NPM 容器加入网络后用 docker hostname 直连（一次性: docker network connect biumind_biu-net <NPM>）。
+# 健康检查走 docker inspect .State.Health.Status，不依赖 host-port curl。
+#
+# !reset [] 是 Compose Spec 2.20+ 语法（DESIGN.md §13）— 重置 ports 为空，不是 merge。
+# 镜像源不在这写死：base 用 ${INFRA_REGISTRY:-docker.io}/ 前缀，.env.test 设内网源。
+
+services:
+  # 基础设施（内部用，不暴露 host）
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
+  nats:
+    ports: !reset []
+  minio:
+    ports: !reset []
+  searxng:
+    ports: !reset []
+
+  # 业务服务（公网经 NPM 反代，host 端口收掉）
+  identity:
+    ports: !reset []
+  authz:
+    ports: !reset []
+  model-relay:
+    ports: !reset []
+  runtime:
+    ports: !reset []
+  brain:
+    ports: !reset []
+  realtime:
+    ports: !reset []

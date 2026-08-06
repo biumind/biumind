@@ -1,0 +1,39 @@
+---
+// BiuMind logo mark —— 矢量数据来自原始 PNG 的 potrace 高精度还原。
+// 通过 prefix 控制 class 命名，让多个上层组件（Logo / Hero / Splash）
+// 用同一份 path 数据但分别绑定独立动画。
+import {
+  BIU_VIEW_BOX,
+  BIU_TRANSFORM,
+  BIU_HEAD,
+  BIU_CIRCUIT_L,
+  BIU_CIRCUIT_M,
+  BIU_CIRCUIT_R,
+  BIU_HAND,
+} from './biu-paths';
+
+interface Props {
+  class?: string;
+  inkColor?: string; // 头 + 手颜色
+  circuitColor?: string; // 电路 + 圆点颜色
+  prefix?: string; // class 前缀
+}
+const {
+  class: cls = '',
+  inkColor = 'currentColor',
+  circuitColor = 'var(--purple)',
+  prefix = 'biu-mark',
+} = Astro.props;
+---
+
+<svg viewBox={BIU_VIEW_BOX} fill="none" aria-hidden="true" class={cls} preserveAspectRatio="xMidYMid meet">
+  <g transform={BIU_TRANSFORM}>
+    <path class={`${prefix}__head`} fill={inkColor} stroke="none" d={BIU_HEAD}></path>
+    <g class={`${prefix}__circuits`}>
+      <path class={`${prefix}__circuit ${prefix}__circuit--l`} fill={circuitColor} stroke="none" d={BIU_CIRCUIT_L}></path>
+      <path class={`${prefix}__circuit ${prefix}__circuit--m`} fill={circuitColor} stroke="none" d={BIU_CIRCUIT_M}></path>
+      <path class={`${prefix}__circuit ${prefix}__circuit--r`} fill={circuitColor} stroke="none" d={BIU_CIRCUIT_R}></path>
+    </g>
+    <path class={`${prefix}__hand`} fill={inkColor} stroke="none" d={BIU_HAND}></path>
+  </g>
+</svg>

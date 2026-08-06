@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd LaunchAgent template for `biu serve` (S6-4).
+
+  作用：让 macOS 用户登录后自动起 biu daemon，前台 Flutter desktop app
+  不需要自己 spawn（也兼容跑：spawned daemon 看 PID file 拒重复启动）。
+
+  安装：
+    1. 拷贝到 ~/Library/LaunchAgents/com.biumind.biu.plist
+    2. 把 PROGRAM_PATH 改成 `which biu` 输出（默认假设 /usr/local/bin/biu）
+    3. 把 BIUMIND_PAT / BIUMIND_BRAIN_URL 填进 EnvironmentVariables（可选，
+       仅 --register 时需要；纯本地 bridge 模式可省）
+    4. launchctl load -w ~/Library/LaunchAgents/com.biumind.biu.plist
+
+  卸载：
+    launchctl unload -w ~/Library/LaunchAgents/com.biumind.biu.plist
+    rm ~/Library/LaunchAgents/com.biumind.biu.plist
+
+  日志位置：
+    ~/Library/Logs/biumind/biu.out.log
+    ~/Library/Logs/biumind/biu.err.log
+
+  注意：
+    - LaunchAgent (当前用户作用域) vs LaunchDaemon (系统级 root)
+      —— biu serve 默认走 LaunchAgent，因为 PAT / config.toml 都在用户
+      $HOME 下；多用户机器每个用户独立装就好
+    - 不加 KeepAlive=true —— 用户 SIGTERM / Quit Flutter 时希望 biu 也能
+      下；崩溃自动重启会跟 PID file 冲突。需要"自动重启"用户改成 true 即可
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.biumind.biu</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/biu</string>
+    <string>serve</string>
+    <string>--port</string>
+    <string>7173</string>
+    <string>--pid-file</string>
+    <string>/Users/USERNAME/.biumind/biu.pid</string>
+    <!--
+      Uncomment to also register as agent_plane environment so brain
+      remote clients can dispatch tasks to this machine:
+      <string>--register</string>
+      <string>--brain-url</string>
+      <string>https://your-biumind.example.com</string>
+    -->
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/USERNAME</string>
+    <!-- 仅 --register 时需要：long-lived PAT for brain Agent Plane auth
+    <key>BIUMIND_PAT</key>
+    <string>biu-pat-xxxx</string>
+    <key>BIUMIND_BRAIN_URL</key>
+    <string>https://your-biumind.example.com</string>
+    -->
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 不开 KeepAlive：明确退出（SIGTERM）时不重启；崩溃重启会跟 PID
+       文件冲突。需要的用户改成 <true/>。 -->
+  <key>KeepAlive</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/USERNAME/Library/Logs/biumind/biu.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USERNAME/Library/Logs/biumind/biu.err.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/USERNAME</string>
+
+  <!-- 限制 CPU / 内存（可选）—— biu 单 turn 跑 LLM 时 RSS 可达 200MB
+       SoftResourceLimits 让 OS 在内存压力时优先回收 -->
+  <!--
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>1024</integer>
+  </dict>
+  -->
+
+  <!-- LaunchAgent 默认走当前用户 console session；正常 Aqua session 即可 -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

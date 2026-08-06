@@ -1,0 +1,364 @@
+syntax = "proto3";
+
+package biumind.runtime.v1;
+
+import "google/protobuf/timestamp.proto";
+import "biumind/common/v1/common.proto";
+
+// Skills — agent capability packages (SKILL.md + optional bundled
+// scripts/references/assets). Parallel to App Center; see
+// docs/BiuMind-Skills-Design.md for the full design.
+//
+// Surface split:
+//   - Public: end-user CRUD + propose/approve workflow + per-agent
+//     toggle. All RPCs Authz-gated; ownership scoped to the caller's
+//     org. Cross-org reads are not exposed here (marketplace owns that
+//     in v2.5).
+//   - Streaming: StreamSkillActivations is a tail of the audit ledger,
+//     Realtime fans out the same data — pick one based on whether the
+//     caller is interactive (Realtime) or backend-batched (this RPC).
+service SkillsService {
+  rpc ListSkills(ListSkillsRequest) returns (ListSkillsResponse) {}
+  rpc GetSkill(GetSkillRequest) returns (GetSkillResponse) {}
+  rpc InstallSkill(InstallSkillRequest) returns (InstallSkillResponse) {}
+  rpc UpdateSkill(UpdateSkillRequest) returns (UpdateSkillResponse) {}
+  rpc DeleteSkill(DeleteSkillRequest) returns (DeleteSkillResponse) {}
+
+  // Per-agent enablement (runtime.agent_skills join row).
+  rpc ToggleAgentSkill(ToggleAgentSkillRequest) returns (ToggleAgentSkillResponse) {}
+
+  // Self-authoring workflow. Propose writes status=STAGED; Approve
+  // flips to ACTIVE; Reject flips to DISABLED. ShareSkillOrg moves a
+  // personal skill to STAGED_ORG awaiting an org-admin approval. State
+  // machine diagram lives in Skills-Design §11A.4.
+  rpc ProposeSkill(ProposeSkillRequest) returns (ProposeSkillResponse) {}
+  rpc ApproveSkill(ApproveSkillRequest) returns (ApproveSkillResponse) {}
+  rpc RejectSkill(RejectSkillRequest) returns (RejectSkillResponse) {}
+  rpc ShareSkillOrg(ShareSkillOrgRequest) returns (ShareSkillOrgResponse) {}
+
+  // Tail the activation ledger. Realtime is the preferred channel for
+  // interactive UI; this RPC exists so backend pipelines (analytics,
+  // billing) can replay from a known point without re-implementing
+  // SSE.
+  rpc StreamSkillActivations(StreamSkillActivationsRequest) returns (stream StreamSkillActivationsResponse) {}
+}
+
+// ─── Skill ──────────────────────────────────────────────────
+
+message Skill {
+  string id = 1;            // "skill_<ulid>"
+  string identifier = 2;    // kebab-case slug, unique per org
+  string name = 3;          // display name (from frontmatter)
+  string description = 4;   // single-line; drives activate matching
+
+  Source source = 5;
+  SkillManifest manifest = 6;
+
+  // Body of SKILL.md (post-frontmatter markdown). Inlined for fast
+  // injection into agent system prompt. ≤ ~50KB by convention; for
+  // anything larger split into resources/.
+  string content = 7;
+
+  // sha256 of the raw SKILL.md (frontmatter + body); change-detection
+  // for sync and update_of diffs.
+  string content_hash = 8;
+
+  // Bundled resources (scripts / references / assets). Map key is the
+  // virtual path under the skill root (e.g. "scripts/check.sh"). Value
+  // points at content (inline for small text, CAS hash for everything
+  // else). See SkillResourceMeta below for the inline-vs-CAS rules.
+  map<string, SkillResourceMeta> resources = 9;
+
+  // Whole-bundle sha256 in the Files CAS (files.objects.sha256). When
+  // present, sandbox can mount the entire skill as a tar at /skill/.
+  // When empty, only `resources` (per-file) is available; sandbox
+  // assembles on demand from individual file references.
+  string zip_file_sha256 = 10;
+
+  // Auto-attach globs (relative to project root). When any matches the
+  // session's cwd or recently-touched paths, the body is injected into
+  // the system prompt without an explicit activate call. Empty / only
+  // wildcards = "available, never auto-attaches".
+  repeated string paths = 11;
+
+  // Declared permissions (sandbox.exec, network.fetch, wiki.read,
+  // memory.recall, ...). Authz translates these to Cedar rules in
+  // PS3.4; until then they're advisory metadata.
+  repeated string permissions = 12;
+
+  Status status = 13;
+
+  // Ownership. owner_id empty = org-shared (visible to all org members).
+  string org_id = 14;
+  string owner_id = 15;
+
+  google.protobuf.Timestamp created_at = 16;
+  google.protobuf.Timestamp updated_at = 17;
+}
+
+enum Source {
+  SOURCE_UNSPECIFIED = 0;
+  SOURCE_BUNDLED = 1;       // shipped with platform binary (skills-stdlib)
+  SOURCE_ORG = 2;           // org-shared, admin-curated
+  SOURCE_USER = 3;          // user-authored, propose flow
+  SOURCE_MARKETPLACE = 4;   // pulled from marketplace (signed)
+  SOURCE_IMPORTED = 5;      // imported from external URL (lobehub / skills.sh / ...)
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_DISABLED = 2;
+  STATUS_STAGED = 3;        // propose — awaiting owner approval
+  STATUS_STAGED_ORG = 4;    // share-org — awaiting org-admin approval
+  STATUS_SUSPENDED = 5;     // platform-level deactivation (e.g. abuse)
+}
+
+// SkillManifest — frontmatter-derived metadata. Stored alongside the
+// skill row as JSONB; here as a typed view for clients that want
+// structured access.
+message SkillManifest {
+  string version = 1;       // semver; empty = unversioned
+  SkillAuthor author = 2;
+  string license = 3;       // SPDX id
+  string repository = 4;    // upstream git URL
+  string source_url = 5;    // import provenance
+  // Free-form pass-through for fields the platform doesn't model yet.
+  // Clients should NOT treat this as authoritative; the typed fields
+  // above always win when both exist.
+  map<string, string> extra = 6;
+}
+
+message SkillAuthor {
+  string name = 1;
+  string url = 2;           // optional homepage / contact
+}
+
+// SkillResourceMeta — one bundled resource entry. Either inline (small
+// text content embedded in the skill row) or CAS (content lives in
+// Files service, addressed by sha256). Inline cap is enforced
+// server-side (~4KB at the moment) to keep skill rows lean.
+message SkillResourceMeta {
+  // sha256 of the resource bytes. Required for non-inline; when inline
+  // is set, this is computed from inline.bytes for change-detection.
+  string sha256 = 1;
+  int64 size_bytes = 2;     // raw byte length
+  string mime_type = 3;     // best-effort; "text/markdown" / "application/octet-stream"
+  // Inline content for small text resources. UTF-8 only; binaries must
+  // go through CAS. Mutually exclusive with the implicit CAS path
+  // (server reads from Files when inline is empty).
+  string inline = 4;
+}
+
+// ─── Per-agent enablement ───────────────────────────────────
+
+message AgentSkill {
+  string agent_id = 1;
+  string skill_id = 2;
+  bool is_enabled = 3;
+
+  // pinned=true bypasses the `skill.activate` round-trip and injects
+  // the body directly into the system prompt for every session this
+  // agent runs. Use sparingly; the prompt budget is finite.
+  bool pinned = 4;
+
+  google.protobuf.Timestamp added_at = 5;
+}
+
+// ─── ListSkills ─────────────────────────────────────────────
+
+message ListSkillsRequest {
+  // Filter by source / status / agent_id (only skills enabled on this
+  // agent). All filters AND'd. Empty = "everything visible to caller
+  // org".
+  Source source_filter = 1;
+  Status status_filter = 2;
+  string agent_id = 3;
+
+  biumind.common.v1.Pagination pagination = 4;
+}
+
+message ListSkillsResponse {
+  repeated Skill skills = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+// ─── GetSkill ───────────────────────────────────────────────
+
+message GetSkillRequest {
+  string id = 1;
+}
+
+message GetSkillResponse {
+  Skill skill = 1;
+}
+
+// ─── InstallSkill ───────────────────────────────────────────
+
+// InstallSkillRequest — three input shapes via oneof.
+//   url     — fetch SKILL.md (and zip if present) from HTTPS URL.
+//             Marketplace adapters (lobehub / skills.sh / ...) detect
+//             registry by URL host server-side.
+//   zip_file_sha256 — caller already uploaded a .biuskill bundle to
+//             Files; pass its sha256.
+//   inline  — direct SKILL.md body + manifest from a UI editor.
+message InstallSkillRequest {
+  oneof source {
+    string url = 1;
+    string zip_file_sha256 = 2;
+    InlineSkillSpec inline = 3;
+  }
+
+  // After install, optionally enable + pin on this agent in one call.
+  // Empty = leave per-agent state untouched.
+  string target_agent_id = 10;
+  bool pin = 11;
+}
+
+message InstallSkillResponse {
+  Skill skill = 1;
+}
+
+message InlineSkillSpec {
+  string identifier = 1;
+  string name = 2;
+  string description = 3;
+  string body = 4;          // SKILL.md content (post-frontmatter)
+  SkillManifest manifest = 5;
+  repeated string paths = 6;
+  repeated string permissions = 7;
+  map<string, SkillResourceMeta> resources = 8;
+}
+
+// ─── UpdateSkill ────────────────────────────────────────────
+
+message UpdateSkillRequest {
+  string id = 1;
+
+  // FieldMask-style partial update. Only fields with set=true are
+  // touched server-side. (Using booleans rather than google.protobuf
+  // FieldMask to keep the wire format obvious in non-Go clients.)
+  string description = 2;       bool set_description = 3;
+  string content = 4;           bool set_content = 5;
+  SkillManifest manifest = 6;   bool set_manifest = 7;
+  repeated string paths = 8;    bool set_paths = 9;
+  repeated string permissions = 10; bool set_permissions = 11;
+  // Resources updates always replace wholesale; partial updates would
+  // require diff semantics that client-side editors rarely produce
+  // correctly. Omit set_resources=true to leave the existing map alone.
+  map<string, SkillResourceMeta> resources = 12; bool set_resources = 13;
+}
+
+message UpdateSkillResponse {
+  Skill skill = 1;
+}
+
+// ─── DeleteSkill ────────────────────────────────────────────
+
+message DeleteSkillRequest {
+  string id = 1;
+  // force=true allows deleting ACTIVE skills that are pinned on agents.
+  // Default false: server returns FailedPrecondition listing affected
+  // agents so the caller can surface a confirm dialog.
+  bool force = 2;
+}
+
+message DeleteSkillResponse {
+  // Echoed for client convenience; matches the request id on success.
+  string id = 1;
+}
+
+// ─── ToggleAgentSkill ───────────────────────────────────────
+
+message ToggleAgentSkillRequest {
+  string agent_id = 1;
+  string skill_id = 2;
+  bool is_enabled = 3;
+  bool pinned = 4;
+}
+
+message ToggleAgentSkillResponse {
+  AgentSkill agent_skill = 1;
+}
+
+// ─── ProposeSkill / ApproveSkill / RejectSkill / ShareSkillOrg ───────
+
+message ProposeSkillRequest {
+  // Required core
+  string identifier = 1;
+  string name = 2;
+  string description = 3;
+  string body = 4;
+
+  // Optional metadata; all of SkillManifest can be left empty.
+  SkillManifest manifest = 5;
+  repeated string paths = 6;
+  repeated string permissions = 7;
+  map<string, SkillResourceMeta> resources = 8;
+
+  // When proposing an update to an existing skill rather than a brand
+  // new one. Server diffs the body + resources and surfaces a diff
+  // view in the approval card.
+  string update_of = 10;
+}
+
+message ProposeSkillResponse {
+  Skill skill = 1;
+}
+
+message ApproveSkillRequest {
+  string id = 1;
+  // Optional: enable on caller's default agent immediately. Mirrors
+  // the install flow's target_agent_id ergonomics.
+  bool enable_on_default_agent = 2;
+}
+
+message ApproveSkillResponse {
+  Skill skill = 1;
+}
+
+message RejectSkillRequest {
+  string id = 1;
+  string reason = 2;        // free-text; surfaces in proposer's audit
+}
+
+message RejectSkillResponse {
+  Skill skill = 1;
+}
+
+message ShareSkillOrgRequest {
+  string id = 1;
+}
+
+message ShareSkillOrgResponse {
+  Skill skill = 1;
+}
+
+// ─── StreamSkillActivations ─────────────────────────────────
+
+message StreamSkillActivationsRequest {
+  // Server tails activations from this point. Empty = "from latest".
+  string since_id = 1;
+  // Optional filters; AND'd.
+  string skill_id = 2;
+  string session_id = 3;
+}
+
+message StreamSkillActivationsResponse {
+  string id = 1;
+  string session_id = 2;
+  string skill_id = 3;
+  Trigger trigger = 4;
+  string trace_id = 5;
+  int32 tokens_in = 6;
+  int32 tokens_out = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+enum Trigger {
+  TRIGGER_UNSPECIFIED = 0;
+  TRIGGER_EXPLICIT = 1;     // user @-mention or /-command
+  TRIGGER_AUTO_ATTACH = 2;  // paths: glob matched
+  TRIGGER_TOOL_CALL = 3;    // LLM called skill.activate
+  TRIGGER_PINNED = 4;       // agent_skills.pinned=true
+}

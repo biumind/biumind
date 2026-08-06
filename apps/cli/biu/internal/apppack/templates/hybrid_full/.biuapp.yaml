@@ -1,0 +1,9 @@
+include:
+  - manifest.yaml
+  - README.md
+  - LICENSE
+  - skills/**
+  - assets/**
+exclude:
+  - .git/**
+  - "**/*_test.go"

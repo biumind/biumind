@@ -1,0 +1,110 @@
+identifier: {{slug}}
+version: 0.1.0
+name: {{slug}}
+description: TODO — full hybrid App with backend + views + triggers
+author:
+  name: TODO
+icon: 🛠
+category: productivity
+kind: hybrid
+
+permissions:
+  - net.outbound:*
+  - hub.invoke
+  - wiki.write
+  - cron.register
+
+data_scopes:
+  - wiki:collection:{{slug}}
+
+actions:
+  - name: ping
+    description: Quick health check
+    risk: low
+    input_schema:
+      type: object
+
+  - name: list_items
+    description: List the user's stored items
+    risk: low
+    input_schema:
+      type: object
+
+  - name: add_item
+    description: Add a new item
+    risk: low
+    input_schema:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+          title: 标题
+
+  - name: remove_item
+    description: Remove an item by id
+    risk: low
+    input_schema:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+
+  - name: refresh_all
+    description: Re-fetch everything
+    risk: low
+    input_schema:
+      type: object
+
+views:
+  - id: home
+    route: /apps/{{slug}}
+    title: {{slug}}
+    layout: list_detail
+    data_source:
+      action: list_items
+    item_template:
+      kind: card
+      title: ${item.title}
+      subtitle: ${item.created_at | relative_time}
+      actions:
+        - label: 移除
+          icon: trash
+          action: remove_item
+          input:
+            id: ${item.id}
+          confirm: 确认移除 ${item.title}？
+          on_success:
+            toast: 已移除
+            refresh: true
+    toolbar:
+      - label: 新建
+        icon: add
+        route: /apps/{{slug}}/add
+      - label: 刷新
+        icon: refresh
+        action: refresh_all
+        on_success:
+          toast: 已刷新
+          refresh: true
+
+  - id: add
+    route: /apps/{{slug}}/add
+    title: 新建
+    layout: form
+    schema_ref: actions.add_item.input_schema
+    submit:
+      action: add_item
+      on_success:
+        toast: 已添加
+        navigate: /apps/{{slug}}
+
+triggers:
+  - kind: cron
+    name: hourly_refresh
+    expr: "5 * * * *"
+    action: refresh_all
+
+sidebar:
+  preferred_position: middle

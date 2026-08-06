@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package biumind.identity.v1;
+
+import "google/protobuf/timestamp.proto";
+import "biumind/common/v1/common.proto";
+
+service IdentityService {
+  // 注册 / 登录（密码）
+  rpc Register(RegisterRequest) returns (RegisterResponse) {}
+  rpc Login(LoginRequest) returns (LoginResponse) {}
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {}
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {}
+
+  // 用户信息
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {}
+  rpc UpdateMe(UpdateMeRequest) returns (UpdateMeResponse) {}
+
+  // 虚拟密钥（CLI / Agent 用）
+  rpc CreateVirtualKey(CreateVirtualKeyRequest) returns (CreateVirtualKeyResponse) {}
+  rpc ListVirtualKeys(ListVirtualKeysRequest) returns (ListVirtualKeysResponse) {}
+  rpc RevokeVirtualKey(RevokeVirtualKeyRequest) returns (RevokeVirtualKeyResponse) {}
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string display_name = 3;
+  string default_org_id = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string display_name = 3;
+}
+
+message RegisterResponse {
+  User user = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string device_name = 3;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  int64 expires_in_seconds = 3;
+  User user = 4;
+}
+
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  string access_token = 1;
+  int64 expires_in_seconds = 2;
+}
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  User user = 1;
+}
+
+message UpdateMeRequest {
+  string display_name = 1;
+}
+
+message UpdateMeResponse {
+  User user = 1;
+}
+
+message VirtualKeyScope {
+  repeated string allowed_models = 1;     // ["claude-*", "gpt-4o*"]
+  int64 daily_token_limit = 2;
+  int64 daily_cost_micro_usd_limit = 3;
+}
+
+message VirtualKey {
+  string id = 1;
+  string prefix = 2;                       // "bk-live-XXXXX"，可在 UI 显示
+  string name = 3;                         // "my-cli" / "my-script"
+  VirtualKeyScope scope = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Timestamp last_used_at = 7;
+}
+
+message CreateVirtualKeyRequest {
+  string name = 1;
+  VirtualKeyScope scope = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CreateVirtualKeyResponse {
+  VirtualKey key = 1;
+  string secret = 2;                       // 仅创建时返回；之后丢失就丢失
+}
+
+message ListVirtualKeysRequest {
+  biumind.common.v1.Pagination pagination = 1;
+}
+
+message ListVirtualKeysResponse {
+  repeated VirtualKey keys = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+message RevokeVirtualKeyRequest {
+  string id = 1;
+}
+
+message RevokeVirtualKeyResponse {}

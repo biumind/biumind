@@ -1,0 +1,33 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package rss // import "github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/rss"
+
+import (
+	"errors"
+	"math"
+	"strconv"
+	"strings"
+)
+
+var errInvalidDurationFormat = errors.New("rss: invalid duration format")
+
+func getDurationInMinutes(rawDuration string) (int, error) {
+	var sumSeconds int
+
+	durationParts := strings.Split(rawDuration, ":")
+	if len(durationParts) > 3 {
+		return 0, errInvalidDurationFormat
+	}
+
+	for i, durationPart := range durationParts {
+		durationPartValue, err := strconv.Atoi(durationPart)
+		if err != nil {
+			return 0, errInvalidDurationFormat
+		}
+
+		sumSeconds += int(math.Pow(60, float64(len(durationParts)-i-1))) * durationPartValue
+	}
+
+	return sumSeconds / 60, nil
+}

@@ -1,0 +1,11 @@
+# Files excluded from the .vsix bundle.
+.vscode/**
+.vscode-test/**
+src/**
+node_modules/**
+.gitignore
+.editorconfig
+tsconfig.json
+**/*.map
+**/*.ts
+!out/**/*.js

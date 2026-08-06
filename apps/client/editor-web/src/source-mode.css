@@ -1,0 +1,17 @@
+/* 源码模式 textarea：等宽字体，颜色走主题变量 */
+
+.kc-source-editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 12px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-fg);
+}

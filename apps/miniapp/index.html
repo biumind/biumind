@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover" />
+    <meta name="format-detection" content="telephone=no, email=no, date=no, address=no" />
+    <title>BiuMind</title>
+    <script>
+      // rem 适配 — 屏幕宽 / 20 = 1rem (uni-app H5 默认单位 rpx 兼容)
+      document.addEventListener('DOMContentLoaded', function () {
+        document.documentElement.style.fontSize = window.innerWidth / 20 + 'px';
+      });
+    </script>
+    <link rel="icon" href="/favicon.ico" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

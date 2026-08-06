@@ -1,0 +1,158 @@
+# GoReleaser config for the biu CLI.
+#
+# Usage (CI is the canonical path):
+#
+#   # local dry-run, no upload, no signing:
+#   goreleaser release --snapshot --clean --skip=publish,sign
+#
+#   # actual release: tag the repo with `biu-vX.Y.Z` and let
+#   # .github/workflows/release-biu.yml call goreleaser.
+#
+# What this produces per `biu-vX.Y.Z` tag:
+#
+#   - dist/biu_<version>_<os>_<arch>.tar.gz   for darwin & linux × amd64 & arm64
+#   - dist/checksums.txt                       SHA256 of every artefact
+#   - GitHub release with the above attached
+#   - (optional, gated on HOMEBREW_TAP_GITHUB_TOKEN) PR to biumind/homebrew-tap
+#
+# We deliberately scope this to the biu CLI only — the desktop client
+# is built separately by .github/workflows/release-client.yml. To
+# isolate scope, --config=apps/cli/biu/.goreleaser.yml is passed in CI.
+
+version: 2
+
+project_name: biu
+
+# Build context: GoReleaser is run from the repo root in CI but every
+# path here is relative to this config file's parent directory because
+# the workflow `cd`s into apps/cli/biu before invoking goreleaser.
+# Keeping the working dir local lets us reuse the per-module go.sum.
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: biu
+    main: ./cmd/biu
+    binary: biu
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.buildDate={{.Date}}
+
+archives:
+  - id: biu
+    ids:
+      - biu
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    formats: ["tar.gz"]
+    # Glob patterns silently skip when nothing matches — keeps the
+    # build green before LICENSE / README land. Once they exist they
+    # auto-pick up.
+    files:
+      - LICENSE*
+      - README*
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: biumind
+    name: biumind
+  draft: true
+  prerelease: auto
+  name_template: "biu {{ .Version }}"
+  header: |
+    ## biu CLI {{ .Version }}
+
+    BiuMind agent CLI — multi-platform binaries for darwin/linux × amd64/arm64.
+
+    ### Install
+
+    **Homebrew (macOS / Linux):**
+    ```sh
+    brew install biumind/tap/biu
+    ```
+
+    **Manual (any platform):**
+
+    Download the archive matching your OS/arch below, then:
+    ```sh
+    tar -xzf biu_*_$(uname -s)_$(uname -m).tar.gz
+    install -m 0755 biu /usr/local/bin/biu
+    biu doctor
+    ```
+  footer: |
+    **Verify the download:**
+    ```sh
+    sha256sum -c checksums.txt
+    ```
+
+# Homebrew tap publish — gated on the GoReleaser-managed
+# HOMEBREW_TAP_GITHUB_TOKEN being present in workflow env. Without it
+# this section is silently skipped (token == "" → goreleaser logs
+# "skipping homebrew tap publish, no token found" and continues).
+brews:
+  - name: biu
+    ids:
+      - biu
+    repository:
+      owner: biumind
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      pull_request:
+        enabled: true
+        base:
+          branch: main
+    commit_author:
+      name: biumind-bot
+      email: geekidentity@163.com
+    commit_msg_template: "biu: bump to {{ .Tag }}"
+    homepage: "https://github.com/biumind/biumind"
+    description: "BiuMind agent CLI — terminal-first AI coding assistant."
+    license: "Apache-2.0"
+    test: |
+      system "#{bin}/biu version --short"
+    install: |
+      bin.install "biu"

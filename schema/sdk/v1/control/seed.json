@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/seed.json",
+  "title": "BiuMind SDK v1 — Seed Read State Control",
+  "description": "subtype=seed_read_state。客户端告诉 worker '这个文件我读过了，mtime=X'，避免 worker 重复读。无响应。",
+  "$defs": {
+    "SeedReadState": {
+      "type": "object",
+      "required": ["subtype", "path", "mtime"],
+      "properties": {
+        "subtype": { "const": "seed_read_state" },
+        "path": { "type": "string" },
+        "mtime": { "type": "number" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

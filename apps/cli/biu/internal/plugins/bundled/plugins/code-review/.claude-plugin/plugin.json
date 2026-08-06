@@ -1,0 +1,7 @@
+{
+  "name": "code-review",
+  "version": "1.0.0",
+  "description": "Review code changes — current branch diff or a specific PR",
+  "author": { "name": "BiuMind" },
+  "homepage": "https://biumind.dev"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/rewind.json",
+  "title": "BiuMind SDK v1 — Rewind Files Control",
+  "description": "subtype=rewind_files。dry_run 用于 UI 预览。",
+  "$defs": {
+    "RewindFiles": {
+      "type": "object",
+      "required": ["subtype", "user_message_id"],
+      "properties": {
+        "subtype": { "const": "rewind_files" },
+        "user_message_id": { "type": "string" },
+        "dry_run": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "RewindFilesResponse": {
+      "type": "object",
+      "required": ["canRewind"],
+      "properties": {
+        "canRewind": { "type": "boolean" },
+        "error": { "type": "string" },
+        "filesChanged": { "type": "integer" },
+        "insertions": { "type": "integer" },
+        "deletions": { "type": "integer" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

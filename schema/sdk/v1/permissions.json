@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/permissions.json",
+  "title": "BiuMind SDK v1 — Permission Types",
+  "description": "Permission 子系统：Behavior / Mode / Destination / PermissionRuleValue / PermissionUpdate(6 union) / PermissionResult / PermissionRuleClassification。",
+  "$defs": {
+    "PermissionBehavior": {
+      "type": "string",
+      "enum": ["allow", "deny", "ask"]
+    },
+    "PermissionMode": {
+      "type": "string",
+      "enum": ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk"]
+    },
+    "PermissionUpdateDestination": {
+      "type": "string",
+      "enum": ["userSettings", "projectSettings", "localSettings", "session", "cliArg"]
+    },
+    "PermissionRuleValue": {
+      "type": "object",
+      "required": ["toolName"],
+      "properties": {
+        "toolName": { "type": "string" },
+        "ruleContent": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "AddRules": {
+      "type": "object",
+      "required": ["type", "rules", "behavior", "destination"],
+      "properties": {
+        "type": { "const": "addRules" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/PermissionRuleValue" } },
+        "behavior": { "$ref": "#/$defs/PermissionBehavior" },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "ReplaceRules": {
+      "type": "object",
+      "required": ["type", "rules", "behavior", "destination"],
+      "properties": {
+        "type": { "const": "replaceRules" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/PermissionRuleValue" } },
+        "behavior": { "$ref": "#/$defs/PermissionBehavior" },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "RemoveRules": {
+      "type": "object",
+      "required": ["type", "rules", "behavior", "destination"],
+      "properties": {
+        "type": { "const": "removeRules" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/PermissionRuleValue" } },
+        "behavior": { "$ref": "#/$defs/PermissionBehavior" },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "SetMode": {
+      "type": "object",
+      "required": ["type", "mode", "destination"],
+      "properties": {
+        "type": { "const": "setMode" },
+        "mode": { "$ref": "#/$defs/PermissionMode" },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "AddDirectories": {
+      "type": "object",
+      "required": ["type", "directories", "destination"],
+      "properties": {
+        "type": { "const": "addDirectories" },
+        "directories": { "type": "array", "items": { "type": "string" } },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "RemoveDirectories": {
+      "type": "object",
+      "required": ["type", "directories", "destination"],
+      "properties": {
+        "type": { "const": "removeDirectories" },
+        "directories": { "type": "array", "items": { "type": "string" } },
+        "destination": { "$ref": "#/$defs/PermissionUpdateDestination" }
+      },
+      "additionalProperties": true
+    },
+    "PermissionUpdate": {
+      "oneOf": [
+        { "$ref": "#/$defs/AddRules" },
+        { "$ref": "#/$defs/ReplaceRules" },
+        { "$ref": "#/$defs/RemoveRules" },
+        { "$ref": "#/$defs/SetMode" },
+        { "$ref": "#/$defs/AddDirectories" },
+        { "$ref": "#/$defs/RemoveDirectories" }
+      ]
+    },
+    "PermissionResult": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["behavior"],
+          "properties": {
+            "behavior": { "const": "allow" },
+            "updatedInput": {},
+            "updatedPermissions": { "type": "array", "items": { "$ref": "#/$defs/PermissionUpdate" } }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": ["behavior", "message"],
+          "properties": {
+            "behavior": { "const": "deny" },
+            "message": { "type": "string" },
+            "interrupt": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "PermissionRuleClassification": {
+      "type": "string",
+      "description": "PermissionRuleClassification —— BiuMind 当前直转字符串。"
+    }
+  }
+}

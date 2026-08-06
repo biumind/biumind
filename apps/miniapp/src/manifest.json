@@ -1,0 +1,80 @@
+{
+  "name": "BiuMind",
+  "appid": "__UNI__BIUMIND",
+  "description": "BiuMind 跨平台小程序 — 你的 AI 第二大脑",
+  "versionName": "0.1.0",
+  "versionCode": "1",
+  "transformPx": false,
+
+  "h5": {
+    "title": "BiuMind",
+    "router": {
+      "mode": "history",
+      "base": "/m/"
+    },
+    "publicPath": "/m/",
+    "devServer": {
+      "https": false,
+      "port": 5173
+    }
+  },
+
+  "mp-weixin": {
+    "appid": "touristappid",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true,
+      "postcss": true
+    },
+    "usingComponents": true,
+    "permission": {
+      "scope.writePhotosAlbum": {
+        "desc": "用于保存对话分享图片到你的相册"
+      }
+    },
+    "requiredPrivateInfos": [],
+    "lazyCodeLoading": "requiredComponents",
+    "optimization": {
+      "subPackages": true
+    }
+  },
+
+  "mp-alipay": {
+    "appid": "PLACEHOLDER_ALIPAY_APPID",
+    "usingComponents": true,
+    "styleIsolation": "shared"
+  },
+
+  "mp-toutiao": {
+    "appid": "PLACEHOLDER_TOUTIAO_APPID",
+    "usingComponents": true
+  },
+
+  "mp-baidu": {
+    "appid": "PLACEHOLDER_BAIDU_APPID",
+    "usingComponents": true
+  },
+
+  "mp-qq": {
+    "appid": "PLACEHOLDER_QQ_APPID",
+    "usingComponents": true
+  },
+
+  "mp-kuaishou": {
+    "appid": "PLACEHOLDER_KS_APPID",
+    "usingComponents": true
+  },
+
+  "mp-jd": {
+    "appid": "PLACEHOLDER_JD_APPID",
+    "usingComponents": true
+  },
+
+  "mp-lark": {
+    "appid": "PLACEHOLDER_LARK_APPID",
+    "usingComponents": true
+  },
+
+  "vueVersion": "3"
+}

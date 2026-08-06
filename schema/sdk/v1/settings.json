@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/settings.json",
+  "title": "BiuMind SDK v1 — Settings",
+  "description": "GetSettingsResponse —— effective / sources / applied 三段：effective 是合并后值；sources 是各层 source；applied 是从哪个 source 来。各层值结构差异大，保 open object。",
+  "$defs": {
+    "SettingSource": {
+      "type": "string",
+      "enum": ["userSettings", "projectSettings", "localSettings", "managedSettings", "policySettings", "flag"]
+    },
+    "GetSettingsResponse": {
+      "type": "object",
+      "required": ["effective", "sources", "applied"],
+      "properties": {
+        "effective": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "applied": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/SettingSource" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

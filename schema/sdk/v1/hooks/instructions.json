@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/instructions.json",
+  "title": "BiuMind SDK v1 — Instructions Hook",
+  "description": "InstructionsLoaded — CLAUDE.md / 用户级 memory / 项目级 memory 加载完成。",
+  "$defs": {
+    "InstructionsLoaded": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "file_path", "memory_type", "load_reason"],
+          "properties": {
+            "hook_event_name": { "const": "InstructionsLoaded" },
+            "file_path": { "type": "string" },
+            "memory_type": { "type": "string" },
+            "load_reason": { "type": "string" },
+            "globs": { "type": "array", "items": { "type": "string" } },
+            "trigger_file_path": { "type": "string" },
+            "parent_file_path": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

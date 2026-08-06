@@ -1,0 +1,6 @@
+{
+  "name": "ralph-loop",
+  "version": "1.0.0",
+  "description": "Auto-resubmit a goal prompt on Stop until a sentinel file exists — long-running task loop",
+  "author": { "name": "BiuMind" }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/interrupt.json",
+  "title": "BiuMind SDK v1 — Interrupt Control",
+  "description": "subtype=interrupt。无字段；无响应。",
+  "$defs": {
+    "Interrupt": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "interrupt" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

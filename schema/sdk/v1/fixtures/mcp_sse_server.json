@@ -1,0 +1,5 @@
+{
+  "$schema": "mcp.json#/$defs/McpServerConfig",
+  "type": "sse",
+  "url": "https://example.com/mcp/sse"
+}

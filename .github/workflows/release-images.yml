@@ -1,0 +1,200 @@
+# Release images — push container images to GHCR on tag.
+#
+# Triggered by:
+#   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
+#     all 10 service images so they share a version tag and digest
+#     table.
+#   * `<svc>-v*` tag (e.g. `hub-v0.3.1`, `brain-v0.4.0`) — single-
+#     service hotfix release; only the matching image is built.
+#   * Manual workflow_dispatch with a `service` input — push just one.
+#
+# Each image is built FROM SCRATCH using the per-service Dockerfile
+# (services/<name>/Dockerfile). Multi-arch (linux/amd64 + linux/arm64)
+# via buildx; arm64 makes the prod cluster cheaper on Graviton and the
+# dev cluster usable on Apple Silicon (k3s in Docker Desktop).
+#
+# Trivy scan runs after each image is built and BLOCKS the push when a
+# CRITICAL vulnerability is found. (Configurable via `severity` input
+# below.) See .github/workflows/security.yml for the periodic scan of
+# already-published images.
+
+name: Release images
+
+on:
+  push:
+    tags:
+      # All-services release.
+      - "service-v*"
+      # Per-service hotfix tags. Each prefix MUST match a matrix row
+      # below; the filter step extracts the service name from the tag.
+      - "identity-v*"
+      - "hub-v*"
+      - "brain-v*"
+      - "sandbox-v*"
+      - "runtime-v*"
+      - "realtime-v*"
+      - "channels-v*"
+      - "app_center-v*"
+      - "authz-v*"
+      - "deploy-v*"
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Single service to build (empty → all)"
+        required: false
+        type: choice
+        options:
+          - ""
+          - identity
+          - hub
+          - brain
+          - sandbox
+          - runtime
+          - realtime
+          - channels
+          - app_center
+          - authz
+          - deploy
+      severity:
+        description: "Trivy fail threshold"
+        required: false
+        default: "CRITICAL"
+        type: choice
+        options:
+          - CRITICAL
+          - HIGH,CRITICAL
+          - MEDIUM,HIGH,CRITICAL
+
+permissions:
+  contents: read
+  packages: write       # push to ghcr.io/biumind/*
+  id-token: write       # cosign keyless signing
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - identity
+          - hub
+          - brain
+          - sandbox
+          - runtime
+          - realtime
+          - channels
+          - app_center
+          - authz
+          - deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Skip rules:
+      #   1. workflow_dispatch with a `service` input that doesn't match
+      #      this matrix row.
+      #   2. Per-service tag (e.g. `hub-v0.3.0`) that doesn't match this
+      #      matrix row. The `service-v*` tag is treated as "all services"
+      #      so it never skips.
+      - name: Filter
+        id: filt
+        run: |
+          want_service=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            want_service="${{ inputs.service }}"
+          elif [[ "$GITHUB_REF_NAME" != service-v* ]]; then
+            # Tag format is "<service>-v<version>" — extract before the
+            # last "-v". Use parameter expansion so we don't fork awk.
+            tag="$GITHUB_REF_NAME"
+            want_service="${tag%-v*}"
+          fi
+          if [ -n "$want_service" ] && [ "$want_service" != "${{ matrix.service }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up QEMU
+        if: steps.filt.outputs.skip == 'false'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        if: steps.filt.outputs.skip == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.filt.outputs.skip == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute version
+        if: steps.filt.outputs.skip == 'false'
+        id: ver
+        run: |
+          # Tag layouts we recognise:
+          #   service-v0.3.0    → image tag "v0.3.0" (everyone same version)
+          #   hub-v0.3.1        → image tag "v0.3.1" (hub-only hotfix)
+          # Strip whatever prefix is on the tag, leaving the v-version.
+          if [[ "$GITHUB_REF_NAME" == *-v* ]]; then
+            v="v${GITHUB_REF_NAME##*-v}"
+          else
+            v="latest"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Build (no push) for scan
+        if: steps.filt.outputs.skip == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          # AMD64 only for the scan stage — Trivy scans the same layers
+          # whether they're amd64 or arm64; doing both wastes 5 minutes.
+          platforms: linux/amd64
+          tags: ghcr.io/biumind/${{ matrix.service }}:scan-${{ github.run_id }}
+          load: true       # load into local docker for trivy to read
+          push: false
+
+      - name: Trivy scan
+        if: steps.filt.outputs.skip == 'false'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/biumind/${{ matrix.service }}:scan-${{ github.run_id }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: ${{ inputs.severity || 'CRITICAL' }}
+          vuln-type: "os,library"
+
+      # Once Trivy has cleared the scan, build for both arches and push.
+      - name: Build + push (multi-arch)
+        if: steps.filt.outputs.skip == 'false'
+        id: pushed
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/biumind/${{ matrix.service }}:${{ steps.ver.outputs.version }}
+            ghcr.io/biumind/${{ matrix.service }}:latest
+          push: true
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        if: steps.filt.outputs.skip == 'false'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        if: steps.filt.outputs.skip == 'false'
+        env:
+          DIGEST: ${{ steps.pushed.outputs.digest }}
+        run: |
+          cosign sign --yes \
+            ghcr.io/biumind/${{ matrix.service }}@${DIGEST}

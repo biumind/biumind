@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/mcp.json",
+  "title": "BiuMind SDK v1 — MCP Control",
+  "description": "5 个 MCP control request 共享一个文件：McpStatus / McpMessage / McpSetServers / McpReconnect / McpToggle。McpServerConfig 详见 ../mcp.json (S1-4)。",
+  "$defs": {
+    "McpStatus": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "mcp_status" }
+      },
+      "additionalProperties": true
+    },
+    "McpMessage": {
+      "type": "object",
+      "required": ["subtype", "server_name", "message"],
+      "properties": {
+        "subtype": { "const": "mcp_message" },
+        "server_name": { "type": "string" },
+        "message": {
+          "description": "JSONRPC opaque payload — 直接转发给 MCP server。",
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpSetServers": {
+      "type": "object",
+      "required": ["subtype", "servers"],
+      "properties": {
+        "subtype": { "const": "mcp_set_servers" },
+        "servers": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "McpReconnect": {
+      "type": "object",
+      "required": ["subtype", "serverName"],
+      "properties": {
+        "subtype": { "const": "mcp_reconnect" },
+        "serverName": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "McpToggle": {
+      "type": "object",
+      "required": ["subtype", "serverName", "enabled"],
+      "properties": {
+        "subtype": { "const": "mcp_toggle" },
+        "serverName": { "type": "string" },
+        "enabled": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

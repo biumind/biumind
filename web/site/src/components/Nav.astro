@@ -1,0 +1,50 @@
+---
+import Logo from './Logo.astro';
+import { useTranslations, getLocale, pathFor, alternateLocale, alternateLabel } from '../i18n';
+
+const locale = getLocale(Astro.url.pathname);
+const t = useTranslations(locale);
+const altLocale = alternateLocale(locale);
+const altLabel = alternateLabel(locale);
+
+// Toggle path: keep current page, switch language
+const currentPath = Astro.url.pathname.replace(/^\/en/, '') || '/';
+const altHref = pathFor(altLocale, currentPath);
+---
+
+<header class="sticky top-0 z-40 border-b border-border-subtle bg-bg/80 backdrop-blur-md">
+  <nav class="container-page flex h-14 items-center justify-between">
+    <div class="flex items-center gap-8">
+      <Logo />
+      <ul class="hidden items-center gap-1 md:flex">
+        <li>
+          <a href={pathFor(locale, '/#features')} class="btn-ghost">{t.nav.product}</a>
+        </li>
+        <li>
+          <a href={pathFor(locale, '/#scenarios')} class="btn-ghost">{t.nav.scenarios}</a>
+        </li>
+        <li>
+          <a href={pathFor(locale, '/download')} class="btn-ghost">{t.nav.download}</a>
+        </li>
+        <li>
+          <a href="/docs" class="btn-ghost">{t.nav.docs}</a>
+        </li>
+      </ul>
+    </div>
+    <div class="flex items-center gap-1.5">
+      <a href={altHref} class="btn-ghost" aria-label="Switch language">{altLabel}</a>
+      <a
+        href="/app"
+        target="_blank"
+        rel="noopener"
+        class="hidden items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium text-ink transition-colors duration-200 hover:border-[var(--purple)] hover:bg-purple-light hover:text-[var(--purple)] sm:inline-flex"
+      >
+        {t.nav.openApp}
+        <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M3 9l6-6m0 0H4m5 0v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </a>
+      <a href={pathFor(locale, '/download')} class="btn-primary">{t.nav.tryFree}</a>
+    </div>
+  </nav>
+</header>

@@ -1,0 +1,6 @@
+{
+  "$schema": "mcp.json#/$defs/McpServerStatus",
+  "name": "supabase",
+  "status": "connected",
+  "serverInfo": { "name": "supabase-mcp", "version": "1.2.3" }
+}

@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package biumind.realtime.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// 给客户端用：HTTP+SSE，proto 仅作 schema 文档；实际 wire 是 SSE frame
+// 给服务端用：内部 RPC publish
+
+service RealtimeInternalService {
+  // 服务端发布事件到 topic（让 Realtime 服务 fanout）
+  // 推荐路径仍是 NATS publish；此 RPC 仅作小流量 / 调试备
+  rpc Publish(PublishRequest) returns (PublishResponse) {}
+}
+
+message PublishRequest {
+  string topic = 1;
+  string kind = 2;                         // "block.updated" / "TEXT_MESSAGE_CONTENT" / "presence_changed"
+  google.protobuf.Struct payload = 3;
+  string idempotency_key = 4;
+  string trace_id = 5;
+}
+
+message PublishResponse {
+  string event_id = 1;                     // ULID
+}
+
+// 客户端 SSE 帧结构（仅作 schema 文档；wire 是标准 SSE）
+message StreamFrame {
+  string id = 1;                           // SSE id（ULID）
+  string topic = 2;                        // 触发 topic
+  string kind = 3;                         // 事件类型
+  google.protobuf.Struct payload = 4;
+  google.protobuf.Timestamp ts = 5;
+  string trace_id = 6;
+}

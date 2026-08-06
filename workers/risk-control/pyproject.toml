@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biumind-risk-control-worker"
+version = "0.1.0"
+description = "Risk control worker — detects anomalous credit-spending users in 24h rolling windows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "BiuMind" }]
+
+dependencies = [
+  "psycopg[binary]>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+]
+
+[tool.setuptools]
+packages = ["biumind_risk"]

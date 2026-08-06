@@ -1,0 +1,9 @@
+# Pack include list — what `biu app pack` copies into the .biuapp zip.
+# Glob-like patterns; relative to project root.
+include:
+  - manifest.yaml
+  - README.md
+  - LICENSE
+exclude:
+  - .git/**
+  - "**/*_test.go"

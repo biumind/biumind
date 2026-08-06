@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/notification.json",
+  "title": "BiuMind SDK v1 — Notification Hooks",
+  "description": "Notification（系统消息）/ UserPromptSubmit（用户提交 prompt）。",
+  "$defs": {
+    "Notification": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "message", "notification_type"],
+          "properties": {
+            "hook_event_name": { "const": "Notification" },
+            "message": { "type": "string" },
+            "title": { "type": "string" },
+            "notification_type": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "UserPromptSubmit": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "prompt"],
+          "properties": {
+            "hook_event_name": { "const": "UserPromptSubmit" },
+            "prompt": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

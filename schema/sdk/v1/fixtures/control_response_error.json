@@ -1,0 +1,9 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlResponse",
+  "type": "control_response",
+  "response": {
+    "subtype": "error",
+    "request_id": "r-perm-1",
+    "error": "tool denied"
+  }
+}

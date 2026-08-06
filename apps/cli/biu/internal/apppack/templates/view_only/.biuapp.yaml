@@ -1,0 +1,4 @@
+include:
+  - manifest.yaml
+  - README.md
+  - LICENSE

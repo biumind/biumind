@@ -1,0 +1,39 @@
+{
+  "name": "biumind-wiki-editor-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Milkdown WYSIWYG bundle embedded by the BiuMind Flutter client (Web via iframe, native via inappwebview). Loaded by /wiki/p/:pid/pages/:id 编辑模式。",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "vite build && tsx scripts/sync-to-flutter.ts",
+    "build:bundle": "vite build",
+    "sync": "tsx scripts/sync-to-flutter.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-markdown": "^6.5.1",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.1",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.7",
+    "@lezer/highlight": "^1.2.3",
+    "@lezer/markdown": "^1.7.2",
+    "@milkdown/crepe": "^7.21.1",
+    "@milkdown/kit": "^7.21.1",
+    "@milkdown/plugin-listener": "^7.21.1",
+    "@milkdown/transformer": "^7.21.1",
+    "mermaid": "^11.15.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "jsdom": "^26.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0"
+  }
+}

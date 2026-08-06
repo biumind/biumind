@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/user.json",
+  "title": "BiuMind SDK v1 — SDK User Message",
+  "description": "type=user。",
+  "$defs": {
+    "SDKUserMessage": {
+      "type": "object",
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "const": "user" },
+        "message": { "$ref": "../_common.json#/$defs/AnthropicMessage" },
+        "parent_tool_use_id": { "type": ["string", "null"] },
+        "isSynthetic": { "type": "boolean" },
+        "tool_use_result": {},
+        "priority": { "type": "string" },
+        "timestamp": { "$ref": "../_common.json#/$defs/Timestamp" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKUserMessageReplay": {
+      "allOf": [
+        { "$ref": "#/$defs/SDKUserMessage" },
+        {
+          "type": "object",
+          "required": ["isReplay"],
+          "properties": {
+            "isReplay": { "const": true }
+          }
+        }
+      ]
+    }
+  }
+}

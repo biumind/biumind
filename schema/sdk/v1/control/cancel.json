@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/cancel.json",
+  "title": "BiuMind SDK v1 — Cancel Async Message Control",
+  "description": "subtype=cancel_async_message。注意跟 wrappers.SDKControlCancelRequest 不同 —— 后者是取消 control request 本身。",
+  "$defs": {
+    "CancelAsyncMessage": {
+      "type": "object",
+      "required": ["subtype", "message_uuid"],
+      "properties": {
+        "subtype": { "const": "cancel_async_message" },
+        "message_uuid": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "CancelAsyncMessageResponse": {
+      "type": "object",
+      "required": ["cancelled"],
+      "properties": {
+        "cancelled": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

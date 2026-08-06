@@ -1,0 +1,132 @@
+// SPDX-FileCopyrightText: Copyright The Miniflux Authors. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package parser // import "github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/parser"
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestDetectRDF(t *testing.T) {
+	data := `<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://my.netscape.com/rdf/simple/0.9/"></rdf:RDF>`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatRDF {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatRDF)
+	}
+}
+
+func TestDetectRSS(t *testing.T) {
+	data := `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatRSS {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatRSS)
+	}
+}
+
+func TestDetectAtom10(t *testing.T) {
+	data := `<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatAtom {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatAtom)
+	}
+}
+
+func TestDetectAtom03(t *testing.T) {
+	data := `<?xml version="1.0" encoding="utf-8"?><feed version="0.3" xmlns="http://purl.org/atom/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" xml:lang="en"></feed>`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatAtom {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatAtom)
+	}
+}
+
+func TestDetectAtomWithISOCharset(t *testing.T) {
+	data := `<?xml version="1.0" encoding="ISO-8859-15"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatAtom {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatAtom)
+	}
+}
+
+func TestDetectJSON(t *testing.T) {
+	data := `
+	{
+		"version" : "https://jsonfeed.org/version/1",
+		"title" : "Example"
+	}
+	`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatJSON {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatJSON)
+	}
+}
+
+func TestDetectUnknown(t *testing.T) {
+	data := `
+	<!DOCTYPE html> <html> </html>
+	`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatUnknown {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatUnknown)
+	}
+}
+
+func TestDetectJSONWithLargeLeadingWhitespace(t *testing.T) {
+	leadingWhitespace := strings.Repeat(" ", 10000)
+	data := leadingWhitespace + `{
+		"version" : "https://jsonfeed.org/version/1",
+		"title" : "Example with lots of leading whitespace"
+	}`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatJSON {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatJSON)
+	}
+}
+
+func TestDetectJSONWithMixedWhitespace(t *testing.T) {
+	leadingWhitespace := strings.Repeat("\n\t  ", 10000)
+	data := leadingWhitespace + `{
+		"version" : "https://jsonfeed.org/version/1",
+		"title" : "Example with mixed whitespace"
+	}`
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatJSON {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatJSON)
+	}
+}
+
+func TestDetectOnlyWhitespace(t *testing.T) {
+	data := strings.Repeat(" \t\n\r", 10000)
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatUnknown {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatUnknown)
+	}
+}
+
+func TestDetectJSONSmallerThanBuffer(t *testing.T) {
+	data := `{"version":"1"}` // This is only 15 bytes, well below the 32-byte buffer
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatJSON {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatJSON)
+	}
+}
+
+func TestDetectJSONWithWhitespaceSmallerThanBuffer(t *testing.T) {
+	data := `  {"title":"test"}  `
+	format, _ := DetectFeedFormat(strings.NewReader(data))
+
+	if format != FormatJSON {
+		t.Errorf(`Wrong format detected: %q instead of %q`, format, FormatJSON)
+	}
+}

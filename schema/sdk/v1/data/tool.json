@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/tool.json",
+  "title": "BiuMind SDK v1 — SDK Tool Messages",
+  "description": "type=tool_progress + type=tool_use_summary。注：SDKToolUseMessage / SDKToolResultMessage 是 user/assistant message 内部的 content block，不作顶层 SDKMessage。",
+  "$defs": {
+    "SDKToolProgress": {
+      "type": "object",
+      "required": ["type", "tool_use_id", "tool_name", "elapsed_time_seconds", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "tool_progress" },
+        "tool_use_id": { "type": "string" },
+        "tool_name": { "type": "string" },
+        "parent_tool_use_id": { "type": ["string", "null"] },
+        "elapsed_time_seconds": { "type": "number" },
+        "task_id": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKToolUseSummary": {
+      "type": "object",
+      "required": ["type", "summary", "preceding_tool_use_ids", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "tool_use_summary" },
+        "summary": { "type": "string" },
+        "preceding_tool_use_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

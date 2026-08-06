@@ -1,0 +1,9 @@
+{
+  "$schema": "permissions.json#/$defs/PermissionUpdate",
+  "type": "addRules",
+  "rules": [
+    { "toolName": "Bash", "ruleContent": "git status" }
+  ],
+  "behavior": "allow",
+  "destination": "userSettings"
+}

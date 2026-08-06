@@ -1,0 +1,129 @@
+# Build / cache
+**/build/
+**/dist/
+**/target/
+**/bin/
+**/obj/
+**/.gradle/
+**/Pods/
+
+# Go
+*.exe
+*.test
+*.out
+**/coverage.out
+vendor/
+# webclip vendors upstream Readability + Turndown for in-browser
+# extraction; these aren't Go vendor dirs.
+!apps/webclip/vendor/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+flutter_*.png
+linked_*.ds
+unlinked.ds
+unlinked_spec.ds
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/macos/Flutter/ephemeral/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/generated_plugin_registrant.*
+**/generated_plugins.cmake
+ios/Runner/GeneratedPluginRegistrant.*
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/windows/flutter/generated_*
+**/linux/flutter/generated_*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.test
+.env.prod
+*.env
+# 任何含真实凭据的环境文件都不得进 git；用 *.example 占位模板。
+**/kubeconfig*.yaml
+**/kubeconfig*.yml
+
+# Generated proto
+**/gen/
+
+# Local data / artifacts
+**/.local/
+**/biumind-data/
+**/sessions/*.jsonl
+**/skills/.staging/
+# mkdocs build 输出（本地 mkdocs build/serve 产物，不入 git；CI/docs Dockerfile 在容器内 build）
+# 锚定 repo 根 /site/ —— 不能写 site/（会误匹配 web/site/ 官网源码目录）
+/site/
+
+# Coverage / profiling
+coverage/
+*.cover
+profile.out
+
+# OS
+Thumbs.db
+
+# Buf
+.buf-cache/
+
+# Third-party reference code (15GB of upstream projects we read but
+# do not vendor — git-ignored to keep the repo size sane).
+/reference/
+
+# k3s kubeconfig produced by docker-compose profile=k8s
+/k3s/
+
+# Flutter Web build artefacts that don't belong in git
+/apps/client/web/sql-wasm.wasm
+/apps/client/web/drift_worker.dart.js
+/apps/client/web/drift_worker.dart.js.map
+
+# Local Claude session state
+/.claude/
+
+# Stray Go build artefacts. Services normally output alongside their
+# cmd/ dir, but a top-level `go build` drops the binary at repo root
+# or service root (27-30 MB Mach-O each).
+/hub
+/brain
+/schema-validate
+/backfill-stripe
+/services/runtime/runtime
+/services/brain/brain
+/services/brain/migrate-byok
+/services/model-relay/model-relay
+/tools/schema-validate/schema-validate
+
+# 本地监控 / 运维工具残留
+.nezha/

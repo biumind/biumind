@@ -1,0 +1,13 @@
+# Local development binary produced by `go build` in this dir. Real
+# builds go through goreleaser into dist/.
+/biu
+
+# Coverage / profile output, never committed.
+*.out
+*.prof
+coverage.html
+
+# Editor / OS scratch
+.DS_Store
+.idea/
+.vscode/

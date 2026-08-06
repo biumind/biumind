@@ -1,0 +1,6 @@
+{
+  "name": "feature-dev",
+  "version": "1.0.0",
+  "description": "End-to-end feature workflow: discover → plan → implement → verify",
+  "author": { "name": "BiuMind" }
+}

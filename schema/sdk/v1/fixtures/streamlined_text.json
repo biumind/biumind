@@ -1,0 +1,7 @@
+{
+  "$schema": "data/streamlined.json#/$defs/SDKStreamlinedText",
+  "type": "streamlined_text",
+  "text": "I'll help with that.",
+  "uuid": "stt1",
+  "session_id": "s1"
+}

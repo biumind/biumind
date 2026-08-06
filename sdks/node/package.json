@@ -1,0 +1,31 @@
+{
+  "name": "@biumind/sdk",
+  "version": "0.1.0",
+  "description": "Node.js SDK for BiuMind Agentics (model-relay + Brain memory)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "biumind",
+    "ai",
+    "llm",
+    "memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/biumind/biumind.git"
+  }
+}

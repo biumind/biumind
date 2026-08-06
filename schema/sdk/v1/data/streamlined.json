@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/streamlined.json",
+  "title": "BiuMind SDK v1 — SDK Streamlined Messages",
+  "description": "type=streamlined_text + type=streamlined_tool_use_summary。",
+  "$defs": {
+    "SDKStreamlinedText": {
+      "type": "object",
+      "required": ["type", "text", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "streamlined_text" },
+        "text": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKStreamlinedToolUseSummary": {
+      "type": "object",
+      "required": ["type", "tool_summary", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "streamlined_tool_use_summary" },
+        "tool_summary": { "type": "string" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

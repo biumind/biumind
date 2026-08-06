@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/session.json",
+  "title": "BiuMind SDK v1 — Session Hooks",
+  "description": "SessionStart / SessionEnd / Stop / StopFailure / Setup — 5 个 session 生命周期 hook。",
+  "$defs": {
+    "SessionStart": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "source"],
+          "properties": {
+            "hook_event_name": { "const": "SessionStart" },
+            "source": { "type": "string" },
+            "agent_type": { "type": "string" },
+            "model": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "SessionEnd": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "reason"],
+          "properties": {
+            "hook_event_name": { "const": "SessionEnd" },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Stop": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "stop_hook_active"],
+          "properties": {
+            "hook_event_name": { "const": "Stop" },
+            "stop_hook_active": { "type": "boolean" },
+            "last_assistant_message": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "StopFailure": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "error"],
+          "properties": {
+            "hook_event_name": { "const": "StopFailure" },
+            "error": { "type": "string" },
+            "error_details": {},
+            "last_assistant_message": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Setup": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "trigger"],
+          "properties": {
+            "hook_event_name": { "const": "Setup" },
+            "trigger": { "type": "string", "enum": ["init", "maintenance"] }
+          }
+        }
+      ]
+    }
+  }
+}

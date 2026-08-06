@@ -1,0 +1,13 @@
+node_modules/
+dist/
+unpackage/
+.cache/
+.idea/
+.vscode/
+*.log
+.env.local
+.env.*.local
+
+# 微信开发者工具的开发者私有配置（appid 测试号、本地编译选项等），
+# 不进仓库；shared 部分留在 project.config.json。
+project.private.config.json

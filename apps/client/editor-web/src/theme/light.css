@@ -1,0 +1,14 @@
+:root {
+  --kc-editor-bg: #ffffff;
+  --kc-editor-fg: #1f2328;
+  --kc-editor-muted: #6e7781;
+  --kc-editor-border: #d0d7de;
+  --kc-editor-accent: #7c3aed;
+  --kc-editor-code-bg: #f6f8fa;
+  --kc-editor-link: #0969da;
+}
+
+html, body {
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-fg);
+}

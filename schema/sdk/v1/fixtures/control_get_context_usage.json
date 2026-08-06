@@ -1,0 +1,6 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlRequest",
+  "type": "control_request",
+  "request_id": "r-ctx-1",
+  "request": { "subtype": "get_context_usage" }
+}

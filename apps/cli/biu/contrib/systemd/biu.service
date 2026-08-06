@@ -1,0 +1,78 @@
+# systemd user unit for `biu serve` (S6-4).
+#
+# 让 Linux 用户登录后自动起 biu daemon。跟 macOS 的 launchd 等价物对应。
+#
+# 安装：
+#   1. 拷贝到 ~/.config/systemd/user/biu.service
+#   2. 把 ExecStart 里的路径改对（默认假设 /usr/local/bin/biu，
+#      ~/.biumind/biu.pid 等会自动 expand）
+#   3. 仅 --register 模式：systemctl --user edit biu.service 加
+#      Environment=BIUMIND_PAT=... 等
+#   4. systemctl --user daemon-reload
+#   5. systemctl --user enable --now biu.service
+#
+# 验证：
+#   systemctl --user status biu       —— 看 Active: active (running)
+#   journalctl --user -u biu -f       —— follow 日志
+#   curl http://127.0.0.1:7173/healthz —— Flutter 桌面端探活同 endpoint
+#
+# 卸载：
+#   systemctl --user disable --now biu.service
+#   rm ~/.config/systemd/user/biu.service
+#
+# 注意：
+#   - User unit 跑在用户登录会话；笔记本休眠 / 用户 logout 会跟着停
+#     需要"开机自启即使没登录" → 改装成 system unit 并配 enable-linger:
+#         loginctl enable-linger $USER
+#         拷到 /etc/systemd/system/biu@$USER.service + adjust User=...
+#   - Restart=on-failure 让崩溃自动重启；明确 SystemD-stop（systemctl stop）
+#     不会触发重启
+#   - PIDFile 跟 biu serve --pid-file 同路径 —— systemd 启动后能用
+#     systemctl --user kill-mode 等机制管进程
+
+[Unit]
+Description=BiuMind biu daemon (bridge HTTP + agent_plane worker)
+Documentation=https://github.com/biumind/biumind/blob/main/apps/cli/biu/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/biu serve --port 7173 --pid-file %h/.biumind/biu.pid
+# Uncomment for agent_plane register（远端 client 通过 brain 调度本机）：
+#ExecStart=/usr/local/bin/biu serve --port 7173 --pid-file %h/.biumind/biu.pid \
+#  --register --brain-url https://your-biumind.example.com
+
+# 仅 --register 时需要：长效 PAT。systemctl --user edit biu 编辑加
+# Environment=BIUMIND_PAT=biu-pat-xxxx 比把它写死在 unit 文件里安全。
+
+# %h 是 systemd 用户单元 home 占位符；展开成 $HOME。
+Environment=HOME=%h
+
+# 崩溃自动重启 —— 明确 stop（systemctl stop biu）不触发，因为 stop 会
+# 走 SIGTERM → biu graceful shutdown → exit code 0 → on-failure 不 fire。
+Restart=on-failure
+RestartSec=5s
+
+# 软关闭：先发 SIGTERM 让 biu graceful（deregister + flush）；30s 不退
+# → SIGKILL。
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# Resource limits（可选）—— biu 单 turn 跑 LLM 时 RSS 可达 200MB。MemoryHigh
+# 给 cgroup 标记，OS 在内存压力时优先回收（不强行 kill）。
+#MemoryHigh=512M
+#MemoryMax=1G
+
+# 安全加固（可选）—— biu 自身需要写 ~/.biumind/ + 用户家目录访问。
+# 禁某些系统调用 / 路径访问的 hardening 留给运维按需开。
+#NoNewPrivileges=yes
+#ProtectSystem=strict
+#ProtectHome=read-only
+
+# PIDFile 让 systemctl 知道 daemon 进程 ID。biu --pid-file 写的是同一文件。
+PIDFile=%h/.biumind/biu.pid
+
+[Install]
+# user unit 默认装到 default.target，登录时启动
+WantedBy=default.target

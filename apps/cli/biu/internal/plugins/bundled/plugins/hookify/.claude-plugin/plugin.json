@@ -1,0 +1,6 @@
+{
+  "name": "hookify",
+  "version": "1.0.0",
+  "description": "Extract 'don't do X' rules from .local.md / CLAUDE.md and surface them on every tool call",
+  "author": { "name": "BiuMind" }
+}

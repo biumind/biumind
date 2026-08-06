@@ -1,0 +1,7 @@
+{
+  "$schema": "data/index.json#/$defs/SDKMessage",
+  "type": "user",
+  "message": { "role": "user", "content": "test the top-level union" },
+  "uuid": "u-union-1",
+  "session_id": "s-union"
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "data/user.json#/$defs/SDKUserMessage",
+  "type": "user",
+  "message": { "role": "user", "content": "hi" },
+  "uuid": "u1",
+  "session_id": "s1"
+}

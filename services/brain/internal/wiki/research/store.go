@@ -1,0 +1,269 @@
+// Package research stores deep-research tasks: topic → web search →
+// LLM synthesis → wiki page.
+//
+// The store is intentionally thin — Create / Get / List / Update — so
+// the orchestrator (research.go) can drive transitions without
+// re-implementing SQL conventions.
+package research
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// Status values written to research_tasks.status.
+const (
+	StatusQueued       = "queued"
+	StatusSearching    = "searching"
+	StatusSynthesizing = "synthesizing"
+	StatusSaving       = "saving"
+	StatusDone         = "done"
+	StatusError        = "error"
+)
+
+type WebHit struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+	Source  string `json:"source"`
+}
+
+type Task struct {
+	ID           uuid.UUID
+	ProjectID    uuid.UUID
+	OwnerID      uuid.UUID
+	Topic        string
+	Queries      []string
+	Status       string
+	PageID       *uuid.UUID
+	WebResults   []WebHit
+	Synthesis    string
+	ErrorMessage string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	StartedAt    *time.Time // nil until the task first leaves 'queued'
+	FinishedAt   *time.Time // nil until Complete/Fail stamps it
+}
+
+var ErrNotFound = errors.New("research task not found")
+
+type Store struct {
+	pool *pgxpool.Pool
+}
+
+func New(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool}
+}
+
+// Create inserts a queued task and returns the row.
+func (s *Store) Create(ctx context.Context, projectID, ownerID uuid.UUID, topic string, queries []string) (*Task, error) {
+	if queries == nil {
+		queries = []string{}
+	}
+	var t Task
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO brain.research_tasks (project_id, owner_id, topic, queries, status)
+		VALUES ($1, $2, $3, $4, 'queued')
+		RETURNING id, created_at, updated_at
+	`, projectID, ownerID, topic, queries).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	t.ProjectID = projectID
+	t.OwnerID = ownerID
+	t.Topic = topic
+	t.Queries = queries
+	t.Status = StatusQueued
+	return &t, nil
+}
+
+// Get returns a task by id.
+func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Task, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT id, project_id, owner_id, topic, queries, status,
+		       page_id, web_results, synthesis,
+		       COALESCE(error_message, ''), created_at, updated_at,
+		       started_at, finished_at
+		FROM brain.research_tasks WHERE id = $1
+	`, id)
+	t, err := scanTask(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
+// ListByProject returns the project's tasks, newest first. Limit caps
+// the result set; 0 → 50.
+func (s *Store) ListByProject(ctx context.Context, projectID uuid.UUID, limit int) ([]*Task, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, project_id, owner_id, topic, queries, status,
+		       page_id, web_results, synthesis,
+		       COALESCE(error_message, ''), created_at, updated_at,
+		       started_at, finished_at
+		FROM brain.research_tasks
+		WHERE project_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// SetStatus is a single-shot update. Used between pipeline phases to
+// emit progress without touching unrelated columns.
+//
+// started_at is stamped exactly once — the first time the task enters
+// 'searching' (the queued → searching transition marks "work began").
+// Re-entering searching on a recover re-run leaves the original stamp
+// intact so in-flight wall-clock stays honest.
+func (s *Store) SetStatus(ctx context.Context, id uuid.UUID, status string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE brain.research_tasks
+		SET status = $1,
+		    updated_at = now(),
+		    started_at = CASE
+		        WHEN $1 = 'searching' AND started_at IS NULL THEN now()
+		        ELSE started_at
+		    END
+		WHERE id = $2`,
+		status, id)
+	return err
+}
+
+// SaveWebResults persists the dedup'd hit list once /searching/ is done.
+func (s *Store) SaveWebResults(ctx context.Context, id uuid.UUID, hits []WebHit) error {
+	b, err := json.Marshal(hits)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx,
+		`UPDATE brain.research_tasks SET web_results = $1, updated_at = now() WHERE id = $2`,
+		b, id)
+	return err
+}
+
+// AppendSynthesis incrementally updates the running synthesis text.
+// Used when we want to expose streaming progress to the UI; the
+// orchestrator may also call SetStatus around this.
+func (s *Store) AppendSynthesis(ctx context.Context, id uuid.UUID, full string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE brain.research_tasks SET synthesis = $1, updated_at = now() WHERE id = $2`,
+		full, id)
+	return err
+}
+
+// Complete marks the task done with the resulting page id.
+func (s *Store) Complete(ctx context.Context, id, pageID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE brain.research_tasks
+		SET status = 'done', page_id = $1, finished_at = now(), updated_at = now()
+		WHERE id = $2
+	`, pageID, id)
+	return err
+}
+
+// Fail marks the task errored with a message.
+func (s *Store) Fail(ctx context.Context, id uuid.UUID, msg string) error {
+	if len(msg) > 4000 {
+		msg = msg[:4000]
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE brain.research_tasks
+		SET status = 'error', error_message = $1, finished_at = now(), updated_at = now()
+		WHERE id = $2
+	`, msg, id)
+	return err
+}
+
+// ListStuck returns active tasks whose updated_at is older than the
+// cutoff — i.e. in-flight when the process died and never adopted on
+// boot. Backed by research_tasks_active_idx (partial, active-only).
+// Ordered oldest-first so a long-stuck queue drains fairly.
+func (s *Store) ListStuck(ctx context.Context, olderThan time.Duration) ([]*Task, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, project_id, owner_id, topic, queries, status,
+		       page_id, web_results, synthesis,
+		       COALESCE(error_message, ''), created_at, updated_at,
+		       started_at, finished_at
+		FROM brain.research_tasks
+		WHERE status IN ('queued', 'searching', 'synthesizing', 'saving')
+		  AND updated_at < now() - make_interval(secs => $1)
+		ORDER BY updated_at ASC
+		LIMIT 200
+	`, int(olderThan.Seconds()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// FindPageByTaskID looks up an existing wiki page previously written for
+// this research task (frontmatter marker research_taskid). Used by the
+// orchestrator's savePage to stay idempotent across a crash-recover: if
+// the page was created but the task row's page_id wasn't stamped before
+// the crash, the recover re-run reuses the page instead of creating a
+// duplicate. Returns nil (no error) when none exists.
+func (s *Store) FindPageByTaskID(ctx context.Context, projectID, taskID uuid.UUID) (*uuid.UUID, error) {
+	var pageID uuid.UUID
+	err := s.pool.QueryRow(ctx, `
+		SELECT id FROM brain.pages
+		WHERE project_id = $1
+		  AND frontmatter->>'research_taskid' = $2
+		LIMIT 1
+	`, projectID, taskID.String()).Scan(&pageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pageID, nil
+}
+
+func scanTask(row pgx.Row) (*Task, error) {
+	var t Task
+	var queries []string
+	var hitsJSON []byte
+	if err := row.Scan(
+		&t.ID, &t.ProjectID, &t.OwnerID, &t.Topic, &queries, &t.Status,
+		&t.PageID, &hitsJSON, &t.Synthesis, &t.ErrorMessage,
+		&t.CreatedAt, &t.UpdatedAt, &t.StartedAt, &t.FinishedAt,
+	); err != nil {
+		return nil, err
+	}
+	t.Queries = queries
+	if len(hitsJSON) > 0 {
+		_ = json.Unmarshal(hitsJSON, &t.WebResults)
+	}
+	return &t, nil
+}

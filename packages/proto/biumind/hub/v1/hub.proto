@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package biumind.hub.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "biumind/common/v1/common.proto";
+
+// Hub 暴露三套 API：
+// 1. OpenAI 兼容（/v1/chat/completions, /v1/embeddings ...）走 HTTP 直接由 connect 处理；本 proto 主要描述内部管理 API
+// 2. Anthropic 兼容（/v1/messages） — 同上
+// 3. 管理 API（key 管理 / 路由配置 / 模型 catalog） — 本 proto
+
+service HubAdminService {
+  // BYOK
+  rpc CreateProviderKey(CreateProviderKeyRequest) returns (CreateProviderKeyResponse) {}
+  rpc ListProviderKeys(ListProviderKeysRequest) returns (ListProviderKeysResponse) {}
+  rpc RevokeProviderKey(RevokeProviderKeyRequest) returns (RevokeProviderKeyResponse) {}
+
+  // Catalog
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse) {}
+
+  // 用量
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse) {}
+}
+
+// ─── Provider Keys (BYOK) ────────────────────────────
+message ProviderKey {
+  string id = 1;
+  string provider = 2;                     // "openai" / "anthropic" / "google" / "deepseek" / ...
+  string hint_last4 = 3;                   // UI 显示，"sk-...abcd"
+  string status = 4;                       // "active" / "revoked"
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateProviderKeyRequest {
+  string provider = 1;
+  string plaintext = 2;                    // TLS 传输；服务端立即加密保存
+}
+
+message CreateProviderKeyResponse {
+  ProviderKey key = 1;
+}
+
+message ListProviderKeysRequest {
+  biumind.common.v1.Pagination pagination = 1;
+}
+
+message ListProviderKeysResponse {
+  repeated ProviderKey keys = 1;
+  biumind.common.v1.Page page = 2;
+}
+
+message RevokeProviderKeyRequest {
+  string id = 1;
+}
+
+message RevokeProviderKeyResponse {}
+
+// ─── Models Catalog ──────────────────────────────────
+message Model {
+  string id = 1;                           // "claude-sonnet-4-6" / "gpt-4o"
+  string provider = 2;
+  string family = 3;                       // "claude" / "gpt-4" / ...
+  string display_name = 4;
+  int32 context_window = 5;
+  int32 max_output_tokens = 6;
+  bool supports_streaming = 7;
+  bool supports_tools = 8;
+  bool supports_vision = 9;
+  bool supports_thinking = 10;
+  // 价格（每百万 token，micro USD）
+  int64 prompt_cost_per_mtok = 11;
+  int64 completion_cost_per_mtok = 12;
+  int64 cache_read_cost_per_mtok = 13;
+  int64 cache_write_cost_per_mtok = 14;
+}
+
+message ListModelsRequest {
+  string provider = 1;                     // 可空：全部
+  bool only_available = 2;                 // 用户当前能用的（BYOK 或 平台池）
+}
+
+message ListModelsResponse {
+  repeated Model models = 1;
+}
+
+// ─── Usage ───────────────────────────────────────────
+message GetUsageRequest {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  string group_by = 3;                     // "day" / "model" / "surface"
+}
+
+message GetUsageResponse {
+  repeated UsageBucket buckets = 1;
+  biumind.common.v1.Usage total = 2;
+}
+
+message UsageBucket {
+  string key = 1;                          // 日期 / 模型名 / surface
+  biumind.common.v1.Usage usage = 2;
+}

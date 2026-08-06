@@ -1,0 +1,66 @@
+# Lint — fast cross-cutting checks that don't need a build.
+
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go-fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+      - name: gofmt -l (any unformatted file fails)
+        run: |
+          # Iterate every Go module so we don't accidentally lint
+          # vendored or generated code outside go.work.
+          status=0
+          while read -r mod; do
+            unformatted=$(gofmt -l "$mod" 2>/dev/null || true)
+            if [ -n "$unformatted" ]; then
+              echo "::error::$mod has unformatted files:"
+              echo "$unformatted"
+              status=1
+            fi
+          done < <(grep -E '^\s+\./' go.work | sed 's/^[[:space:]]*//')
+          exit $status
+
+  yaml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate YAML syntax
+        run: |
+          # Lightweight check — full schema validation lives in the
+          # Kustomize / Helm workflows for the manifests they own.
+          python3 -c "
+          import sys, yaml, glob
+          ok = True
+          for path in glob.glob('**/*.yml', recursive=True) + glob.glob('**/*.yaml', recursive=True):
+              if '.git/' in path or 'node_modules/' in path: continue
+              try:
+                  with open(path) as f:
+                      list(yaml.safe_load_all(f))
+              except Exception as e:
+                  print(f'::error file={path}::{e}')
+                  ok = False
+          sys.exit(0 if ok else 1)
+          "
+
+  invariants:
+    # 架构不变量静态校验 (I*/C*/T*/Code-I*) — docs/BiuMind-Technical-Architecture.md
+    # + docs/BiuMind-Code-Design.md。纯 grep,无需 build。C5/T1 走 ratchet 基线
+    # (只减不增);Code-I1/I2/I4/I6 守编码模块红线。
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: check_invariants.sh
+        run: bash tools/scripts/check_invariants.sh

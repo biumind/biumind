@@ -1,0 +1,328 @@
+{
+  "title": "RSS — 概览 (KPI / 抓取健康 / AI / 雷达)",
+  "uid": "biumind-rss-overview",
+  "tags": ["biumind", "rss"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "活跃用户 (1d)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "biumind_rss_active_users{window=\"1d\"}", "legendFormat": "1d" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "活跃用户 (7d)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "biumind_rss_active_users{window=\"7d\"}", "legendFormat": "7d" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "启用 Feed 总数",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "purple" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "biumind_rss_feeds_total", "legendFormat": "feeds" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "24h 新入条目",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "yellow" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "increase(biumind_rss_entries_inserted_total[24h])", "legendFormat": "entries" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "24h 雷达命中",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "orange" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "increase(biumind_rss_radar_hits_total[24h])", "legendFormat": "hits" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "24h 收藏",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "red" }] } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(biumind_rss_marks_total[24h]))", "legendFormat": "marks" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Feed 抓取结果 (rate / 5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (rate(biumind_rss_feed_refresh_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Feed 抓取延迟 (p50 / p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 8 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(biumind_rss_feed_refresh_duration_seconds_bucket[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(biumind_rss_feed_refresh_duration_seconds_bucket[5m])))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "AI Digest 调用 (rate / 5m by outcome)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (rate(biumind_rss_digest_calls_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "AI Digest 延迟 p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 8 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(biumind_rss_digest_duration_seconds_bucket[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(biumind_rss_digest_duration_seconds_bucket[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(biumind_rss_digest_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "雷达命中 (rate / 5m by mode)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (mode) (rate(biumind_rss_radar_hits_total[5m]))", "legendFormat": "{{mode}}" }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "用户标记 (rate / 5m by kind)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (kind) (rate(biumind_rss_marks_total[5m]))", "legendFormat": "{{kind}}" }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Wiki 沉淀 (rate / 5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (rate(biumind_rss_wiki_sinks_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Top Actions (24h 调用次数)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "showHeader": true },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(15, sum by (action, outcome) (increase(biumind_rss_actions_total[24h])))",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Feed 抓取错误率 (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(biumind_rss_feed_refresh_total{outcome=\"error\"}[5m])) / clamp_min(sum(rate(biumind_rss_feed_refresh_total[5m])), 0.0001)"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Digest 错误率 (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(biumind_rss_digest_calls_total{outcome=\"error\"}[5m])) / clamp_min(sum(rate(biumind_rss_digest_calls_total[5m])), 0.0001)"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Digest 空响应率 (黄旗 - C1)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "description": "C1 检查发现：model-relay /v1/messages 返 200 但 content 空 + stop=length。这个比例 > 5% 说明 LLM 配额或 model 配置异常。",
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(biumind_rss_digest_calls_total{outcome=\"empty\"}[5m])) / clamp_min(sum(rate(biumind_rss_digest_calls_total[5m])), 0.0001)"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Wiki 沉淀错误率 (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.05 }, { "color": "red", "value": 0.2 }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(biumind_rss_wiki_sinks_total{outcome=\"error\"}[5m])) / clamp_min(sum(rate(biumind_rss_wiki_sinks_total[5m])), 0.0001)"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "timeseries",
+      "title": "TTS 简报 (rate / 5m by outcome)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "fillOpacity": 12 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (rate(biumind_rss_briefing_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 61,
+      "type": "timeseries",
+      "title": "TTS 简报延迟 p50 / p95 (cached 不计)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 8 } }
+      },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.5, sum by (le) (rate(biumind_rss_briefing_duration_seconds_bucket[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(biumind_rss_briefing_duration_seconds_bucket[5m])))", "legendFormat": "p95" }
+      ]
+    }
+  ]
+}

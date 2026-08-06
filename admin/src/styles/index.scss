@@ -1,0 +1,18 @@
+html, body, #app { height: 100%; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  background: #f5f7fa;
+}
+* { box-sizing: border-box; }
+
+// 紧凑型 element-plus table
+.el-table { font-size: 13px; }
+.el-table .cell { line-height: 1.4; }
+
+// 顶栏 + 侧边栏过渡
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.text-muted { color: #909399; }
+.text-mono { font-family: ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace; font-size: 12px; }

@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+// AG-UI 协议事件（对齐 https://docs.ag-ui.com）
+// BiuMind 在 CUSTOM 事件下扩展自家事件，命名 biumind.<domain>.<event>
+package biumind.agui.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// 用户向 Agent 启动一次 run
+message RunAgentInput {
+  string thread_id = 1;
+  string run_id = 2;
+  google.protobuf.Struct state = 3;
+  repeated Message messages = 4;
+  repeated Tool tools = 5;
+  google.protobuf.Struct context = 6;
+  google.protobuf.Struct forwarded_props = 7;
+}
+
+message Message {
+  string id = 1;
+  string role = 2;                         // "system" / "user" / "assistant" / "tool"
+  string content = 3;
+  repeated ToolCall tool_calls = 4;
+  string tool_call_id = 5;                 // 当 role=tool
+}
+
+message Tool {
+  string name = 1;
+  string description = 2;
+  google.protobuf.Struct parameters = 3;   // JSON Schema
+}
+
+message ToolCall {
+  string id = 1;
+  string name = 2;
+  string arguments = 3;                    // JSON string
+}
+
+// 标准事件类型（type 字段值）
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  // Lifecycle
+  RUN_STARTED = 1;
+  RUN_FINISHED = 2;
+  RUN_ERROR = 3;
+  STEP_STARTED = 4;
+  STEP_FINISHED = 5;
+  // Text
+  TEXT_MESSAGE_START = 10;
+  TEXT_MESSAGE_CONTENT = 11;
+  TEXT_MESSAGE_END = 12;
+  // Tool
+  TOOL_CALL_START = 20;
+  TOOL_CALL_ARGS = 21;
+  TOOL_CALL_END = 22;
+  TOOL_CALL_RESULT = 23;
+  // Thinking
+  THINKING_START = 30;
+  THINKING_TEXT_MESSAGE_CONTENT = 31;
+  THINKING_END = 32;
+  // State
+  STATE_SNAPSHOT = 40;
+  STATE_DELTA = 41;
+  MESSAGES_SNAPSHOT = 42;
+  // Special
+  RAW = 90;
+  CUSTOM = 91;
+}
+
+// 通用事件 envelope（实际 wire 是 SSE event/data）
+message Event {
+  string id = 1;                           // ULID
+  EventType type = 2;
+  google.protobuf.Struct payload = 3;
+  string trace_id = 99;
+  google.protobuf.Timestamp ts = 100;
+}
+
+// CUSTOM 事件强制的命名 + payload schema
+// name 必须以 "biumind." 开头
+message CustomEvent {
+  string name = 1;                         // "biumind.permission.requested" / ...
+  google.protobuf.Struct value = 2;
+}
+
+// ─── BiuMind 自家 CUSTOM 事件注册表（仅作文档；wire 是 CustomEvent）───
+
+message PermissionRequested {
+  string call_id = 1;
+  string tool = 2;
+  google.protobuf.Struct args = 3;
+  string suggested_policy = 4;             // "ask_once" / "always_allow"
+}
+
+message PermissionResolved {
+  string call_id = 1;
+  string decision = 2;                     // "allow" / "deny" / "once"
+  google.protobuf.Struct input_override = 3;
+}
+
+message CostUpdate {
+  int64 tokens_in = 1;
+  int64 tokens_out = 2;
+  int64 cost_micro_usd = 3;
+  string model = 4;
+  int64 cache_read = 5;
+  int64 cache_write = 6;
+}
+
+message BudgetExceeded {
+  int64 limit_micro_usd = 1;
+  int64 spent_micro_usd = 2;
+  string scope = 3;                        // "user" / "team" / "org"
+}
+
+message TaskLinked {
+  string task_id = 1;
+  repeated string depends_on = 2;
+}
+
+message Heartbeat {
+  google.protobuf.Timestamp ts = 1;
+}
+
+// ─── App Center CUSTOM 事件注册（M10.1） ─────────────────────
+//
+// Wire: CustomEvent { name = "biumind.app.<verb>", value = jsonb }.
+// 这些 message 是 value 段的 schema 文档化形态——consumer 解码时
+// 可走通用 google.protobuf.Struct 也可强类型化。
+//
+// 命名注册：
+//   biumind.app.installed                 — Installation 行已落库
+//   biumind.app.uninstalled               — DELETE installations 已 commit
+//   biumind.app.upgraded                  — version 字段已替换
+//   biumind.app.permissions_changed       — granted_permissions / agent_apps 变更
+//   biumind.app.action_invoked            — runtime tools.Invoke 完成（经 invocations 表）
+//   biumind.app.trigger_fired             — scheduler / webhook / inbox dispatch 完成
+//   biumind.app.view_data_changed         — App 主动推送视图数据失效（M17）
+//   biumind.app.config_updated            — installations.config 整体替换
+//   biumind.sidebar.layout_changed        — sidebar_layouts.items 写入或重置
+//
+// 完整 outbox poller 路径：app_center.events row → NATS 发布 →
+// realtime fanout → SSE topic `app:install:<id>` 或 `sidebar:user:<uid>`。
+
+message AppInstalledPayload {
+  string install_id = 1;
+  string identifier = 2;
+  string version = 3;
+  string scope = 4;                       // "user" | "org"
+  string scope_id = 5;
+  bool   forced = 6;
+  repeated string permissions_granted = 7;
+}
+
+message AppUninstalledPayload {
+  string install_id = 1;
+  string identifier = 2;
+  string version = 3;
+}
+
+message AppUpgradedPayload {
+  string install_id = 1;
+  string identifier = 2;
+  string from_version = 3;
+  string to_version = 4;
+}
+
+message AppPermissionsChangedPayload {
+  string install_id = 1;
+  string action = 2;                      // "default_agent_granted"
+                                          // | "agent_granted" | "agent_revoked"
+                                          // | "permissions_updated"
+  string agent_id = 3;                    // present for agent_*
+  repeated string added = 4;
+  repeated string removed = 5;
+}
+
+message AppActionInvokedPayload {
+  string install_id = 1;
+  string identifier = 2;
+  string action = 3;
+  string caller = 4;                      // "user" | "agent" | "scheduler" | ...
+  string status = 5;                      // "ok" | "error" | "denied" | "timeout"
+  int32 duration_ms = 6;
+}
+
+message AppTriggerFiredPayload {
+  string install_id = 1;
+  string trigger_name = 2;
+  string action = 3;
+  string status = 4;
+  int32 duration_ms = 5;
+}
+
+// AppViewDataChangedPayload (M17) — App-pushed invalidation. Empty
+// view_ids means "every view"; client should re-fetch all open views
+// of the App.
+message AppViewDataChangedPayload {
+  string install_id = 1;
+  string identifier = 2;
+  repeated string view_ids = 3;
+}
+
+message SidebarLayoutChangedPayload {
+  string scope = 1;                       // "desktop" | "mobile"
+  int32  version = 2;
+  string device = 3;                      // diagnostic — "MacBook-Air"
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/data/assistant.json",
+  "title": "BiuMind SDK v1 — SDK Assistant Message",
+  "description": "type=assistant + type=stream_event。",
+  "$defs": {
+    "SDKAssistantMessage": {
+      "type": "object",
+      "required": ["type", "message", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "assistant" },
+        "message": { "$ref": "../_common.json#/$defs/AnthropicMessage" },
+        "parent_tool_use_id": { "type": ["string", "null"] },
+        "error": { "type": ["string", "null"] },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SDKPartialAssistantMessage": {
+      "type": "object",
+      "required": ["type", "event", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "stream_event" },
+        "event": { "type": "object", "additionalProperties": true },
+        "parent_tool_use_id": { "type": ["string", "null"] },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

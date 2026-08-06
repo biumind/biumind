@@ -1,0 +1,15 @@
+{
+  "$schema": "control/wrappers.json#/$defs/SDKControlResponse",
+  "type": "control_response",
+  "response": {
+    "subtype": "success",
+    "request_id": "r-ctx-1",
+    "response": {
+      "totalTokens": 12345,
+      "maxTokens": 200000,
+      "categories": [
+        { "name": "system_prompt", "tokens": 1500, "color": "#5B5BD6" }
+      ]
+    }
+  }
+}

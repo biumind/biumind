@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/release/v1/manifest.json",
+  "title": "BiuMind Client Release Manifest v1",
+  "description": "客户端发行清单 (releases.json) —— CI 生成、产物与清单上传到对象存储 (prod 阿里云 OSS bucket biumind-releases 公共读 / dev 本地 MinIO releases bucket),\n官网 /download 页与客户端更新检测均运行期 fetch releases.json。\n\n产物 url = 自定义域名 (CNAME → OSS) https://releases.your-biumind.example.com/<filename> (大文件不经 nginx)。\n⚠️ 必须用 CNAME 而非 OSS 默认 endpoint: 阿里云对 APK 经 endpoint 公网下载返 ApkDownloadForbidden, CNAME 绕过。\nreleases.json 本身经 site nginx 反代 (<origin>/downloads/releases.json, 单 origin 不破)。\n版本字符串规范:version 字段为 semver,无 'v' 前缀、无 '+build' 后缀 (如 '0.1.0',不是 'v0.1.0' 或 '0.1.0+1')。\n三方消费者 (CI / 官网 / 客户端) 比较版本前必须 strip 'v' + drop '+build'。",
+  "type": "object",
+  "required": ["version", "releasedAt", "channel", "assets"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema 引用 (元字段,fixture 校验用)。生产 releases.json 可省略。"
+    },
+    "version": {
+      "type": "string",
+      "description": "semver 版本号,无 v 前缀无 build 后缀。与 pubspec.yaml version (X.Y.Z+N) 的 X.Y.Z 部分一致,与 git tag client-vX.Y.Z 的 X.Y.Z 一致。",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "releasedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 时间戳 (UTC,带 Z)。CI 生成时刻。"
+    },
+    "channel": {
+      "type": "string",
+      "enum": ["stable", "beta", "internal"],
+      "description": "发布通道。stable=官网正式;beta=预览;internal=内部测试。官网默认拉 stable。"
+    },
+    "notes": {
+      "type": "string",
+      "description": "简短发行说明 (中文)。展示在官网下载页与客户端更新 banner。"
+    },
+    "notesEn": {
+      "type": "string",
+      "description": "简短发行说明 (英文)。"
+    },
+    "minClientVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "可读此清单的最小客户端版本 (低于此版本的客户端不解析此格式)。预留,默认等于 version。"
+    },
+    "assets": {
+      "type": "array",
+      "description": "各平台产物清单。至少 1 项。",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Asset" }
+    }
+  },
+  "$defs": {
+    "Asset": {
+      "type": "object",
+      "required": ["platform", "url", "filename", "size", "sha256", "signed"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "macos-arm64",
+            "macos-intel",
+            "windows-x64",
+            "linux-appimage",
+            "linux-deb",
+            "android-apk",
+            "biu-macos-arm64",
+            "biu-macos-x64",
+            "biu-linux-x64",
+            "biu-linux-arm64"
+          ],
+          "description": "平台+架构枚举。新增平台必须同步更新此 enum + 官网 desktopButtons.key + 客户端平台选择逻辑。biu-* 是 biu CLI 独立产物（裸二进制,供 desktop client 自动安装本机 daemon 用）,不在官网下载页展示。"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "下载 url = 自定义域名 (CNAME → OSS) https://releases.your-biumind.example.com/<filename> (大文件不经 nginx)。必须 CNAME: 阿里云对 APK 经 OSS endpoint 公网下载返 ApkDownloadForbidden。dev MinIO 联调用 http://localhost:8088/downloads/... (site nginx 反代)。"
+        },
+        "filename": {
+          "type": "string",
+          "description": "产物文件名,如 biumind-0.1.0-macos-arm64.dmg。命名约定 biumind-{version}-{platform}.{ext}。"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "文件字节数。展示在官网下载按钮 + 客户端可据此预判下载时长。"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 校验和 (小写 hex,64 位)。客户端下载后可校验完整性 (本轮未强制,预留)。"
+        },
+        "signed": {
+          "type": "boolean",
+          "description": "是否已签名/公证。本轮全 false (未签名);官网下载页据此决定是否展示安装绕行说明。"
+        },
+        "arch": {
+          "type": "string",
+          "enum": ["arm64", "x64", "universal"],
+          "description": "架构。macos-arm64→arm64;macos-intel→x64;windows-x64→x64;linux-*→x64;android-apk→universal (含多 ABI)。"
+        },
+        "installHint": {
+          "type": "object",
+          "description": "安装提示覆盖 (未签名包的绕行说明等)。可选,缺失则用平台默认。",
+          "additionalProperties": false,
+          "properties": {
+            "zh": { "type": "string" },
+            "en": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

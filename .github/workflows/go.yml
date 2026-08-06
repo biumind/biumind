@@ -1,0 +1,130 @@
+# Go CI — build + test for every module declared in go.work.
+#
+# Each module is a separate `go.mod` so we can't `go test ./...` from
+# the root. Matrix-strategy iterates the 13 modules in parallel; a job
+# fails fast on its own module without cancelling siblings, so a flaky
+# brain test doesn't hide a real Hub failure.
+#
+# Postgres is started as a service container so brain integration
+# tests (memory store / worker / consolidator / mcp) run for real
+# against the same migration the production deploy uses.
+
+name: Go
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - apps/cli/biu
+          - apps/cli/biu-pty-bridge
+          - packages/go-sdk/biu
+          - services/authz
+          - services/brain
+          - services/hub
+          - services/identity
+          - services/realtime
+          - services/runtime
+          - services/sandbox
+          - services/deploy
+          - services/channels
+          - services/app_center
+
+    services:
+      # pgvector image so brain.* migrations + ivfflat indexes work.
+      # Plain postgres:16 lacks the `vector` extension and the
+      # 00004_memory.sql migration would fail.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: biumind
+          POSTGRES_PASSWORD: biumind_ci
+          POSTGRES_DB: biu_core
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U biumind"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            **/go.sum
+
+      - name: Apply brain.* schema (modules that need it)
+        if: matrix.module == 'services/brain'
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: biumind
+          PGPASSWORD: biumind_ci
+          PGDATABASE: biu_core
+        run: |
+          # Required extensions; pgvector is in the image, ltree is
+          # contrib (always available).
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE EXTENSION IF NOT EXISTS vector;
+          CREATE EXTENSION IF NOT EXISTS ltree;
+          CREATE EXTENSION IF NOT EXISTS pg_trgm;
+          CREATE SCHEMA IF NOT EXISTS brain;
+          SQL
+          # Apply the goose-marked migrations in order; we strip the
+          # +goose pragmas with sed so plain psql executes them.
+          for f in services/brain/migrations/*.sql; do
+            echo "-- applying $f --"
+            sed -e '/^-- +goose Down/,$d' \
+                -e '/^-- +goose Up/d' \
+                -e '/^-- +goose StatementBegin/d' \
+                -e '/^-- +goose StatementEnd/d' \
+                "$f" | psql -v ON_ERROR_STOP=1
+          done
+
+      - name: Build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      - name: Vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+      - name: Test
+        working-directory: ${{ matrix.module }}
+        env:
+          DATABASE_URL: postgres://biumind:biumind_ci@localhost:5432/biu_core?sslmode=disable
+          QUOTA_TEST_DATABASE_URL: postgres://biumind:biumind_ci@localhost:5432/biu_core?sslmode=disable
+        run: go test -count=1 -race -timeout=5m -coverprofile=coverage.out ./...
+
+      - name: Upload coverage to Codecov
+        # Public repo — no token needed; CODECOV_TOKEN is read if set
+        # (private repos / org accounts that require auth).
+        uses: codecov/codecov-action@v4
+        with:
+          files: ${{ matrix.module }}/coverage.out
+          flags: ${{ matrix.module }}
+          fail_ci_if_error: false   # don't block merges on Codecov outages
+          token: ${{ secrets.CODECOV_TOKEN }}
+# govulncheck lives in security.yml so vendor scans are owned by the
+# security workflow's permissions + schedule (weekly cron).

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/hooks/config.json",
+  "title": "BiuMind SDK v1 — Config Hook",
+  "description": "ConfigChange — 设置文件改了。",
+  "$defs": {
+    "ConfigChange": {
+      "allOf": [
+        { "$ref": "events.json#/$defs/BaseHookInput" },
+        {
+          "type": "object",
+          "required": ["hook_event_name", "source"],
+          "properties": {
+            "hook_event_name": { "const": "ConfigChange" },
+            "source": { "type": "string" },
+            "file_path": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

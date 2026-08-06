@@ -1,0 +1,6 @@
+{
+  "name": "pr-checks",
+  "version": "1.0.0",
+  "description": "Multi-angle PR check — bug hunter, silent-failure scanner, test analyzer in parallel",
+  "author": { "name": "BiuMind" }
+}

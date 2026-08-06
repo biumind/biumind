@@ -1,0 +1,117 @@
+{
+  "title": "Billing — 概览 (GMV / Consume / Refund)",
+  "uid": "biumind-billing-overview",
+  "tags": ["biumind", "billing"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "近 24h 消耗积分",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{"color":"blue"}] } }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(amount), 0)::bigint AS value FROM billing.events WHERE kind IN ('consume','settle') AND occurred_at >= now() - interval '24 hours'"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "近 24h 退款积分",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{"color":"orange"}] } }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(amount), 0)::bigint AS value FROM billing.events WHERE kind = 'refund' AND occurred_at >= now() - interval '24 hours'"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "近 24h 活跃用户 (有过 consume)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{"color":"green"}] } }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT user_id) AS value FROM billing.events WHERE kind = 'consume' AND occurred_at >= now() - interval '24 hours'"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "近 24h 总事件数",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "options": { "graphMode": "area", "colorMode": "value" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{"color":"purple"}] } }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM billing.events WHERE occurred_at >= now() - interval '24 hours'"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "日 GMV (consume - refund, 按 day)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "list" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', occurred_at) AS time, sum(CASE WHEN kind IN ('consume','settle') THEN amount ELSE 0 END) - sum(CASE WHEN kind = 'refund' THEN amount ELSE 0 END) AS \"net_credits\" FROM billing.events WHERE occurred_at >= $__timeFrom() AND occurred_at < $__timeTo() GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "事件类型分布 (按 kind)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "postgres", "uid": "biumind_pg" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', occurred_at) AS time, kind AS metric, count(*) AS value FROM billing.events WHERE occurred_at >= $__timeFrom() AND occurred_at < $__timeTo() GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

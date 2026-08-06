@@ -1,0 +1,72 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: test
+    cluster: biumind
+
+# 加载告警规则 (后续 commit 加 alerts.yml)
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+# 告警发到 alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ─── BiuMind Go 服务 ────────────────────────────
+  # 全部 7 个服务都挂了 /metrics + HTTPMiddleware
+  # app-center:7011 挂的 RSS 业务指标 (rss_feed_refresh_total / rss_digest_calls_total / ...)
+  # presence/billing/channels 还没实现, 暂不加
+  - job_name: biumind-services
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - model-relay:7001
+          - runtime:7002
+          - brain:7003
+          - identity:7004
+          - realtime:7008
+          - authz:7009
+          - app-center:7011
+        labels:
+          stack: biumind
+
+  # ─── 基础设施 ────────────────────────────────
+  # NATS 自身没有 prometheus 原生 endpoint, /varz 是 JSON.
+  # 需要时加 prometheus-nats-exporter container 中转, 暂不抓.
+  # - job_name: nats
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ["nats-exporter:7777"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # 只保留 biu-* 容器的指标 (host 上其他容器不要)
+      - source_labels: [name]
+        regex: '/?biu-.*'
+        action: keep
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]

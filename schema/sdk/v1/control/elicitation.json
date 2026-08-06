@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/elicitation.json",
+  "title": "BiuMind SDK v1 — Elicitation Control",
+  "description": "subtype=elicitation。MCP server 通过 worker 让用户填表/打开 URL。",
+  "$defs": {
+    "Elicitation": {
+      "type": "object",
+      "required": ["subtype", "mcp_server_name", "message"],
+      "properties": {
+        "subtype": { "const": "elicitation" },
+        "mcp_server_name": { "type": "string" },
+        "message": { "type": "string" },
+        "mode": {
+          "type": "string",
+          "enum": ["form", "url"]
+        },
+        "url": { "type": "string" },
+        "elicitation_id": { "type": "string" },
+        "requested_schema": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "ElicitationResponse": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["accept", "decline", "cancel"]
+        },
+        "content": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

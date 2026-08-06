@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biumind.dev/sdk/v1/control/set_model.json",
+  "title": "BiuMind SDK v1 — Set Model / Mode / Thinking Tokens",
+  "description": "三个 set_* control request 共享一个文件：SetModel / SetPermissionMode / SetMaxThinkingTokens。",
+  "$defs": {
+    "SetModel": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "set_model" },
+        "model": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SetPermissionMode": {
+      "type": "object",
+      "required": ["subtype", "mode"],
+      "properties": {
+        "subtype": { "const": "set_permission_mode" },
+        "mode": { "type": "string" },
+        "ultraplan": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "SetMaxThinkingTokens": {
+      "type": "object",
+      "required": ["subtype"],
+      "properties": {
+        "subtype": { "const": "set_max_thinking_tokens" },
+        "max_thinking_tokens": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

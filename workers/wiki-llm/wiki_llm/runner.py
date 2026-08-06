@@ -1,0 +1,373 @@
+"""NATS-driven worker loop with full LLM ingest pipeline.
+
+Per task:
+
+  1. ``running`` update — flips brain task to running
+  2. Stream LLM via hub; accumulate text into a buffer
+  3. After each delta, re-run ``parse_file_blocks`` on the cumulative
+     buffer; emit one ``page`` update per NEW closed block
+  4. Stream ends → ``done`` update (or ``failed`` on exception, or
+     ``cancelled`` if the runner observed the task's cancel signal)
+
+Streaming partial-save trick: the parser is pure + idempotent, so on
+each call we simply diff "blocks now" vs "blocks emitted last call"
+and emit whichever appeared. This is O(n²) in chunk count but n is
+small (typical CoT response: 5-15 blocks, ~50 chunks). When that
+stops being true we'll switch to a true incremental parser.
+
+Cancellation: brain's ingest API sets ``cancel_requested_at`` on the
+task row but the worker doesn't poll the DB. For P1-8 cancel only
+takes effect for tasks that haven't been picked up yet (NATS queue
+group dispatch); already-running tasks run to completion. P2 will
+add a NATS broadcast subject (``brain.wiki.ingest.cancel.<task_id>``)
+that the runner subscribes to so already-running tasks abort at the
+next chunk boundary.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import Awaitable, Callable, Iterable, Optional
+
+from .brain import BrainClientError, BrainConfig, fetch_source
+from .config import Config
+from .domain.frontmatter import parse_frontmatter
+from .domain.ingest_parse import FileBlock, parse_file_blocks
+from .job import (
+    IngestRequest,
+    Update,
+    KIND_RUNNING,
+    KIND_PAGE,
+    KIND_DONE,
+    KIND_FAILED,
+)
+from .llm import LLMConfig, LLMError, stream_messages
+
+
+logger = logging.getLogger("biumind.wiki_llm")
+
+
+# Type alias for the publish callback so tests can pass a stub.
+Publisher = Callable[[str, bytes], Awaitable[None]]
+
+# Type alias for the LLM streaming callable so tests can swap a fake.
+# Receives (system, user) → AsyncIterator[str] of text deltas.
+LLMStreamer = Callable[[str, str], "AsyncStr"]
+AsyncStr = Iterable[str]  # actually AsyncIterator[str]; named loosely for type-hints
+
+# Type alias for the source-resolution callable so tests can swap a fake
+# without spinning brain. Receives (source_id, owner_id) → text body or
+# None if the source is gone. Errors raise; the runner converts those
+# into a `failed` update.
+SourceResolver = Callable[[str, str], "Optional[str]"]
+
+
+async def handle_message(
+    raw: bytes,
+    *,
+    cfg: Config,
+    publish: Publisher,
+    llm_stream: Optional[LLMStreamer] = None,
+    source_resolver: Optional[SourceResolver] = None,
+) -> Optional[IngestRequest]:
+    """Decode one inbound NATS message and run the full pipeline.
+
+    Returns the parsed request on success, None on bad payload. Tests
+    pass ``llm_stream`` to inject a deterministic fake; production
+    uses the default which calls hub via ``llm.stream_messages``.
+    """
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        logger.warning("wiki_llm: bad json: %s", e)
+        return None
+    try:
+        req = IngestRequest.from_payload(payload)
+    except ValueError as e:
+        logger.warning("wiki_llm: invalid request: %s", e)
+        return None
+
+    logger.info("wiki_llm: accepted task=%s project=%s source=%s text_chars=%d",
+                req.task_id, req.project_id, req.source_id,
+                len(req.raw_text))
+
+    await _emit(publish, cfg, Update(task_id=req.task_id, kind=KIND_RUNNING))
+
+    # Resolve the source content. Inline raw_text wins when present
+    # (it's already on the wire and saves a round trip). When absent,
+    # the source-id reverse path resolves through brain — see
+    # workers/wiki-llm/wiki_llm/brain.py for the contract.
+    source_text = (req.raw_text or "").strip()
+    source_title = req.title or ""
+    if not source_text and req.source_id:
+        resolver = source_resolver if source_resolver is not None \
+            else _default_source_resolver(cfg)
+        try:
+            fetched = await resolver(req.source_id, req.owner_id)
+        except BrainClientError as e:
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_FAILED,
+                error=f"source fetch failed: {e}",
+            ))
+            return req
+        if fetched is None:
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_FAILED,
+                error=f"source {req.source_id} not found on brain",
+            ))
+            return req
+        # Resolver returns the raw body OR a (body, title) tuple — the
+        # default resolver returns just the body string. Tests can
+        # swap in a richer resolver if they need to test title fallback.
+        if isinstance(fetched, tuple):
+            source_text = (fetched[0] or "").strip()
+            if not source_title and len(fetched) > 1:
+                source_title = fetched[1] or ""
+        else:
+            source_text = fetched.strip()
+
+    if not source_text:
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED,
+            error=("task has no content: "
+                   "raw_text empty and source_id either missing "
+                   "or resolves to an empty source body"),
+        ))
+        return req
+
+    # Patch the request title in case we picked one up from the source
+    # row above; downstream prompt builder uses req.title directly.
+    if source_title and not req.title:
+        # Replace the request with one that carries the resolved title;
+        # the original is frozen so we shadow it locally.
+        req = IngestRequest(
+            task_id=req.task_id, project_id=req.project_id,
+            owner_id=req.owner_id, title=source_title,
+            raw_text=req.raw_text, source_id=req.source_id,
+        )
+
+    streamer = llm_stream if llm_stream is not None else _default_streamer(cfg)
+
+    try:
+        await _run_pipeline(
+            req=req,
+            source_text=source_text,
+            streamer=streamer,
+            cfg=cfg,
+            publish=publish,
+        )
+    except LLMError as e:
+        logger.warning("wiki_llm: llm error task=%s: %s", req.task_id, e)
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED, error=str(e),
+        ))
+    except Exception as e:  # noqa: BLE001 — last-resort, surface as failed
+        logger.exception("wiki_llm: unexpected error task=%s", req.task_id)
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED, error=f"unexpected: {e}",
+        ))
+
+    return req
+
+
+async def _run_pipeline(
+    *,
+    req: IngestRequest,
+    source_text: str,
+    streamer: LLMStreamer,
+    cfg: Config,
+    publish: Publisher,
+) -> None:
+    """Stream the LLM, emit per-page updates, finish with done."""
+    from .prompts import SYSTEM_PROMPT, build_user_prompt
+
+    user = build_user_prompt(
+        source_title=req.title or "",
+        source_text=source_text,
+    )
+
+    buffer = ""
+    emitted_paths: set[str] = set()
+    page_index = 0
+    delta_count = 0
+    stream_start = asyncio.get_event_loop().time()
+    first_delta_at: Optional[float] = None
+
+    async for delta in streamer(SYSTEM_PROMPT, user):
+        if not delta:
+            continue
+        delta_count += 1
+        if first_delta_at is None:
+            first_delta_at = asyncio.get_event_loop().time()
+            logger.debug(
+                "wiki_llm: first delta task=%s first_chunk_ms=%d",
+                req.task_id,
+                int((first_delta_at - stream_start) * 1000),
+            )
+        buffer += delta
+        # Re-parse on every delta; the parser is cheap and idempotent.
+        # We only care about closed blocks (warnings here mean "still
+        # streaming" or "unsafe path attempted") — warnings get logged
+        # but don't fail the task; the unsafe-path block was already
+        # dropped by the parser.
+        result = parse_file_blocks(buffer)
+        for block in result.blocks:
+            if block.path in emitted_paths:
+                continue
+            page_index += 1
+            await _emit_page(publish, cfg, req.task_id, block, page_index)
+            emitted_paths.add(block.path)
+
+    # Stream ended. One final parse to catch a block that closed on the
+    # very last delta (the per-delta parse loop above would have caught
+    # it, but defensive re-check costs nothing).
+    final = parse_file_blocks(buffer)
+    for block in final.blocks:
+        if block.path in emitted_paths:
+            continue
+        page_index += 1
+        await _emit_page(publish, cfg, req.task_id, block, page_index)
+        emitted_paths.add(block.path)
+
+    if final.warnings:
+        logger.info("wiki_llm: task=%s parse warnings: %s",
+                    req.task_id, "; ".join(final.warnings))
+
+    if not emitted_paths:
+        # The model output zero parseable FILE blocks — typically means
+        # the prompt didn't take and the response was prose. Fail the
+        # task so the user sees something actionable instead of a
+        # silent green checkmark.
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED,
+            error=("LLM produced no parseable FILE blocks "
+                   "(see worker logs for response sample)"),
+        ))
+        # Log first 500 chars of buffer so operators can diagnose.
+        logger.warning("wiki_llm: empty result task=%s buffer_head=%r",
+                       req.task_id, buffer[:500])
+        return
+
+    logger.debug(
+        "wiki_llm: stream done task=%s deltas=%d pages=%d total_ms=%d buffer_chars=%d",
+        req.task_id, delta_count, page_index,
+        int((asyncio.get_event_loop().time() - stream_start) * 1000),
+        len(buffer),
+    )
+    await _emit(publish, cfg, Update(
+        task_id=req.task_id, kind=KIND_DONE,
+        progress={"pages_total": page_index},
+    ))
+
+
+async def _emit_page(
+    publish: Publisher,
+    cfg: Config,
+    task_id: str,
+    block: FileBlock,
+    index: int,
+) -> None:
+    """Send one page update for a closed FILE block."""
+    title = _extract_title(block)
+    update = Update(
+        task_id=task_id,
+        kind=KIND_PAGE,
+        path=block.path,
+        title=title,
+        content=block.content,
+        index=index,
+    )
+    await _emit(publish, cfg, update)
+
+
+def _extract_title(block: FileBlock) -> str:
+    """Pull a human title from the block's frontmatter or first heading.
+
+    Order of preference:
+      1. ``title`` field of the YAML frontmatter
+      2. First-line H1 (``# Title``) of the body, after frontmatter strip
+      3. Empty (brain's subscriber falls back to path basename)
+    """
+    fm = parse_frontmatter(block.content)
+    if fm.frontmatter is not None:
+        title = fm.frontmatter.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    body = fm.body
+    for line in body.split("\n", 5):  # only inspect head for cheapness
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return ""
+
+
+async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
+    body = json.dumps(update.to_payload(), ensure_ascii=False).encode("utf-8")
+    await publish(cfg.update_subject, body)
+
+
+def _default_streamer(cfg: Config) -> LLMStreamer:
+    """Return the production streamer that calls hub via ``llm`` module.
+
+    Lazily constructed so unit tests that pass ``llm_stream=`` never
+    touch the network configuration.
+    """
+    llm_cfg = LLMConfig(
+        base_url=cfg.hub_url,
+        token=cfg.hub_token,
+        model=cfg.model,
+    )
+
+    def _call(system: str, user: str):
+        return stream_messages(llm_cfg, system=system, user=user)
+
+    return _call
+
+
+def _default_source_resolver(cfg: Config) -> SourceResolver:
+    """Return the production source resolver that calls brain.
+
+    Returns a tuple ``(raw, title)`` so callers can pick up a title from
+    the source row when the original request didn't carry one. The
+    runner unpacks both.
+    """
+    brain_cfg = BrainConfig(
+        base_url=cfg.brain_url,
+        internal_token=cfg.internal_token,
+    )
+
+    async def _call(source_id: str, owner_id: str):
+        row = await fetch_source(brain_cfg, source_id=source_id, owner_id=owner_id)
+        if row is None:
+            return None
+        return (row.raw, row.title)
+
+    return _call
+
+
+async def run(cfg: Config) -> None:
+    """Top-level entry point. Connects NATS, subscribes, blocks until
+    cancelled. Imported lazily so unit tests don't need ``nats-py``."""
+    import nats  # type: ignore
+
+    nc = await nats.connect(cfg.nats_url, name="biumind-wiki-llm")
+    logger.info("wiki_llm worker connected nats=%s sub=%s queue=%s",
+                cfg.nats_url, cfg.request_subject, cfg.queue_group)
+
+    async def _publish(subject: str, body: bytes) -> None:
+        await nc.publish(subject, body)
+
+    async def _handle(msg) -> None:  # noqa: ANN001 — nats msg dynamic
+        try:
+            await handle_message(msg.data, cfg=cfg, publish=_publish)
+        except Exception:  # noqa: BLE001 — one bad job mustn't kill loop
+            logger.exception("wiki_llm: handler crashed")
+
+    await nc.subscribe(cfg.request_subject, queue=cfg.queue_group, cb=_handle)
+    try:
+        stop = asyncio.Event()
+        await stop.wait()
+    finally:
+        await nc.drain()

@@ -1,0 +1,637 @@
+openapi: 3.1.0
+info:
+  title: BiuMind Model-Relay Admin API
+  version: "1.0.0"
+  description: |
+    Admin endpoints for model_relay configuration. Mounted at
+    `/v1/admin/*` on the model-relay service (default port 7001).
+
+    Auth: Bearer JWT issued by identity. Permissions are enforced per
+    endpoint by `bauth.RoleCache.RequirePermission` middleware. See
+    services/identity/migrations/00016_model_relay_perms.sql for the
+    permission catalogue.
+
+    All errors share the shape `{"error": {"code", "message", "field?"}}`.
+    Stable error codes:
+      bad_json, missing_path_param, invalid_uuid, missing_field,
+      not_found, conflict, internal,
+      credential_in_use, model_in_use,
+      upstream_unreachable, upstream_status, upstream_parse,
+      upstream_read, reconcile_failed, not_implemented.
+
+servers:
+  - url: http://localhost:7001
+    description: dev (local)
+
+tags:
+  - name: providers
+  - name: credentials
+  - name: models
+  - name: channels
+  - name: pricing
+  - name: fx-rates
+  - name: model-groups
+  - name: sync
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ─── providers ──────────────────────────────────────────────────
+  /v1/admin/providers:
+    get:
+      tags: [providers]
+      summary: List providers
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [active, disabled] } }
+        - { in: query, name: protocol, schema: { type: string, enum: [openai_compat, anthropic, dashscope, volcengine] } }
+        - { in: query, name: q, schema: { type: string } }
+      responses:
+        "200":
+          description: list
+          content: { application/json: { schema: { $ref: "#/components/schemas/ProviderList" } } }
+    post:
+      tags: [providers]
+      summary: Create provider
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProviderInput" } } } }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/Provider" } } } }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/providers/{id}:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    get:
+      tags: [providers]
+      summary: Get provider
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Provider" } } }, description: ok }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [providers]
+      summary: Update provider
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ProviderInput" } } } }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Provider" } } }, description: ok }
+    delete:
+      tags: [providers]
+      summary: Delete provider (RESTRICT — fails if credentials reference it)
+      responses:
+        "204": { description: deleted }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # ─── credentials ────────────────────────────────────────────────
+  /v1/admin/credentials:
+    get:
+      tags: [credentials]
+      summary: List credentials (always scrubbed; no plaintext)
+      parameters:
+        - { in: query, name: provider_id, schema: { type: string, format: uuid } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: q, schema: { type: string } }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/CredentialSafeList" } } }, description: ok }
+    post:
+      tags: [credentials]
+      summary: Create credential (envelope-encrypts plaintext)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CredentialCreateRequest" }
+      responses:
+        "201": { content: { application/json: { schema: { $ref: "#/components/schemas/CredentialSafe" } } }, description: created }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /v1/admin/credentials/{id}:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    get:
+      tags: [credentials]
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/CredentialSafe" } } }, description: ok }
+    patch:
+      tags: [credentials]
+      summary: |
+        Update credential. plaintext optional — when present, the row's
+        encrypted material is rotated (envelope re-encrypts) AND the
+        status is reset to active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CredentialUpdateRequest" }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/CredentialSafe" } } }, description: ok }
+    delete:
+      tags: [credentials]
+      summary: Delete credential. 409 if any channel still references it.
+      responses:
+        "204": { description: deleted }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /v1/admin/credentials/{id}/test:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    post:
+      tags: [credentials]
+      summary: |
+        Hello probe through the credential. Stamps last_test_at /
+        last_test_error on the row regardless of outcome.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                test_model:
+                  type: string
+                  description: Optional override; falls back to per-protocol default.
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/ProbeResult" } } }, description: ok }
+
+  # ─── models ─────────────────────────────────────────────────────
+  /v1/admin/models:
+    get:
+      tags: [models]
+      summary: List models
+      parameters:
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: family, schema: { type: string } }
+        - { in: query, name: min_plan, schema: { type: string, enum: [free, pro, team] } }
+        - { in: query, name: q, schema: { type: string } }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/ModelList" } } }, description: ok }
+    post:
+      tags: [models]
+      summary: Create model (manual_override defaults to true; bound to default group)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ModelInput" } } }
+      responses:
+        "201": { content: { application/json: { schema: { $ref: "#/components/schemas/Model" } } }, description: created }
+  /v1/admin/models/sync-upstream:
+    post:
+      tags: [sync, models]
+      summary: |
+        Pull models.json from MODEL_RELAY_SYNC_UPSTREAM (default
+        basellm.github.io/llm-metadata) and reconcile into the
+        catalogue. Field whitelist: display_name, family, context_window,
+        capabilities, icon. manual_override=true rows are skipped.
+        ETag-cached in-memory; second call within process lifetime
+        with unchanged upstream returns not_modified=true.
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/SyncResponse" } } }, description: ok }
+        "502": { description: upstream unreachable / non-2xx }
+  /v1/admin/models/{id}:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    get:
+      tags: [models]
+      summary: Get model + bound groups
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model:  { $ref: "#/components/schemas/Model" }
+                  groups: { type: array, items: { $ref: "#/components/schemas/ModelGroup" } }
+    patch:
+      tags: [models]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ModelInput" } } } }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Model" } } }, description: ok }
+    delete:
+      tags: [models]
+      summary: Cascade-deletes channels + pricing rows for this model.
+      responses:
+        "204": { description: deleted }
+  /v1/admin/models/{id}/bind-groups:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    post:
+      tags: [models]
+      summary: Replace this model's group bindings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_ids]
+              properties:
+                group_ids: { type: array, items: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model_id: { type: string, format: uuid }
+                  groups:   { type: array, items: { $ref: "#/components/schemas/ModelGroup" } }
+
+  # ─── channels ───────────────────────────────────────────────────
+  /v1/admin/channels:
+    get:
+      tags: [channels]
+      summary: List channels
+      parameters:
+        - { in: query, name: model_id, schema: { type: string, format: uuid } }
+        - { in: query, name: credential_id, schema: { type: string, format: uuid } }
+        - { in: query, name: status, schema: { type: string } }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/ChannelList" } } }, description: ok }
+    post:
+      tags: [channels]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChannelInput" } } } }
+      responses:
+        "201": { content: { application/json: { schema: { $ref: "#/components/schemas/Channel" } } }, description: created }
+  /v1/admin/channels/{id}:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    get:
+      tags: [channels]
+      responses: { "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Channel" } } }, description: ok } }
+    patch:
+      tags: [channels]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/ChannelInput" } } } }
+      responses: { "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Channel" } } }, description: ok } }
+    delete:
+      tags: [channels]
+      responses: { "204": { description: deleted } }
+  /v1/admin/channels/{id}/test:
+    parameters: [ { $ref: "#/components/parameters/IdPath" } ]
+    post:
+      tags: [channels]
+      summary: |
+        Hello probe through this specific channel. On success, calls
+        RecordSuccess (recovers from auto_disabled). Failure does NOT
+        call RecordFailure — admin probes are diagnostic, not traffic.
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/ProbeResult" } } }, description: ok }
+
+  # ─── pricing ────────────────────────────────────────────────────
+  /v1/admin/pricing/{model_id}:
+    parameters:
+      - { in: path, name: model_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [pricing]
+      summary: Get current effective pricing row (or empty placeholder if none set)
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/Pricing" } } }, description: ok }
+    post:
+      tags: [pricing]
+      summary: Append a new pricing row (effective_at = now()). Old rows kept.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PricingInput" } } } }
+      responses:
+        "201": { content: { application/json: { schema: { $ref: "#/components/schemas/Pricing" } } }, description: created }
+  /v1/admin/pricing/{model_id}/history:
+    parameters:
+      - { in: path, name: model_id, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [pricing]
+      summary: All pricing rows for this model, newest first.
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/PricingList" } } }, description: ok }
+
+  # ─── fx-rates ───────────────────────────────────────────────────
+  /v1/admin/fx-rates:
+    get:
+      tags: [fx-rates]
+      summary: List rates + stalest hint for the "更新汇率" banner
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/FxRate" } }
+                  total: { type: integer }
+                  stalest:             { $ref: "#/components/schemas/FxRate" }
+                  stalest_age_seconds: { type: integer }
+    put:
+      tags: [fx-rates]
+      summary: Upsert one (from, to) pair.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from_currency, to_currency, rate]
+              properties:
+                from_currency: { type: string, enum: [USD, CNY] }
+                to_currency:   { type: string, enum: [USD, CNY] }
+                rate:          { type: number }
+                source:        { type: string, enum: [manual, cron], default: manual }
+      responses:
+        "200": { content: { application/json: { schema: { $ref: "#/components/schemas/FxRate" } } }, description: ok }
+
+  # ─── model-groups ───────────────────────────────────────────────
+  /v1/admin/model-groups:
+    get:
+      tags: [model-groups]
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/ModelGroup" } }
+                  total: { type: integer }
+    post:
+      tags: [model-groups]
+      summary: Create group (Phase 3 — UI doesn't expose this in MVP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, owner_type]
+              properties:
+                code:        { type: string }
+                name:        { type: string }
+                owner_type:  { type: string, enum: [system, org, user] }
+                owner_id:    { type: string }
+                description: { type: string }
+      responses:
+        "201": { content: { application/json: { schema: { $ref: "#/components/schemas/ModelGroup" } } }, description: created }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: bad request
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: not found
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: conflict
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:    { type: string }
+            message: { type: string }
+            field:   { type: string }
+
+    # ─── Provider ─────────────────────────────────────────────────
+    Provider:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        code:        { type: string }
+        name:        { type: string }
+        protocol:    { type: string, enum: [openai_compat, anthropic, dashscope, volcengine] }
+        icon:        { type: string }
+        description: { type: string }
+        status:      { type: string, enum: [active, disabled] }
+        created_at:  { type: string, format: date-time }
+        updated_at:  { type: string, format: date-time }
+    ProviderInput:
+      type: object
+      required: [code, name, protocol]
+      properties:
+        code:        { type: string }
+        name:        { type: string }
+        protocol:    { type: string, enum: [openai_compat, anthropic, dashscope, volcengine] }
+        icon:        { type: string }
+        description: { type: string }
+        status:      { type: string, enum: [active, disabled] }
+    ProviderList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Provider" } }
+        total: { type: integer }
+
+    # ─── Credential (always Safe over the wire) ───────────────────
+    CredentialSafe:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        provider_id:      { type: string, format: uuid }
+        label:            { type: string }
+        key_preview:      { type: string, description: "e.g. sk-12...abcd" }
+        base_url:         { type: string }
+        header_override:  { type: object, additionalProperties: { type: string } }
+        status:           { type: string, enum: [active, disabled, invalid] }
+        last_test_at:     { type: string, format: date-time }
+        last_test_error:  { type: string }
+        created_at:       { type: string, format: date-time }
+        updated_at:       { type: string, format: date-time }
+    CredentialCreateRequest:
+      type: object
+      required: [provider_id, label, plaintext]
+      properties:
+        provider_id:     { type: string, format: uuid }
+        label:           { type: string }
+        plaintext:       { type: string, format: password, description: "envelope-encrypted before storage" }
+        base_url:        { type: string }
+        header_override: { type: object, additionalProperties: { type: string } }
+        status:          { type: string, enum: [active, disabled] }
+    CredentialUpdateRequest:
+      type: object
+      required: [label]
+      properties:
+        label:           { type: string }
+        base_url:        { type: string }
+        header_override: { type: object, additionalProperties: { type: string } }
+        status:          { type: string, enum: [active, disabled, invalid] }
+        plaintext:       { type: string, format: password, description: "non-empty triggers rotation" }
+    CredentialSafeList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/CredentialSafe" } }
+        total: { type: integer }
+
+    # ─── Model ────────────────────────────────────────────────────
+    Capabilities:
+      type: object
+      properties:
+        vision:    { type: boolean }
+        tools:     { type: boolean }
+        thinking:  { type: boolean }
+        cache:     { type: boolean }
+        json_mode: { type: boolean }
+        audio:     { type: boolean }
+    UpstreamRef:
+      type: object
+      properties:
+        vendor_name: { type: string }
+        name_rule:   { type: integer }
+        source_etag: { type: string }
+        synced_at:   { type: string, format: date-time }
+    Model:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        code:             { type: string }
+        display_name:     { type: string }
+        family:           { type: string }
+        context_window:   { type: integer }
+        max_output:       { type: integer }
+        capabilities:     { $ref: "#/components/schemas/Capabilities" }
+        min_plan:         { type: string, enum: [free, pro, team] }
+        status:           { type: string, enum: [active, deprecated, disabled] }
+        sort_order:       { type: integer }
+        upstream_ref:     { $ref: "#/components/schemas/UpstreamRef" }
+        manual_override:  { type: boolean }
+        routing_strategy: { type: string, enum: [weighted, lowest_latency, least_busy, lowest_tpm_rpm, cost_aware] }
+        created_at:       { type: string, format: date-time }
+        updated_at:       { type: string, format: date-time }
+    ModelInput:
+      type: object
+      required: [code, display_name]
+      properties:
+        code:             { type: string }
+        display_name:     { type: string }
+        family:           { type: string }
+        context_window:   { type: integer }
+        max_output:       { type: integer }
+        capabilities:     { $ref: "#/components/schemas/Capabilities" }
+        min_plan:         { type: string, enum: [free, pro, team] }
+        status:           { type: string, enum: [active, deprecated, disabled] }
+        sort_order:       { type: integer }
+        routing_strategy: { type: string, enum: [weighted, lowest_latency, least_busy, lowest_tpm_rpm, cost_aware] }
+        manual_override:  { type: boolean }
+    ModelList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Model" } }
+        total: { type: integer }
+
+    # ─── Channel ──────────────────────────────────────────────────
+    Channel:
+      type: object
+      properties:
+        id:               { type: string, format: uuid }
+        model_id:         { type: string, format: uuid }
+        credential_id:    { type: string, format: uuid }
+        upstream_model:   { type: string }
+        priority:         { type: integer }
+        weight:           { type: integer }
+        rpm_limit:        { type: integer }
+        tpm_limit:        { type: integer }
+        status:           { type: string, enum: [active, disabled, auto_disabled] }
+        failure_count:    { type: integer }
+        last_error_at:    { type: string, format: date-time }
+        last_error:       { type: string }
+        last_test_at:     { type: string, format: date-time }
+        latency_p50_ms:   { type: integer }
+        extra:            { type: object, additionalProperties: true }
+        created_at:       { type: string, format: date-time }
+        updated_at:       { type: string, format: date-time }
+    ChannelInput:
+      type: object
+      required: [model_id, credential_id, upstream_model]
+      properties:
+        model_id:        { type: string, format: uuid }
+        credential_id:   { type: string, format: uuid }
+        upstream_model:  { type: string }
+        priority:        { type: integer }
+        weight:          { type: integer, minimum: 0 }
+        rpm_limit:       { type: integer }
+        tpm_limit:       { type: integer }
+        status:          { type: string, enum: [active, disabled, auto_disabled] }
+        extra:           { type: object, additionalProperties: true }
+    ChannelList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Channel" } }
+        total: { type: integer }
+
+    # ─── Pricing ──────────────────────────────────────────────────
+    Pricing:
+      type: object
+      properties:
+        id:                       { type: string, format: uuid }
+        model_id:                 { type: string, format: uuid }
+        currency:                 { type: string, enum: [USD, CNY] }
+        input_per_mtok:           { type: number }
+        output_per_mtok:          { type: number }
+        cache_write_per_mtok:     { type: number }
+        cache_read_per_mtok:      { type: number }
+        effective_at:             { type: string, format: date-time }
+        created_by:               { type: string, format: uuid }
+        created_at:               { type: string, format: date-time }
+    PricingInput:
+      type: object
+      required: [currency]
+      properties:
+        currency:             { type: string, enum: [USD, CNY] }
+        input_per_mtok:       { type: number }
+        output_per_mtok:      { type: number }
+        cache_write_per_mtok: { type: number }
+        cache_read_per_mtok:  { type: number }
+    PricingList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Pricing" } }
+        total: { type: integer }
+
+    # ─── FxRate ───────────────────────────────────────────────────
+    FxRate:
+      type: object
+      properties:
+        from_currency: { type: string, enum: [USD, CNY] }
+        to_currency:   { type: string, enum: [USD, CNY] }
+        rate:          { type: number }
+        source:        { type: string, enum: [manual, cron] }
+        updated_at:    { type: string, format: date-time }
+        updated_by:    { type: string, format: uuid }
+
+    # ─── ModelGroup ───────────────────────────────────────────────
+    ModelGroup:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        code:        { type: string }
+        name:        { type: string }
+        owner_type:  { type: string, enum: [system, org, user] }
+        owner_id:    { type: string }
+        description: { type: string }
+        status:      { type: string, enum: [active, archived] }
+        created_at:  { type: string, format: date-time }
+        updated_at:  { type: string, format: date-time }
+
+    # ─── Probe / Sync ─────────────────────────────────────────────
+    ProbeResult:
+      type: object
+      properties:
+        ok:          { type: boolean }
+        latency_ms:  { type: integer }
+        error_code:  { type: string, enum: ["", timeout, unauthorized, rate_limited, server_error, network, decrypt, unsupported, bad_response] }
+        error:       { type: string }
+        tokens:      { type: integer }
+        status_code: { type: integer }
+    SyncResponse:
+      type: object
+      properties:
+        added:        { type: integer }
+        updated:      { type: integer }
+        skipped:      { type: integer }
+        total:        { type: integer }
+        not_modified: { type: boolean }
+        synced_at:    { type: string, format: date-time }
+        etag:         { type: string }
