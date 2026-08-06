@@ -135,7 +135,7 @@ dev_dependencies:
   sqlite3: ^2.9.4
   freezed: ^2.5.7
   json_serializable: ^6.9.0
-  msix: ^3.16.7
+  msix: ^3.18.0
   # gpt_markdown 的传递依赖 — 测试里直接 import `Math` widget 验证 LaTeX
   # 渲染时显式声明, 避免 depend_on_referenced_packages lint 噪音。
   # custom_lint / riverpod_lint disabled until analyzer_plugin 0.12.0 catches
