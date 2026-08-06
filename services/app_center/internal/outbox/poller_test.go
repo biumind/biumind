@@ -86,9 +86,9 @@ func TestPoller_DrainsToPublisher(t *testing.T) {
 	}
 
 	wantTopics := map[string]bool{
-		"app:install:abc":      false,
-		"sidebar:user:user-1":  false,
-		"app:catalog:app_rss":  false,
+		"app:install:abc":     false,
+		"sidebar:user:user-1": false,
+		"app:catalog:app_rss": false,
 	}
 	for _, e := range mem.Events {
 		if _, ok := wantTopics[e.Topic]; !ok {

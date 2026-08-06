@@ -42,10 +42,10 @@ func newConfigCmd(f *rootFlags) *cobra.Command {
 
 // newConfigTelemetryCmd manages the opt-in telemetry control file.
 //
-//   biu config telemetry status   — print current state + jsonl path
-//   biu config telemetry on       — enable; rotates install_id
-//   biu config telemetry off      — disable; preserves the jsonl
-//   biu config telemetry endpoint <url> — set / clear remote URL
+//	biu config telemetry status   — print current state + jsonl path
+//	biu config telemetry on       — enable; rotates install_id
+//	biu config telemetry off      — disable; preserves the jsonl
+//	biu config telemetry endpoint <url> — set / clear remote URL
 func newConfigTelemetryCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "telemetry",

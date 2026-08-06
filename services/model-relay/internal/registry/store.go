@@ -34,25 +34,25 @@ var (
 type Store struct {
 	Pool *pgxpool.Pool
 
-	Providers   *ProviderRepo
-	Credentials *CredentialRepo
-	Models      *ModelRepo
-	Channels      *ChannelRepo
-	Pricing       *PricingRepo
-	PricingRules  *PricingRulesRepo
-	FxRates       *FxRateRepo
-	Groups        *ModelGroupRepo
-	UsageLog      *UsageLogRepo
+	Providers    *ProviderRepo
+	Credentials  *CredentialRepo
+	Models       *ModelRepo
+	Channels     *ChannelRepo
+	Pricing      *PricingRepo
+	PricingRules *PricingRulesRepo
+	FxRates      *FxRateRepo
+	Groups       *ModelGroupRepo
+	UsageLog     *UsageLogRepo
 }
 
 // NewStore wires every repo against the same pool. Returns a fully
 // usable Store; no further init required.
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{
-		Pool:        pool,
-		Providers:   &ProviderRepo{pool: pool},
-		Credentials: &CredentialRepo{pool: pool},
-		Models:      &ModelRepo{pool: pool},
+		Pool:         pool,
+		Providers:    &ProviderRepo{pool: pool},
+		Credentials:  &CredentialRepo{pool: pool},
+		Models:       &ModelRepo{pool: pool},
 		Channels:     &ChannelRepo{pool: pool},
 		Pricing:      &PricingRepo{pool: pool},
 		PricingRules: &PricingRulesRepo{pool: pool},

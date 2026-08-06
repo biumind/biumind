@@ -102,9 +102,9 @@ func New(baseURL, token string) *Client {
 // ─── List ───────────────────────────────────────────────────
 
 type ListOptions struct {
-	Source   string // empty = no filter
-	Status   string
-	OwnerID  string
+	Source  string // empty = no filter
+	Status  string
+	OwnerID string
 }
 
 func (c *Client) List(ctx context.Context, opt ListOptions) ([]Skill, error) {

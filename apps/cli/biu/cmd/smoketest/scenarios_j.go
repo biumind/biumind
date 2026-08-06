@@ -41,7 +41,7 @@ func init() {
 	// Opus's input limit) — the goal is "doesn't blow up the
 	// pipeline", not stress-test the provider.
 	register(scenario{
-		name: "J1.long-context-survives",
+		name:   "J1.long-context-survives",
 		prompt: "What is the capital of France? Reply with one word.",
 		system: strings.Repeat(
 			"Background: this is filler context the assistant should ignore. ",
@@ -59,7 +59,7 @@ func init() {
 	// endpoint with an obviously-malformed key; the first request
 	// must come back as a transport error, not hang.
 	register(scenario{
-		name: "J4.bad-api-key-fails-fast",
+		name:    "J4.bad-api-key-fails-fast",
 		prompt:  "Reply OK.",
 		timeout: 30 * time.Second,
 		// Empty key would be caught by biumindkit.New itself; we want
@@ -100,7 +100,7 @@ func init() {
 		// without a final assistant turn — what we care about is the
 		// runner returning within timeout, not the reply shape.
 		allowEmptyText: true,
-		assertText: func(_ string) error { return nil },
+		assertText:     func(_ string) error { return nil },
 	})
 
 	// J7 — Bash timeout surfaces as soft tool error. timeout_sec=2
@@ -195,7 +195,7 @@ func init() {
 	// at process scope. We rely on the OS killing the test process
 	// later; the assertion here is just "completes without error".
 	register(scenario{
-		name: "J9.multi-turn-no-leak",
+		name:   "J9.multi-turn-no-leak",
 		prompt: "Reply with literally J9 OK and nothing else.",
 		// 10 turns is a lot for one scenario but cheap (no tools).
 		// We piggyback on the runner running ONE Submit; the multi-

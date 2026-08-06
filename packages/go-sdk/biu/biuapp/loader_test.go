@@ -631,8 +631,8 @@ func TestValidate_AgentChat_Ok(t *testing.T) {
 
 func TestValidate_Icon_AcceptsValidForms(t *testing.T) {
 	cases := []string{
-		"",                      // 空
-		"📰",                     // emoji
+		"",                       // 空
+		"📰",                      // emoji
 		"https://x.com/icon.png", // URL
 		"http://localhost:8080/icon.ico",
 		"cas:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", // 64 lowercase hex
@@ -650,11 +650,11 @@ func TestValidate_Icon_AcceptsValidForms(t *testing.T) {
 
 func TestValidate_Icon_RejectsBadForms(t *testing.T) {
 	cases := map[string]string{
-		"caz:abc...":           "typo prefix",
-		"cas:short":            "cas hash too short",
+		"caz:abc...": "typo prefix",
+		"cas:short":  "cas hash too short",
 		"cas:" + "z" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef": "cas non-hex char",
-		"cas:" + "abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678":  "cas hash 63 chars",
-		"kimi.moonshot.cn/favicon.ico":                                               "URL no scheme",
+		"cas:" + "abcdef0123456789abcdef0123456789abcdef0123456789abcdef012345678":        "cas hash 63 chars",
+		"kimi.moonshot.cn/favicon.ico": "URL no scheme",
 	}
 	for icon, desc := range cases {
 		m := &Manifest{

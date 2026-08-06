@@ -123,12 +123,12 @@ func TestPermissionPolicy_PermReadOnly(t *testing.T) {
 		tool string
 		want biumindkit.PermissionDecision
 	}{
-		{"read", biumindkit.PermAllow},  // RiskLow
-		{"grep", biumindkit.PermAllow},  // RiskLow
-		{"glob", biumindkit.PermAllow},  // RiskLow
-		{"edit", biumindkit.PermDeny},   // RiskMedium
-		{"write", biumindkit.PermDeny},  // RiskHigh
-		{"bash", biumindkit.PermDeny},   // RiskHigh
+		{"read", biumindkit.PermAllow}, // RiskLow
+		{"grep", biumindkit.PermAllow}, // RiskLow
+		{"glob", biumindkit.PermAllow}, // RiskLow
+		{"edit", biumindkit.PermDeny},  // RiskMedium
+		{"write", biumindkit.PermDeny}, // RiskHigh
+		{"bash", biumindkit.PermDeny},  // RiskHigh
 	}
 	for _, c := range cases {
 		got := policy(context.Background(), biumindkit.PermissionRequest{ToolName: c.tool})
@@ -145,10 +145,10 @@ func TestPermissionPolicy_PermSafe(t *testing.T) {
 		tool string
 		want biumindkit.PermissionDecision
 	}{
-		{"read", biumindkit.PermAllow},  // Low
-		{"edit", biumindkit.PermAllow},  // Medium
-		{"bash", biumindkit.PermDeny},   // High
-		{"write", biumindkit.PermDeny},  // High
+		{"read", biumindkit.PermAllow}, // Low
+		{"edit", biumindkit.PermAllow}, // Medium
+		{"bash", biumindkit.PermDeny},  // High
+		{"write", biumindkit.PermDeny}, // High
 	}
 	for _, c := range cases {
 		got := policy(context.Background(), biumindkit.PermissionRequest{ToolName: c.tool})

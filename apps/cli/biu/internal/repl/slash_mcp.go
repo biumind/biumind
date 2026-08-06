@@ -14,8 +14,8 @@ import (
 // handleMCP dispatches the /mcp subcommands. Stateless — every call
 // resolves against the in-memory MCP registry directly.
 //
-//   /mcp                — list connected servers + tool count
-//   /mcp <server>       — show that server's tools with descriptions
+//	/mcp                — list connected servers + tool count
+//	/mcp <server>       — show that server's tools with descriptions
 //
 // We surface the actual command that was used to spawn each server
 // alongside the tool count so a user diagnosing "why isn't my

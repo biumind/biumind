@@ -13,8 +13,8 @@ func TestStreakStats(t *testing.T) {
 	now := time.Date(2026, 6, 25, 13, 0, 0, 0, time.UTC)
 
 	cases := []struct {
-		name                      string
-		days                      []string // ascending, count>0 (as the query returns)
+		name                         string
+		days                         []string // ascending, count>0 (as the query returns)
 		wantActive, wantCur, wantMax int
 	}{
 		{

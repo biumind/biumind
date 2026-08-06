@@ -46,7 +46,7 @@ type Request struct {
 }
 
 type Entity struct {
-	Type       string         // Cedar 类型, 如 "User" / "aigc.Task" / "aigc.Character"
+	Type       string // Cedar 类型, 如 "User" / "aigc.Task" / "aigc.Character"
 	ID         string
 	Attributes map[string]any
 }

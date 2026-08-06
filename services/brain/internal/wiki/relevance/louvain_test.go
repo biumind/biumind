@@ -123,8 +123,8 @@ func TestDetectCommunities_ZeroOrNegativeWeightEdgesIgnored(t *testing.T) {
 	res := DetectCommunities(
 		[]uuid.UUID{a, b, c},
 		[]Edge{
-			{a, b, 0},     // dropped
-			{a, c, -5},    // dropped
+			{a, b, 0},  // dropped
+			{a, c, -5}, // dropped
 		},
 		LouvainOptions{},
 	)

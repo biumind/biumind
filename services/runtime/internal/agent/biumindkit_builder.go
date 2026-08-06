@@ -40,11 +40,11 @@ type BuildBiumindkitAgentInput struct {
 	PermissionMode PermissionMode
 
 	// 工具 / 资源依赖（跟 RunInput.Memory / Skills / Apps 同款）
-	Tools   *Registry
-	Memory  MemoryClient
+	Tools     *Registry
+	Memory    MemoryClient
 	ProjectID string
-	Skills  *SkillToolDeps
-	Apps    *AppToolDeps
+	Skills    *SkillToolDeps
+	Apps      *AppToolDeps
 
 	// MaxTokens / MaxToolTurns —— 透传到 biumindkit；零值用默认
 	MaxTokens    int

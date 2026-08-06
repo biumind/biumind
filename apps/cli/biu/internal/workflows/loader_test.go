@@ -195,14 +195,14 @@ func TestVerifyCleanTreeFailsWithDirtyFile(t *testing.T) {
 // conventions don't regress.
 func TestValidWorkflowName(t *testing.T) {
 	cases := map[string]bool{
-		"":            false,
-		"ship":        true,
-		"my-flow":     true,
-		"my_flow":     true,
-		"with space":  false,
-		"1starts-num": false,
-		"-leading":    false,
-		"has.dot":     false,
+		"":                      false,
+		"ship":                  true,
+		"my-flow":               true,
+		"my_flow":               true,
+		"with space":            false,
+		"1starts-num":           false,
+		"-leading":              false,
+		"has.dot":               false,
 		strings.Repeat("x", 33): false,
 	}
 	for in, want := range cases {

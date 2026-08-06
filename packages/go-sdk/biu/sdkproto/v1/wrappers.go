@@ -145,10 +145,10 @@ type SDKControlResponse struct {
 // ControlResponseBody 是 success/error 的两态联合 — 用单一 struct 简化 marshal。
 // subtype="success" 时填 Response；subtype="error" 时填 Error / PendingPermissionRequests。
 type ControlResponseBody struct {
-	Subtype                   string             `json:"subtype"`
-	RequestID                 string             `json:"request_id"`
-	Response                  json.RawMessage    `json:"response,omitempty"`
-	Error                     string             `json:"error,omitempty"`
+	Subtype                   string              `json:"subtype"`
+	RequestID                 string              `json:"request_id"`
+	Response                  json.RawMessage     `json:"response,omitempty"`
+	Error                     string              `json:"error,omitempty"`
 	PendingPermissionRequests []SDKControlRequest `json:"pending_permission_requests,omitempty"`
 }
 

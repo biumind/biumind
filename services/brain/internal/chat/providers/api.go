@@ -231,19 +231,19 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 // ─── Models + connectivity ───────────────────────────────
 
 type modelDTO struct {
-	ID            string         `json:"id"`
-	ProviderID    string         `json:"provider_id"`
-	ModelID       string         `json:"model_id"`
-	DisplayName   string         `json:"display_name"`
-	Type          string         `json:"type"`
+	ID            string          `json:"id"`
+	ProviderID    string          `json:"provider_id"`
+	ModelID       string          `json:"model_id"`
+	DisplayName   string          `json:"display_name"`
+	Type          string          `json:"type"`
 	Abilities     map[string]bool `json:"abilities"`
-	ContextWindow *int           `json:"context_window,omitempty"`
-	Pricing       map[string]any `json:"pricing,omitempty"`
-	ReleasedAt    *time.Time     `json:"released_at,omitempty"`
-	Enabled       bool           `json:"enabled"`
-	SortOrder     int            `json:"sort_order"`
-	Source        string         `json:"source"`
-	UpdatedAt     time.Time      `json:"updated_at"`
+	ContextWindow *int            `json:"context_window,omitempty"`
+	Pricing       map[string]any  `json:"pricing,omitempty"`
+	ReleasedAt    *time.Time      `json:"released_at,omitempty"`
+	Enabled       bool            `json:"enabled"`
+	SortOrder     int             `json:"sort_order"`
+	Source        string          `json:"source"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
 func modelToDTO(m *Model) modelDTO {

@@ -7,18 +7,18 @@
 //
 // Two manifest discovery modes:
 //
-//	1. plugin.json present (preferred):
-//	     Parse manifest. Use its commandsPath / agentsPath / etc.
-//	     when set; otherwise fall back to convention directories
-//	     (commands/, agents/, …).
+//  1. plugin.json present (preferred):
+//     Parse manifest. Use its commandsPath / agentsPath / etc.
+//     when set; otherwise fall back to convention directories
+//     (commands/, agents/, …).
 //
-//	2. No plugin.json (manifestless):
-//	     Synthesise a minimal manifest from the directory basename.
-//	     This supports manifestless convention plugins: some ship no
-//	     plugin.json, just a skills/ directory. Refusing to load it
-//	     would force users to write a manifest for every drop-in
-//	     plugin, which defeats the convention-over-configuration
-//	     ergonomic.
+//  2. No plugin.json (manifestless):
+//     Synthesise a minimal manifest from the directory basename.
+//     This supports manifestless convention plugins: some ship no
+//     plugin.json, just a skills/ directory. Refusing to load it
+//     would force users to write a manifest for every drop-in
+//     plugin, which defeats the convention-over-configuration
+//     ergonomic.
 //
 // External hooks file: the convention stores hooks at
 // <plugin>/hooks/hooks.json (the file inside the conventional hooks/
@@ -153,11 +153,11 @@ func hasConventionDir(dir string) bool {
 // resolveComponentPaths populates LoadedPlugin's per-component
 // absolute paths. For each component:
 //
-//	- If manifest declares an override path: validate it doesn't
-//	  escape the plugin root, join to root, verify it exists.
-//	- Otherwise: probe the convention directory; populate only if
-//	  it exists. Missing convention dirs are NOT errors — most
-//	  plugins ship just one or two components.
+//   - If manifest declares an override path: validate it doesn't
+//     escape the plugin root, join to root, verify it exists.
+//   - Otherwise: probe the convention directory; populate only if
+//     it exists. Missing convention dirs are NOT errors — most
+//     plugins ship just one or two components.
 //
 // Returns ErrPathEscape (wrapped) on a "../" escape attempt; caller
 // can errors.Is-check.
@@ -209,11 +209,11 @@ func resolveComponentPaths(lp *LoadedPlugin) error {
 
 // loadHooks resolves the hooks JSON for a plugin. Precedence:
 //
-//	1. Inline `hooks` field in plugin.json (already in
-//	   lp.Manifest.Hooks as RawMessage). Wins outright.
-//	2. External <plugin>/hooks/hooks.json (conventional location).
-//	   Loaded and the top-level "hooks" object is extracted — the
-//	   file wraps the same shape under a description + hooks pair.
+//  1. Inline `hooks` field in plugin.json (already in
+//     lp.Manifest.Hooks as RawMessage). Wins outright.
+//  2. External <plugin>/hooks/hooks.json (conventional location).
+//     Loaded and the top-level "hooks" object is extracted — the
+//     file wraps the same shape under a description + hooks pair.
 //
 // In both cases ${CLAUDE_PLUGIN_ROOT} / ${BIU_PLUGIN_ROOT} are
 // expanded so PP3's hooks.Registry.MergeJSON receives ready-to-run

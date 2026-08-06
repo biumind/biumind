@@ -22,19 +22,19 @@ import (
 // planView — GET /v1/plans 返回的 list 元素 + GET /v1/subscriptions/me
 // 嵌套返回的 plan 视图. 字段集是 admin Vue / 客户端「升级」页面所需.
 type planView struct {
-	ID                 string  `json:"id"`
-	Code               string  `json:"code"`
-	Name               string  `json:"name"`
-	Description        string  `json:"description"`
-	SortOrder          int     `json:"sort_order"`
-	PriceCurrency      string  `json:"price_currency"`
-	PriceMonthly       float64 `json:"price_monthly"`
-	PriceYearly        float64 `json:"price_yearly"`
-	MonthlyCredits     int64   `json:"monthly_credits"`
+	ID                 string         `json:"id"`
+	Code               string         `json:"code"`
+	Name               string         `json:"name"`
+	Description        string         `json:"description"`
+	SortOrder          int            `json:"sort_order"`
+	PriceCurrency      string         `json:"price_currency"`
+	PriceMonthly       float64        `json:"price_monthly"`
+	PriceYearly        float64        `json:"price_yearly"`
+	MonthlyCredits     int64          `json:"monthly_credits"`
 	Benefits           map[string]any `json:"benefits"`
-	IsCurrent          bool    `json:"is_current,omitempty"` // 当前用户已订阅
-	StripePriceMonthly string  `json:"stripe_price_monthly,omitempty"`
-	StripePriceYearly  string  `json:"stripe_price_yearly,omitempty"`
+	IsCurrent          bool           `json:"is_current,omitempty"` // 当前用户已订阅
+	StripePriceMonthly string         `json:"stripe_price_monthly,omitempty"`
+	StripePriceYearly  string         `json:"stripe_price_yearly,omitempty"`
 }
 
 func toPlanView(p *billing.PlanRow) planView {
@@ -136,19 +136,19 @@ type quotaUsageView struct {
 // subscriptionView — GET /v1/subscriptions/me 响应 shape.
 // 嵌套包含 plan 视图; 客户端不用再二次查 /v1/plans.
 type subscriptionView struct {
-	ID                   string    `json:"id"`
-	UserID               string    `json:"user_id"`
-	Plan                 planView  `json:"plan"`
-	Status               string    `json:"status"`
-	CurrentPeriodStart   string    `json:"current_period_start"`
-	CurrentPeriodEnd     string    `json:"current_period_end"`
-	TrialEndAt           *string   `json:"trial_end_at,omitempty"`
-	CancelAt             *string   `json:"cancel_at,omitempty"`
-	CanceledAt           *string   `json:"canceled_at,omitempty"`
-	BillingCycle         string    `json:"billing_cycle"`
-	StripeCustomerID     string    `json:"stripe_customer_id,omitempty"`
-	StripeSubscriptionID string    `json:"stripe_subscription_id,omitempty"`
-	IsActive             bool      `json:"is_active"`
+	ID                   string   `json:"id"`
+	UserID               string   `json:"user_id"`
+	Plan                 planView `json:"plan"`
+	Status               string   `json:"status"`
+	CurrentPeriodStart   string   `json:"current_period_start"`
+	CurrentPeriodEnd     string   `json:"current_period_end"`
+	TrialEndAt           *string  `json:"trial_end_at,omitempty"`
+	CancelAt             *string  `json:"cancel_at,omitempty"`
+	CanceledAt           *string  `json:"canceled_at,omitempty"`
+	BillingCycle         string   `json:"billing_cycle"`
+	StripeCustomerID     string   `json:"stripe_customer_id,omitempty"`
+	StripeSubscriptionID string   `json:"stripe_subscription_id,omitempty"`
+	IsActive             bool     `json:"is_active"`
 
 	// 本月 quota usage — W4-8: 真接入 credits.GetQuotaStates.
 	// key: ref_type (chat_message / aigc_task). 没订阅或 ref_type 无配额时
@@ -190,11 +190,11 @@ func (s *Server) handleMySubscription(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, subscriptionView{
-			ID:        "",
-			UserID:    uid.String(),
-			Plan:      toPlanView(freeP),
-			Status:    "free",
-			IsActive:  true,
+			ID:           "",
+			UserID:       uid.String(),
+			Plan:         toPlanView(freeP),
+			Status:       "free",
+			IsActive:     true,
 			BillingCycle: "lifetime",
 			Quota:        s.fetchQuotaUsage(r.Context(), uid),
 		})
@@ -255,6 +255,7 @@ func (s *Server) fetchQuotaUsage(ctx context.Context, uid uuid.UUID) map[string]
 }
 
 // emptyUsage — 已废弃, 保留无引用避免 import 漂移. 删除是 W4 后续 cleanup.
+//
 //nolint:unused
 func emptyUsage() map[string]int64 {
 	return map[string]int64{

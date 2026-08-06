@@ -55,16 +55,16 @@ type InvocationRecorder interface {
 // InvocationRecord is the audit row written per call. Mirrors the
 // columns in the app_center.invocations table 1:1.
 type InvocationRecord struct {
-	InstallID    string
-	AppID        string
-	Identifier   string
-	Action       string
-	Caller       string // "user" | "agent"
-	CallerID     string
-	TraceID      string
-	DurationMs   int
-	Status       string // "ok" | "error" | "denied" | "timeout"
-	ErrorCode    string
+	InstallID  string
+	AppID      string
+	Identifier string
+	Action     string
+	Caller     string // "user" | "agent"
+	CallerID   string
+	TraceID    string
+	DurationMs int
+	Status     string // "ok" | "error" | "denied" | "timeout"
+	ErrorCode  string
 }
 
 // RegisterTools binds every (LoadedApp × Action) pair into reg as one
@@ -127,7 +127,7 @@ func buildTool(la LoadedApp, action biuapp.ActionSpec, deps ToolDeps) *agent.Too
 			// 1. Authz (if wired) — fail-closed.
 			if deps.Authz != nil {
 				if err := deps.Authz.Check(ctx, installID, "app:invoke",
-					nil /* principal filled by caller via context */,
+					nil, /* principal filled by caller via context */
 					map[string]any{
 						"id":         installID,
 						"identifier": identifier,

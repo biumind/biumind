@@ -54,9 +54,9 @@ import (
 type routerProvider struct {
 	mu sync.Mutex
 
-	parent     [][]engine.StreamFrame
-	plan       [][]engine.StreamFrame
-	review     [][]engine.StreamFrame
+	parent [][]engine.StreamFrame
+	plan   [][]engine.StreamFrame
+	review [][]engine.StreamFrame
 
 	parentCalls int
 	planCalls   int
@@ -124,12 +124,12 @@ func buildLifecycleParentReg(t *testing.T, perms *interactive.PermissionsAccesso
 
 // TestE2E_PlanReviewHappyPath walks the canonical lifecycle:
 //
-//   1. Parent dispatches Agent[subagent_type=Plan]
-//   2. Plan sub-agent calls ExitPlanMode (plan + allowedPrompts)
-//   3. Plan returns; parent issues Bash matching the prompt
-//   4. Parent dispatches Agent[subagent_type=CodeReview]
-//   5. CodeReview returns severity-tagged feedback
-//   6. Parent emits final text
+//  1. Parent dispatches Agent[subagent_type=Plan]
+//  2. Plan sub-agent calls ExitPlanMode (plan + allowedPrompts)
+//  3. Plan returns; parent issues Bash matching the prompt
+//  4. Parent dispatches Agent[subagent_type=CodeReview]
+//  5. CodeReview returns severity-tagged feedback
+//  6. Parent emits final text
 //
 // Asserts on every contract the chain depends on: each child stream
 // fires once, plan attachment + allowedPrompts persist after the

@@ -331,4 +331,3 @@ func TestFinalize_ChatSkipsResultsTable(t *testing.T) {
 		t.Errorf("session state=%q want completed", got.State)
 	}
 }
-

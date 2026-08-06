@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
+	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
 	"github.com/google/uuid"
 )
 

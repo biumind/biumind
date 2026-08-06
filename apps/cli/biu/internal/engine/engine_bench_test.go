@@ -21,7 +21,7 @@ func BenchmarkSubmitNoTools(b *testing.B) {
 			State: state.New(), Tools: NewRegistry(),
 			Provider: prov, Model: "test",
 			BypassPermissions: true,
-			CompactMaxTokens: -1,
+			CompactMaxTokens:  -1,
 		})
 		for ev := range eng.Submit(context.Background(), "hi") {
 			_ = ev

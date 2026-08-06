@@ -9,11 +9,11 @@ func TestStripURLScheme(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"otel-collector:4317", "otel-collector:4317"},                // 期望形态, 不动
-		{"http://otel-collector:4317", "otel-collector:4317"},         // 历史 bug 形态
+		{"otel-collector:4317", "otel-collector:4317"},        // 期望形态, 不动
+		{"http://otel-collector:4317", "otel-collector:4317"}, // 历史 bug 形态
 		{"https://otel.prod.example.com:4317", "otel.prod.example.com:4317"},
-		{"http://otel-collector:4317/", "otel-collector:4317"},        // 尾 / 也清掉
-		{"  http://otel-collector:4317  ", "otel-collector:4317"},     // 周边空白
+		{"http://otel-collector:4317/", "otel-collector:4317"},    // 尾 / 也清掉
+		{"  http://otel-collector:4317  ", "otel-collector:4317"}, // 周边空白
 		{"localhost:4317", "localhost:4317"},
 		{"", ""},
 	}

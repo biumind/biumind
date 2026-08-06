@@ -175,8 +175,8 @@ func TestFromZip_RejectsNoSkillMD(t *testing.T) {
 
 func TestFromZip_RejectsPathTraversal(t *testing.T) {
 	raw := makeZip(t, map[string]string{
-		"SKILL.md":            "---\nname: x\ndescription: y\n---\n\nbody",
-		"../etc/passwd":       "evil",
+		"SKILL.md":      "---\nname: x\ndescription: y\n---\n\nbody",
+		"../etc/passwd": "evil",
 	})
 	_, err := FromZip(raw)
 	if err == nil || !strings.Contains(err.Error(), "traversal") {
@@ -188,9 +188,9 @@ func TestFromZip_DropsUnknownPaths(t *testing.T) {
 	// Files not under scripts/ references/ assets/ are silently
 	// dropped — bundle convention is flat.
 	raw := makeZip(t, map[string]string{
-		"SKILL.md":              "---\nname: x\ndescription: y\n---\n\nbody",
-		"random/foo.md":         "should be dropped",
-		"top-level-stray.txt":   "also dropped",
+		"SKILL.md":            "---\nname: x\ndescription: y\n---\n\nbody",
+		"random/foo.md":       "should be dropped",
+		"top-level-stray.txt": "also dropped",
 	})
 	got, err := FromZip(raw)
 	if err != nil {
@@ -204,8 +204,8 @@ func TestFromZip_DropsUnknownPaths(t *testing.T) {
 func TestFromZip_RejectsOversizedResource(t *testing.T) {
 	big := strings.Repeat("x", MaxResourceInlineBytes+1)
 	raw := makeZip(t, map[string]string{
-		"SKILL.md":              "---\nname: x\ndescription: y\n---\n\nbody",
-		"references/big.md":     big,
+		"SKILL.md":          "---\nname: x\ndescription: y\n---\n\nbody",
+		"references/big.md": big,
 	})
 	_, err := FromZip(raw)
 	if !errors.Is(err, ErrTooLarge) {

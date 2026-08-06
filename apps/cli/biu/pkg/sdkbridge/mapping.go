@@ -166,18 +166,18 @@ func ToSDKFrame(ev biumindkit.Event, callerSessionID string) sdkproto.Frame {
 		// Done 没 result 字符串（流式 assistant_text 已经走过；result 是
 		// 摘要）—— 留空，brain 集成补。
 		return &sdkproto.SDKResultSuccess{
-			Type:              sdkproto.TypeResult,
-			Subtype:           sdkproto.SubtypeSuccess,
-			DurationMs:        int(e.Elapsed.Milliseconds()),
-			DurationAPIMs:     int(e.Elapsed.Milliseconds()),
-			IsError:           false,
-			NumTurns:          0,
-			Result:            "",
-			StopReason:        StrPtr(e.StopReason),
-			TotalCostUSD:      0,
-			Usage:             MustMarshalRaw(map[string]any{
-				"input_tokens":          e.InputTokens,
-				"output_tokens":         e.OutputTokens,
+			Type:          sdkproto.TypeResult,
+			Subtype:       sdkproto.SubtypeSuccess,
+			DurationMs:    int(e.Elapsed.Milliseconds()),
+			DurationAPIMs: int(e.Elapsed.Milliseconds()),
+			IsError:       false,
+			NumTurns:      0,
+			Result:        "",
+			StopReason:    StrPtr(e.StopReason),
+			TotalCostUSD:  0,
+			Usage: MustMarshalRaw(map[string]any{
+				"input_tokens":                e.InputTokens,
+				"output_tokens":               e.OutputTokens,
 				"cache_read_input_tokens":     e.CacheReadTokens,
 				"cache_creation_input_tokens": e.CacheWriteTokens,
 			}),

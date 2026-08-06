@@ -95,7 +95,7 @@ func TestGP_DecodeRTDN_Voided(t *testing.T) {
 func TestGP_DecodeRTDN_Test(t *testing.T) {
 	body := encRTDN(t, GooglePlayNotification{
 		Version: "1.0", PackageName: "com.biumind.app",
-		EventTimeMillis: "1",
+		EventTimeMillis:  "1",
 		TestNotification: &GooglePlayTestNotif{Version: "1.0"},
 	})
 	n, err := DecodeRTDN(body)

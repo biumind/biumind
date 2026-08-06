@@ -79,9 +79,9 @@ func canTransition(from, to SubStatus) bool {
 }
 
 var (
-	ErrInvalidTransition  = errors.New("subscriptions: invalid status transition")
+	ErrInvalidTransition    = errors.New("subscriptions: invalid status transition")
 	ErrSubscriptionNotFound = errors.New("subscriptions: not found")
-	ErrAlreadyActive      = errors.New("subscriptions: user already has active subscription")
+	ErrAlreadyActive        = errors.New("subscriptions: user already has active subscription")
 )
 
 type Subscription struct {

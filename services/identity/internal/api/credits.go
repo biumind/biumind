@@ -183,9 +183,9 @@ func (s *Server) handleRecharge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
-		"package":  packageOut(pkg),
-		"balance":  balanceOut(bal),
+		"ok":      true,
+		"package": packageOut(pkg),
+		"balance": balanceOut(bal),
 	})
 }
 
@@ -193,7 +193,7 @@ func (s *Server) handleRecharge(w http.ResponseWriter, r *http.Request) {
 
 type creditsCheckoutReq struct {
 	OptionID string `json:"option_id"`
-	Provider string `json:"provider"` // wechat_native / wechat_jsapi / wechat_h5 / alipay_pc / alipay_wap / stripe
+	Provider string `json:"provider"`            // wechat_native / wechat_jsapi / wechat_h5 / alipay_pc / alipay_wap / stripe
 	OpenID   string `json:"openid,omitempty"`    // wechat_jsapi 必填
 	ClientIP string `json:"client_ip,omitempty"` // wechat_h5 必填
 }
@@ -447,13 +447,13 @@ func packageOut(p *credits.Package) map[string]any {
 
 func logOut(l *credits.Log) map[string]any {
 	out := map[string]any{
-		"id":             l.ID,
-		"delta":          l.Delta,
-		"balance_after":  l.BalanceAfter,
-		"ref_type":       string(l.RefType),
-		"ref_id":         l.RefID,
-		"remark":         l.Remark,
-		"created_at":     l.CreatedAt,
+		"id":            l.ID,
+		"delta":         l.Delta,
+		"balance_after": l.BalanceAfter,
+		"ref_type":      string(l.RefType),
+		"ref_id":        l.RefID,
+		"remark":        l.Remark,
+		"created_at":    l.CreatedAt,
 	}
 	if l.RefundOfLogID != nil {
 		out["refund_of_log_id"] = *l.RefundOfLogID

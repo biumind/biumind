@@ -34,11 +34,11 @@ func DefaultKeyDir() (string, error) {
 // issue tracker — for v2.0.0 they're plain PEM with 0600 perms,
 // matching how the existing skill keystore behaves).
 type KeyPair struct {
-	Pub          ed25519.PublicKey
-	Priv         ed25519.PrivateKey
-	PrivPath     string
-	PubPath      string
-	PublisherID  string // "ed25519:<base64-pub>" — used in manifest.author.public_key
+	Pub         ed25519.PublicKey
+	Priv        ed25519.PrivateKey
+	PrivPath    string
+	PubPath     string
+	PublisherID string // "ed25519:<base64-pub>" — used in manifest.author.public_key
 }
 
 // Generate creates a fresh keypair under name (e.g. "publisher").

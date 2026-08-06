@@ -12,21 +12,21 @@ import (
 
 func TestWarningGitDestructive(t *testing.T) {
 	cases := map[string]string{
-		"git reset --hard":                       "may discard uncommitted changes",
-		"git reset --hard HEAD~3":                "may discard uncommitted changes",
-		"git push --force":                       "may overwrite remote history",
+		"git reset --hard":                        "may discard uncommitted changes",
+		"git reset --hard HEAD~3":                 "may discard uncommitted changes",
+		"git push --force":                        "may overwrite remote history",
 		"git push origin main --force-with-lease": "may overwrite remote history",
-		"git push -f origin main":                "may overwrite remote history",
-		"git clean -fd":                          "may permanently delete untracked files",
-		"git checkout .":                         "may discard all working tree changes",
-		"git checkout -- .":                      "may discard all working tree changes",
-		"git restore .":                          "may discard all working tree changes",
-		"git stash drop":                         "may permanently remove stashed changes",
-		"git stash clear":                        "may permanently remove stashed changes",
-		"git branch -D feature/x":                "may force-delete a branch",
-		"git commit --no-verify -m 'fix'":        "may skip safety hooks",
-		"git push --no-verify":                   "may skip safety hooks",
-		"git commit --amend":                     "may rewrite the last commit",
+		"git push -f origin main":                 "may overwrite remote history",
+		"git clean -fd":                           "may permanently delete untracked files",
+		"git checkout .":                          "may discard all working tree changes",
+		"git checkout -- .":                       "may discard all working tree changes",
+		"git restore .":                           "may discard all working tree changes",
+		"git stash drop":                          "may permanently remove stashed changes",
+		"git stash clear":                         "may permanently remove stashed changes",
+		"git branch -D feature/x":                 "may force-delete a branch",
+		"git commit --no-verify -m 'fix'":         "may skip safety hooks",
+		"git push --no-verify":                    "may skip safety hooks",
+		"git commit --amend":                      "may rewrite the last commit",
 	}
 	for cmd, want := range cases {
 		got := Warning(cmd)
@@ -38,12 +38,12 @@ func TestWarningGitDestructive(t *testing.T) {
 
 func TestWarningRm(t *testing.T) {
 	cases := map[string]string{
-		"rm -rf node_modules":      "may recursively force-remove files",
-		"rm -fr build/":            "may recursively force-remove files",
+		"rm -rf node_modules":          "may recursively force-remove files",
+		"rm -fr build/":                "may recursively force-remove files",
 		"rm -rf /tmp/x; rm -rf /tmp/y": "may recursively force-remove files",
-		"rm -r oldproject":         "may recursively remove files",
-		"rm -R legacy":             "may recursively remove files",
-		"rm -f stale.lock":         "may force-remove files",
+		"rm -r oldproject":             "may recursively remove files",
+		"rm -R legacy":                 "may recursively remove files",
+		"rm -f stale.lock":             "may force-remove files",
 	}
 	for cmd, want := range cases {
 		if got := Warning(cmd); got != want {
@@ -59,8 +59,8 @@ func TestWarningDatabase(t *testing.T) {
 		"psql -c 'drop database staging'":  "may drop or truncate database objects",
 		// Lowercased schema also matches via case-insensitive flag.
 		"clickhouse-client -q 'DROP SCHEMA analytics'": "may drop or truncate database objects",
-		"psql -c 'DELETE FROM users;'":     "may delete all rows from a database table",
-		"psql -c 'delete from sessions;'":  "may delete all rows from a database table",
+		"psql -c 'DELETE FROM users;'":                 "may delete all rows from a database table",
+		"psql -c 'delete from sessions;'":              "may delete all rows from a database table",
 	}
 	for cmd, want := range cases {
 		if got := Warning(cmd); got != want {

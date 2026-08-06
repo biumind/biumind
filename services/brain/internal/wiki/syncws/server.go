@@ -46,12 +46,12 @@ import (
 )
 
 const (
-	pingInterval  = 25 * time.Second
-	pollInterval  = 500 * time.Millisecond
-	writeWait     = 10 * time.Second
-	pongWait      = 60 * time.Second
-	catchupLimit  = 200 // 单次 catchup / poll 最多拉多少行
-	scopePrefix   = "wiki:project:"
+	pingInterval = 25 * time.Second
+	pollInterval = 500 * time.Millisecond
+	writeWait    = 10 * time.Second
+	pongWait     = 60 * time.Second
+	catchupLimit = 200 // 单次 catchup / poll 最多拉多少行
+	scopePrefix  = "wiki:project:"
 )
 
 var upgrader = websocket.Upgrader{

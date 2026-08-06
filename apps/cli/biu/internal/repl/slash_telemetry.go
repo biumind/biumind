@@ -23,11 +23,11 @@ import (
 //
 // Sub-commands:
 //
-//   bare              — config status + line count
-//   tail [N]          — print the last N events (default 10)
-//   export <path>     — copy ~/.biu/telemetry.jsonl to <path>
-//   enable <endpoint> — telemetry.Enable(endpoint), persist
-//   disable           — telemetry.Disable, persist
+//	bare              — config status + line count
+//	tail [N]          — print the last N events (default 10)
+//	export <path>     — copy ~/.biu/telemetry.jsonl to <path>
+//	enable <endpoint> — telemetry.Enable(endpoint), persist
+//	disable           — telemetry.Disable, persist
 func (m model) handleTelemetry(parts []string) string {
 	sub := ""
 	if len(parts) > 1 {
@@ -74,11 +74,11 @@ func (m model) handleTelemetry(parts []string) string {
 // renderTelemetryStatus shows the config + size of the on-disk
 // events log. Status note format:
 //
-//   telemetry: <on|off>
-//     events file: ~/.biu/telemetry.jsonl (NN events, M.MM KB)
-//     config:      ~/.biu/telemetry.json
-//     endpoint:    <url|none>
-//     install_id:  <redacted>
+//	telemetry: <on|off>
+//	  events file: ~/.biu/telemetry.jsonl (NN events, M.MM KB)
+//	  config:      ~/.biu/telemetry.json
+//	  endpoint:    <url|none>
+//	  install_id:  <redacted>
 func renderTelemetryStatus() string {
 	cfg, err := telemetry.LoadConfig()
 	if err != nil {

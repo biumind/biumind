@@ -180,8 +180,8 @@ func (s *Server) feedbackPool() *pgxpool.Pool {
 
 // handleListFeedback returns the user's existing verdicts for one query.
 //
-//   GET /v1/search/feedback?query=<q>
-//     → {"verdicts": [{"page_id":"<uuid>", "signal":"up"|"down"}, …]}
+//	GET /v1/search/feedback?query=<q>
+//	  → {"verdicts": [{"page_id":"<uuid>", "signal":"up"|"down"}, …]}
 //
 // Used by the search UI on result render: optimistic thumbs need to
 // know what the user previously chose for the same (query, page)
@@ -256,12 +256,12 @@ func userIDFromCtx(r *http.Request) (uuid.UUID, bool) {
 // admin endpoints. Not mounted as a route yet.
 
 type FeedbackRow struct {
-	UserID      uuid.UUID
-	ProjectID   *uuid.UUID
-	QueryLower  string
-	PageID      uuid.UUID
-	Rank        int
-	Signal      string
+	UserID     uuid.UUID
+	ProjectID  *uuid.UUID
+	QueryLower string
+	PageID     uuid.UUID
+	Rank       int
+	Signal     string
 }
 
 // ListFeedbackForUser is unused by HTTP today but lives here so future

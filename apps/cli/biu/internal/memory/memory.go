@@ -255,10 +255,10 @@ func readWithIncludes(path string, source Source, visited map[string]bool) *File
 // expandIncludes replaces `@path` lines with the referenced file's
 // content. Path resolution rules:
 //
-//   @path             relative to the including file's dir
-//   @./path           same as above
-//   @~/path           ~ expands to $HOME
-//   @/abs/path        absolute
+//	@path             relative to the including file's dir
+//	@./path           same as above
+//	@~/path           ~ expands to $HOME
+//	@/abs/path        absolute
 //
 // Only directives that own an entire line are expanded — embedded
 // `@foo` inside a sentence is left alone; expansion only fires on

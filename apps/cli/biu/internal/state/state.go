@@ -218,10 +218,10 @@ type QueryChain struct {
 
 // CostSnapshot is the running tally for this session.
 type CostSnapshot struct {
-	TotalInputTokens   int
-	TotalOutputTokens  int
-	TotalCacheTokens   int
-	TotalUSDMicros     int64 // 0.04 USD = 40000 micros
+	TotalInputTokens  int
+	TotalOutputTokens int
+	TotalCacheTokens  int
+	TotalUSDMicros    int64 // 0.04 USD = 40000 micros
 }
 
 // New creates an empty AppState with a fresh session id.

@@ -115,7 +115,10 @@ func TestCallOnceUpstreamError(t *testing.T) {
 }
 
 func TestExtractErrMsg(t *testing.T) {
-	cases := []struct{ name, want string; raw map[string]any }{
+	cases := []struct {
+		name, want string
+		raw        map[string]any
+	}{
 		{"nested", "boom", map[string]any{"error": map[string]any{"message": "boom"}}},
 		{"nested code only", "resolve_failed", map[string]any{"error": map[string]any{"code": "resolve_failed"}}},
 		{"flat string", "down", map[string]any{"error": "down"}},

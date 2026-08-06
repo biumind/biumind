@@ -2,11 +2,11 @@
 //
 // Two families of findings:
 //
-//   * Surprising connections — relevance edges that "shouldn't" exist by
+//   - Surprising connections — relevance edges that "shouldn't" exist by
 //     cluster/type/degree intuition: cross-community, cross-type,
 //     peripheral↔hub, or weak-but-present. Each scored; top-N returned.
 //
-//   * Knowledge gaps — structurally weak spots: isolated pages (degree
+//   - Knowledge gaps — structurally weak spots: isolated pages (degree
 //     ≤1), sparse communities (low internal cohesion), and bridge nodes
 //     (connecting ≥3 clusters).
 //
@@ -38,7 +38,7 @@ type Surprising struct {
 
 // Gap is one detected knowledge-gap finding.
 type Gap struct {
-	Type        string   `json:"type"`         // isolated-node | sparse-community | bridge-node
+	Type        string   `json:"type"` // isolated-node | sparse-community | bridge-node
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	NodeIDs     []string `json:"node_ids"`
@@ -55,8 +55,8 @@ type Insights struct {
 // Stats summarises the graph the insights were computed over, so the
 // client can show "12 pages · 18 edges · 3 clusters" alongside findings.
 type Stats struct {
-	NodeCount     int `json:"node_count"`
-	EdgeCount     int `json:"edge_count"`
+	NodeCount      int `json:"node_count"`
+	EdgeCount      int `json:"edge_count"`
 	CommunityCount int `json:"community_count"`
 }
 

@@ -24,7 +24,7 @@ func (p *summariseProvider) Stream(ctx context.Context, req StreamRequest) (<-ch
 	// Detect the compact summariser call: last user message body
 	// contains the BASE_COMPACT_PROMPT marker.
 	if isSummariseCall(req) {
-		return scriptText("<summary>"+p.summary+"</summary>"), nil
+		return scriptText("<summary>" + p.summary + "</summary>"), nil
 	}
 	if p.calls >= len(p.scripts) {
 		return scriptText("done"), nil
@@ -309,7 +309,7 @@ func TestEngineAutoCompactDisabledByNegativeMax(t *testing.T) {
 	eng, err := New(Options{
 		State: state.New(), Tools: NewRegistry(), Provider: prov, Model: "test",
 		BypassPermissions: true,
-		CompactMaxTokens: -1, // disable
+		CompactMaxTokens:  -1, // disable
 	})
 	if err != nil {
 		t.Fatal(err)

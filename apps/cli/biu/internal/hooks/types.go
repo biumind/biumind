@@ -167,9 +167,9 @@ type Decision struct {
 // Result is what the runner returns to the engine. One Result per
 // matching hook command.
 type Result struct {
-	Source   string   // settings layer the hook came from (user/project/local)
-	Event    Event    // event that fired this hook
-	Command  string   // shell command (for logging)
+	Source   string // settings layer the hook came from (user/project/local)
+	Event    Event  // event that fired this hook
+	Command  string // shell command (for logging)
 	ExitCode int
 	Stdout   string
 	Stderr   string
@@ -181,8 +181,8 @@ type Result struct {
 // IsBlocking reports whether this hook result should halt the
 // in-flight operation. True when:
 //
-//   * the hook explicitly set decision.block=true, OR
-//   * the hook exited with code 2.
+//   - the hook explicitly set decision.block=true, OR
+//   - the hook exited with code 2.
 func (r Result) IsBlocking() bool {
 	return r.Decision.Block || r.ExitCode == 2
 }

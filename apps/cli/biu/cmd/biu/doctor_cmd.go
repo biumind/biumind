@@ -16,8 +16,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/client"
+	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"github.com/biumind/biumind/apps/cli/biu/internal/secretstore"

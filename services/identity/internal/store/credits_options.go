@@ -14,15 +14,15 @@ import (
 // RechargeOption 是 identity.credit_recharge_options 一行的视图.
 // 字段名跟 proto biumind.credits.v1.RechargeOption 对齐.
 type RechargeOption struct {
-	ID             uuid.UUID `json:"id"`
-	DisplayName    string    `json:"display_name"`
-	CreditsAmount  int64     `json:"credits_amount"`
-	Kind           string    `json:"kind"` // permanent | time_limited
-	PriceMicroCNY  int64     `json:"price_micro_cny"`
-	ValidDays      int       `json:"valid_days"`
-	Enabled        bool      `json:"enabled"`
-	SortOrder      int       `json:"sort_order"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID            uuid.UUID `json:"id"`
+	DisplayName   string    `json:"display_name"`
+	CreditsAmount int64     `json:"credits_amount"`
+	Kind          string    `json:"kind"` // permanent | time_limited
+	PriceMicroCNY int64     `json:"price_micro_cny"`
+	ValidDays     int       `json:"valid_days"`
+	Enabled       bool      `json:"enabled"`
+	SortOrder     int       `json:"sort_order"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 const rechargeOptionColumns = `id, display_name, credits_amount, kind,

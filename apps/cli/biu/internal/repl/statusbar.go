@@ -80,7 +80,7 @@ func (m model) statusBar() string {
 // costAndContextNote builds the right-side compact summary the
 // status bar shows when an engine is wired:
 //
-//   $0.0042 · ctx 41% [████░░░░░░]
+//	$0.0042 · ctx 41% [████░░░░░░]
 //
 // Two omissions on purpose:
 //   - The cost block is hidden when USD is below $0.0001 (rounding to

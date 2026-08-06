@@ -46,9 +46,9 @@ func Newf(component, format string, args ...any) error {
 // Wrapf attaches a layer onto an existing error while keeping the
 // cause discoverable via errors.Is / errors.As.
 //
-//   if err != nil {
-//       return clierr.Wrapf("config", err, "load %s", DisplayPath(p))
-//   }
+//	if err != nil {
+//	    return clierr.Wrapf("config", err, "load %s", DisplayPath(p))
+//	}
 //
 // produces `config: load ~/.biu/config.toml: <inner>` — main.go then
 // prints `biu: config: load ~/.biu/config.toml: <inner>`.

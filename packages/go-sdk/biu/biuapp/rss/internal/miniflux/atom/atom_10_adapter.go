@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/crypto"
-	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/model"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/date"
+	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/model"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/sanitizer"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/urllib"
 )

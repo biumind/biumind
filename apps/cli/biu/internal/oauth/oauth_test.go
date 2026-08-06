@@ -110,8 +110,8 @@ func TestBuildAuthURL(t *testing.T) {
 
 func TestBuildAuthURLManualRedirect(t *testing.T) {
 	cfg := Config{
-		AuthorizeURL: "https://idp.example/authorize",
-		ClientID:     "x",
+		AuthorizeURL:      "https://idp.example/authorize",
+		ClientID:          "x",
 		ManualRedirectURL: "https://idp.example/oob",
 	}
 	got := buildAuthURL(cfg, "c", "s", 0, true)

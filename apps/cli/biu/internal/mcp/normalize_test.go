@@ -81,12 +81,12 @@ func TestSignatureFor(t *testing.T) {
 
 func TestNormalizeServerName(t *testing.T) {
 	cases := map[string]string{
-		"github":       "github",
-		"GitHub":       "github",
-		"my server":    "my_server",
-		"weird/slash":  "weird_slash",
-		"_-leading-_":  "leading",
-		"中文":           "",
+		"github":      "github",
+		"GitHub":      "github",
+		"my server":   "my_server",
+		"weird/slash": "weird_slash",
+		"_-leading-_": "leading",
+		"中文":          "",
 	}
 	for in, want := range cases {
 		if got := NormalizeServerName(in); got != want {

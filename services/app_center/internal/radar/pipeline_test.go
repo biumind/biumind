@@ -21,8 +21,8 @@ func TestPipeline_EndToEnd(t *testing.T) {
 
 	rule, err := store.CreateRule(ctx, CreateRuleInput{
 		Scope: scope, ScopeID: scopeID, Name: "pipeline test",
-		MatchAny: []string{"OpenAI", "Anthropic"},
-		OnHitBadge: "error",
+		MatchAny:    []string{"OpenAI", "Anthropic"},
+		OnHitBadge:  "error",
 		CooldownSec: 60,
 	})
 	if err != nil {
@@ -32,14 +32,14 @@ func TestPipeline_EndToEnd(t *testing.T) {
 
 	candidates := []Candidate{
 		{Source: "rss:test", Title: "OpenAI 发布 GPT-X", URL: "https://example.com/1",
-			TitleHash: hash("OpenAI 发布 GPT-X"),
+			TitleHash:  hash("OpenAI 发布 GPT-X"),
 			OwnerScope: scope, OwnerScopeID: scopeID},
 		{Source: "weibo", Title: "Anthropic Claude 5 发布",
 			TitleHash: hash("Anthropic Claude 5 发布"),
-			URL: "https://s.weibo.com/x"},
+			URL:       "https://s.weibo.com/x"},
 		{Source: "weibo", Title: "国务院招聘", // no match
 			TitleHash: hash("国务院招聘"),
-			URL: "https://s.weibo.com/y"},
+			URL:       "https://s.weibo.com/y"},
 	}
 
 	rules, _ := store.ListEnabledRulesAll(ctx)

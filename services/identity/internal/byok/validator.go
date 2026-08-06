@@ -22,10 +22,10 @@ import (
 type PingResult string
 
 const (
-	PingValid     PingResult = "valid"
-	PingInvalid   PingResult = "invalid"   // 401 / 403 — 明确 key 无效
-	PingNetwork   PingResult = "network"   // 网络 / 超时 — 不能判定; 保留旧 status
-	PingUnknown   PingResult = "unknown"   // provider 不支持健康检查 — 视作 valid
+	PingValid   PingResult = "valid"
+	PingInvalid PingResult = "invalid" // 401 / 403 — 明确 key 无效
+	PingNetwork PingResult = "network" // 网络 / 超时 — 不能判定; 保留旧 status
+	PingUnknown PingResult = "unknown" // provider 不支持健康检查 — 视作 valid
 )
 
 // Validator 持有共享 *http.Client, 跨请求复用.
@@ -43,11 +43,12 @@ func NewValidator() *Validator {
 func (v *Validator) SetHTTPClient(c *http.Client) { v.httpClient = c }
 
 // PingArgs — 一次健康检查的全部输入.
-//   Provider:   见 ValidProviders (00033 含 'custom')
-//   APIKey:     明文 key
-//   ConfigJSON: 遗留 (Azure/region); 与 BaseURL 并存时一般留空
-//   BaseURL:    00033. custom 必填; 非 custom 时若非空则覆盖默认 endpoint
-//   Protocol:   00033. custom 必填 (openai_compat/anthropic/google/...)
+//
+//	Provider:   见 ValidProviders (00033 含 'custom')
+//	APIKey:     明文 key
+//	ConfigJSON: 遗留 (Azure/region); 与 BaseURL 并存时一般留空
+//	BaseURL:    00033. custom 必填; 非 custom 时若非空则覆盖默认 endpoint
+//	Protocol:   00033. custom 必填 (openai_compat/anthropic/google/...)
 type PingArgs struct {
 	Provider   string
 	APIKey     string
@@ -146,9 +147,10 @@ func orDefault(endpoint, def string) string {
 }
 
 // pingHTTP — 通用 GET ping. 状态码语义:
-//   2xx        → valid
-//   401 / 403  → invalid (key 错 / 已撤销 / 配额耗尽 — 视作不可用)
-//   其它       → network (5xx / 超时 / dns 错 — 不能判定, 保留旧 status)
+//
+//	2xx        → valid
+//	401 / 403  → invalid (key 错 / 已撤销 / 配额耗尽 — 视作不可用)
+//	其它       → network (5xx / 超时 / dns 错 — 不能判定, 保留旧 status)
 func (v *Validator) pingHTTP(ctx context.Context, method, url string, headers map[string]string) PingResult {
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {

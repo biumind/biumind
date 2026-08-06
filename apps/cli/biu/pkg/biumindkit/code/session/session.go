@@ -3,7 +3,9 @@
 // 事件,让桌面在终端(原始字节)之外再有一份结构化视图(双视图)。
 //
 // 定位:Claude≥2.1.87 用 --session-id 预定会话(agent 包),JSONL 路径确定为
-//   ~/.claude/projects/<encoded-cwd>/<sessionID>.jsonl
+//
+//	~/.claude/projects/<encoded-cwd>/<sessionID>.jsonl
+//
 // encoded-cwd = cwd 里每个非 [A-Za-z0-9-] 字符替换成 '-'。
 //
 // watcher 用纯轮询(~150ms),无 fsnotify 依赖:stat 文件大小,增长则从 offset 读

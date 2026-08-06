@@ -45,15 +45,15 @@ const DefaultPromptCharBudget = 8 * 1024
 // Token-budget rule (P1-#11): assembly stays under
 // DefaultPromptCharBudget by demoting overflow tiers in this order:
 //
-//	1. Pinned bodies are sacred — emit all (they were explicit user
-//	   choice; truncating mid-skill would silently break behaviour).
-//	2. AutoAttach bodies are emitted while the running budget allows
-//	   each full body. Once full, remaining AutoAttach demote to the
-//	   <available_skills> name+description list — still discoverable
-//	   via skill.activate, just not pre-loaded.
-//	3. Available list always emits (1 line per skill) even when the
-//	   budget is blown by Pinned alone — discovery has to keep working
-//	   so the model knows it has a fallback.
+//  1. Pinned bodies are sacred — emit all (they were explicit user
+//     choice; truncating mid-skill would silently break behaviour).
+//  2. AutoAttach bodies are emitted while the running budget allows
+//     each full body. Once full, remaining AutoAttach demote to the
+//     <available_skills> name+description list — still discoverable
+//     via skill.activate, just not pre-loaded.
+//  3. Available list always emits (1 line per skill) even when the
+//     budget is blown by Pinned alone — discovery has to keep working
+//     so the model knows it has a fallback.
 //
 // In the worst case (all pinned) the prompt may exceed the budget.
 // That's by design — pinning IS the user opting into "pay this cost

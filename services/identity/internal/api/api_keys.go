@@ -66,9 +66,9 @@ type upsertAPIKeyReq struct {
 	APIKey       string          `json:"api_key"`
 	Label        string          `json:"label,omitempty"`
 	Config       json.RawMessage `json:"config,omitempty"`
-	BaseURL      string          `json:"base_url,omitempty"`    // 00033: custom 必填
-	Protocol     string          `json:"protocol,omitempty"`    // 00033: custom 必填
-	ModelGlobs   []string        `json:"model_globs,omitempty"` // 00034: custom 必填
+	BaseURL      string          `json:"base_url,omitempty"`       // 00033: custom 必填
+	Protocol     string          `json:"protocol,omitempty"`       // 00033: custom 必填
+	ModelGlobs   []string        `json:"model_globs,omitempty"`    // 00034: custom 必填
 	IsClientSide bool            `json:"is_client_side,omitempty"` // 00035: client-side BYOK (需本机出口, key 仍加密存 identity)
 }
 

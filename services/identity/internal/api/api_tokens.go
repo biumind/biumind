@@ -1,9 +1,9 @@
 // API tokens (PAT) — long-lived programmatic-access bearer tokens.
 //
-//   POST   /v1/identity/me/tokens          create + return secret ONCE
-//   GET    /v1/identity/me/tokens          list (no secret)
-//   DELETE /v1/identity/me/tokens/{id}     revoke
-//   GET    /v1/identity/whoami             auth-agnostic identity check
+//	POST   /v1/identity/me/tokens          create + return secret ONCE
+//	GET    /v1/identity/me/tokens          list (no secret)
+//	DELETE /v1/identity/me/tokens/{id}     revoke
+//	GET    /v1/identity/whoami             auth-agnostic identity check
 //
 // All routes require an existing Bearer token (JWT or another PAT) so
 // you can mint a child token but only after authenticating with
@@ -13,12 +13,12 @@
 //
 // JWT shape (claims):
 //
-//   sub:  owner user id
-//   jti:  random; row-id for list/revoke lookup
-//   kind: "pat"             — distinguishes from session JWTs so the
-//                             refresh handler doesn't try to rotate it
-//   exp:  configurable; default 1 year
-//   iat:  now
+//	sub:  owner user id
+//	jti:  random; row-id for list/revoke lookup
+//	kind: "pat"             — distinguishes from session JWTs so the
+//	                          refresh handler doesn't try to rotate it
+//	exp:  configurable; default 1 year
+//	iat:  now
 //
 // `bm_<8-char-prefix>_<jwt>` is the user-visible token format. We
 // store the prefix in the row for redacted listing display; the prefix
@@ -186,14 +186,14 @@ func (s *Server) handleCreateAPIToken(w http.ResponseWriter, r *http.Request) {
 	// Build the claims + sign manually, mirroring Signer's HS256/RS256
 	// dispatch.
 	claims := jwt.MapClaims{
-		"sub":    owner.String(),
-		"jti":    jti,
-		"kind":   "pat",
-		"iss":    s.Signer.Issuer,
-		"aud":    []string{s.Signer.Audience},
-		"iat":    time.Now().Unix(),
-		"exp":    expiresAt.Unix(),
-		"scope":  req.Scopes,
+		"sub":   owner.String(),
+		"jti":   jti,
+		"kind":  "pat",
+		"iss":   s.Signer.Issuer,
+		"aud":   []string{s.Signer.Audience},
+		"iat":   time.Now().Unix(),
+		"exp":   expiresAt.Unix(),
+		"scope": req.Scopes,
 	}
 	signed, err := s.signCustomJWT(claims)
 	if err != nil {
@@ -289,12 +289,12 @@ func (s *Server) handleRevokeAPIToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWhoami(w http.ResponseWriter, r *http.Request) {
 	c := bauth.MustClaims(r.Context())
 	out := map[string]any{
-		"user_id":  c.UserID,
-		"org_id":   c.OrgID,
-		"team_ids": c.TeamIDs,
-		"roles":    c.Roles,
-		"plan":     c.Plan,
-		"scope":    c.Scope,
+		"user_id":    c.UserID,
+		"org_id":     c.OrgID,
+		"team_ids":   c.TeamIDs,
+		"roles":      c.Roles,
+		"plan":       c.Plan,
+		"scope":      c.Scope,
 		"is_service": c.IsService,
 	}
 	if c.RegisteredClaims.ExpiresAt != nil {

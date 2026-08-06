@@ -33,11 +33,11 @@ var (
 
 // Hold — identity.credit_holds 的精简视图.
 type Hold struct {
-	ID         string `json:"id"`
-	UserID     string `json:"user_id"`
-	MaxAmount  int64  `json:"max_amount"`
-	Status     string `json:"status"`
-	ExpiresAt  string `json:"expires_at"`
+	ID        string `json:"id"`
+	UserID    string `json:"user_id"`
+	MaxAmount int64  `json:"max_amount"`
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 // PricingEntry — billing.pricing_book 的精简视图. markup_ratio 客户端用 float
@@ -81,8 +81,10 @@ func (e *PricingEntry) EstimateChatRange(promptTok, maxCompletionTok int64) (min
 // 不同. 共享 markup + min/max clamping 逻辑用 finalize() helper 浓缩.
 
 // CalculateEmbed — embedding 一次请求标价.
-//   cost_basis: per_mtok, 单位 = millicents/百万 token
-//   公式: list = (cost_input_per_unit × prompt_tok / 1M) × markup
+//
+//	cost_basis: per_mtok, 单位 = millicents/百万 token
+//	公式: list = (cost_input_per_unit × prompt_tok / 1M) × markup
+//
 // 出 token (output) 不存在, completion 不计.
 func (e *PricingEntry) CalculateEmbed(promptTok int64) int64 {
 	cost := mulDiv64(e.CostInputPerUnit, promptTok, 1_000_000)
@@ -90,17 +92,20 @@ func (e *PricingEntry) CalculateEmbed(promptTok int64) int64 {
 }
 
 // CalculateRerank — rerank 一次请求标价.
-//   cost_basis: per_search_unit (Cohere 标准 1 unit = 1 query × ≤100 docs;
-//   dashscope 透传 total_tokens 当 search_unit 用)
-//   公式: list = (cost_input_per_unit × search_units) × markup
+//
+//	cost_basis: per_search_unit (Cohere 标准 1 unit = 1 query × ≤100 docs;
+//	dashscope 透传 total_tokens 当 search_unit 用)
+//	公式: list = (cost_input_per_unit × search_units) × markup
 func (e *PricingEntry) CalculateRerank(searchUnits int64) int64 {
 	cost := e.CostInputPerUnit * searchUnits
 	return e.finalize(cost)
 }
 
 // CalculateSpeech — TTS 一次请求标价.
-//   cost_basis: per_kchar (千字符), cosyvoice / OpenAI tts-1 / elevenlabs 通用
-//   公式: list = (cost_input_per_unit × chars / 1000) × markup
+//
+//	cost_basis: per_kchar (千字符), cosyvoice / OpenAI tts-1 / elevenlabs 通用
+//	公式: list = (cost_input_per_unit × chars / 1000) × markup
+//
 // chars 由 adaptor 从上游响应 usage.characters 提取.
 func (e *PricingEntry) CalculateSpeech(chars int64) int64 {
 	cost := mulDiv64(e.CostInputPerUnit, chars, 1000)
@@ -108,7 +113,9 @@ func (e *PricingEntry) CalculateSpeech(chars int64) int64 {
 }
 
 // CalculateImage — 图像生成一次请求标价.
-//   cost_basis: per_call (按张), n>1 时按 n 计费
+//
+//	cost_basis: per_call (按张), n>1 时按 n 计费
+//
 // 复用 aigc_image ref_type, n 默认 1.
 func (e *PricingEntry) CalculateImage(n int64) int64 {
 	if n <= 0 {
@@ -119,7 +126,9 @@ func (e *PricingEntry) CalculateImage(n int64) int64 {
 }
 
 // CalculateVideo — 视频生成一次请求标价.
-//   cost_basis: per_second, 按实际产出秒数算 (上游可能比用户请求的短)
+//
+//	cost_basis: per_second, 按实际产出秒数算 (上游可能比用户请求的短)
+//
 // 复用 aigc_video ref_type.
 func (e *PricingEntry) CalculateVideo(durationSeconds int64) int64 {
 	if durationSeconds <= 0 {

@@ -75,12 +75,12 @@ func (NoopFilter) FilterFindings(_ context.Context, _ uuid.UUID, findings []Find
 // request resolves to that user's BYOK / platform-pool credentials)
 // using a short-lived JWT minted from the Signer.
 type HubLLMFilter struct {
-	RelayURL  string
-	Model   string
-	Signer  *bauth.Signer
-	HTTP    *http.Client
-	Timeout time.Duration
-	Logger  *slog.Logger
+	RelayURL string
+	Model    string
+	Signer   *bauth.Signer
+	HTTP     *http.Client
+	Timeout  time.Duration
+	Logger   *slog.Logger
 	// MaxPairsPerCall caps the prompt size; larger batches lose
 	// reliability as the model loses track of which verdict belongs
 	// to which pair. 20 was empirically the sweet spot in dogfood.
@@ -94,8 +94,8 @@ type HubLLMFilter struct {
 func NewHubLLMFilter(relayURL, model string, signer *bauth.Signer, logger *slog.Logger) *HubLLMFilter {
 	return &HubLLMFilter{
 		RelayURL: strings.TrimRight(relayURL, "/"),
-		Model:  model,
-		Signer: signer,
+		Model:    model,
+		Signer:   signer,
 		HTTP: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -173,9 +173,9 @@ func (h *HubLLMFilter) FilterFindings(ctx context.Context, ownerID uuid.UUID, fi
 	// Partition: pass-through for deterministic rules, LLM-classify
 	// for judgement-call rules. Order is preserved across the merge.
 	type slot struct {
-		idx     int     // position in original `findings`
-		f       Finding
-		llm     bool   // true if this slot needs LLM verdict
+		idx int // position in original `findings`
+		f   Finding
+		llm bool // true if this slot needs LLM verdict
 	}
 	slots := make([]slot, 0, len(findings))
 	llmIdx := 0

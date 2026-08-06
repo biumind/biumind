@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
 )
 
 // Risk classifies a tool's blast radius. The PermissionMode gate uses

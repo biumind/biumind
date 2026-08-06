@@ -108,10 +108,13 @@ func (j *Janitor) Run(ctx context.Context) {
 // 一次失败不应该停掉整个 worker。调用方(包括 Run loop)当 fire-and-forget。
 //
 // Phase 1: 扫 state='online' AND last_seen_at < cutoff —— online 之外的
-//          状态(offline/draining)不动。draining 是 graceful shutdown 状态,
-//          让它自己 finish。
+//
+//	状态(offline/draining)不动。draining 是 graceful shutdown 状态,
+//	让它自己 finish。
+//
 // Phase 2: 删 state='offline' AND last_seen_at < gcCutoff —— 物理回收防
-//          止 stale 行无限堆积撑爆 listEnvironments。
+//
+//	止 stale 行无限堆积撑爆 listEnvironments。
 func (j *Janitor) RunOnce(ctx context.Context) int64 {
 	j.stats.Sweeps++
 	cutoff := time.Now().Add(-JanitorHeartbeatTTL)

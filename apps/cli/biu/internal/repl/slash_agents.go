@@ -14,13 +14,14 @@ import (
 
 // handleAgents dispatches /agents subcommands.
 //
-//   /agents                              — list registered types
-//   /agents create <name> [flags]        — scaffold a new agent .md
+//	/agents                              — list registered types
+//	/agents create <name> [flags]        — scaffold a new agent .md
 //
 // Create flags:
-//   --scope user|project   (default: user → ~/.biumind/agents/)
-//   --from <preset>        (default | explore | review | verify | plan)
-//   --force                overwrite an existing file
+//
+//	--scope user|project   (default: user → ~/.biumind/agents/)
+//	--from <preset>        (default | explore | review | verify | plan)
+//	--force                overwrite an existing file
 //
 // The list-only path re-reads the registry every call so a fresh
 // scaffold shows up without restart (modulo `/memory reload`-style

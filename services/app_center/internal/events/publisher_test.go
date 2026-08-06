@@ -18,7 +18,7 @@ func TestSDKBridge_NilPubReturnsNil(t *testing.T) {
 // rows; ensures bridge doesn't NPE on first call before resolver wiring).
 func TestSDKBridge_NilResolver(t *testing.T) {
 	b := &SDKBridge{
-		Pub: &PgxPublisher{Pool: nil},
+		Pub:           &PgxPublisher{Pool: nil},
 		IdentifierFor: nil,
 	}
 	// With pool=nil the underlying call errors; we just want to confirm

@@ -128,4 +128,3 @@ func (s *Store) PickMPSubscriptionsForDispatch(
 	}
 	return out, rows.Err()
 }
-

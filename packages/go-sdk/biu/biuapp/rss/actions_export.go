@@ -137,15 +137,15 @@ func (a *App) exportEntries(ctx context.Context, zw *zip.Writer, scope, scopeID 
 			return n, err
 		}
 		rec := map[string]any{
-			"id":       fmt.Sprint(idRaw),
-			"feed_id":  fmt.Sprint(feedRaw),
-			"guid":     guid,
-			"url":      url,
-			"title":    title,
-			"author":   author,
-			"content":  text,
-			"starred":  starred,
-			"read":     read,
+			"id":      fmt.Sprint(idRaw),
+			"feed_id": fmt.Sprint(feedRaw),
+			"guid":    guid,
+			"url":     url,
+			"title":   title,
+			"author":  author,
+			"content": text,
+			"starred": starred,
+			"read":    read,
 		}
 		if encURL != "" {
 			rec["enclosure_url"] = encURL
@@ -205,11 +205,11 @@ func (a *App) exportRules(ctx context.Context, zw *zip.Writer, scope, scopeID st
 	var rules []map[string]any
 	for rows.Next() {
 		var (
-			name, badge                            string
-			matchAny, matchAll, exclude, sources   []string
-			notify                                 []string
-			cooldown                               int
-			enabled                                bool
+			name, badge                          string
+			matchAny, matchAll, exclude, sources []string
+			notify                               []string
+			cooldown                             int
+			enabled                              bool
 		)
 		if err := rows.Scan(&name, &matchAny, &matchAll, &exclude, &sources,
 			&badge, &notify, &cooldown, &enabled); err != nil {

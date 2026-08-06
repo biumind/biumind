@@ -18,6 +18,7 @@ import (
 // Plan 是终端用户的订阅档位 (free/pro/team). 跟 Roles 是正交的:
 //   - Roles  → 后台 RBAC, 决定能调哪些 admin 端点
 //   - Plan   → 业务限额 + metrics 切片 (model-relay /v1/messages 用)
+//
 // 内部用户 (admin/ops 等) Plan 通常空, 由消费方自行兜底 (planFromClaims).
 type Claims struct {
 	UserID    string   `json:"sub"`

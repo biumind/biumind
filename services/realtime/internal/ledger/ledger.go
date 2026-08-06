@@ -82,15 +82,15 @@ func (l *Ledger) Replay(topics []string, sinceID string) []Event {
 
 // IsBeyondRetention reports whether sinceID is older than the oldest event
 // currently retained for any of the given topics. Returns true only when:
-//   1) at least one of the topics has events in the ring, AND
-//   2) sinceID is strictly less than the minimum retained event id (i.e.
-//      the client is asking to resume from a position that's already aged
-//      out — they likely missed events in the gap).
+//  1. at least one of the topics has events in the ring, AND
+//  2. sinceID is strictly less than the minimum retained event id (i.e.
+//     the client is asking to resume from a position that's already aged
+//     out — they likely missed events in the gap).
 //
 // Returns false when:
-//   * sinceID is empty (caller must guard upstream),
-//   * none of the topics has any retained events (no gap to assert),
-//   * sinceID >= min retained id (client is up-to-date or asking for a
+//   - sinceID is empty (caller must guard upstream),
+//   - none of the topics has any retained events (no gap to assert),
+//   - sinceID >= min retained id (client is up-to-date or asking for a
 //     future id).
 //
 // v2-6 desync 4009 use-case: after replay, sse handler emits a system

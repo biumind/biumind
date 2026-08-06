@@ -258,8 +258,8 @@ func init() {
 
 	// ── TaskList depth ───────────────────────────────────────────
 	register(scenario{
-		name: "D13.task-list-empty",
-		prompt: "Call TaskList. If there are no tasks, reply with literally EMPTY-OK and stop.",
+		name:      "D13.task-list-empty",
+		prompt:    "Call TaskList. If there are no tasks, reply with literally EMPTY-OK and stop.",
 		wantTools: []string{"TaskList"},
 		timeout:   30 * time.Second,
 		assertText: func(s string) error {
@@ -303,8 +303,8 @@ func init() {
 
 	// ── Agent + tool whitelist ───────────────────────────────────
 	register(scenario{
-		name: "D16.agent-with-tool-whitelist",
-		prompt: `Use the Agent tool with subagent_type="restricted" to count files in cwd. The sub-agent must use Glob (not Bash). Tell me what it found.`,
+		name:      "D16.agent-with-tool-whitelist",
+		prompt:    `Use the Agent tool with subagent_type="restricted" to count files in cwd. The sub-agent must use Glob (not Bash). Tell me what it found.`,
 		wantTools: []string{"Agent"},
 		timeout:   120 * time.Second,
 		prep: func(dir string) error {
@@ -343,10 +343,10 @@ then report the count. Never run shell commands.
 
 	// ── ExtraTools custom — proves the SDK extension API works ─────
 	register(scenario{
-		name: "D17.extra-tools-custom-echo",
-		prompt: "Use the EchoSentinel tool with msg=\"ZX9K-CUSTOM\". Repeat back the output you got.",
-		wantTools: []string{"EchoSentinel"},
-		timeout:   45 * time.Second,
+		name:       "D17.extra-tools-custom-echo",
+		prompt:     "Use the EchoSentinel tool with msg=\"ZX9K-CUSTOM\". Repeat back the output you got.",
+		wantTools:  []string{"EchoSentinel"},
+		timeout:    45 * time.Second,
 		extraTools: []biumindkit.Tool{echoSentinelTool()},
 		assertText: func(s string) error {
 			if !strings.Contains(s, "ZX9K-CUSTOM") {

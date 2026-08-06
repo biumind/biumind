@@ -15,7 +15,9 @@ import (
 // 复用跟 credits_test.go 同款的测试 PG 连接策略。
 //
 // 默认 dev compose:
-//   postgres://biumind:biumind_dev_password_change_me@localhost:5432/biu_core
+//
+//	postgres://biumind:biumind_dev_password_change_me@localhost:5432/biu_core
+//
 // 设 IDENTITY_TEST_DATABASE_URL=skip 跳过整组。
 func storeTestDBURL() string {
 	if v := os.Getenv("IDENTITY_TEST_DATABASE_URL"); v != "" {
@@ -272,7 +274,7 @@ func TestRevokeFamilyByInstallation(t *testing.T) {
 }
 
 // TestRevokeFamilyByInstallation_EmptyInstallationIDIsNoop — 老客户端
-// installation_id='' 不参与家族识别 (防止误伤所有"老客户端"用户)。
+// installation_id=” 不参与家族识别 (防止误伤所有"老客户端"用户)。
 func TestRevokeFamilyByInstallation_EmptyInstallationIDIsNoop(t *testing.T) {
 	s := newTestStore(t)
 	uid := newTestUser(t, s)

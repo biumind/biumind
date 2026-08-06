@@ -153,14 +153,14 @@ func (ExitPlanModeTool) InputSchema() map[string]any {
 				"description": "The complete plan as markdown.",
 			},
 			"allowedPrompts": map[string]any{
-				"type": "array",
+				"type":        "array",
 				"description": "Batch-approval requests covering categories of action that the plan will require. Approving the plan auto-approves these calls.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"tool": map[string]any{
-							"type": "string",
-							"enum": []string{"Bash"},
+							"type":        "string",
+							"enum":        []string{"Bash"},
 							"description": "The tool this pre-approval applies to (currently only Bash).",
 						},
 						"prompt": map[string]any{

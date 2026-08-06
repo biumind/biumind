@@ -53,19 +53,19 @@ const DefaultRefreshInterval = 2 * time.Second
 // Field names are kept wire-compatible so users porting their
 // settings.json get the same fields.
 type Input struct {
-	Model       string `json:"model"`
-	Cwd         string `json:"cwd"`
-	Mode        string `json:"mode"`
-	Turns       int    `json:"turns"`
+	Model       string  `json:"model"`
+	Cwd         string  `json:"cwd"`
+	Mode        string  `json:"mode"`
+	Turns       int     `json:"turns"`
 	CostUSD     float64 `json:"cost_usd"`
-	InputTokens int    `json:"input_tokens"`
+	InputTokens int     `json:"input_tokens"`
 }
 
 // Config is the static side: the command + per-config tuning. Built
 // from settings.StatusLineCommand at REPL construction time.
 type Config struct {
-	Command   string
-	Timeout   time.Duration
+	Command string
+	Timeout time.Duration
 	// Refresh is how long the cache is considered fresh. Zero =
 	// DefaultRefreshInterval.
 	Refresh time.Duration

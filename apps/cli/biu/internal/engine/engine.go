@@ -247,17 +247,17 @@ type QueryEngine struct {
 	tools    ToolRegistry
 	provider Provider
 
-	model        string
-	system       string
-	cwd          string
-	maxToolTurns int
-	maxTokens    int
-	perms        *permissions.Context
-	hooks        *hooks.Registry
-	cost         *cost.Tracker
-	compact      *compact.Auto
-	compactWarn  *compact.WarningState
-	sessionMem   compact.SessionMemoryWriter
+	model           string
+	system          string
+	cwd             string
+	maxToolTurns    int
+	maxTokens       int
+	perms           *permissions.Context
+	hooks           *hooks.Registry
+	cost            *cost.Tracker
+	compact         *compact.Auto
+	compactWarn     *compact.WarningState
+	sessionMem      compact.SessionMemoryWriter
 	usageLogger     *cost.Logger
 	fileChanged     func(string)
 	agentID         string
@@ -432,19 +432,19 @@ func New(opt Options) (*QueryEngine, error) {
 		})
 	}
 	return &QueryEngine{
-		state:              opt.State,
-		tools:              opt.Tools,
-		provider:           opt.Provider,
-		model:              opt.Model,
-		system:             opt.System,
-		cwd:                opt.Cwd,
-		maxToolTurns:       maxTurns,
-		maxTokens:          maxTokens,
-		perms:              perms,
-		hooks:              opt.Hooks,
-		cost:               tracker,
-		compact:            compactor,
-		sessionMem:         opt.SessionMemory,
+		state:        opt.State,
+		tools:        opt.Tools,
+		provider:     opt.Provider,
+		model:        opt.Model,
+		system:       opt.System,
+		cwd:          opt.Cwd,
+		maxToolTurns: maxTurns,
+		maxTokens:    maxTokens,
+		perms:        perms,
+		hooks:        opt.Hooks,
+		cost:         tracker,
+		compact:      compactor,
+		sessionMem:   opt.SessionMemory,
 		compactWarn: func() *compact.WarningState {
 			if compactor == nil {
 				return nil

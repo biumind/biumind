@@ -92,21 +92,21 @@ func TestBuildAuthorizeURL_NoScopes(t *testing.T) {
 //
 // Flow exercised:
 //
-//   1. Client.Initialize → fixture returns 401 + Bearer challenge
-//      with resource_metadata. HTTPClient parses it, transitions to
-//      needs-auth, returns ErrNeedsAuth.
-//   2. Test calls startOAuthFlow → gets back authorize URL with
-//      code_challenge / state / redirect_uri / scope.
-//   3. Test simulates the user clicking the URL via http.Client
-//      (default redirect-following). Fixture's /authorize responds
-//      302 to redirect_uri + code+state.
-//   4. The redirect lands in biu's local callback listener; the
-//      goroutine captures the code, POSTs to /token with the
-//      verifier, fixture issues access_token.
-//   5. Goroutine calls client.SetOAuthTokens + client.Reconnect.
-//      Reconnect's Initialize now goes through with Authorization:
-//      Bearer set; fixture returns the real serverInfo.
-//   6. Test calls ListTools → fixture returns a single `echo` tool.
+//  1. Client.Initialize → fixture returns 401 + Bearer challenge
+//     with resource_metadata. HTTPClient parses it, transitions to
+//     needs-auth, returns ErrNeedsAuth.
+//  2. Test calls startOAuthFlow → gets back authorize URL with
+//     code_challenge / state / redirect_uri / scope.
+//  3. Test simulates the user clicking the URL via http.Client
+//     (default redirect-following). Fixture's /authorize responds
+//     302 to redirect_uri + code+state.
+//  4. The redirect lands in biu's local callback listener; the
+//     goroutine captures the code, POSTs to /token with the
+//     verifier, fixture issues access_token.
+//  5. Goroutine calls client.SetOAuthTokens + client.Reconnect.
+//     Reconnect's Initialize now goes through with Authorization:
+//     Bearer set; fixture returns the real serverInfo.
+//  6. Test calls ListTools → fixture returns a single `echo` tool.
 //
 // What this test does NOT do: drive the engine.SimpleRegistry tool
 // swap. The engine_adapter's pseudo-tool eviction is independent of
@@ -316,14 +316,14 @@ func TestOAuthFlow_EndToEnd(t *testing.T) {
 // TestRefreshIfNeeded_ExchangesAndPersists drives the pre-flight
 // refresh path end-to-end:
 //
-//   1. HTTPClient is seeded with an access token that's about to
-//      expire + a refresh_token + a resolved token URL pointing at
-//      a test server that accepts refresh_token grants.
-//   2. refreshIfNeeded fires.
-//   3. The test server returns a fresh access_token + (rotated)
-//      refresh_token + new expires_in.
-//   4. HTTPClient's auth state now holds the new tokens AND they
-//      are persisted to the store (so a fresh NewHTTP picks them up).
+//  1. HTTPClient is seeded with an access token that's about to
+//     expire + a refresh_token + a resolved token URL pointing at
+//     a test server that accepts refresh_token grants.
+//  2. refreshIfNeeded fires.
+//  3. The test server returns a fresh access_token + (rotated)
+//     refresh_token + new expires_in.
+//  4. HTTPClient's auth state now holds the new tokens AND they
+//     are persisted to the store (so a fresh NewHTTP picks them up).
 //
 // The seam under test is the integration of exchangeRefreshToken +
 // SetOAuthTokens + token-store persistence + the pre-flight

@@ -43,8 +43,8 @@ import (
 // SnapshotStore captures pre-edit file content keyed by user-message
 // UUID + abs path. Process-scoped; safe for concurrent use.
 type SnapshotStore struct {
-	mu       sync.Mutex
-	root     string
+	mu        sync.Mutex
+	root      string
 	indexPath string
 
 	// seen prevents double-snapshotting the same (uuid, path) within

@@ -78,11 +78,11 @@ func (a *App) invokeRulesFromNL(ctx context.Context, raw json.RawMessage) (any, 
 		return nil, err
 	}
 	return map[string]any{
-		"name":          suggestion.Name,
-		"match_any":     suggestion.MatchAny,
-		"match_all":     suggestion.MatchAll,
-		"exclude":       suggestion.Exclude,
-		"on_hit_badge":  suggestion.OnHitBadge,
-		"cooldown_sec":  suggestion.CooldownSec,
+		"name":         suggestion.Name,
+		"match_any":    suggestion.MatchAny,
+		"match_all":    suggestion.MatchAll,
+		"exclude":      suggestion.Exclude,
+		"on_hit_badge": suggestion.OnHitBadge,
+		"cooldown_sec": suggestion.CooldownSec,
 	}, nil
 }

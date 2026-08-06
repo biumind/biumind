@@ -28,9 +28,9 @@ import (
 )
 
 const (
-	maxItems       = 8     // [1]..[8] 上限, 多了 LLM 容易混
-	maxContextChar = 3000  // 中文字符约 4500 tokens
-	maxItemChar    = 280   // 单条目 takeaway 最多 280 字
+	maxItems       = 8    // [1]..[8] 上限, 多了 LLM 容易混
+	maxContextChar = 3000 // 中文字符约 4500 tokens
+	maxItemChar    = 280  // 单条目 takeaway 最多 280 字
 )
 
 // Item — 注入 prompt 的一条 entry, 也作为引用 mapping 返客户端.

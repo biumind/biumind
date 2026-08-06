@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 	"github.com/gorilla/websocket"
 )
@@ -854,4 +854,3 @@ func TestWS_UnsupportedControl(t *testing.T) {
 		}
 	}
 }
-

@@ -80,8 +80,8 @@ func (m model) costByToolNote() string {
 	}
 
 	type row struct {
-		name       string
-		usage      cost.ToolUsage
+		name  string
+		usage cost.ToolUsage
 	}
 	rows := make([]row, 0, len(byTool))
 	for name, u := range byTool {
@@ -164,4 +164,3 @@ func formatDurationMs(ms int64) string {
 	sec := (ms % 60_000) / 1000
 	return fmt.Sprintf("%dm%ds", min, sec)
 }
-

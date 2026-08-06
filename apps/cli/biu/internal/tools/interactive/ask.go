@@ -79,10 +79,10 @@ func (AskUserQuestionTool) InputSchema() map[string]any {
 				"description": fmt.Sprintf("Short chip label (≤%d chars).", askChipMax),
 			},
 			"options": map[string]any{
-				"type":     "array",
-				"minItems": 2,
-				"maxItems": 4,
-				"items":    option,
+				"type":        "array",
+				"minItems":    2,
+				"maxItems":    4,
+				"items":       option,
 				"description": "2-4 mutually exclusive options. The REPL automatically adds an 'Other' free-text option.",
 			},
 			"multiSelect": map[string]any{
@@ -275,8 +275,8 @@ func legacyQuestion(input map[string]any) (map[string]any, bool) {
 
 // formatAnswerResult renders the tool_result content:
 //
-//   User has answered your questions: "Q1"="A1", "Q2"="B" user notes: ...
-//   You can now continue with the user's answers in mind.
+//	User has answered your questions: "Q1"="A1", "Q2"="B" user notes: ...
+//	You can now continue with the user's answers in mind.
 //
 // Multi-select answers are joined with ", ". Free-text "Other"
 // answers come through unquoted. Preview content (when the user

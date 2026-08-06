@@ -49,26 +49,26 @@ var ValidProviders = map[string]struct{}{
 type Status string
 
 const (
-	StatusValid    Status = "valid"
-	StatusInvalid  Status = "invalid"
-	StatusRevoked  Status = "revoked"
-	StatusExpired  Status = "expired"
+	StatusValid   Status = "valid"
+	StatusInvalid Status = "invalid"
+	StatusRevoked Status = "revoked"
+	StatusExpired Status = "expired"
 )
 
 // PublicEntry — 客户端可见的字段; 不含明文密钥.
 type PublicEntry struct {
-	ID                uuid.UUID  `json:"id"`
-	UserID            uuid.UUID  `json:"user_id"`
-	Provider          string     `json:"provider"`
-	Label             string     `json:"label,omitempty"`
-	Last4             string     `json:"last4,omitempty"`
-	ConfigJSON        []byte     `json:"config,omitempty"` // jsonb raw
-	Status            Status     `json:"status"`
-	LastValidatedAt   *time.Time `json:"last_validated_at,omitempty"`
-	LastUsedAt        *time.Time `json:"last_used_at,omitempty"`
-	FailureCount      int        `json:"failure_count"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID              uuid.UUID  `json:"id"`
+	UserID          uuid.UUID  `json:"user_id"`
+	Provider        string     `json:"provider"`
+	Label           string     `json:"label,omitempty"`
+	Last4           string     `json:"last4,omitempty"`
+	ConfigJSON      []byte     `json:"config,omitempty"` // jsonb raw
+	Status          Status     `json:"status"`
+	LastValidatedAt *time.Time `json:"last_validated_at,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	FailureCount    int        `json:"failure_count"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 	// 00033: custom/代理 endpoint + 协议. protocol 空 = openai_compat.
 	// P1 让 model-relay 用 protocol 选 adaptor (替代模型名前缀猜测).
 	BaseURL  string `json:"base_url,omitempty"`
@@ -97,15 +97,15 @@ func NewStore(pool *pgxpool.Pool, cipher *Cipher) *Store {
 // 保留原加密值不改 key. server/client-side 都加密存 identity, client-side 仅
 // 标记「需本机出口」.
 type UpsertArgs struct {
-	UserID     uuid.UUID
-	Provider   string
-	Plaintext  string  // 明文 API key, 加密后落库; 空 = 编辑不改 key (保留原加密值)
-	Label      string
-	ConfigJSON []byte // 可空 jsonb (Azure endpoint / region 等), 留 nil 视作 '{}'
-	BaseURL    string   // 00033: custom 必填 (代理地址); 标准 provider 空 → 走默认 endpoint
-	Protocol   string   // 00033: openai_compat(默认)/anthropic/google/dashscope/volcengine
-	ModelGlobs []string // 00034: custom 必填 (所用模型 glob); 标准 provider 空
-	IsClientSide bool   // 00035: true = 需本机出口 (内网 proxy 等). key 仍加密存 identity.
+	UserID       uuid.UUID
+	Provider     string
+	Plaintext    string // 明文 API key, 加密后落库; 空 = 编辑不改 key (保留原加密值)
+	Label        string
+	ConfigJSON   []byte   // 可空 jsonb (Azure endpoint / region 等), 留 nil 视作 '{}'
+	BaseURL      string   // 00033: custom 必填 (代理地址); 标准 provider 空 → 走默认 endpoint
+	Protocol     string   // 00033: openai_compat(默认)/anthropic/google/dashscope/volcengine
+	ModelGlobs   []string // 00034: custom 必填 (所用模型 glob); 标准 provider 空
+	IsClientSide bool     // 00035: true = 需本机出口 (内网 proxy 等). key 仍加密存 identity.
 }
 
 // Upsert — 覆盖已有 key; status 重置为 'valid' (新 key 当作健康, validator

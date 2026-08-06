@@ -105,8 +105,8 @@ func (s *Server) handleCreateCredential(w http.ResponseWriter, r *http.Request) 
 }
 
 // credentialUpdateRequest covers two paths:
-//   * Metadata-only: label / base_url / header / status set, plaintext empty.
-//   * Rotation:     plaintext non-empty → re-encrypt with new key.
+//   - Metadata-only: label / base_url / header / status set, plaintext empty.
+//   - Rotation:     plaintext non-empty → re-encrypt with new key.
 type credentialUpdateRequest struct {
 	Label          string            `json:"label"`
 	BaseURL        string            `json:"base_url"`

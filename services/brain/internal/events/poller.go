@@ -5,19 +5,19 @@
 //
 // Design (transactional outbox pattern):
 //
-//   1. Wiki writes commit (events row, business data) in the same tx.
-//   2. Poller wakes — periodic tick, or LISTEN brain_events nudge —
-//      and runs:
-//         SELECT … FROM brain.events
-//          WHERE published_at IS NULL
-//          ORDER BY id
-//          LIMIT $batch
-//          FOR UPDATE SKIP LOCKED
-//      … inside its own tx. SKIP LOCKED gives at-most-one-replica per row.
-//   3. For each row: publisher.Publish(scope, kind, payload).
-//   4. On success: UPDATE brain.events SET published_at = now()
-//      WHERE id = $1. Commit. The row is now considered published.
-//   5. On failure: leave the row, commit nothing, the next tick retries.
+//  1. Wiki writes commit (events row, business data) in the same tx.
+//  2. Poller wakes — periodic tick, or LISTEN brain_events nudge —
+//     and runs:
+//     SELECT … FROM brain.events
+//     WHERE published_at IS NULL
+//     ORDER BY id
+//     LIMIT $batch
+//     FOR UPDATE SKIP LOCKED
+//     … inside its own tx. SKIP LOCKED gives at-most-one-replica per row.
+//  3. For each row: publisher.Publish(scope, kind, payload).
+//  4. On success: UPDATE brain.events SET published_at = now()
+//     WHERE id = $1. Commit. The row is now considered published.
+//  5. On failure: leave the row, commit nothing, the next tick retries.
 //
 // Combined with the existing Listener: the Listener still races to deliver
 // events realtime; if it succeeds, the row is published_at = now() and the

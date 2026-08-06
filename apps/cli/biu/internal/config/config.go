@@ -19,7 +19,7 @@ import (
 
 type Config struct {
 	Default     DefaultSection             `toml:"default"`
-	Relay         HubSection                 `toml:"model-relay"`
+	Relay       HubSection                 `toml:"model-relay"`
 	Providers   map[string]ProviderSection `toml:"providers"`
 	Permissions PermissionsSection         `toml:"permissions"`
 	Search      SearchSection              `toml:"search"`
@@ -45,20 +45,20 @@ type AuthSection struct {
 //
 // Example ~/.biu/config.toml:
 //
-//   [[mcp_servers]]
-//   name = "filesystem"
-//   command = "npx"
-//   args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+//	[[mcp_servers]]
+//	name = "filesystem"
+//	command = "npx"
+//	args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 //
-//   [[mcp_servers]]
-//   name = "github"
-//   command = "docker"
-//   args = ["run", "-i", "--rm", "-e", "GITHUB_TOKEN",
-//           "ghcr.io/github/github-mcp-server"]
-//   env = { GITHUB_TOKEN = "ghp_…" }
+//	[[mcp_servers]]
+//	name = "github"
+//	command = "docker"
+//	args = ["run", "-i", "--rm", "-e", "GITHUB_TOKEN",
+//	        "ghcr.io/github/github-mcp-server"]
+//	env = { GITHUB_TOKEN = "ghp_…" }
 type MCPServerSection struct {
-	Name     string            `toml:"name"`
-	Disabled bool              `toml:"disabled"`
+	Name     string `toml:"name"`
+	Disabled bool   `toml:"disabled"`
 
 	// Transport selects the wire protocol. Empty / "stdio" → spawn a
 	// subprocess via Command + Args + Env (the original biu behaviour).

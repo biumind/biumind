@@ -62,7 +62,7 @@ type videoRequest struct {
 	Size            string   `json:"size,omitempty"`
 	AspectRatio     string   `json:"aspect_ratio,omitempty"`
 	Resolution      string   `json:"resolution,omitempty"`
-	Duration        int      `json:"duration,omitempty"`         // 秒
+	Duration        int      `json:"duration,omitempty"` // 秒
 	FirstFrameURL   string   `json:"first_frame_url,omitempty"`
 	LastFrameURL    string   `json:"last_frame_url,omitempty"`
 	ReferenceImages []string `json:"reference_image_urls,omitempty"`

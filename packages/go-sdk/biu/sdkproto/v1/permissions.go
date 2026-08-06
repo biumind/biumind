@@ -49,7 +49,7 @@ type AddRules struct {
 	Destination string                `json:"destination"`
 }
 
-func (*AddRules) isPermissionUpdate()         {}
+func (*AddRules) isPermissionUpdate()          {}
 func (*AddRules) PermissionUpdateType() string { return PermissionUpdateAddRules }
 
 type ReplaceRules struct {
@@ -59,7 +59,7 @@ type ReplaceRules struct {
 	Destination string                `json:"destination"`
 }
 
-func (*ReplaceRules) isPermissionUpdate()         {}
+func (*ReplaceRules) isPermissionUpdate()          {}
 func (*ReplaceRules) PermissionUpdateType() string { return PermissionUpdateReplaceRules }
 
 type RemoveRules struct {
@@ -69,7 +69,7 @@ type RemoveRules struct {
 	Destination string                `json:"destination"`
 }
 
-func (*RemoveRules) isPermissionUpdate()         {}
+func (*RemoveRules) isPermissionUpdate()          {}
 func (*RemoveRules) PermissionUpdateType() string { return PermissionUpdateRemoveRules }
 
 type SetModeUpdate struct {
@@ -78,7 +78,7 @@ type SetModeUpdate struct {
 	Destination string `json:"destination"`
 }
 
-func (*SetModeUpdate) isPermissionUpdate()         {}
+func (*SetModeUpdate) isPermissionUpdate()          {}
 func (*SetModeUpdate) PermissionUpdateType() string { return PermissionUpdateSetMode }
 
 type AddDirectories struct {
@@ -87,7 +87,7 @@ type AddDirectories struct {
 	Destination string   `json:"destination"`
 }
 
-func (*AddDirectories) isPermissionUpdate()         {}
+func (*AddDirectories) isPermissionUpdate()          {}
 func (*AddDirectories) PermissionUpdateType() string { return PermissionUpdateAddDirectories }
 
 type RemoveDirectories struct {
@@ -96,7 +96,7 @@ type RemoveDirectories struct {
 	Destination string   `json:"destination"`
 }
 
-func (*RemoveDirectories) isPermissionUpdate()         {}
+func (*RemoveDirectories) isPermissionUpdate()          {}
 func (*RemoveDirectories) PermissionUpdateType() string { return PermissionUpdateRemoveDirectories }
 
 // UnmarshalPermissionUpdate dispatch 6 个变体。

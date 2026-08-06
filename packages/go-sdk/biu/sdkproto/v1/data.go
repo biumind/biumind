@@ -154,15 +154,15 @@ type SDKCompactBoundary struct {
 // ── system: api_retry ───────────────────────────────────────
 
 type SDKAPIRetry struct {
-	Type          string          `json:"type"`    // "system"
-	Subtype       string          `json:"subtype"` // "api_retry"
-	Attempt       int             `json:"attempt"`
-	MaxRetries    int             `json:"max_retries"`
-	RetryDelayMs  int             `json:"retry_delay_ms"`
-	ErrorStatus   json.RawMessage `json:"error_status,omitempty"`
-	Error         string          `json:"error"`
-	UUID          string          `json:"uuid"`
-	SessionID     string          `json:"session_id"`
+	Type         string          `json:"type"`    // "system"
+	Subtype      string          `json:"subtype"` // "api_retry"
+	Attempt      int             `json:"attempt"`
+	MaxRetries   int             `json:"max_retries"`
+	RetryDelayMs int             `json:"retry_delay_ms"`
+	ErrorStatus  json.RawMessage `json:"error_status,omitempty"`
+	Error        string          `json:"error"`
+	UUID         string          `json:"uuid"`
+	SessionID    string          `json:"session_id"`
 }
 
 // ── system: local_command_output ────────────────────────────
@@ -289,10 +289,10 @@ type SDKSessionStateChanged struct {
 // ── rate_limit_event ────────────────────────────────────────
 
 type SDKRateLimitEvent struct {
-	Type          string         `json:"type"` // "rate_limit_event"
-	RateLimitInfo RateLimitInfo  `json:"rate_limit_info"`
-	UUID          string         `json:"uuid"`
-	SessionID     string         `json:"session_id"`
+	Type          string        `json:"type"` // "rate_limit_event"
+	RateLimitInfo RateLimitInfo `json:"rate_limit_info"`
+	UUID          string        `json:"uuid"`
+	SessionID     string        `json:"session_id"`
 }
 
 // ── system: elicitation_complete ────────────────────────────

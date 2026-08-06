@@ -202,9 +202,9 @@ func Replay(path string, st *state.AppState) error {
 		case "tool_use":
 			pendingAssistant.Content = append(pendingAssistant.Content,
 				state.ContentBlock{
-					Type:        state.ContentToolUse,
-					ToolUseID:   e.CallID,
-					ToolUseName: e.Name,
+					Type:         state.ContentToolUse,
+					ToolUseID:    e.CallID,
+					ToolUseName:  e.Name,
 					ToolUseInput: e.Args,
 				})
 		case "tool_result":

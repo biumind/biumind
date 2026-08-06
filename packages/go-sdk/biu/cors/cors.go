@@ -4,12 +4,12 @@
 //
 // Design points:
 //
-//   * Allowlist mode: only echo Origin when it matches a configured
+//   - Allowlist mode: only echo Origin when it matches a configured
 //     pattern. Wildcard '*' supported but disables credentials.
-//   * Streaming-friendly: SSE responses must be flushed without
+//   - Streaming-friendly: SSE responses must be flushed without
 //     waiting for the full body, so we set Access-Control-Expose-Headers
 //     to include common SSE-friendly headers (no actual change to flow).
-//   * Preflight: OPTIONS short-circuits with 204 + the right headers.
+//   - Preflight: OPTIONS short-circuits with 204 + the right headers.
 package cors
 
 import (

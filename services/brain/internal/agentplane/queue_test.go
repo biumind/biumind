@@ -16,8 +16,8 @@ import (
 // Publish 记下 (subject, payload, headers)；Subscribe 不实现（S3-3 brain 端
 // 不订阅）。
 type fakeJS struct {
-	mu       sync.Mutex
-	streams  []bus.StreamSpec
+	mu        sync.Mutex
+	streams   []bus.StreamSpec
 	publishes []fakePublish
 }
 

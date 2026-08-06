@@ -15,13 +15,13 @@ import (
 
 // VoiceEntry — 单个音色条目, 给前端选择器用.
 type VoiceEntry struct {
-	ID           string `json:"id"`            // 厂商 voice_id (如 "BV001_streaming")
-	Name         string `json:"name"`          // 中文显示名
-	Provider     string `json:"provider"`      // volcengine / dashscope / azure
-	Language     string `json:"language"`      // zh-CN | en-US | ...
-	Gender       string `json:"gender"`        // male | female | neutral
-	Style        string `json:"style"`         // 标签: 温柔 / 活泼 / 商务 / ...
-	SampleURL    string `json:"sample_url"`    // 试听 URL (可选)
+	ID        string `json:"id"`         // 厂商 voice_id (如 "BV001_streaming")
+	Name      string `json:"name"`       // 中文显示名
+	Provider  string `json:"provider"`   // volcengine / dashscope / azure
+	Language  string `json:"language"`   // zh-CN | en-US | ...
+	Gender    string `json:"gender"`     // male | female | neutral
+	Style     string `json:"style"`      // 标签: 温柔 / 活泼 / 商务 / ...
+	SampleURL string `json:"sample_url"` // 试听 URL (可选)
 }
 
 // 内置音色 — MVP 列表, 后续从 zhiying-portal 或厂商最新文档同步.

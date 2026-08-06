@@ -31,8 +31,8 @@ import (
 // values intentionally use full ids so the same model always lines
 // up.
 var effortTiers = []struct {
-	Name string
-	Tier string // human label shown in help
+	Name  string
+	Tier  string // human label shown in help
 	Model string
 }{
 	{"high", "high (Opus 4.7 — slowest, deepest reasoning)", "claude-opus-4-7"},

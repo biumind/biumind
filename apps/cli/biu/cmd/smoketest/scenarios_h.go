@@ -98,8 +98,8 @@ func init() {
 	// ~/.fake-mixed but we re-allow ~/.fake-mixed/public, so
 	// reading it must succeed.
 	register(scenario{
-		name: "H4.fs-read-allow-within-deny",
-		prompt: "Use Bash to `cat $HOME/.fake-mixed/public`. Reply with the contents.",
+		name:         "H4.fs-read-allow-within-deny",
+		prompt:       "Use Bash to `cat $HOME/.fake-mixed/public`. Reply with the contents.",
 		wantTools:    []string{"Bash"},
 		timeout:      45 * time.Second,
 		loadSettings: true,

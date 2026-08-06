@@ -32,8 +32,8 @@ var (
 type Key struct {
 	APIKey   string          `json:"api_key"`
 	Config   json.RawMessage `json:"config,omitempty"`
-	BaseURL  string          `json:"base_url,omitempty"`  // 00033: custom/代理 endpoint
-	Protocol string          `json:"protocol,omitempty"`  // 00033: 选 adaptor 用 (P1)
+	BaseURL  string          `json:"base_url,omitempty"` // 00033: custom/代理 endpoint
+	Protocol string          `json:"protocol,omitempty"` // 00033: 选 adaptor 用 (P1)
 }
 
 type Client struct {
@@ -44,8 +44,8 @@ type Client struct {
 
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		Token:   token,
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		Token:      token,
 		HTTPClient: &http.Client{Timeout: 3 * time.Second},
 	}
 }

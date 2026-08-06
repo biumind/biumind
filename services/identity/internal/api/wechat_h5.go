@@ -171,23 +171,23 @@ func (s *Server) wechatCallbackURL(r *http.Request) string {
 // ── /callback: 校验 state + 换 token + fragment redirect ─────────
 
 type wechatWebAccessTokenResp struct {
-	AccessToken    string `json:"access_token"`
-	ExpiresIn      int    `json:"expires_in"`
-	RefreshToken   string `json:"refresh_token"`
-	OpenID         string `json:"openid"`
-	Scope          string `json:"scope"`
-	UnionID        string `json:"unionid"`
-	ErrCode        int    `json:"errcode"`
-	ErrMsg         string `json:"errmsg"`
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	OpenID       string `json:"openid"`
+	Scope        string `json:"scope"`
+	UnionID      string `json:"unionid"`
+	ErrCode      int    `json:"errcode"`
+	ErrMsg       string `json:"errmsg"`
 }
 
 type wechatWebUserInfoResp struct {
-	OpenID    string `json:"openid"`
-	NickName  string `json:"nickname"`
-	HeadImg   string `json:"headimgurl"`
-	UnionID   string `json:"unionid"`
-	ErrCode   int    `json:"errcode"`
-	ErrMsg    string `json:"errmsg"`
+	OpenID   string `json:"openid"`
+	NickName string `json:"nickname"`
+	HeadImg  string `json:"headimgurl"`
+	UnionID  string `json:"unionid"`
+	ErrCode  int    `json:"errcode"`
+	ErrMsg   string `json:"errmsg"`
 }
 
 func (c *WechatWebConfig) exchangeCode(ctx context.Context, code string) (*wechatWebAccessTokenResp, error) {
@@ -360,4 +360,3 @@ func (s *Server) h5RedirectError(w http.ResponseWriter, r *http.Request, returnU
 		"/pages/me/oauth-return#" + frag.Encode()
 	http.Redirect(w, r, target, http.StatusFound)
 }
-

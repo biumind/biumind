@@ -36,9 +36,9 @@ type WikiSinkInput struct {
 }
 
 type WikiSinkResult struct {
-	PageID         string   `json:"page_id"`
-	ProjectID      string   `json:"project_id"`
-	SuggestedTags  []string `json:"suggested_tags"`
+	PageID        string   `json:"page_id"`
+	ProjectID     string   `json:"project_id"`
+	SuggestedTags []string `json:"suggested_tags"`
 }
 
 // WithWikiSink wires the wiki sink. Optional; when set, the

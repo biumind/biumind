@@ -265,8 +265,8 @@ func sha256Hex(b []byte) string {
 
 type webviewApp struct{ m biuapp.Manifest }
 
-func (w *webviewApp) Manifest() biuapp.Manifest                              { return w.m }
-func (w *webviewApp) Init(_ context.Context, _ biuapp.Deps) error            { return nil }
+func (w *webviewApp) Manifest() biuapp.Manifest                   { return w.m }
+func (w *webviewApp) Init(_ context.Context, _ biuapp.Deps) error { return nil }
 func (w *webviewApp) Invoke(_ context.Context, action string, _ json.RawMessage) (any, error) {
 	return nil, fmt.Errorf("webview apps have no invokable actions (got %q)", action)
 }

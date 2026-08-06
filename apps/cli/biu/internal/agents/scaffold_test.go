@@ -95,7 +95,7 @@ func TestScaffoldProjectScopeWritesUnderCwd(t *testing.T) {
 
 func TestScaffoldProjectScopeRequiresCwd(t *testing.T) {
 	_, err := Scaffold(ScaffoldOptions{
-		Name:  "a", Scope: ScopeProject,
+		Name: "a", Scope: ScopeProject,
 	})
 	if err == nil {
 		t.Errorf("project scope without cwd should fail")

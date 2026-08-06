@@ -303,4 +303,3 @@ func composeChannelSystem(e envelope.Envelope) string {
 	sb = append(sb, "Keep replies concise and conversational; the user is on a chat platform.")
 	return strings.Join(sb, "\n")
 }
-

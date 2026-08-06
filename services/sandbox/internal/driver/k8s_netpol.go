@@ -44,7 +44,7 @@ import (
 // drop the entry with a warn — better to deny by default than allow
 // the wrong IP.
 type EgressRule struct {
-	CIDRs    []string                  // resolved /32 (or original CIDR) for ipBlock
+	CIDRs    []string // resolved /32 (or original CIDR) for ipBlock
 	Port     int32
 	Protocol corev1.Protocol
 }

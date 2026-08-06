@@ -10,8 +10,8 @@
 //	(POST  /v1/wiki/projects/{pid}/sources/clip 已在 wiki/api 处理 webclip)
 //
 // 上传走两步：
-//   1. 客户端先 POST /v1/files/upload （或 presign-upload）拿 file_id
-//   2. 再 POST /v1/wiki/projects/{pid}/sources 用 file_id + rel_path 建关联
+//  1. 客户端先 POST /v1/files/upload （或 presign-upload）拿 file_id
+//  2. 再 POST /v1/wiki/projects/{pid}/sources 用 file_id + rel_path 建关联
 //
 // 这样 wiki 维度只管"项目里有哪些源 + 解析状态"，二进制存储交给通用 files
 // 模块（MinIO 后端 + cleanup job）。
@@ -60,15 +60,15 @@ func (s *Server) Mount(mux *http.ServeMux) {
 // ─── Wire payloads ─────────────────────────────────────────────
 
 type createReq struct {
-	FileID        string `json:"file_id,omitempty"`
-	RelPath       string `json:"rel_path"`
-	Filename      string `json:"filename,omitempty"`
-	Mime          string `json:"mime,omitempty"`
-	ByteSize      int64  `json:"byte_size,omitempty"`
+	FileID         string `json:"file_id,omitempty"`
+	RelPath        string `json:"rel_path"`
+	Filename       string `json:"filename,omitempty"`
+	Mime           string `json:"mime,omitempty"`
+	ByteSize       int64  `json:"byte_size,omitempty"`
 	ContentHashB64 string `json:"content_hash,omitempty"` // base64 (16-byte sha256 prefix is fine)
-	ExtractedText string `json:"extracted_text,omitempty"`
-	ParseStatus   string `json:"parse_status,omitempty"` // 默认 queued
-	ExternalID    string `json:"external_id,omitempty"`
+	ExtractedText  string `json:"extracted_text,omitempty"`
+	ParseStatus    string `json:"parse_status,omitempty"` // 默认 queued
+	ExternalID     string `json:"external_id,omitempty"`
 }
 
 type sourceOut struct {

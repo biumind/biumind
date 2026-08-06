@@ -383,10 +383,10 @@ func (k *K8s) podSpec(id string, in CreateInput, image string) *corev1.Pod {
 				}},
 			},
 			Containers: []corev1.Container{{
-				Name:    containerName,
-				Image:   image,
-				Command: []string{"sleep", "infinity"},
-				Env:     envVars,
+				Name:            containerName,
+				Image:           image,
+				Command:         []string{"sleep", "infinity"},
+				Env:             envVars,
 				SecurityContext: containerSecurityContext(k.Policy),
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: "tmp", MountPath: "/tmp"},

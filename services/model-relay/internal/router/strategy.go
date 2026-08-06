@@ -25,8 +25,9 @@ import (
 )
 
 // Sentinel errors. ModelResolver translates these to HTTP responses:
-//   ErrNoCandidates → 503 model_unavailable
-//   ErrAllExcluded  → 503 model_exhausted (after retries)
+//
+//	ErrNoCandidates → 503 model_unavailable
+//	ErrAllExcluded  → 503 model_exhausted (after retries)
 var (
 	ErrNoCandidates = errors.New("router: no active channels for model")
 	ErrAllExcluded  = errors.New("router: all candidates excluded from this attempt")

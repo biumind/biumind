@@ -20,8 +20,9 @@ const (
 // GET /v1/admin/models?status=active&family=claude&min_plan=pro&q=sonnet&mode=chat&include_pricing=true
 //
 // mode 接受单值或逗号分隔多值 (P4 follow-up F1):
-//   ?mode=image_generation
-//   ?mode=image_generation,video_generation,digital_human,hotparse
+//
+//	?mode=image_generation
+//	?mode=image_generation,video_generation,digital_human,hotparse
 //
 // include_pricing=true (F2.1) 一次 SQL 批量拉每个 model 最新 pricing,
 // 给 admin Vue 列表显示价格用. 默认 false 减少返回 payload 大小.

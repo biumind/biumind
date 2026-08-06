@@ -47,23 +47,23 @@ type dashscopeVideoRequest struct {
 }
 
 type dashscopeVideoInputBody struct {
-	Prompt         string   `json:"prompt"`
-	NegativePrompt string   `json:"negative_prompt,omitempty"`
+	Prompt         string `json:"prompt"`
+	NegativePrompt string `json:"negative_prompt,omitempty"`
 	// FirstFrameURL 单独 → "img_url" (DashScope 旧字段); FirstFrameURL +
 	// LastFrameURL → "first_frame_url" + "last_frame_url" (新字段). 这里
 	// 用 omitempty 让 TranslateVideoRequest 决定填哪几个.
-	ImgURL         string   `json:"img_url,omitempty"`
-	FirstFrameURL  string   `json:"first_frame_url,omitempty"`
-	LastFrameURL   string   `json:"last_frame_url,omitempty"`
-	ReferenceURLs  []string `json:"reference_urls,omitempty"`
+	ImgURL        string   `json:"img_url,omitempty"`
+	FirstFrameURL string   `json:"first_frame_url,omitempty"`
+	LastFrameURL  string   `json:"last_frame_url,omitempty"`
+	ReferenceURLs []string `json:"reference_urls,omitempty"`
 }
 
 type dashscopeVideoParametersBody struct {
-	Size          string `json:"size,omitempty"`
-	Duration      int    `json:"duration,omitempty"`
-	Seed          int    `json:"seed,omitempty"`
-	PromptExtend  bool   `json:"prompt_extend,omitempty"`
-	Watermark     bool   `json:"watermark,omitempty"`
+	Size         string `json:"size,omitempty"`
+	Duration     int    `json:"duration,omitempty"`
+	Seed         int    `json:"seed,omitempty"`
+	PromptExtend bool   `json:"prompt_extend,omitempty"`
+	Watermark    bool   `json:"watermark,omitempty"`
 }
 
 // videoAspectSizes — aspect_ratio + resolution → "宽*高", 跟
@@ -184,8 +184,8 @@ func (a *Adaptor) BuildVideoPollRequest(
 }
 
 // ParseVideoPollResponse — 解 dashscope poll response 兼容两种 SUCCEEDED 形态:
-//   1. output.video_url + output.cover_image_url    (老 zhiying 形态)
-//   2. output.results = [{video_url, cover_image_url}, ...]   (新形态)
+//  1. output.video_url + output.cover_image_url    (老 zhiying 形态)
+//  2. output.results = [{video_url, cover_image_url}, ...]   (新形态)
 //
 // 状态映射跟 image 相同: PENDING/QUEUING/RUNNING/UNKNOWN → "running".
 func (a *Adaptor) ParseVideoPollResponse(body []byte) (string, *provider.VideoResponse, error) {

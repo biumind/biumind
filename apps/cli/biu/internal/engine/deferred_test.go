@@ -16,14 +16,14 @@ type stubTool struct {
 	deferred bool
 }
 
-func (s *stubTool) Name() string                         { return s.name }
-func (s *stubTool) Description(_ map[string]any) string  { return s.desc }
-func (s *stubTool) InputSchema() map[string]any          { return map[string]any{"type": "object"} }
-func (s *stubTool) IsReadOnly(_ map[string]any) bool     { return true }
-func (s *stubTool) IsDestructive(_ map[string]any) bool  { return false }
+func (s *stubTool) Name() string                            { return s.name }
+func (s *stubTool) Description(_ map[string]any) string     { return s.desc }
+func (s *stubTool) InputSchema() map[string]any             { return map[string]any{"type": "object"} }
+func (s *stubTool) IsReadOnly(_ map[string]any) bool        { return true }
+func (s *stubTool) IsDestructive(_ map[string]any) bool     { return false }
 func (s *stubTool) IsConcurrencySafe(_ map[string]any) bool { return true }
-func (s *stubTool) InterruptBehavior() string            { return "cancel" }
-func (s *stubTool) ShouldDefer() bool                    { return s.deferred }
+func (s *stubTool) InterruptBehavior() string               { return "cancel" }
+func (s *stubTool) ShouldDefer() bool                       { return s.deferred }
 func (s *stubTool) Call(_ context.Context, _ map[string]any, _ *ToolEnv) (*ToolResultPayload, error) {
 	return &ToolResultPayload{Content: []state.ContentBlock{{Type: state.ContentText, Text: "ok"}}}, nil
 }
@@ -53,7 +53,7 @@ func TestDeferredSelection_AddHas(t *testing.T) {
 // test harnesses without forcing a guard at every call site.
 func TestDeferredSelection_Nil(t *testing.T) {
 	var s *DeferredSelection
-	s.Add("x")          // must not panic
+	s.Add("x") // must not panic
 	if s.Has("x") {
 		t.Errorf("nil selection should always say false")
 	}

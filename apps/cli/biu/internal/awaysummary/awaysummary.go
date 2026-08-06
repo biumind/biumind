@@ -55,8 +55,8 @@ type Summariser interface {
 // most once per idle period; subsequent calls return false until
 // the user is active again, then idle again.
 type Tracker struct {
-	threshold time.Duration
-	mu        sync.Mutex
+	threshold  time.Duration
+	mu         sync.Mutex
 	lastActive time.Time
 	armed      bool // true when we haven't fired for the current idle period
 	now        func() time.Time

@@ -39,20 +39,20 @@ import (
 
 // AlertEmailConfig — system_config key='alert.email' 的结构.
 type AlertEmailConfig struct {
-	Enabled  bool     `json:"enabled"`
-	SMTPHost string   `json:"smtp_host"`
-	SMTPPort int      `json:"smtp_port"`
-	SMTPUser string   `json:"smtp_user"`
-	SMTPPass string   `json:"smtp_pass"`
-	SMTPTLS  bool     `json:"smtp_tls"`
-	From     string   `json:"from"`
-	To       []string `json:"to"`
-	WebhookSecret string `json:"webhook_secret,omitempty"` // 可选 shared secret
+	Enabled       bool     `json:"enabled"`
+	SMTPHost      string   `json:"smtp_host"`
+	SMTPPort      int      `json:"smtp_port"`
+	SMTPUser      string   `json:"smtp_user"`
+	SMTPPass      string   `json:"smtp_pass"`
+	SMTPTLS       bool     `json:"smtp_tls"`
+	From          string   `json:"from"`
+	To            []string `json:"to"`
+	WebhookSecret string   `json:"webhook_secret,omitempty"` // 可选 shared secret
 }
 
 // AlertmanagerPayload — 简化版只保留我们需要的字段.
 type AlertmanagerPayload struct {
-	Status            string            `json:"status"`     // firing | resolved
+	Status            string            `json:"status"` // firing | resolved
 	Receiver          string            `json:"receiver"`
 	GroupLabels       map[string]string `json:"groupLabels"`
 	CommonLabels      map[string]string `json:"commonLabels"`
@@ -130,7 +130,7 @@ func (s *Server) handleAlertWebhook(w http.ResponseWriter, r *http.Request) {
 	sendErr := mailer.Send(mailer.SMTPConfig{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 		User: cfg.SMTPUser, Pass: cfg.SMTPPass,
-		TLS:  cfg.SMTPTLS, From: cfg.From,
+		TLS: cfg.SMTPTLS, From: cfg.From,
 	}, cfg.To, buildSubject(&p), buildBody(&p))
 
 	if sendErr != nil {

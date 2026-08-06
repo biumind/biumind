@@ -210,11 +210,11 @@ func (a *App) invokeFeedsRefresh(ctx context.Context, _ json.RawMessage) (any, e
 		return nil, err
 	}
 	return map[string]any{
-		"considered":  stats.Considered,
-		"ok":          stats.OK,
+		"considered":   stats.Considered,
+		"ok":           stats.OK,
 		"not_modified": stats.NotMod,
-		"errors":      stats.Errors,
-		"new_entries": stats.NewEntries,
+		"errors":       stats.Errors,
+		"new_entries":  stats.NewEntries,
 	}, nil
 }
 

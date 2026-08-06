@@ -46,14 +46,14 @@ var (
 // AppID 与 MchID 是商户号配的两个不同身份: AppID 是对接的小程序 / 公众号 /
 // App 的 ID, MchID 是商户号. 同一商户可以服务多个 AppID.
 type WechatConfig struct {
-	Enabled            bool   `json:"enabled"`
-	AppID              string `json:"app_id"`
-	MchID              string `json:"mch_id"`
-	APIv3Key           string `json:"apiv3_key"`            // 32 字节 (AES-GCM key, 商户后台手动设)
-	CertSerialNo       string `json:"cert_serial_no"`       // 商户证书序列号
-	APIClientKeyPEM    string `json:"apiclient_key_pem"`    // 商户私钥 PEM (apiclient_key.pem 内容)
-	PlatformPublicKey  string `json:"platform_public_key"`  // 平台公钥 PEM (从 /v3/certificates 拉到的解密后内容)
-	NotifyURL          string `json:"notify_url"`           // https 回调 URL
+	Enabled           bool   `json:"enabled"`
+	AppID             string `json:"app_id"`
+	MchID             string `json:"mch_id"`
+	APIv3Key          string `json:"apiv3_key"`           // 32 字节 (AES-GCM key, 商户后台手动设)
+	CertSerialNo      string `json:"cert_serial_no"`      // 商户证书序列号
+	APIClientKeyPEM   string `json:"apiclient_key_pem"`   // 商户私钥 PEM (apiclient_key.pem 内容)
+	PlatformPublicKey string `json:"platform_public_key"` // 平台公钥 PEM (从 /v3/certificates 拉到的解密后内容)
+	NotifyURL         string `json:"notify_url"`          // https 回调 URL
 }
 
 func (c WechatConfig) Validate() error {
@@ -95,9 +95,9 @@ func NewWechatClient(cfg WechatConfig, logger *slog.Logger) (*WechatClient, erro
 		logger = slog.Default()
 	}
 	c := &WechatClient{
-		cfg: cfg,
-		http: &http.Client{Timeout: 15 * time.Second},
-		now: time.Now,
+		cfg:    cfg,
+		http:   &http.Client{Timeout: 15 * time.Second},
+		now:    time.Now,
 		logger: logger,
 	}
 	if !cfg.Enabled {
@@ -131,12 +131,12 @@ func (c *WechatClient) Enabled() bool { return c != nil && c.cfg.Enabled }
 
 // WechatOrderRequest — 三种下单共用核心字段.
 type WechatOrderRequest struct {
-	Description string `json:"description"`            // 商品描述 ≤ 127 字
-	OutTradeNo  string `json:"out_trade_no"`           // 商户订单号 ≤ 32 字, 唯一
-	TotalCents  int64  `json:"total_cents"`            // 金额 (分)
-	Currency    string `json:"currency,omitempty"`     // 默认 CNY
-	UserID      string `json:"user_id,omitempty"`      // 内部 user uuid, 写入 attach
-	Subject     string `json:"subject,omitempty"`      // 业务标题
+	Description string `json:"description"`        // 商品描述 ≤ 127 字
+	OutTradeNo  string `json:"out_trade_no"`       // 商户订单号 ≤ 32 字, 唯一
+	TotalCents  int64  `json:"total_cents"`        // 金额 (分)
+	Currency    string `json:"currency,omitempty"` // 默认 CNY
+	UserID      string `json:"user_id,omitempty"`  // 内部 user uuid, 写入 attach
+	Subject     string `json:"subject,omitempty"`  // 业务标题
 	// JSAPI 必填:
 	OpenID string `json:"openid,omitempty"`
 	// H5 必填:
@@ -252,8 +252,8 @@ type wechatH5Body struct {
 }
 
 type wechatH5SceneInfo struct {
-	PayerClientIP string         `json:"payer_client_ip"`
-	H5Info        wechatH5Info   `json:"h5_info"`
+	PayerClientIP string       `json:"payer_client_ip"`
+	H5Info        wechatH5Info `json:"h5_info"`
 }
 
 type wechatH5Info struct {
@@ -321,9 +321,9 @@ type WechatTransaction struct {
 	SuccessTime    string `json:"success_time"`
 	Attach         string `json:"attach,omitempty"`
 	Amount         struct {
-		Total       int64  `json:"total"`
-		PayerTotal  int64  `json:"payer_total"`
-		Currency    string `json:"currency"`
+		Total      int64  `json:"total"`
+		PayerTotal int64  `json:"payer_total"`
+		Currency   string `json:"currency"`
 	} `json:"amount"`
 	Payer struct {
 		OpenID string `json:"openid"`

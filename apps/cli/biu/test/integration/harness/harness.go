@@ -88,12 +88,12 @@ type Env struct {
 func NewEnv() *Env {
 	e := &Env{}
 	for _, k := range []string{
-		"PATH",         // every shell needs it
-		"SHELL",        // bash sometimes touches it
+		"PATH",  // every shell needs it
+		"SHELL", // bash sometimes touches it
 		"LANG", "LC_ALL", "LC_CTYPE",
 		"TZ",
 		"GOPATH", "GOCACHE", "GOMODCACHE", // go runtime caches if biu shells out to go
-		"SSL_CERT_FILE", "SSL_CERT_DIR",   // TLS roots for http providers
+		"SSL_CERT_FILE", "SSL_CERT_DIR", // TLS roots for http providers
 	} {
 		if v := os.Getenv(k); v != "" {
 			e.pairs = append(e.pairs, k+"="+v)

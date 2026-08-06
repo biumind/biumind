@@ -157,8 +157,8 @@ func TestGenerateAgentTick_nilSummariser(t *testing.T) {
 
 func TestPrimaryArg_priority(t *testing.T) {
 	cases := []struct {
-		input  map[string]any
-		wantK  string
+		input map[string]any
+		wantK string
 	}{
 		{map[string]any{"file_path": "a.go"}, "file_path"},
 		{map[string]any{"path": "b.go"}, "path"},

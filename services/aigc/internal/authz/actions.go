@@ -16,32 +16,32 @@ import (
 
 const (
 	// Tasks
-	ActionCreateTask        = "aigc:tasks:create"
-	ActionReadTask          = "aigc:tasks:read"
-	ActionListMyTasks       = "aigc:tasks:list_mine"
-	ActionUpdateTaskVis     = "aigc:tasks:update_visibility"
-	ActionDeleteTask        = "aigc:tasks:delete"
-	ActionCancelTask        = "aigc:tasks:cancel"
+	ActionCreateTask    = "aigc:tasks:create"
+	ActionReadTask      = "aigc:tasks:read"
+	ActionListMyTasks   = "aigc:tasks:list_mine"
+	ActionUpdateTaskVis = "aigc:tasks:update_visibility"
+	ActionDeleteTask    = "aigc:tasks:delete"
+	ActionCancelTask    = "aigc:tasks:cancel"
 
 	// Models / Providers
-	ActionListModels        = "aigc:models:list"
-	ActionListProviders     = "aigc:providers:list" // admin only
+	ActionListModels    = "aigc:models:list"
+	ActionListProviders = "aigc:providers:list" // admin only
 
 	// Gallery (公开作品瀑布流; 不需登录就能看)
-	ActionReadGallery       = "aigc:gallery:read"
+	ActionReadGallery = "aigc:gallery:read"
 
 	// Characters
-	ActionCreateCharacter   = "aigc:characters:create"
-	ActionListCharacters    = "aigc:characters:list"
-	ActionDeleteCharacter   = "aigc:characters:delete"
+	ActionCreateCharacter = "aigc:characters:create"
+	ActionListCharacters  = "aigc:characters:list"
+	ActionDeleteCharacter = "aigc:characters:delete"
 
 	// Hotparse (P5)
-	ActionUploadHotparse    = "aigc:hotparse:upload"
-	ActionAnalyzeHotparse   = "aigc:hotparse:analyze"
-	ActionParseHotparseURL  = "aigc:hotparse:parse_url"
+	ActionUploadHotparse   = "aigc:hotparse:upload"
+	ActionAnalyzeHotparse  = "aigc:hotparse:analyze"
+	ActionParseHotparseURL = "aigc:hotparse:parse_url"
 
 	// Prompt 优化 (流式)
-	ActionOptimizePrompt    = "aigc:prompt:optimize"
+	ActionOptimizePrompt = "aigc:prompt:optimize"
 )
 
 // ─── Cedar entity types ───────────────────────────────
@@ -94,7 +94,7 @@ func ResourceCharacter(charID uuid.UUID, ownerID *uuid.UUID, isPublic bool) Enti
 }
 
 // ResourceGallery / ResourceModelByCode — 简单 entity (无 attributes).
-func ResourceGallery() Entity         { return Entity{Type: EntityGallery, ID: "global"} }
+func ResourceGallery() Entity { return Entity{Type: EntityGallery, ID: "global"} }
 func ResourceModelByCode(code string) Entity {
 	return Entity{Type: EntityModel, ID: code}
 }

@@ -59,7 +59,7 @@ func TestTruncateLongResults(t *testing.T) {
 	body := strings.Repeat("x", 20_000)
 	msgs := []state.Message{
 		{Role: state.RoleUser, Content: []state.ContentBlock{{
-			Type: state.ContentToolResult,
+			Type:         state.ContentToolResult,
 			ToolResultID: "u1",
 			ToolResultContent: []state.ContentBlock{{
 				Type: state.ContentText, Text: body,
@@ -88,7 +88,7 @@ func TestApplyNoOpOnEmpty(t *testing.T) {
 func TestDedupeIgnoresSingleRead(t *testing.T) {
 	msgs := []state.Message{
 		{Role: state.RoleAssistant, Content: []state.ContentBlock{{
-			Type: state.ContentToolUse,
+			Type:      state.ContentToolUse,
 			ToolUseID: "u1", ToolUseName: "Read",
 			ToolUseInput: map[string]any{"file_path": "/x.go"},
 		}}},

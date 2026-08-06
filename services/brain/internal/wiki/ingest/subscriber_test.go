@@ -61,15 +61,14 @@ func TestMergeProgress_AppendsAndRecordsLast(t *testing.T) {
 	}
 }
 
-
 func TestPathBasename(t *testing.T) {
 	cases := map[string]string{
-		"wiki/concepts/rope.md":      "rope",
-		"wiki/index.md":              "index",
-		"rope.md":                    "rope",
+		"wiki/concepts/rope.md":       "rope",
+		"wiki/index.md":               "index",
+		"rope.md":                     "rope",
 		"deep/nested/path/foo.bar.md": "foo.bar",
-		"":                           "untitled",
-		"/":                          "untitled",
+		"":                            "untitled",
+		"/":                           "untitled",
 	}
 	for in, want := range cases {
 		if got := pathBasename(in); got != want {

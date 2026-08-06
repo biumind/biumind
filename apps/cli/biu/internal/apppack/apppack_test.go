@@ -221,7 +221,7 @@ func TestPack_Unsigned(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.biuapp")
 	if _, err := Pack(PackOptions{
 		SourceDir: src, OutPath: out, KeyPair: nil,
-		Includes:  []string{"manifest.yaml"},
+		Includes: []string{"manifest.yaml"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestVerify_RejectsTamperedManifest(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out.biuapp")
 	if _, err := Pack(PackOptions{
 		SourceDir: src, OutPath: out, KeyPair: kp,
-		Includes:  []string{"manifest.yaml"},
+		Includes: []string{"manifest.yaml"},
 	}); err != nil {
 		t.Fatal(err)
 	}

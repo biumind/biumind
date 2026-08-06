@@ -6,11 +6,11 @@
 // which still serves single-page direct ingest from biu CLI / channels.
 // What's new here:
 //
-//   * brain.ingest_tasks table — durable task with progress, cancel,
+//   - brain.ingest_tasks table — durable task with progress, cancel,
 //     and result_pages tracking
-//   * Multi-page CoT output (one source → many wiki pages)
-//   * Streaming partial-save (UI sees pages land as the LLM emits them)
-//   * Cooperative cancellation
+//   - Multi-page CoT output (one source → many wiki pages)
+//   - Streaming partial-save (UI sees pages land as the LLM emits them)
+//   - Cooperative cancellation
 //
 // Subject layout (env-prefixed via biu/bus):
 //
@@ -39,7 +39,7 @@ var ErrNotFound = errors.New("not found")
 const (
 	StatusPending   = "pending"
 	StatusRunning   = "running"
-	StatusPartial   = "partial"   // streaming: some pages already landed
+	StatusPartial   = "partial" // streaming: some pages already landed
 	StatusDone      = "done"
 	StatusFailed    = "failed"
 	StatusCancelled = "cancelled"

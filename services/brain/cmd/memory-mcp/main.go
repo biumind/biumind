@@ -39,8 +39,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	bconfig "github.com/biumind/biumind/packages/go-sdk/biu/config"
 	"github.com/biumind/biumind/packages/go-sdk/biu/bus"
+	bconfig "github.com/biumind/biumind/packages/go-sdk/biu/config"
 	bdb "github.com/biumind/biumind/packages/go-sdk/biu/db"
 	"github.com/biumind/biumind/packages/go-sdk/biu/embed"
 	memorymcp "github.com/biumind/biumind/services/brain/internal/memory/mcp"

@@ -56,13 +56,13 @@ func (s *Server) handleListGallery(w http.ResponseWriter, r *http.Request) {
 
 func projectGalleryItem(it *store.GalleryItem, outputs []*store.TaskOutput) map[string]any {
 	return map[string]any{
-		"task_id":      it.ID,
-		"creator_id":   it.UserID, // creator_display_name 由前端二次拉 identity (可缓存)
-		"type":         it.Type,
-		"prompt":       it.Prompt,
-		"model_code":   it.ModelCode,
-		"created_at":   it.CreatedAt,
-		"outputs":      projectOutputs(outputs),
+		"task_id":    it.ID,
+		"creator_id": it.UserID, // creator_display_name 由前端二次拉 identity (可缓存)
+		"type":       it.Type,
+		"prompt":     it.Prompt,
+		"model_code": it.ModelCode,
+		"created_at": it.CreatedAt,
+		"outputs":    projectOutputs(outputs),
 	}
 }
 

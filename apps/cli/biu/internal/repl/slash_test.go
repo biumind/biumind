@@ -4,13 +4,13 @@ import "testing"
 
 func TestSlashTrigger(t *testing.T) {
 	cases := map[string]bool{
-		"":          false,
-		"hello":     false,
-		"/":         true,
-		"/help":     true,
-		"/he":       true,
-		"/model x":  false, // arg present, hide menu
-		"/quit ":    false,
+		"":         false,
+		"hello":    false,
+		"/":        true,
+		"/help":    true,
+		"/he":      true,
+		"/model x": false, // arg present, hide menu
+		"/quit ":   false,
 	}
 	for in, want := range cases {
 		if got := isSlashTrigger(in); got != want {

@@ -72,17 +72,17 @@ func streamAsAnthropic(
 
 	// 状态机：跟踪 block 序号、当前 block 类型、是否已开 text block
 	var (
-		nextIdx       = 0
-		textOpen      = false
-		textIdx       = 0
+		nextIdx  = 0
+		textOpen = false
+		textIdx  = 0
 		// tool block 状态：toolID → block index（用于 ArgsDelta 命中正确 index）
-		toolBlocks    = map[string]int{}
-		thinkingOpen  = false
-		thinkingIdx   = 0
-		usage         provider.Usage
-		stopReason    = ""
-		errMsg        = ""
-		hasError      = false
+		toolBlocks   = map[string]int{}
+		thinkingOpen = false
+		thinkingIdx  = 0
+		usage        provider.Usage
+		stopReason   = ""
+		errMsg       = ""
+		hasError     = false
 	)
 
 	openText := func() {

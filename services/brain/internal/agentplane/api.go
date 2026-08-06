@@ -96,12 +96,12 @@ func (s *Server) Mount(mux *http.ServeMux) {
 // ─── Handlers ──────────────────────────────────────────────────
 
 type registerReq struct {
-	WorkerKind   string          `json:"worker_kind"`           // 'biu_daemon' | 'biu_cli' | 'runtime'
+	WorkerKind   string          `json:"worker_kind"` // 'biu_daemon' | 'biu_cli' | 'runtime'
 	MachineName  string          `json:"machine_name"`
 	OsArch       string          `json:"os_arch,omitempty"`
-	GitInfo      json.RawMessage `json:"git_info,omitempty"`    // 透传 JSONB
+	GitInfo      json.RawMessage `json:"git_info,omitempty"` // 透传 JSONB
 	Capabilities []string        `json:"capabilities,omitempty"`
-	PublicKey    string          `json:"public_key,omitempty"`  // hex/base64? S3-4 决定；当前 raw 字节透传
+	PublicKey    string          `json:"public_key,omitempty"` // hex/base64? S3-4 决定；当前 raw 字节透传
 	PoolTag      string          `json:"pool_tag,omitempty"`
 }
 

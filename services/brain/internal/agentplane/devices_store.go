@@ -142,6 +142,7 @@ func (s *Store) ApprovePairing(ctx context.Context, userID uuid.UUID, code strin
 //   - pending  → ("", nil, "pending", nil)
 //   - approved → 铸造 device token（只存 hash），pairing 标 consumed，返回明文 token + Device
 //   - consumed / expired → 对应 status
+//
 // pairing_secret 不匹配 → ErrInvalid；pairing 不存在 → ErrNotFound。
 func (s *Store) PollPairing(ctx context.Context, pairingID uuid.UUID, pairingSecret string) (token string, dev *Device, status string, err error) {
 	var (

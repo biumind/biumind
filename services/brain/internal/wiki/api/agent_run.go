@@ -87,10 +87,10 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := s.Relay.RunAgentLoop(hubCtx, w, r, chat.AgentLoopRunInput{
 		System:    system,
-		UserText:   req.Instruction,
-		Model:      req.Model,
-		Allowlist:  tools.WikiAgentToolAllowlist,
-		MaxTurns:   maxTurns,
+		UserText:  req.Instruction,
+		Model:     req.Model,
+		Allowlist: tools.WikiAgentToolAllowlist,
+		MaxTurns:  maxTurns,
 	}); err != nil {
 		if s.Logger != nil {
 			s.Logger.WarnContext(r.Context(), "wiki agent run failed",

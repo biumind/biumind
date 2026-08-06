@@ -26,22 +26,22 @@ import (
 )
 
 type RelayLLMCaller struct {
-	RelayURL  string
-	Model   string
-	Signer  *bauth.Signer
-	HTTP    *http.Client
-	Timeout time.Duration
-	Logger  *slog.Logger
+	RelayURL string
+	Model    string
+	Signer   *bauth.Signer
+	HTTP     *http.Client
+	Timeout  time.Duration
+	Logger   *slog.Logger
 }
 
 func NewRelayLLMCaller(relayURL, model string, signer *bauth.Signer, logger *slog.Logger) *RelayLLMCaller {
 	return &RelayLLMCaller{
-		RelayURL:  strings.TrimRight(relayURL, "/"),
-		Model:   model,
-		Signer:  signer,
-		HTTP:    &http.Client{Timeout: 60 * time.Second},
-		Timeout: 45 * time.Second,
-		Logger:  logger,
+		RelayURL: strings.TrimRight(relayURL, "/"),
+		Model:    model,
+		Signer:   signer,
+		HTTP:     &http.Client{Timeout: 60 * time.Second},
+		Timeout:  45 * time.Second,
+		Logger:   logger,
 	}
 }
 

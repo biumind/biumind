@@ -39,12 +39,12 @@ import (
 
 // CronJob is one scheduled prompt.
 type CronJob struct {
-	ID        string    `json:"id"`
-	Cron      string    `json:"cron"` // five-field expression (display only in P0)
-	Prompt    string    `json:"prompt"`
-	Recurring bool      `json:"recurring"`
-	IntervalMin int     `json:"interval_min"` // resolved minimum interval; 0 = single-shot
-	NextFire  time.Time `json:"next_fire"`
+	ID          string    `json:"id"`
+	Cron        string    `json:"cron"` // five-field expression (display only in P0)
+	Prompt      string    `json:"prompt"`
+	Recurring   bool      `json:"recurring"`
+	IntervalMin int       `json:"interval_min"` // resolved minimum interval; 0 = single-shot
+	NextFire    time.Time `json:"next_fire"`
 
 	// Durable jobs survive process restarts via the on-disk store.
 	// Non-durable (default) jobs vanish on Close — `durable: false`
@@ -265,8 +265,8 @@ func newCronID() string {
 // parseInterval extracts a minimum interval (minutes) from a cron
 // string. We support two simple forms:
 //
-//   "*/N * * * *"   → every N minutes
-//   "M H * * *"     → daily at HH:MM (24h interval)
+//	"*/N * * * *"   → every N minutes
+//	"M H * * *"     → daily at HH:MM (24h interval)
 //
 // Anything else falls back to 60 minutes — defensive default.
 func parseInterval(cron string) int {

@@ -201,9 +201,9 @@ func TestWechatConfig_Validate(t *testing.T) {
 func TestNewWechatClient_BadPEM(t *testing.T) {
 	cfg := WechatConfig{
 		Enabled: true, AppID: "x", MchID: "y",
-		APIv3Key: "0123456789abcdef0123456789abcdef",
+		APIv3Key:        "0123456789abcdef0123456789abcdef",
 		APIClientKeyPEM: "not a pem",
-		NotifyURL: "https://x/cb",
+		NotifyURL:       "https://x/cb",
 	}
 	if _, err := NewWechatClient(cfg, slog.Default()); err == nil {
 		t.Fatalf("should fail on bad PEM")

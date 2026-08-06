@@ -41,26 +41,26 @@ func NormalizeBaseURL(s string) string {
 
 // Request is the canonical OpenAI-style chat request that all adaptors translate from.
 type Request struct {
-	Model       string         `json:"model"`
-	Messages    []Message      `json:"messages"`
-	Stream      bool           `json:"stream,omitempty"`
-	MaxTokens   int            `json:"max_tokens,omitempty"`
+	Model     string    `json:"model"`
+	Messages  []Message `json:"messages"`
+	Stream    bool      `json:"stream,omitempty"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
 	// Sampling parameters. All optional — adaptor should omit from
 	// upstream payload when nil so providers fall back to their own
 	// defaults rather than e.g. "temperature=0" being sent as a
 	// genuine override.
-	Temperature    *float64 `json:"temperature,omitempty"`
-	TopP           *float64 `json:"top_p,omitempty"`
-	StopSequences  []string `json:"stop_sequences,omitempty"`
-	Tools          []Tool         `json:"tools,omitempty"`
+	Temperature   *float64 `json:"temperature,omitempty"`
+	TopP          *float64 `json:"top_p,omitempty"`
+	StopSequences []string `json:"stop_sequences,omitempty"`
+	Tools         []Tool   `json:"tools,omitempty"`
 	// System 字段 Anthropic 协议接受两种 shape：
 	//   "you are helpful"                                         → 单字符串
 	//   [{"type":"text","text":"..."},{"type":"text","text":"..."}] → 块数组
 	// （含 prompt cache 时常用块数组以便给个别块加 cache_control）
 	// 用 json.RawMessage 保 raw 透传上游；adaptor 需要"看 system 内容"时
 	// 调 SystemAsString() 兜底拼成单字符串。
-	System         json.RawMessage `json:"system,omitempty"`
-	Metadata       map[string]any  `json:"metadata,omitempty"`
+	System   json.RawMessage `json:"system,omitempty"`
+	Metadata map[string]any  `json:"metadata,omitempty"`
 }
 
 // JSONString 把 string 编成单字符串 JSON RawMessage（含两端引号 + escape）。
@@ -319,8 +319,8 @@ type ToolCall struct {
 }
 
 type Tool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 	// Parameters: JSON Schema for tool input. 兼容两种入口字段名:
 	//   - "parameters" (OpenAI 协议)
 	//   - "input_schema" (Anthropic 协议) ← daemon biumindkit 发的就是这个

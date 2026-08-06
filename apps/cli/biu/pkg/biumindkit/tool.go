@@ -80,12 +80,12 @@ func NewTool(def ToolDef) Tool { return &defTool{def: def} }
 
 type defTool struct{ def ToolDef }
 
-func (t *defTool) Name() string                 { return t.def.Name }
-func (t *defTool) Description() string          { return t.def.Description }
-func (t *defTool) InputSchema() map[string]any  { return t.def.InputSchema }
-func (t *defTool) IsReadOnly() bool             { return t.def.IsReadOnly }
-func (t *defTool) IsDestructive() bool          { return t.def.IsDestructive }
-func (t *defTool) IsConcurrencySafe() bool      { return t.def.IsConcurrencySafe }
+func (t *defTool) Name() string                { return t.def.Name }
+func (t *defTool) Description() string         { return t.def.Description }
+func (t *defTool) InputSchema() map[string]any { return t.def.InputSchema }
+func (t *defTool) IsReadOnly() bool            { return t.def.IsReadOnly }
+func (t *defTool) IsDestructive() bool         { return t.def.IsDestructive }
+func (t *defTool) IsConcurrencySafe() bool     { return t.def.IsConcurrencySafe }
 func (t *defTool) Run(ctx context.Context, a map[string]any) (string, error) {
 	if t.def.Run == nil {
 		return "", nil
@@ -97,13 +97,15 @@ func (t *defTool) Run(ctx context.Context, a map[string]any) (string, error) {
 // agent loop can dispatch it.
 type engineToolBridge struct{ inner Tool }
 
-func (b *engineToolBridge) Name() string                            { return b.inner.Name() }
-func (b *engineToolBridge) Description(_ map[string]any) string     { return b.inner.Description() }
-func (b *engineToolBridge) InputSchema() map[string]any             { return b.inner.InputSchema() }
-func (b *engineToolBridge) IsReadOnly(_ map[string]any) bool        { return b.inner.IsReadOnly() }
-func (b *engineToolBridge) IsDestructive(_ map[string]any) bool     { return b.inner.IsDestructive() }
-func (b *engineToolBridge) IsConcurrencySafe(_ map[string]any) bool { return b.inner.IsConcurrencySafe() }
-func (b *engineToolBridge) InterruptBehavior() string               { return "cancel" }
+func (b *engineToolBridge) Name() string                        { return b.inner.Name() }
+func (b *engineToolBridge) Description(_ map[string]any) string { return b.inner.Description() }
+func (b *engineToolBridge) InputSchema() map[string]any         { return b.inner.InputSchema() }
+func (b *engineToolBridge) IsReadOnly(_ map[string]any) bool    { return b.inner.IsReadOnly() }
+func (b *engineToolBridge) IsDestructive(_ map[string]any) bool { return b.inner.IsDestructive() }
+func (b *engineToolBridge) IsConcurrencySafe(_ map[string]any) bool {
+	return b.inner.IsConcurrencySafe()
+}
+func (b *engineToolBridge) InterruptBehavior() string { return "cancel" }
 func (b *engineToolBridge) Call(ctx context.Context, args map[string]any, _ *engine.ToolEnv) (*engine.ToolResultPayload, error) {
 	out, err := b.inner.Run(ctx, args)
 	if err != nil {

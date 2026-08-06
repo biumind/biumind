@@ -64,8 +64,8 @@ type Options struct {
 	// MaxTokens is the rough budget; when the engine reports usage
 	// above ThresholdRatio * MaxTokens we trigger a compact.
 	// Defaults: 200K context, 70% trigger.
-	MaxTokens       int
-	ThresholdRatio  float64
+	MaxTokens      int
+	ThresholdRatio float64
 
 	// Instruction is optional extra guidance prepended to the
 	// summary prompt (e.g. "Focus on test output and Go code").
@@ -115,9 +115,9 @@ func (a *Auto) ShouldFire(usedTokens int) bool {
 
 // Result describes one completed compact run.
 type Result struct {
-	Summary       string         // the model-produced summary text
-	OriginalCount int            // messages before compact
-	NewCount      int            // messages after compact (typically 1)
+	Summary       string          // the model-produced summary text
+	OriginalCount int             // messages before compact
+	NewCount      int             // messages after compact (typically 1)
 	Replaced      []state.Message // the new message slice the caller
 	// should write back into AppState.
 }

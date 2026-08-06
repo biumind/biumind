@@ -9,11 +9,11 @@ import (
 
 func TestFor_Mapping(t *testing.T) {
 	cases := map[string]Mode{
-		"none":    ModeNone,
-		"local":   ModeLocal,
-		"cloud":   ModeCloud,
-		"":        ModeLocal, // 空 → 兜底 local
-		"bogus":   ModeLocal, // 未知 → 兜底 local
+		"none":  ModeNone,
+		"local": ModeLocal,
+		"cloud": ModeCloud,
+		"":      ModeLocal, // 空 → 兜底 local
+		"bogus": ModeLocal, // 未知 → 兜底 local
 	}
 	for in, want := range cases {
 		if got := For(in).Mode(); got != want {

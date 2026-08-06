@@ -16,7 +16,7 @@
 // non-terminal, so a re-delivered terminal update on an already-terminal
 // task is a no-op (NotFound). Duplicate "page" updates would, however,
 // create a duplicate wiki page — JetStream at-least-once means we MUST
-// dedupe. We do that by including the worker-generated ``page_key`` in
+// dedupe. We do that by including the worker-generated “page_key“ in
 // each update (e.g. `path`) and checking the task's progress.seen_paths
 // before creating. The worker chooses page_key as the FILE block path,
 // which is unique per task by construction (the FILE-block parser
@@ -39,14 +39,14 @@ import (
 // Update is the wire shape worker emits. Field names mirror
 // workers/wiki-llm/wiki_llm/job.py:Update.to_payload().
 type Update struct {
-	TaskID  string                 `json:"task_id"`
-	Kind    string                 `json:"kind"`
-	Path    string                 `json:"path,omitempty"`
-	Title   string                 `json:"title,omitempty"`
-	Index   int                    `json:"index,omitempty"`
-	Content string                 `json:"content,omitempty"`
-	Error   string                 `json:"error,omitempty"`
-	Progress map[string]any        `json:"progress,omitempty"`
+	TaskID   string         `json:"task_id"`
+	Kind     string         `json:"kind"`
+	Path     string         `json:"path,omitempty"`
+	Title    string         `json:"title,omitempty"`
+	Index    int            `json:"index,omitempty"`
+	Content  string         `json:"content,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	Progress map[string]any `json:"progress,omitempty"`
 }
 
 type Subscriber struct {

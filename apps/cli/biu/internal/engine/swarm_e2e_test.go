@@ -51,7 +51,7 @@ type swarmRouter struct {
 	mu sync.Mutex
 
 	// parent: indexed by parent-turn position (turn 0, turn 1, ...)
-	parent [][]engine.StreamFrame
+	parent    [][]engine.StreamFrame
 	parentIdx int
 
 	// sub: prompt → frames. Each prompt should map to exactly one

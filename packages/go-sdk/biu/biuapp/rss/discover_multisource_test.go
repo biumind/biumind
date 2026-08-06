@@ -70,10 +70,10 @@ func TestTwitterHandleFromURL(t *testing.T) {
 		{"https://twitter.com/jack", "jack"},
 		{"https://www.x.com/Naval/", "Naval"},
 		{"https://mobile.twitter.com/dhh", "dhh"},
-		{"https://x.com/home", ""},          // reserved path
-		{"https://x.com/i/lists/123", ""},   // not a profile URL
+		{"https://x.com/home", ""},           // reserved path
+		{"https://x.com/i/lists/123", ""},    // not a profile URL
 		{"https://example.com/elonmusk", ""}, // wrong host
-		{"elonmusk", ""},                    // not a URL
+		{"elonmusk", ""},                     // not a URL
 	}
 	for _, c := range cases {
 		if got := TwitterHandleFromURL(c.in); got != c.want {

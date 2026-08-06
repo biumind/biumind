@@ -152,9 +152,9 @@ func init() {
 	// L4 — project hooks + local hooks: both fire on PreToolUse. We
 	// drop two distinct markers and assert both exist post-run.
 	register(scenario{
-		name:      "L4.union-hooks",
-		prompt:    "Use Bash to run `echo L4`. Reply with the output.",
-		wantTools: []string{"Bash"},
+		name:         "L4.union-hooks",
+		prompt:       "Use Bash to run `echo L4`. Reply with the output.",
+		wantTools:    []string{"Bash"},
 		timeout:      60 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
@@ -210,9 +210,9 @@ func init() {
 	// without crashing the engine. We can detect this by trying to
 	// run a normal turn — it should still complete.
 	register(scenario{
-		name:    "L5.bad-json-resilience",
-		prompt:  "Reply with L5-OK.",
-		timeout: 30 * time.Second,
+		name:         "L5.bad-json-resilience",
+		prompt:       "Reply with L5-OK.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			out := filepath.Join(dir, ".biumind")
@@ -239,9 +239,9 @@ func init() {
 	// apply silently. This regression-tests against accidentally
 	// requiring any field to be present.
 	register(scenario{
-		name:    "L6.empty-settings-defaults",
-		prompt:  "Reply with L6-OK.",
-		timeout: 30 * time.Second,
+		name:         "L6.empty-settings-defaults",
+		prompt:       "Reply with L6-OK.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			return writeSettings(dir, "settings.json", map[string]any{})

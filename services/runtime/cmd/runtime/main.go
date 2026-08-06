@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/email"
@@ -25,7 +26,6 @@ import (
 	bhealth "github.com/biumind/biumind/packages/go-sdk/biu/healthz"
 	bmetrics "github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	botel "github.com/biumind/biumind/packages/go-sdk/biu/otel"
-	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/services/runtime/internal/agent"
 	rtagentplane "github.com/biumind/biumind/services/runtime/internal/agentplane"
 	"github.com/biumind/biumind/services/runtime/internal/api"
@@ -33,8 +33,8 @@ import (
 	"github.com/biumind/biumind/services/runtime/internal/authz"
 	"github.com/biumind/biumind/services/runtime/internal/memclient"
 	rsandbox "github.com/biumind/biumind/services/runtime/internal/sandbox"
-	"github.com/biumind/biumind/services/runtime/internal/skills/installer"
 	"github.com/biumind/biumind/services/runtime/internal/skills"
+	"github.com/biumind/biumind/services/runtime/internal/skills/installer"
 	"github.com/biumind/biumind/services/runtime/internal/store"
 	"github.com/google/uuid"
 )
@@ -53,9 +53,9 @@ type Config struct {
 	DatabaseURL  string `env:"DATABASE_URL" required:"true"`
 	// MigrationsDir 启动自动跑 goose up. 容器里默认 /etc/biumind/migrations/runtime.
 	MigrationsDir string `env:"BIUMIND_MIGRATIONS_DIR" default:"/etc/biumind/migrations/runtime"`
-	JWTSecret    string `env:"JWT_SECRET" required:"true"`
-	JWTIssuer    string `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
-	JWTAudience  string `env:"JWT_AUDIENCE" default:"biumind-api"`
+	JWTSecret     string `env:"JWT_SECRET" required:"true"`
+	JWTIssuer     string `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
+	JWTAudience   string `env:"JWT_AUDIENCE" default:"biumind-api"`
 	// IdentityJWKSURL — Identity's public JWKS endpoint. When set, this
 	// service verifies RS256 tokens against it instead of the shared HS256
 	// secret. JWT_SECRET is still required as the dev/test fallback.

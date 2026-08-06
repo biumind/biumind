@@ -43,13 +43,13 @@ type Agent struct {
 //
 //   - PermAuto:    allow every Risk level (developer-machine mode).
 //   - PermSafe:    allow Low + Medium; deny High with a message back to
-//                  the model so it can ask the user via chat to retry
-//                  with `auto`. Default for unconfigured runs.
+//     the model so it can ask the user via chat to retry
+//     with `auto`. Default for unconfigured runs.
 //   - PermReadOnly: allow Low only; deny Medium + High the same way.
 //   - PermAsk:     reserved for the bidirectional approval flow shipped
-//                  in P2.7; currently behaves like PermSafe + a TOOL_CALL_PERMISSION
-//                  event so the client can surface a confirmation UI.
-//                  Until P2.7 lands, treat it as a synonym for PermSafe.
+//     in P2.7; currently behaves like PermSafe + a TOOL_CALL_PERMISSION
+//     event so the client can surface a confirmation UI.
+//     Until P2.7 lands, treat it as a synonym for PermSafe.
 type PermissionMode string
 
 const (

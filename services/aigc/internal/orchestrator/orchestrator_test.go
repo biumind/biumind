@@ -55,9 +55,9 @@ func ensureSeed(t *testing.T, s *store.Store) {
 
 // fakeBus 是只为本包测试用的内存 Bus, 记录 Publish, 不实际订阅.
 type fakeBus struct {
-	mu       sync.Mutex
-	pubs     []fakePub
-	subErr   error // Subscribe 强制返错时填这里
+	mu     sync.Mutex
+	pubs   []fakePub
+	subErr error // Subscribe 强制返错时填这里
 }
 
 type fakePub struct {
@@ -79,8 +79,8 @@ func (b *fakeBus) Subscribe(_ string, _ bus.Handler) (bus.Subscription, error) {
 	return fakeSub{}, nil
 }
 func (b *fakeBus) JetStream() (bus.JetStream, error) { return nil, errors.New("noop") }
-func (b *fakeBus) Close() error                       { return nil }
-func (b *fakeBus) Connected() bool                    { return true }
+func (b *fakeBus) Close() error                      { return nil }
+func (b *fakeBus) Connected() bool                   { return true }
 
 func (b *fakeBus) lastPub() *fakePub {
 	b.mu.Lock()
@@ -187,7 +187,7 @@ func TestApply_Completed_WritesOutputs(t *testing.T) {
 				Idx: 0, Kind: "image", SHA256: "sha-abc",
 				StorageURL: "cas:sha-abc",
 				StorageKey: "outputs/sh/a/sha-abc.png",
-				Width: 1024, Height: 1024, FileSize: 234567,
+				Width:      1024, Height: 1024, FileSize: 234567,
 				Blurhash: "L6PZf...",
 			},
 		},

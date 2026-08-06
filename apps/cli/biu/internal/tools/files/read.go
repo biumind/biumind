@@ -125,11 +125,11 @@ func (ReadTool) Call(_ context.Context, input map[string]any, env *engine.ToolEn
 	if env != nil && env.AppState != nil {
 		sum := sha256.Sum256(raw)
 		env.AppState.PutFile(state.FileState{
-			Path:    full,
-			Content: string(raw),
-			ReadAt:  time.Now().UTC(),
+			Path:     full,
+			Content:  string(raw),
+			ReadAt:   time.Now().UTC(),
 			NumLines: totalLines,
-			Sha256:  hex.EncodeToString(sum[:]),
+			Sha256:   hex.EncodeToString(sum[:]),
 		})
 	}
 

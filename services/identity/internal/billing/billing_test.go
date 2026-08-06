@@ -251,7 +251,7 @@ func TestWebhook_UnknownEventIsHarmless(t *testing.T) {
 	_, ts := newTestServer(t, store)
 	resp := postWebhook(t, ts, map[string]any{
 		"id":   "evt_x",
-		"type": "charge.succeeded",  // we don't handle this
+		"type": "charge.succeeded", // we don't handle this
 		"data": map[string]any{"object": map[string]any{}},
 	})
 	defer resp.Body.Close()

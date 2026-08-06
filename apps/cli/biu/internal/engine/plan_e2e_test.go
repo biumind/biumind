@@ -508,11 +508,11 @@ func TestPlanFlow_AttachmentSurvivesCompact(t *testing.T) {
 	st := state.New()
 	// Seed some history so compact has something to summarise.
 	st.AppendMessage(state.Message{
-		Role: state.RoleUser,
+		Role:    state.RoleUser,
 		Content: []state.ContentBlock{{Type: state.ContentText, Text: "earlier turn"}},
 	})
 	st.AppendMessage(state.Message{
-		Role: state.RoleAssistant,
+		Role:    state.RoleAssistant,
 		Content: []state.ContentBlock{{Type: state.ContentText, Text: "earlier reply"}},
 	})
 

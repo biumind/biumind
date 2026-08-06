@@ -66,8 +66,8 @@ const (
 // Item is one row in items[]. kind ∈ {system, app}; ref points at a
 // system-id (chat / wiki / ...) or an installation_id.
 type Item struct {
-	Kind   string `json:"kind"`           // "system" | "app"
-	Ref    string `json:"ref"`            // "wiki" / "<uuid>"
+	Kind   string `json:"kind"` // "system" | "app"
+	Ref    string `json:"ref"`  // "wiki" / "<uuid>"
 	Hidden bool   `json:"hidden,omitempty"`
 	Badge  bool   `json:"badge,omitempty"`
 }

@@ -97,10 +97,10 @@ const pollWaitMax = 30 * time.Second
 // handleWorkPoll：GET style long-poll，但用 POST 因为有副作用（消费消息）。
 //
 // 流程：
-//   1. 校 user 拥有 environment
-//   2. Queue.FetchWork(env_id, wait)
-//   3. 有消息 → 生成 ack_token，注册 → 返回 {body, ack_token}
-//   4. 无消息（超时）→ 204 No Content
+//  1. 校 user 拥有 environment
+//  2. Queue.FetchWork(env_id, wait)
+//  3. 有消息 → 生成 ack_token，注册 → 返回 {body, ack_token}
+//  4. 无消息（超时）→ 204 No Content
 func (s *Server) handleWorkPoll(w http.ResponseWriter, r *http.Request) {
 	uid := mustUserID(r)
 	envID, err := uuid.Parse(r.PathValue("env_id"))

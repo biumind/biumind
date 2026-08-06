@@ -84,8 +84,8 @@ type HealthMonitor struct {
 
 	// Per-server reconnect state; keyed by Client.Name(). Live
 	// only while the monitor runs.
-	mu     sync.Mutex
-	state  map[string]*serverHealth
+	mu    sync.Mutex
+	state map[string]*serverHealth
 }
 
 // serverHealth tracks per-server reconnect bookkeeping. Lives in
@@ -349,4 +349,3 @@ func (m *HealthMonitor) SeedCatalog(name string, tools []ToolDef) {
 	// slice.
 	st.previousCatalog = append([]ToolDef(nil), tools...)
 }
-

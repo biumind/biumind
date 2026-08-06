@@ -41,9 +41,9 @@ var (
 // ─── Client ───────────────────────────────────────────
 
 type Client struct {
-	BaseURL string        // http://identity:7004
-	Token   string        // IDENTITY_INTERNAL_TOKEN
-	HTTP    *http.Client  // nil → 默认 30s timeout
+	BaseURL string       // http://identity:7004
+	Token   string       // IDENTITY_INTERNAL_TOKEN
+	HTTP    *http.Client // nil → 默认 30s timeout
 }
 
 func NewClient(baseURL, token string) *Client {
@@ -83,9 +83,9 @@ type RefundArgs struct {
 // ConsumeRefundResult 是 identity 返回的 {log: {...}, balance: {...}}.
 // 两个字段都是 raw json (调用方按需 unmarshal); aigc 只关心 log_id 用于将来退款.
 type ConsumeRefundResult struct {
-	LogID         uuid.UUID `json:"-"` // 从 raw["log"]["id"] 解出
-	BalanceTotal  int64     `json:"-"` // raw["balance"]["permanent_balance"] + ["time_limited_balance"]
-	Raw           json.RawMessage
+	LogID        uuid.UUID `json:"-"` // 从 raw["log"]["id"] 解出
+	BalanceTotal int64     `json:"-"` // raw["balance"]["permanent_balance"] + ["time_limited_balance"]
+	Raw          json.RawMessage
 }
 
 // ─── Public RPCs ──────────────────────────────────────

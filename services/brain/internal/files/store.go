@@ -1,9 +1,9 @@
 // Package files — 文件元数据 + blob 存储 (MinIO/S3 兼容).
 //
 // 职责拆分:
-//   * Store (本文件) — Postgres 元数据 CRUD + sha256 dedup
-//   * Blob (blob.go)  — MinIO 对象 put/get/remove
-//   * Server (api.go) — REST handlers, 串起两者
+//   - Store (本文件) — Postgres 元数据 CRUD + sha256 dedup
+//   - Blob (blob.go)  — MinIO 对象 put/get/remove
+//   - Server (api.go) — REST handlers, 串起两者
 //
 // 设计文档 docs/BiuMind-Code-Artifacts-Sync-Design.md §3.3。
 package files
@@ -33,18 +33,18 @@ const (
 
 // Object — 一行 files.objects, 表示用户拥有的一个 blob。
 type Object struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	Sha256     string
-	SizeBytes  int64
-	MimeType   *string
-	Bucket     string
-	ObjectKey  string
-	Source     string
-	Status     string
-	Metadata   json.RawMessage
-	CreatedAt  time.Time
-	DeletedAt  *time.Time
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	Sha256    string
+	SizeBytes int64
+	MimeType  *string
+	Bucket    string
+	ObjectKey string
+	Source    string
+	Status    string
+	Metadata  json.RawMessage
+	CreatedAt time.Time
+	DeletedAt *time.Time
 }
 
 type Store struct {

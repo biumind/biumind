@@ -283,7 +283,7 @@ func TestSkillSuspended_DeniesEvenWithPermissions(t *testing.T) {
 	res, err := e.Check(Input{
 		Principal: userPrincipal("u-1", "org-A"),
 		Action:    "skill:exec_script",
-		Resource:  skillResource("s-1", "org-A", "u-1", "suspended",
+		Resource: skillResource("s-1", "org-A", "u-1", "suspended",
 			[]string{"sandbox.exec", "network.fetch", "wiki.read"}),
 	})
 	assertDecision(t, res, err, DecisionDeny, "suspended with all perms")

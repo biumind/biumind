@@ -1,10 +1,10 @@
 // Page relatedness — 4-signal scoring lifted from knowcode's
 // graph-relevance scheme:
 //
-//   1. Direct wikilinks   ×3.0   blocks of A reference [[B]] (or B→A)
-//   2. Adamic-Adar        ×1.5   shared neighbors weighted 1/log(deg)
-//   3. Type affinity      ×1.0   frontmatter.type pair affinity matrix
-//   4. Source overlap     ×4.0   pages share wiki_sources provenance
+//  1. Direct wikilinks   ×3.0   blocks of A reference [[B]] (or B→A)
+//  2. Adamic-Adar        ×1.5   shared neighbors weighted 1/log(deg)
+//  3. Type affinity      ×1.0   frontmatter.type pair affinity matrix
+//  4. Source overlap     ×4.0   pages share wiki_sources provenance
 //
 // All signals are pure functions over a pre-loaded ProjectGraph; no
 // I/O, no DB. Worker producers (worker.go) load the graph from
@@ -38,8 +38,8 @@ const (
 // before populating so the link-resolver matches case-insensitively.
 type PageNode struct {
 	ID          uuid.UUID
-	NormTitle   string // lowercase + trim of the page title
-	Type        string // frontmatter.type ("entity" / "concept" / "source"), or ""
+	NormTitle   string                 // lowercase + trim of the page title
+	Type        string                 // frontmatter.type ("entity" / "concept" / "source"), or ""
 	OutgoingIDs map[uuid.UUID]struct{} // page IDs this page links to via [[wikilinks]]
 	Sources     map[uuid.UUID]struct{} // wiki_sources IDs this page derives from (P1-4 source overlap)
 }

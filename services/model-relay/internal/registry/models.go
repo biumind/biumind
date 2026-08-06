@@ -27,10 +27,10 @@ type ModelRepo struct {
 }
 
 type ModelFilter struct {
-	Status   EntityStatus
-	Family   string
-	MinPlan  Plan
-	Search   string // ILIKE on code or display_name
+	Status  EntityStatus
+	Family  string
+	MinPlan Plan
+	Search  string // ILIKE on code or display_name
 
 	// Mode 过滤 (P4 follow-up F1). 单值 = 等于; 逗号分隔多值用 IN.
 	// 空 = 全部 mode. 例: "image_generation" / "image_generation,video_generation"
@@ -168,12 +168,13 @@ func (r *ModelRepo) GetByCode(ctx context.Context, code string) (*Model, error) 
 // passes []uuid.UUID{DefaultGroupID}.
 //
 // The "user can see model X" predicate:
-//   X.status = 'active'
-//   AND plan_rank(user_plan)   >= plan_rank(X.min_plan)
-//   AND EXISTS (
-//     SELECT 1 FROM model_group_bindings b
-//     WHERE b.model_id = X.id AND b.group_id = ANY($groups)
-//   )
+//
+//	X.status = 'active'
+//	AND plan_rank(user_plan)   >= plan_rank(X.min_plan)
+//	AND EXISTS (
+//	  SELECT 1 FROM model_group_bindings b
+//	  WHERE b.model_id = X.id AND b.group_id = ANY($groups)
+//	)
 //
 // plan_rank is encoded inline via CASE so we don't need a function.
 func (r *ModelRepo) ListVisibleTo(ctx context.Context, userPlan Plan, accessibleGroups []uuid.UUID) ([]Model, error) {

@@ -97,12 +97,12 @@ func TestSlashUsage_scopeArgRecognised(t *testing.T) {
 
 func TestHumanInt(t *testing.T) {
 	cases := map[int]string{
-		0:           "0",
-		999:         "999",
-		1000:        "1,000",
-		12345:       "12,345",
-		1000000:     "1,000,000",
-		123456789:   "123,456,789",
+		0:         "0",
+		999:       "999",
+		1000:      "1,000",
+		12345:     "12,345",
+		1000000:   "1,000,000",
+		123456789: "123,456,789",
 	}
 	for in, want := range cases {
 		if got := humanInt(in); got != want {

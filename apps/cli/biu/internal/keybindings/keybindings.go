@@ -29,19 +29,19 @@ type Action string
 // renaming an existing one is a breaking change for user configs, so
 // be deliberate.
 const (
-	ActionSubmit         Action = "submit"
-	ActionCancel         Action = "cancel"
-	ActionExit           Action = "exit"
-	ActionClear          Action = "clear"
-	ActionCompact        Action = "compact"
-	ActionHistoryPrev    Action = "history.prev"
-	ActionHistoryNext    Action = "history.next"
-	ActionExpandPreview  Action = "preview.expand"
-	ActionAcceptSuggest  Action = "suggest.accept"
-	ActionToggleVoice    Action = "voice.toggle"
-	ActionToggleTheme    Action = "theme.toggle"
-	ActionPasteImage     Action = "paste.image"
-	ActionInsertNewline  Action = "newline"
+	ActionSubmit        Action = "submit"
+	ActionCancel        Action = "cancel"
+	ActionExit          Action = "exit"
+	ActionClear         Action = "clear"
+	ActionCompact       Action = "compact"
+	ActionHistoryPrev   Action = "history.prev"
+	ActionHistoryNext   Action = "history.next"
+	ActionExpandPreview Action = "preview.expand"
+	ActionAcceptSuggest Action = "suggest.accept"
+	ActionToggleVoice   Action = "voice.toggle"
+	ActionToggleTheme   Action = "theme.toggle"
+	ActionPasteImage    Action = "paste.image"
+	ActionInsertNewline Action = "newline"
 )
 
 // Keystroke is a parsed single key press: a normalized key name plus
@@ -49,10 +49,10 @@ const (
 type Keystroke struct {
 	Key   string // lowercase name: "a", "enter", "escape", "up", etc.
 	Ctrl  bool
-	Alt   bool   // alias of Meta in terminals; we keep them distinct on parse.
+	Alt   bool // alias of Meta in terminals; we keep them distinct on parse.
 	Shift bool
 	Meta  bool
-	Super bool   // cmd / win / super
+	Super bool // cmd / win / super
 }
 
 // Chord is one or more keystrokes that must arrive in sequence.

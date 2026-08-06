@@ -1013,6 +1013,7 @@ type UpdatePageBodyInput struct {
 //  2. UPDATE pages.body_md + version+1 OCC
 //  3. reconcileBlocksTx 把 live blocks 对账成 mdparse(newBody)（保 block_id）
 //  4. emit page.updated（client page 流刷新）
+//
 // 不经 UpdatePage（那是 title/frontmatter 入口）；body 改写走本方法避免叠加快照/事件噪声。
 func (s *Store) UpdatePageBody(ctx context.Context, in UpdatePageBodyInput) (*Page, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -1125,9 +1126,9 @@ func blockToMarkdownLine(b *Block) string {
 	}
 }
 
-// BackfillBodyMd —— 一次性回填 body_md='' 的页（§⑤ 迁移 00066 后启动跑，幂等）。
-// body_md='' 且有 live blocks → BlocksToMarkdown 重算 UPDATE；空页保持 ''。
-// 跳过已回填（body_md<>'') 确保重复启动无副作用。返回回填页数。
+// BackfillBodyMd —— 一次性回填 body_md=” 的页（§⑤ 迁移 00066 后启动跑，幂等）。
+// body_md=” 且有 live blocks → BlocksToMarkdown 重算 UPDATE；空页保持 ”。
+// 跳过已回填（body_md<>”) 确保重复启动无副作用。返回回填页数。
 func (s *Store) BackfillBodyMd(ctx context.Context) (int, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id FROM brain.pages
@@ -1412,9 +1413,9 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 
 	// 6. emit page.restored（自动进 changelog：ListPageEvents 按 page_id 选不挑 event_type）。
 	if err := emitEvent(ctx, tx, cur.ProjectID, "user", actorID, "page.restored", map[string]any{
-		"page_id":   p.ID,
+		"page_id":     p.ID,
 		"revision_id": rev.ID,
-		"title":     p.Title,
+		"title":       p.Title,
 	}); err != nil {
 		return nil, err
 	}

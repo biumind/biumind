@@ -39,12 +39,12 @@ func (s *Server) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 }
 
 type providerRequest struct {
-	Code        string                     `json:"code"`
-	Name        string                     `json:"name"`
-	Protocol    registry.ProviderProtocol  `json:"protocol"`
-	Icon        string                     `json:"icon"`
-	Description string                     `json:"description"`
-	Status      registry.EntityStatus      `json:"status"`
+	Code        string                    `json:"code"`
+	Name        string                    `json:"name"`
+	Protocol    registry.ProviderProtocol `json:"protocol"`
+	Icon        string                    `json:"icon"`
+	Description string                    `json:"description"`
+	Status      registry.EntityStatus     `json:"status"`
 }
 
 func (req providerRequest) toInput() registry.ProviderInput {

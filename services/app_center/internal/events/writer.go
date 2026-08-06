@@ -31,12 +31,12 @@ const (
 	AppSuspended  Type = "app.suspended"
 
 	// Per-tenant install lifecycle.
-	AppInstalled            Type = "app.installed"
-	AppUninstalled          Type = "app.uninstalled"
-	AppUpgraded             Type = "app.upgraded"
-	AppPermissionsChanged   Type = "app.permissions_changed"
-	AppEnabledChanged       Type = "app.enabled_changed"
-	AppConfigUpdated        Type = "app.config_updated"
+	AppInstalled          Type = "app.installed"
+	AppUninstalled        Type = "app.uninstalled"
+	AppUpgraded           Type = "app.upgraded"
+	AppPermissionsChanged Type = "app.permissions_changed"
+	AppEnabledChanged     Type = "app.enabled_changed"
+	AppConfigUpdated      Type = "app.config_updated"
 
 	// Runtime activity.
 	AppActionInvoked   Type = "app.action_invoked"

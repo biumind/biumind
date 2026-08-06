@@ -245,9 +245,9 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 // renderToolRows builds the cluster of ⏺ rows shown above the in-flight
 // assistant text. Mirrors Claude Code's rendering style:
 //
-//   ⏺ Read foo.go
-//   ⏺ Edit foo.go (5 changes)               1.2s
-//   ⏺ Bash:rm -rf /tmp/x                    ✗ denied by user
+//	⏺ Read foo.go
+//	⏺ Edit foo.go (5 changes)               1.2s
+//	⏺ Bash:rm -rf /tmp/x                    ✗ denied by user
 func renderToolRows(rows []toolRow) string {
 	if len(rows) == 0 {
 		return ""
@@ -393,12 +393,12 @@ func renderPermissionAsk(ask *engine.PermissionAskEvent) string {
 
 // renderQuestionAsk shapes the AskUserQuestion panel:
 //
-//   * header chip + full question
-//   * vertical option list with `▸` for cursor + `[x]` for picks
+//   - header chip + full question
+//   - vertical option list with `▸` for cursor + `[x]` for picks
 //     (multi-select only)
-//   * synthesised "Other" row that lets the user type a free-text
+//   - synthesised "Other" row that lets the user type a free-text
 //     answer
-//   * preview pane to the right of the option list when the focused
+//   - preview pane to the right of the option list when the focused
 //     option carries a `preview` payload
 func renderQuestionAsk(m model) string {
 	ask := m.questionAsk
@@ -580,4 +580,3 @@ func formatProgress(d engine.ProgressData) string {
 	}
 	return ""
 }
-

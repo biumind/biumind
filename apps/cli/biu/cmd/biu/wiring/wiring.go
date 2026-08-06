@@ -42,9 +42,9 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
 	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planhint"
+	"github.com/biumind/biumind/apps/cli/biu/internal/planverify"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plugins"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plugins/bundled"
-	"github.com/biumind/biumind/apps/cli/biu/internal/planverify"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
 	"github.com/biumind/biumind/apps/cli/biu/internal/skills"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
@@ -62,10 +62,10 @@ import (
 // helpers consume; main.go fills it before dispatch so the wiring
 // package never imports main.
 type Flags struct {
-	Mode     string // "cloud" | "byo_endpoint" | "direct"
-	RelayURL string // model-relay base URL (cloud / byo_endpoint)
-	Token    string // virtual key for model-relay auth
-	System   string // --system override / extension to the system prompt
+	Mode     string   // "cloud" | "byo_endpoint" | "direct"
+	RelayURL string   // model-relay base URL (cloud / byo_endpoint)
+	Token    string   // virtual key for model-relay auth
+	System   string   // --system override / extension to the system prompt
 	AddDirs  []string // --add-dir entries (CLI source). Joined with settings.json on startup.
 }
 
@@ -341,7 +341,7 @@ func BuildEngine(cfg *config.Config, f Flags, model string) (*engine.QueryEngine
 		case permissions.DirValidSuccess:
 			permCtx.AddDirectories(permissions.SrcCLIArg, []string{result.AbsolutePath})
 		case permissions.DirValidAlreadyInWorkingDir:
-			// Silent: already covered, no action needed 
+			// Silent: already covered, no action needed
 		case permissions.DirValidPathNotFound:
 			// Silent on missing dirs
 		default:
@@ -441,7 +441,7 @@ func BuildEngine(cfg *config.Config, f Flags, model string) (*engine.QueryEngine
 	eng, err := engine.New(engine.Options{
 		State: st, Tools: reg, Provider: prov,
 		Model: model, System: system,
-		Cwd: cwd,
+		Cwd:         cwd,
 		Permissions: permCtx, Hooks: hookReg, Cost: tracker,
 		UsageLogger: usageLog,
 		// Edit / Write / MultiEdit / NotebookEdit ping the LSP pool
@@ -550,7 +550,6 @@ func (a skillRegistryAdapter) Lookup(name string) (interactive.Skill, bool) {
 	}
 	return rs, true
 }
-
 
 // isSymlinkAlias reports whether `pwd` and `cwd` resolve to the same
 // underlying directory inode. Used at startup to detect the case

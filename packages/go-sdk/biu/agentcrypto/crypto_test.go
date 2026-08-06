@@ -50,10 +50,10 @@ func TestCrypto_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	plaintexts := [][]byte{
-		[]byte(""),                                  // 空 payload
-		[]byte("hi"),                                // 小
+		[]byte(""),   // 空 payload
+		[]byte("hi"), // 小
 		[]byte(`{"api_key":"sk-secret","model":"x"}`), // 真实 work payload 形态
-		bytes.Repeat([]byte("A"), 64*1024),         // 大（64KB）
+		bytes.Repeat([]byte("A"), 64*1024),            // 大（64KB）
 	}
 	for _, pt := range plaintexts {
 		t.Run("", func(t *testing.T) {

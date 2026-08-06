@@ -29,13 +29,13 @@ import (
 // ─── Errors ───────────────────────────────────────────
 
 var (
-	ErrCouponNotFound       = errors.New("coupon: code not found")
-	ErrCouponInactive       = errors.New("coupon: status not active")
-	ErrCouponExpired        = errors.New("coupon: outside valid window")
-	ErrCouponAlreadyUsed    = errors.New("coupon: already redeemed by this user")
-	ErrCouponPlanMismatch   = errors.New("coupon: not applicable to this plan")
+	ErrCouponNotFound         = errors.New("coupon: code not found")
+	ErrCouponInactive         = errors.New("coupon: status not active")
+	ErrCouponExpired          = errors.New("coupon: outside valid window")
+	ErrCouponAlreadyUsed      = errors.New("coupon: already redeemed by this user")
+	ErrCouponPlanMismatch     = errors.New("coupon: not applicable to this plan")
 	ErrCouponCurrencyMismatch = errors.New("coupon: currency mismatch")
-	ErrCouponMaxUsesReached = errors.New("coupon: max total uses reached")
+	ErrCouponMaxUsesReached   = errors.New("coupon: max total uses reached")
 )
 
 // ─── Types ─────────────────────────────────────────────
@@ -224,13 +224,13 @@ func (r *CouponRepo) Validate(ctx context.Context, a ValidateArgs) (*ValidateRes
 
 // RedeemArgs — Redeem 入参.
 type RedeemArgs struct {
-	Code             string
-	UserID           uuid.UUID
-	PlanCode         string
-	AmountCents      int64
-	Currency         string
-	PaymentOrderID   *uuid.UUID
-	SubscriptionID   *uuid.UUID
+	Code           string
+	UserID         uuid.UUID
+	PlanCode       string
+	AmountCents    int64
+	Currency       string
+	PaymentOrderID *uuid.UUID
+	SubscriptionID *uuid.UUID
 }
 
 // RedeemResult — 落账结果.
@@ -246,10 +246,10 @@ type RedeemResult struct {
 // 在事务外调对应服务接口完成 (避免跨 schema 长事务).
 //
 // 调用顺序建议:
-//   1. r.Validate(...) 提前拿 ValidateResult 让客户端展示 discount.
-//   2. 用户确认后, 调 r.Redeem 落 redemption.
-//   3. 按 result.CreditsAmount / TrialExtraDays 调 credits.Grant /
-//      subscriptions.ExtendTrial.
+//  1. r.Validate(...) 提前拿 ValidateResult 让客户端展示 discount.
+//  2. 用户确认后, 调 r.Redeem 落 redemption.
+//  3. 按 result.CreditsAmount / TrialExtraDays 调 credits.Grant /
+//     subscriptions.ExtendTrial.
 func (r *CouponRepo) Redeem(ctx context.Context, a RedeemArgs) (*RedeemResult, error) {
 	v, err := r.Validate(ctx, ValidateArgs{
 		Code: a.Code, UserID: a.UserID, PlanCode: a.PlanCode,

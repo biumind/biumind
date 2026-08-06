@@ -14,9 +14,9 @@ import (
 
 // handleInit dispatches the /init subcommands.
 //
-//   /init             — write BIUMIND.md if it doesn't exist
-//   /init --force     — overwrite an existing BIUMIND.md
-//   /init --dry-run   — print the rendered template, don't write
+//	/init             — write BIUMIND.md if it doesn't exist
+//	/init --force     — overwrite an existing BIUMIND.md
+//	/init --dry-run   — print the rendered template, don't write
 //
 // The detector is deterministic — same cwd produces the same
 // output. Users typically run /init once per project, then edit by

@@ -50,10 +50,10 @@ const (
 )
 
 type larkAppAccessTokenResp struct {
-	Code            int    `json:"code"`
-	Msg             string `json:"msg"`
-	AppAccessToken  string `json:"app_access_token"`
-	Expire          int    `json:"expire"`
+	Code           int    `json:"code"`
+	Msg            string `json:"msg"`
+	AppAccessToken string `json:"app_access_token"`
+	Expire         int    `json:"expire"`
 }
 
 type larkAccessTokenResp struct {

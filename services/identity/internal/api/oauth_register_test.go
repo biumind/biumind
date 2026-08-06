@@ -8,7 +8,7 @@ func TestValidRedirectURI(t *testing.T) {
 		want bool
 	}{
 		{"https://app.example.com/callback", true},
-		{"http://127.0.0.1:55320/oauth", true},  // RFC 8252 loopback OK
+		{"http://127.0.0.1:55320/oauth", true},    // RFC 8252 loopback OK
 		{"claude-desktop://oauth/callback", true}, // custom scheme OK
 		{"", false},
 		{"/relative/path", false},

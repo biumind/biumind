@@ -20,10 +20,10 @@ import (
 
 // AgentGrant is one row in app_center.agent_apps.
 type AgentGrant struct {
-	AgentID    uuid.UUID
-	InstallID  string
-	Enabled    bool
-	AddedAt    time.Time
+	AgentID   uuid.UUID
+	InstallID string
+	Enabled   bool
+	AddedAt   time.Time
 }
 
 // GrantAgent gives an agent access to an installation. Idempotent

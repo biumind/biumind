@@ -69,13 +69,13 @@ func TestLookupLiteLLMMode_StripPrefix(t *testing.T) {
 // 兜底; 国产小众模型 LiteLLM 也没收录, 应该返回 "" 让启发式接管.
 func TestLookupLiteLLMMode_Misses(t *testing.T) {
 	cases := []string{
-		"gpt-4o-mini",          // chat — LiteLLM 字典故意不收
-		"claude-haiku-4-5",     // chat — 同上
-		"deepseek-chat",        // chat — 同上
-		"cosyvoice-v1",         // 国产 TTS, LiteLLM 没收 → 走启发式
-		"paraformer-v2",        // 国产 ASR
-		"qwen-image",           // 国产 image
-		"bytedance/seedance-2.0", // 国产 video
+		"gpt-4o-mini",                       // chat — LiteLLM 字典故意不收
+		"claude-haiku-4-5",                  // chat — 同上
+		"deepseek-chat",                     // chat — 同上
+		"cosyvoice-v1",                      // 国产 TTS, LiteLLM 没收 → 走启发式
+		"paraformer-v2",                     // 国产 ASR
+		"qwen-image",                        // 国产 image
+		"bytedance/seedance-2.0",            // 国产 video
 		"definitely-not-a-real-model-12345", // 完全不存在
 	}
 	for _, code := range cases {

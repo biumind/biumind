@@ -54,8 +54,8 @@ func TestBootstrapEnvExpansion(t *testing.T) {
 
 	results := r.Bootstrap(ctx, []BootstrapInput{
 		{
-			Source: "manual",
-			Name:   "fake",
+			Source:  "manual",
+			Name:    "fake",
 			Command: "/bin/sh",
 			Args:    []string{"${FAKE_BIU_TEST}"},
 			Env:     map[string]string{"BIU_DEFAULT": "${UNSET_VAR:-fallback}"},

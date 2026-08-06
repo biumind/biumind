@@ -218,4 +218,3 @@ func (s *fakeAsyncSpawner) SpawnAsync(_ context.Context, req AgentSpawnRequest) 
 	}()
 	return h, nil
 }
-

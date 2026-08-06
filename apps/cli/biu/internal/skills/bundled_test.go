@@ -128,4 +128,3 @@ USER LOOP BODY
 		t.Errorf("user body lost: %q", loop.Body)
 	}
 }
-

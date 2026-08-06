@@ -59,9 +59,9 @@ type State struct {
 // pendingCmd captures a partial NORMAL-mode command. We re-parse on
 // every keypress, so this is small.
 type pendingCmd struct {
-	count    int    // 0 means "no count specified yet"
-	operator byte   // 0 = none, otherwise 'd' / 'c' / 'y'
-	gPending bool   // a single 'g' was pressed; waiting for next char
+	count    int  // 0 means "no count specified yet"
+	operator byte // 0 = none, otherwise 'd' / 'c' / 'y'
+	gPending bool // a single 'g' was pressed; waiting for next char
 }
 
 // New returns a fresh State in INSERT mode with the given initial

@@ -107,8 +107,9 @@ func (a *Adaptor) TranslateTranscribeRequest(
 }
 
 // ParseTranscribeResponse — 同时支持 json / verbose_json 两种 OpenAI 响应.
-//   text 模式上游会直接返 plain text, 不是 JSON — caller 应在 handler 层
-//   先看 Content-Type 判定; ParseTranscribeResponse 假定收到 JSON.
+//
+//	text 模式上游会直接返 plain text, 不是 JSON — caller 应在 handler 层
+//	先看 Content-Type 判定; ParseTranscribeResponse 假定收到 JSON.
 func (a *Adaptor) ParseTranscribeResponse(body []byte) (*provider.TranscribeResponse, error) {
 	var or struct {
 		Text     string  `json:"text"`

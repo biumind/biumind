@@ -63,8 +63,8 @@ type Entry struct {
 	AITakeaway     string
 	AIBullets      []string
 	AITopics       []string
-	AIImportance   int     // 1-3
-	AILang         string  // 'zh' | 'en'
+	AIImportance   int    // 1-3
+	AILang         string // 'zh' | 'en'
 	AIProcessedAt  time.Time
 	AIError        string
 	WordCount      int

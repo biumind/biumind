@@ -4,12 +4,12 @@ import "testing"
 
 func TestTopNTopics_OrderAndCap(t *testing.T) {
 	got := topNTopics(map[string]int{
-		"AI":     10,
-		"科技":     8,
-		"投资":     8,
-		"娱乐":     2,
-		"政策":     5,
-		"设计":     4,
+		"AI": 10,
+		"科技": 8,
+		"投资": 8,
+		"娱乐": 2,
+		"政策": 5,
+		"设计": 4,
 	}, 3)
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3", len(got))

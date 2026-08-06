@@ -103,7 +103,7 @@ func TestPlanHinterSkippedInPlanMode(t *testing.T) {
 	perms := permissions.NewContext()
 	perms.SetMode(permissions.ModePlan)
 	eng, err := New(Options{
-		State:       st, Tools: reg, Provider: prov, Model: "test",
+		State: st, Tools: reg, Provider: prov, Model: "test",
 		Permissions: perms,
 		PlanHinter:  hinter,
 	})

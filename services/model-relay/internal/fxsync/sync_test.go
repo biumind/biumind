@@ -166,8 +166,8 @@ func TestSync_WrongBase(t *testing.T) {
 func TestSync_NetworkError(t *testing.T) {
 	_, store := openDB(t)
 	syncer := &Syncer{
-		Store: store,
-		URL:   "http://127.0.0.1:1", // unreachable port
+		Store:  store,
+		URL:    "http://127.0.0.1:1", // unreachable port
 		Client: &http.Client{Timeout: 200 * time.Millisecond},
 	}
 	err := syncer.SyncOnce(context.Background())

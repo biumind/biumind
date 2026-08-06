@@ -22,13 +22,13 @@ type Blob struct {
 }
 
 type BlobConfig struct {
-	Endpoint        string // e.g. "minio:9000" (host:port, 不带 scheme)
-	AccessKey       string
-	SecretKey       string
-	UseSSL          bool
-	Bucket          string // 默认 "biumind-files"
-	Region          string // 可空
-	EnsureBucket    bool   // 启动时若不存在自动创建
+	Endpoint     string // e.g. "minio:9000" (host:port, 不带 scheme)
+	AccessKey    string
+	SecretKey    string
+	UseSSL       bool
+	Bucket       string // 默认 "biumind-files"
+	Region       string // 可空
+	EnsureBucket bool   // 启动时若不存在自动创建
 }
 
 func NewBlob(ctx context.Context, cfg BlobConfig) (*Blob, error) {

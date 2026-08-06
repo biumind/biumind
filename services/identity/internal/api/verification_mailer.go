@@ -82,7 +82,7 @@ func (m *VerificationMailer) SendCode(ctx context.Context, toEmail, code string,
 	if err := mailer.Send(mailer.SMTPConfig{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 		User: cfg.SMTPUser, Pass: cfg.SMTPPass,
-		TLS:  cfg.SMTPTLS, From: cfg.From,
+		TLS: cfg.SMTPTLS, From: cfg.From,
 	}, []string{toEmail}, subject, body); err != nil {
 		return false, fmt.Errorf("smtp: %w", err)
 	}

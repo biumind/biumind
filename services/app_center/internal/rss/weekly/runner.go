@@ -162,18 +162,18 @@ func (r *Runner) findPendingUsers(ctx context.Context, week string) ([]string, e
 
 // userStats — 单用户 7d 行为聚合.
 type userStats struct {
-	StarredN int
-	ReadN    int
-	WikiN    int
-	TopTopics []string // top 3
+	StarredN   int
+	ReadN      int
+	WikiN      int
+	TopTopics  []string     // top 3
 	TopEntries []entryBrief // top 5 (按 importance + starred 加权)
 }
 
 type entryBrief struct {
-	Title    string
-	URL      string
+	Title     string
+	URL       string
 	FeedTitle string
-	Takeaway string
+	Takeaway  string
 }
 
 func (r *Runner) collectStats(ctx context.Context, userID string) (*userStats, error) {

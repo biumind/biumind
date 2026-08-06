@@ -13,10 +13,10 @@ import (
 // W3-3 集成: Consume / Refund / Hold / Settle / Release / ReapExpired
 // 都正确发出对应事件.
 type countingPublisher struct {
-	mu                                                   sync.Mutex
-	consumes, refunds, holds, settles, releases, subs    int
-	lastConsume                                          events.ConsumeEvent
-	lastRelease                                          events.ReleaseEvent
+	mu                                                sync.Mutex
+	consumes, refunds, holds, settles, releases, subs int
+	lastConsume                                       events.ConsumeEvent
+	lastRelease                                       events.ReleaseEvent
 }
 
 func (c *countingPublisher) PublishConsume(_ context.Context, e events.ConsumeEvent) error {
@@ -228,4 +228,3 @@ func TestSetPublisherNil(t *testing.T) {
 		t.Fatalf("grant: %v", err)
 	}
 }
-

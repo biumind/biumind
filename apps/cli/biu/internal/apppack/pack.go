@@ -177,11 +177,11 @@ type VerifyResult struct {
 }
 
 // Verify opens the .biuapp at path and validates:
-//   1. manifest.yaml present
-//   2. SHA256SUMS lists every other entry, hashes match
-//   3. (if signed) manifest.sig + SHA256SUMS.sig validate against
-//      the supplied trusted pub keys (any one matching is fine for
-//      v2.0; v2.5 marketplace will pin per-publisher).
+//  1. manifest.yaml present
+//  2. SHA256SUMS lists every other entry, hashes match
+//  3. (if signed) manifest.sig + SHA256SUMS.sig validate against
+//     the supplied trusted pub keys (any one matching is fine for
+//     v2.0; v2.5 marketplace will pin per-publisher).
 //
 // trustedPubs is a map of "ed25519:<pub-base64>" → ed25519.PublicKey.
 // Empty map = unsigned-tolerant; pass at least one entry to enforce

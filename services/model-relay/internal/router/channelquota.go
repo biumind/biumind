@@ -196,12 +196,12 @@ func (q *ChannelQuota) RefundRPM(id uuid.UUID) {
 
 // Stats — for observability / debug.
 type Stats struct {
-	RPMLimit     int64
-	RPMUsed      int64
-	RPMResetIn   time.Duration
-	TPMLimit     int64
-	TPMUsed      int64
-	TPMResetIn   time.Duration
+	RPMLimit   int64
+	RPMUsed    int64
+	RPMResetIn time.Duration
+	TPMLimit   int64
+	TPMUsed    int64
+	TPMResetIn time.Duration
 }
 
 func (q *ChannelQuota) Stats(id uuid.UUID) Stats {

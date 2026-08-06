@@ -20,9 +20,9 @@ import (
 
 // ModelCost is the per-Mtok price tier for one model.
 type ModelCost struct {
-	InputTokens          float64
-	OutputTokens         float64
-	PromptCacheReadTokens float64
+	InputTokens            float64
+	OutputTokens           float64
+	PromptCacheReadTokens  float64
 	PromptCacheWriteTokens float64
 }
 
@@ -213,19 +213,19 @@ func (t *Tracker) SnapshotByTool() map[string]ToolUsage {
 
 // Snapshot returns a stable read-only copy.
 type Snapshot struct {
-	Model      string
-	InputTokens int
-	OutputTokens int
-	CacheReadTokens int
+	Model            string
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
 	CacheWriteTokens int
-	USD float64
+	USD              float64
 }
 
 func (t *Tracker) Snapshot() Snapshot {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return Snapshot{
-		Model: t.model,
+		Model:       t.model,
 		InputTokens: t.in, OutputTokens: t.out,
 		CacheReadTokens: t.cacheRead, CacheWriteTokens: t.cacheWrite,
 		USD: t.usd,

@@ -94,14 +94,14 @@ type Common struct {
 // LogID 引用 identity.credit_logs 行做对账锚点.
 type ConsumeEvent struct {
 	Common
-	LogID         uuid.UUID `json:"log_id"`
-	Amount        int64     `json:"amount"` // 永远 > 0, 单位 = 积分
-	RefType       string    `json:"ref_type,omitempty"`
-	RefID         string    `json:"ref_id,omitempty"`
-	ModelCode     string    `json:"model_code,omitempty"`     // 用于 model 维度 dashboard
-	ProviderCode  string    `json:"provider_code,omitempty"`
-	UpstreamUSD   float64   `json:"upstream_usd,omitempty"`   // 实际供应商成本 (毛利计算)
-	UpstreamCNY   float64   `json:"upstream_cny,omitempty"`
+	LogID        uuid.UUID `json:"log_id"`
+	Amount       int64     `json:"amount"` // 永远 > 0, 单位 = 积分
+	RefType      string    `json:"ref_type,omitempty"`
+	RefID        string    `json:"ref_id,omitempty"`
+	ModelCode    string    `json:"model_code,omitempty"` // 用于 model 维度 dashboard
+	ProviderCode string    `json:"provider_code,omitempty"`
+	UpstreamUSD  float64   `json:"upstream_usd,omitempty"` // 实际供应商成本 (毛利计算)
+	UpstreamCNY  float64   `json:"upstream_cny,omitempty"`
 }
 
 // RefundEvent — 退款后发. RefundOfLogID 指向被退的原 Consume.

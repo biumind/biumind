@@ -50,33 +50,33 @@ const (
 )
 
 type Picks struct {
-	Headline    []*Entry  // 5 distinct-cluster top entries
-	Missed      []*Entry  // 3 high-importance unread from yesterday
-	Trends      []Trend   // top topics this 24h
+	Headline    []*Entry // 5 distinct-cluster top entries
+	Missed      []*Entry // 3 high-importance unread from yesterday
+	Trends      []Trend  // top topics this 24h
 	Stats       Stats
 	GeneratedAt time.Time
 }
 
 type Entry struct {
-	ID          uuid.UUID
-	FeedID      uuid.UUID
-	FeedTitle   string
-	FeedColor   string
-	URL         string
-	Title       string
-	Author      string
-	Snippet     string
-	AITakeaway  string
-	AIBullets   []string
-	AITopics    []string
+	ID           uuid.UUID
+	FeedID       uuid.UUID
+	FeedTitle    string
+	FeedColor    string
+	URL          string
+	Title        string
+	Author       string
+	Snippet      string
+	AITakeaway   string
+	AIBullets    []string
+	AITopics     []string
 	AIImportance int
-	WordCount   int
-	ReadingSec  int
-	PublishedAt time.Time
-	FetchedAt   time.Time
-	Score       float32
-	ClusterSize int      // 1 = singleton; ≥ 2 means there are dup sources
-	OtherURLs   []string // member urls (other than canonical) for "另 N 个来源"
+	WordCount    int
+	ReadingSec   int
+	PublishedAt  time.Time
+	FetchedAt    time.Time
+	Score        float32
+	ClusterSize  int      // 1 = singleton; ≥ 2 means there are dup sources
+	OtherURLs    []string // member urls (other than canonical) for "另 N 个来源"
 
 	// embeddingVec is the entry's pgvector embedding when populated.
 	// Lowercase so it never escapes to JSON or external callers; only

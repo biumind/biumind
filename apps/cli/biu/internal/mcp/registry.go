@@ -505,8 +505,8 @@ func (r *Registry) GetPrompt(ctx context.Context, server, name string, args map[
 // Headers; Command/Args are ignored. Mixed-transport batches are
 // supported — Bootstrap dispatches per-entry.
 type BootstrapInput struct {
-	Source  string // 'manual' | 'plugin' | 'project' — used for dedup priority
-	Name    string
+	Source string // 'manual' | 'plugin' | 'project' — used for dedup priority
+	Name   string
 	// Transport selects the wire protocol. Empty → stdio (default).
 	Transport Transport
 
@@ -534,11 +534,11 @@ type BootstrapInput struct {
 
 // BootstrapResult records what happened for one entry.
 type BootstrapResult struct {
-	Name        string
-	Skipped     bool   // true → duplicate of a higher-priority entry
-	Err         error  // non-nil → connect failed
-	Missing     []string // env vars referenced without defaults that weren't set
-	TrustBlocked bool   // true → trust gate refused to spawn this entry
+	Name         string
+	Skipped      bool     // true → duplicate of a higher-priority entry
+	Err          error    // non-nil → connect failed
+	Missing      []string // env vars referenced without defaults that weren't set
+	TrustBlocked bool     // true → trust gate refused to spawn this entry
 }
 
 // TrustGate is the small surface Bootstrap consults before spawning

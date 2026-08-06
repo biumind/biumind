@@ -59,8 +59,8 @@ type RateLimit struct {
 // action is run. Optional; advisory only — actual cost is recorded
 // post-hoc in app_center.invocations.
 type CostEstimate struct {
-	RelayTokensMax  int `json:"hub_tokens_max,omitempty"  yaml:"hub_tokens_max,omitempty"`
-	DurationMsP95 int `json:"duration_ms_p95,omitempty" yaml:"duration_ms_p95,omitempty"`
+	RelayTokensMax int `json:"hub_tokens_max,omitempty"  yaml:"hub_tokens_max,omitempty"`
+	DurationMsP95  int `json:"duration_ms_p95,omitempty" yaml:"duration_ms_p95,omitempty"`
 }
 
 // ─── View specification ────────────────────────────────────────────
@@ -74,10 +74,10 @@ const (
 	LayoutListDetail ViewLayout = "list_detail"
 	LayoutForm       ViewLayout = "form"
 	LayoutWebView    ViewLayout = "webview"
-	LayoutGrid       ViewLayout = "grid"        // v2.0
-	LayoutDashboard  ViewLayout = "dashboard"   // v2.0
-	LayoutAgentChat  ViewLayout = "agent_chat"  // v2.0
-	LayoutCustom     ViewLayout = "custom"      // v2.0 — A2UI subtree
+	LayoutGrid       ViewLayout = "grid"       // v2.0
+	LayoutDashboard  ViewLayout = "dashboard"  // v2.0
+	LayoutAgentChat  ViewLayout = "agent_chat" // v2.0
+	LayoutCustom     ViewLayout = "custom"     // v2.0 — A2UI subtree
 )
 
 // ViewSpec describes one route/screen the App contributes to the
@@ -85,8 +85,8 @@ const (
 // validator; this struct holds the union.
 type ViewSpec struct {
 	ID     string     `json:"id"               yaml:"id"`
-	Route  string     `json:"route"            yaml:"route"`              // must start with /apps/<identifier>
-	Title  string     `json:"title,omitempty"  yaml:"title,omitempty"`    // i18n key allowed
+	Route  string     `json:"route"            yaml:"route"`           // must start with /apps/<identifier>
+	Title  string     `json:"title,omitempty"  yaml:"title,omitempty"` // i18n key allowed
 	Layout ViewLayout `json:"layout"           yaml:"layout"`
 
 	// DataSource declares what action the client should call when
@@ -113,8 +113,8 @@ type ViewSpec struct {
 	// SchemaRef (form layout) — dotted path into manifest, e.g.
 	// "actions.subscribe.input_schema" — re-uses the schema directly
 	// rather than duplicating it inline.
-	SchemaRef string         `json:"schema_ref,omitempty" yaml:"schema_ref,omitempty"`
-	Submit    *FormSubmit    `json:"submit,omitempty"     yaml:"submit,omitempty"`
+	SchemaRef string      `json:"schema_ref,omitempty" yaml:"schema_ref,omitempty"`
+	Submit    *FormSubmit `json:"submit,omitempty"     yaml:"submit,omitempty"`
 
 	// URL (webview layout) — required iff Layout==webview.
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
@@ -192,7 +192,7 @@ type FormSubmit struct {
 type ViewCard struct {
 	ID         string          `json:"id"                    yaml:"id"`
 	Title      string          `json:"title,omitempty"       yaml:"title,omitempty"`
-	Kind       string          `json:"kind,omitempty"        yaml:"kind,omitempty"`         // text|number|list|chart (chart = placeholder in v2.0)
+	Kind       string          `json:"kind,omitempty"        yaml:"kind,omitempty"` // text|number|list|chart (chart = placeholder in v2.0)
 	DataSource *ViewDataSource `json:"data_source,omitempty" yaml:"data_source,omitempty"`
 
 	// Span sizes the card across the 12-column dashboard grid.
@@ -271,13 +271,13 @@ type TriggerSpec struct {
 	Name string      `json:"name" yaml:"name"` // unique within manifest
 
 	// Cron-only fields.
-	Expr           string `json:"expr,omitempty"             yaml:"expr,omitempty"`              // standard 5-field cron
-	IfInactiveFor  string `json:"if_inactive_for,omitempty"  yaml:"if_inactive_for,omitempty"`   // skip if user idle ≥ duration
+	Expr          string `json:"expr,omitempty"             yaml:"expr,omitempty"`            // standard 5-field cron
+	IfInactiveFor string `json:"if_inactive_for,omitempty"  yaml:"if_inactive_for,omitempty"` // skip if user idle ≥ duration
 
 	// Webhook-only fields.
-	Path          string   `json:"path,omitempty"           yaml:"path,omitempty"`             // e.g. "/callback"
-	Auth          string   `json:"auth,omitempty"           yaml:"auth,omitempty"`             // hmac | none
-	AcceptMethods []string `json:"accept_methods,omitempty" yaml:"accept_methods,omitempty"`   // POST | GET | ...
+	Path          string   `json:"path,omitempty"           yaml:"path,omitempty"`           // e.g. "/callback"
+	Auth          string   `json:"auth,omitempty"           yaml:"auth,omitempty"`           // hmac | none
+	AcceptMethods []string `json:"accept_methods,omitempty" yaml:"accept_methods,omitempty"` // POST | GET | ...
 
 	// Inbox-only field — message pattern matched by Channels router.
 	Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
@@ -308,10 +308,10 @@ const (
 )
 
 type BillingSpec struct {
-	Tier      BillingTier   `json:"tier" yaml:"tier"`
-	Price     *BillingPrice `json:"price,omitempty"      yaml:"price,omitempty"`     // pro only
-	TrialDays int           `json:"trial_days,omitempty" yaml:"trial_days,omitempty"`
-	Meters    []BillingMeter `json:"meters,omitempty" yaml:"meters,omitempty"`        // usage only
+	Tier      BillingTier    `json:"tier" yaml:"tier"`
+	Price     *BillingPrice  `json:"price,omitempty"      yaml:"price,omitempty"` // pro only
+	TrialDays int            `json:"trial_days,omitempty" yaml:"trial_days,omitempty"`
+	Meters    []BillingMeter `json:"meters,omitempty" yaml:"meters,omitempty"` // usage only
 }
 
 type BillingPrice struct {
@@ -321,9 +321,9 @@ type BillingPrice struct {
 }
 
 type BillingMeter struct {
-	Name             string `json:"name"               yaml:"name"`
-	Unit             string `json:"unit,omitempty"     yaml:"unit,omitempty"`
-	UnitPriceMicro   int64  `json:"unit_price_micro,omitempty" yaml:"unit_price_micro,omitempty"` // microUSD
+	Name           string `json:"name"               yaml:"name"`
+	Unit           string `json:"unit,omitempty"     yaml:"unit,omitempty"`
+	UnitPriceMicro int64  `json:"unit_price_micro,omitempty" yaml:"unit_price_micro,omitempty"` // microUSD
 }
 
 // ─── Sidebar hints ─────────────────────────────────────────────────
@@ -333,9 +333,9 @@ type BillingMeter struct {
 // can request default_pin=true; marketplace MUST be false.
 type SidebarHints struct {
 	DefaultPin           bool   `json:"default_pin,omitempty"            yaml:"default_pin,omitempty"`
-	PreferredPosition    string `json:"preferred_position,omitempty"     yaml:"preferred_position,omitempty"`     // top|middle|bottom
-	BadgeAction          string `json:"badge_action,omitempty"           yaml:"badge_action,omitempty"`           // action name returning {count, severity}
-	BadgeRefreshSec      int    `json:"badge_refresh,omitempty"          yaml:"badge_refresh,omitempty"`          // ≥ 60
+	PreferredPosition    string `json:"preferred_position,omitempty"     yaml:"preferred_position,omitempty"` // top|middle|bottom
+	BadgeAction          string `json:"badge_action,omitempty"           yaml:"badge_action,omitempty"`       // action name returning {count, severity}
+	BadgeRefreshSec      int    `json:"badge_refresh,omitempty"          yaml:"badge_refresh,omitempty"`      // ≥ 60
 	MobileBottomEligible bool   `json:"mobile_bottom_eligible,omitempty" yaml:"mobile_bottom_eligible,omitempty"`
 }
 
@@ -345,7 +345,7 @@ type SidebarHints struct {
 // Validated at install time: missing requirement → install fails with
 // a user-facing "first install X" prompt.
 type Requirement struct {
-	Kind       string `json:"kind"       yaml:"kind"`        // app | mcp_server
+	Kind       string `json:"kind"       yaml:"kind"` // app | mcp_server
 	Identifier string `json:"identifier" yaml:"identifier"`
 	MinVersion string `json:"min_version,omitempty" yaml:"min_version,omitempty"`
 }

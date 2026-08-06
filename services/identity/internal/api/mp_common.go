@@ -171,4 +171,3 @@ func (s *Server) mpRespondWithTokens(
 	}
 	s.issueTokensAndRespond(w, ctx, u, deviceName, installationID)
 }
-

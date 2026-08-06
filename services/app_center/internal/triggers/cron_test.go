@@ -8,10 +8,10 @@ import (
 
 func TestParse_Standard5Field(t *testing.T) {
 	for _, expr := range []string{
-		"5 * * * *",     // 5-min past every hour
-		"0 8 * * *",     // 8am daily
-		"0 0 1 * *",     // 1st of every month
-		"*/15 * * * *",  // every 15 min
+		"5 * * * *",      // 5-min past every hour
+		"0 8 * * *",      // 8am daily
+		"0 0 1 * *",      // 1st of every month
+		"*/15 * * * *",   // every 15 min
 		"0 9-17 * * 1-5", // weekday 9-5 hourly
 	} {
 		if _, err := Parse(expr); err != nil {
@@ -30,8 +30,8 @@ func TestParse_RejectsEveryMinute(t *testing.T) {
 func TestParse_RejectsMalformed(t *testing.T) {
 	for _, expr := range []string{
 		"",
-		"60 * * * *",   // minute > 59
-		"* * * 13 *",   // month > 12
+		"60 * * * *", // minute > 59
+		"* * * 13 *", // month > 12
 		"abc def",
 	} {
 		_, err := Parse(expr)

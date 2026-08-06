@@ -252,8 +252,8 @@ func (s *InternalServer) handleBlobPresign(w http.ResponseWriter, r *http.Reques
 
 type parseResultReq struct {
 	ExtractedText string `json:"extracted_text"`
-	ContentHash   string `json:"content_hash"`       // hex（sha256(extracted_text)）
-	ParseStatus   string `json:"parse_status"`        // done | error
+	ContentHash   string `json:"content_hash"` // hex（sha256(extracted_text)）
+	ParseStatus   string `json:"parse_status"` // done | error
 	ParseError    string `json:"parse_error,omitempty"`
 }
 
@@ -352,10 +352,10 @@ func (s *InternalServer) detectSourceDupes(
 		Description: desc,
 		PageIDs:     []uuid.UUID{},
 		Payload: map[string]any{
-			"kind":          "source",
-			"content_hash":  hashHex,
-			"source_ids":    idStrs,
-			"source_uuids":  sourceIDs,
+			"kind":         "source",
+			"content_hash": hashHex,
+			"source_ids":   idStrs,
+			"source_uuids": sourceIDs,
 		},
 		DedupeKey: dedupeKey,
 	}); uerr != nil {

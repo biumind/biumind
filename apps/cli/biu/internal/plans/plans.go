@@ -27,11 +27,11 @@ import (
 
 // Plan is the metadata + body returned by ListPlans / Read.
 type Plan struct {
-	ID       string    // basename without `.md`
-	Path     string    // absolute path on disk
-	Bytes    int64     // file size
-	ModTime  time.Time // last write
-	FirstLine string   // first non-blank, non-comment line — for table previews
+	ID        string    // basename without `.md`
+	Path      string    // absolute path on disk
+	Bytes     int64     // file size
+	ModTime   time.Time // last write
+	FirstLine string    // first non-blank, non-comment line — for table previews
 }
 
 // Dir resolves the standard plans directory (~/.biu/plans). Honours
@@ -85,9 +85,9 @@ func ListPlans(dir string) ([]Plan, error) {
 
 // FindByID resolves a plan reference, supporting:
 //
-//   * `latest` (alias for the newest plan)
-//   * full id (`20260301-120000-abcd1234`)
-//   * unambiguous prefix (`20260301`)
+//   - `latest` (alias for the newest plan)
+//   - full id (`20260301-120000-abcd1234`)
+//   - unambiguous prefix (`20260301`)
 //
 // Returns (Plan, true) on a unique hit; (zero, false) when missing
 // or ambiguous. Callers handle the ambiguous case by listing.

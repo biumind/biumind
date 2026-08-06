@@ -288,7 +288,7 @@ func TestLintDuplicateTitle_FlagsCollidingGroup(t *testing.T) {
 	pid := uuid.New()
 	other := uuid.New()
 	in := LintInput{
-		Page: PageView{ID: pid, Title: "Notes"},
+		Page:   PageView{ID: pid, Title: "Notes"},
 		Blocks: []BlockView{{Text: "body"}},
 		TitleGroups: map[string][]uuid.UUID{
 			"notes": {pid, other},
@@ -306,7 +306,7 @@ func TestLintDuplicateTitle_FlagsCollidingGroup(t *testing.T) {
 func TestLintDuplicateTitle_NoFlagOnUniqueTitle(t *testing.T) {
 	pid := uuid.New()
 	in := LintInput{
-		Page: PageView{ID: pid, Title: "Unique"},
+		Page:   PageView{ID: pid, Title: "Unique"},
 		Blocks: []BlockView{{Text: "body"}},
 		TitleGroups: map[string][]uuid.UUID{
 			"unique": {pid}, // group of 1
@@ -357,7 +357,7 @@ func TestLintOrphanPage_FlagsUnreferenced(t *testing.T) {
 
 func TestLintOrphanPage_NoFlagWhenReferenced(t *testing.T) {
 	in := LintInput{
-		Page: PageView{ID: uuid.New(), Title: "Popular"},
+		Page:   PageView{ID: uuid.New(), Title: "Popular"},
 		Blocks: []BlockView{{Text: "body"}},
 		IncomingLinkTitles: map[string]struct{}{
 			"popular": {}, // case-insensitive match

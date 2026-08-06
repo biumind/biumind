@@ -79,7 +79,7 @@ type HTTPSender struct {
 func NewHTTPSender(store *Store, relayURL string) *HTTPSender {
 	return &HTTPSender{
 		Store:               store,
-		RelayURL:              strings.TrimRight(relayURL, "/"),
+		RelayURL:            strings.TrimRight(relayURL, "/"),
 		PassThroughAuth:     true,
 		ContextBudgetTokens: 100_000,
 		MinHistory:          10,
@@ -97,10 +97,10 @@ func (h *HTTPSender) WithTools(reg *tools.Registry) *HTTPSender {
 
 type sendReq struct {
 	ClientID string          `json:"client_id"`
-	Parts    json.RawMessage `json:"parts"`     // multimodal content array
-	Content  string          `json:"content"`   // fallback if parts empty
-	Model    *string         `json:"model"`     // optional override
-	System   *string         `json:"system"`    // optional override
+	Parts    json.RawMessage `json:"parts"`   // multimodal content array
+	Content  string          `json:"content"` // fallback if parts empty
+	Model    *string         `json:"model"`   // optional override
+	System   *string         `json:"system"`  // optional override
 	// Per-send override of thread.metadata.model_params. Any field
 	// set here wins over the thread default. Client-side UI
 	// typically writes to thread.metadata so the override stays
@@ -647,13 +647,13 @@ type hubToolCall struct {
 }
 
 type hubMessage struct {
-	Role       string        `json:"role"`
-	Content    string        `json:"content,omitempty"`
+	Role    string `json:"role"`
+	Content string `json:"content,omitempty"`
 	// Parts: optional multimodal content forwarded to model-relay →
 	// adaptor as Anthropic-shape content blocks (text + image).
 	// When set, the adaptor uses these instead of Content.
-	Parts      json.RawMessage `json:"parts,omitempty"`
-	ToolCalls  []hubToolCall   `json:"tool_calls,omitempty"`
+	Parts     json.RawMessage `json:"parts,omitempty"`
+	ToolCalls []hubToolCall   `json:"tool_calls,omitempty"`
 	// ToolCallID set on role=tool messages to pair with a prior
 	// tool_use block.
 	ToolCallID string `json:"tool_call_id,omitempty"`
@@ -787,8 +787,8 @@ func (h *HTTPSender) dispatchHubFrame(event, data string, out chan<- hubFrame) {
 		out <- hubFrame{Kind: frameThinking, Text: p.Text}
 	case "stop":
 		var p struct {
-			Reason           string `json:"reason"`
-			Usage            struct {
+			Reason string `json:"reason"`
+			Usage  struct {
 				PromptTokens     int `json:"prompt_tokens"`
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
@@ -808,7 +808,9 @@ func (h *HTTPSender) dispatchHubFrame(event, data string, out chan<- hubFrame) {
 	case "end":
 		out <- hubFrame{Kind: frameEnd}
 	case "error":
-		var p struct{ Message string `json:"message"` }
+		var p struct {
+			Message string `json:"message"`
+		}
 		_ = json.Unmarshal([]byte(data), &p)
 		out <- hubFrame{Kind: frameErr, Err: errors.New(p.Message)}
 	}

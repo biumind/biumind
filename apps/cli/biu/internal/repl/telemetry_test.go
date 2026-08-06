@@ -243,10 +243,10 @@ func TestHandleTelemetryDispatch(t *testing.T) {
 // identifier never reaches the system note.
 func TestRedactID(t *testing.T) {
 	cases := map[string]string{
-		"":          "(none)",
-		"short":     "short",
-		"abcdefgh":  "abcdefgh",
-		"abcdefghi": "abcd…fghi",
+		"":                  "(none)",
+		"short":             "short",
+		"abcdefgh":          "abcdefgh",
+		"abcdefghi":         "abcd…fghi",
 		"01234567890abcdef": "0123…cdef",
 	}
 	for in, want := range cases {

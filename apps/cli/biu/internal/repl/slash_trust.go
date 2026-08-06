@@ -13,11 +13,11 @@ import (
 
 // handleTrust dispatches /trust subcommands.
 //
-//   /trust                — show current cwd state + persisted list
-//   /trust here           — persist trust for the current cwd
-//   /trust session        — trust cwd in-memory (this session only)
-//   /trust add <path>     — persist trust for an explicit path
-//   /trust remove <path>  — revoke a persistent grant
+//	/trust                — show current cwd state + persisted list
+//	/trust here           — persist trust for the current cwd
+//	/trust session        — trust cwd in-memory (this session only)
+//	/trust add <path>     — persist trust for an explicit path
+//	/trust remove <path>  — revoke a persistent grant
 //
 // Untrusted directories block status-line scripts from running. We
 // don't auto-prompt on first launch (would need modal UI work) —

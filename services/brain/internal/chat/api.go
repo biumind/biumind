@@ -290,13 +290,13 @@ func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateThreadReq struct {
-	Title         *string         `json:"title"`
-	Model         *string         `json:"model"`
-	SystemPrompt  *string         `json:"system_prompt"`
-	Pinned        *bool           `json:"pinned"`
-	Archived      *bool           `json:"archived"`
-	AgentID       *string         `json:"agent_id"`
-	SyncEnabled   *bool           `json:"sync_enabled"`
+	Title        *string `json:"title"`
+	Model        *string `json:"model"`
+	SystemPrompt *string `json:"system_prompt"`
+	Pinned       *bool   `json:"pinned"`
+	Archived     *bool   `json:"archived"`
+	AgentID      *string `json:"agent_id"`
+	SyncEnabled  *bool   `json:"sync_enabled"`
 	// ModelParams: omit field to leave alone; pass `{}` to clear;
 	// pass {temperature, top_p, max_tokens, stop_sequences} to set.
 	ModelParams json.RawMessage `json:"model_params,omitempty"`
@@ -315,15 +315,15 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := UpdateThreadInput{
-		UserID:        uid,
-		ThreadID:      tid,
-		Title:         req.Title,
-		Model:         req.Model,
-		SystemPrompt:  req.SystemPrompt,
-		Pinned:        req.Pinned,
-		Archived:      req.Archived,
-		SyncEnabled:   req.SyncEnabled,
-		ModelParams:   req.ModelParams,
+		UserID:       uid,
+		ThreadID:     tid,
+		Title:        req.Title,
+		Model:        req.Model,
+		SystemPrompt: req.SystemPrompt,
+		Pinned:       req.Pinned,
+		Archived:     req.Archived,
+		SyncEnabled:  req.SyncEnabled,
+		ModelParams:  req.ModelParams,
 	}
 	if req.AgentID != nil {
 		if id, err := uuid.Parse(*req.AgentID); err == nil {

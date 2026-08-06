@@ -98,11 +98,11 @@ func (m *Memory) Publish(_ context.Context, topic, kind string, payload map[stri
 // each mapping to a distinct Realtime topic. The scope→topic table
 // stays in this package so all readers find one source of truth.
 //
-//   scope                    topic                          consumer
-//   install:<install_id> →   app:install:<install_id>       AppViewHost (refresh_on)
-//   app:<app_id>         →   app:catalog:<app_id>           App Center home (badge dot)
-//   user:<user_id>       →   sidebar:user:<user_id>         Sidebar customize page
-//   org:<org_id>         →   app:org:<org_id>               Org admin dashboard
+//	scope                    topic                          consumer
+//	install:<install_id> →   app:install:<install_id>       AppViewHost (refresh_on)
+//	app:<app_id>         →   app:catalog:<app_id>           App Center home (badge dot)
+//	user:<user_id>       →   sidebar:user:<user_id>         Sidebar customize page
+//	org:<org_id>         →   app:org:<org_id>               Org admin dashboard
 //
 // Unknown scope kinds become "app:unknown:<scope>" — reaches no
 // subscriber but keeps the row from looping forever.
@@ -130,19 +130,19 @@ func TopicForScope(scope string) string {
 // name the client switches on. Mirrors the registry in
 // packages/proto/biumind/agui/v1/agui.proto §App Center.
 var eventKindMap = map[string]string{
-	"app.installed":            "biumind.app.installed",
-	"app.uninstalled":          "biumind.app.uninstalled",
-	"app.upgraded":             "biumind.app.upgraded",
-	"app.permissions_changed":  "biumind.app.permissions_changed",
-	"app.action_invoked":       "biumind.app.action_invoked",
-	"app.trigger_fired":        "biumind.app.trigger_fired",
-	"app.view_data_changed":    "biumind.app.view_data_changed",
-	"app.published":            "biumind.app.published",
-	"app.deprecated":           "biumind.app.deprecated",
-	"app.suspended":            "biumind.app.suspended",
-	"app.enabled_changed":      "biumind.app.enabled_changed",
-	"app.config_updated":       "biumind.app.config_updated",
-	"sidebar.layout_changed":   "biumind.sidebar.layout_changed",
+	"app.installed":           "biumind.app.installed",
+	"app.uninstalled":         "biumind.app.uninstalled",
+	"app.upgraded":            "biumind.app.upgraded",
+	"app.permissions_changed": "biumind.app.permissions_changed",
+	"app.action_invoked":      "biumind.app.action_invoked",
+	"app.trigger_fired":       "biumind.app.trigger_fired",
+	"app.view_data_changed":   "biumind.app.view_data_changed",
+	"app.published":           "biumind.app.published",
+	"app.deprecated":          "biumind.app.deprecated",
+	"app.suspended":           "biumind.app.suspended",
+	"app.enabled_changed":     "biumind.app.enabled_changed",
+	"app.config_updated":      "biumind.app.config_updated",
+	"sidebar.layout_changed":  "biumind.sidebar.layout_changed",
 }
 
 func KindFor(eventType string) string {

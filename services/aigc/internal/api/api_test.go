@@ -160,7 +160,7 @@ func TestListGallery_Public(t *testing.T) {
 		TaskID: tk.ID, Idx: 0, Kind: "image",
 		SHA256: "sha-gallery-1", StorageURL: "cas:sha-gallery-1",
 		StorageKey: "outputs/sh/a/sha-gallery-1.png",
-		Width: 1024, Height: 1024,
+		Width:      1024, Height: 1024,
 	})
 
 	req := httptest.NewRequest("GET", "/v1/gallery?keyword=测试公开", nil)

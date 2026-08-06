@@ -24,9 +24,9 @@ import (
 	"time"
 
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
-	"github.com/google/uuid"
 	"github.com/biumind/biumind/services/identity/internal/billing"
 	"github.com/biumind/biumind/services/identity/internal/credits"
+	"github.com/google/uuid"
 )
 
 // User is the projection admin handlers return — minimal PII, no
@@ -86,9 +86,10 @@ type AuditEvent struct {
 // Auditor — 审计日志读写抽象.
 //
 // 实现:
-//   *AuditLog      — 内存 ring buffer (1000 条上限, 重启丢失)
-//   *pgAudit       — Postgres 持久化 (audit.events 表)
-//   compositeAudit — 双写: ring + pg, 读时优先 pg, 失败 fallback ring
+//
+//	*AuditLog      — 内存 ring buffer (1000 条上限, 重启丢失)
+//	*pgAudit       — Postgres 持久化 (audit.events 表)
+//	compositeAudit — 双写: ring + pg, 读时优先 pg, 失败 fallback ring
 //
 // 默认生产用 composite (main.go wire), 单元测试用 *AuditLog.
 type Auditor interface {
@@ -99,10 +100,10 @@ type Auditor interface {
 // AuditLog is the ring buffer. Concurrent-safe; capacity is set
 // at construction. 仍保留作为 PG 不可用时的 fallback (composite 内部).
 type AuditLog struct {
-	mu  sync.Mutex
-	buf []AuditEvent
-	cap int
-	pos int // next write index
+	mu   sync.Mutex
+	buf  []AuditEvent
+	cap  int
+	pos  int // next write index
 	full bool
 }
 
@@ -238,18 +239,18 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/audit", s.requireAdmin(s.handleAudit))
 	mux.HandleFunc("GET /v1/admin/audit/summary", s.requireAdmin(s.handleAuditSummary))
 	// monitor — 比 admin 范围宽 (admin/superadmin/ops/viewer 都能看)
-	mux.HandleFunc("GET /v1/admin/monitor/services",   s.requireMonitorRead(s.handleMonitorServices))
-	mux.HandleFunc("GET /v1/admin/monitor/query",      s.requireMonitorRead(s.handleMonitorQuery))
+	mux.HandleFunc("GET /v1/admin/monitor/services", s.requireMonitorRead(s.handleMonitorServices))
+	mux.HandleFunc("GET /v1/admin/monitor/query", s.requireMonitorRead(s.handleMonitorQuery))
 
 	// system config — admin/superadmin 读, superadmin 写 (handler 内校验)
-	mux.HandleFunc("GET /v1/admin/system/config",        s.requireAdmin(s.handleSystemConfigList))
-	mux.HandleFunc("PUT /v1/admin/system/config/{key}",  s.requireAdmin(s.handleSystemConfigSet))
+	mux.HandleFunc("GET /v1/admin/system/config", s.requireAdmin(s.handleSystemConfigList))
+	mux.HandleFunc("PUT /v1/admin/system/config/{key}", s.requireAdmin(s.handleSystemConfigSet))
 	// 发测试邮件 — superadmin 验证 SMTP 配置好不好用 (handler 内校验)
-	mux.HandleFunc("POST /v1/admin/system/test-email",   s.requireAdmin(s.handleTestEmail))
+	mux.HandleFunc("POST /v1/admin/system/test-email", s.requireAdmin(s.handleTestEmail))
 
 	// RBAC 矩阵 — admin/superadmin 读 (查权限矩阵), superadmin 写 (handler 内校验)
-	mux.HandleFunc("GET /v1/admin/rbac/matrix",                       s.requireAdmin(s.handleRBACMatrix))
-	mux.HandleFunc("PUT /v1/admin/rbac/roles/{role}/permissions",     s.requireAdmin(s.handleSetRolePermissions))
+	mux.HandleFunc("GET /v1/admin/rbac/matrix", s.requireAdmin(s.handleRBACMatrix))
+	mux.HandleFunc("PUT /v1/admin/rbac/roles/{role}/permissions", s.requireAdmin(s.handleSetRolePermissions))
 
 	// internal — alertmanager webhook, biu-net 内部访问, 无 JWT
 	// nginx 已配 /v1/internal/* deny all (公网拦截)
@@ -543,9 +544,9 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"updated":           id,
-		"role":              req.Role,
-		"sessions_revoked":  revoked,
+		"updated":          id,
+		"role":             req.Role,
+		"sessions_revoked": revoked,
 	})
 }
 
@@ -586,8 +587,8 @@ func (s *Server) handleRevokeSessions(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"target":   id,
-		"revoked":  revoked,
+		"target":  id,
+		"revoked": revoked,
 	})
 }
 

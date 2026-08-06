@@ -13,20 +13,20 @@ import (
 // Rule is one user-defined keyword rule. The match function lives
 // in matcher.go; this struct is a pure value type.
 type Rule struct {
-	ID           uuid.UUID
-	Scope        string // 'user' | 'org'
-	ScopeID      string
-	Name         string
-	MatchAny     []string
-	MatchAll     []string
-	Exclude      []string
-	Sources      []string // '*' | 'rss:<feed_id>' | <board_id>
-	OnHitBadge   string   // info | warn | error
-	OnHitNotify  []string
-	CooldownSec  int
-	Enabled      bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID          uuid.UUID
+	Scope       string // 'user' | 'org'
+	ScopeID     string
+	Name        string
+	MatchAny    []string
+	MatchAll    []string
+	Exclude     []string
+	Sources     []string // '*' | 'rss:<feed_id>' | <board_id>
+	OnHitBadge  string   // info | warn | error
+	OnHitNotify []string
+	CooldownSec int
+	Enabled     bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 
 	// M4 — Semantic radar.
 	//
@@ -64,15 +64,15 @@ type Candidate struct {
 
 // Hit is one (rule, candidate) match that fired (passed cooldown).
 type Hit struct {
-	ID         int64
-	RuleID     uuid.UUID
-	HitAt      time.Time
-	Source     string
-	Title      string
-	URL        string
-	TitleHash  []byte
-	Notified   bool
-	ReadAt     time.Time
+	ID        int64
+	RuleID    uuid.UUID
+	HitAt     time.Time
+	Source    string
+	Title     string
+	URL       string
+	TitleHash []byte
+	Notified  bool
+	ReadAt    time.Time
 	// RuleSnapshot is a defensive copy of (Name, OnHitBadge, OnHitNotify)
 	// captured at fire time so the dispatcher doesn't need a second DB
 	// hit to render the notification.

@@ -202,9 +202,9 @@ func stringField(input map[string]any, keys ...string) string {
 
 // matchShellPattern handles three rule shapes:
 //
-//   exact:    "npm install"  → matches `npm install` only
-//   prefix:   "git:*"        → matches "git" or "git anything"
-//   wildcard: "rm * /tmp/*"  → glob-style wildcard matching
+//	exact:    "npm install"  → matches `npm install` only
+//	prefix:   "git:*"        → matches "git" or "git anything"
+//	wildcard: "rm * /tmp/*"  → glob-style wildcard matching
 //
 // Empty rule content / "*" never reaches here (filtered upstream); it
 // would match-all if it did.

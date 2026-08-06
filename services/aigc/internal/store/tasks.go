@@ -343,20 +343,20 @@ func (s *Store) SoftDeleteTasks(ctx context.Context, userID uuid.UUID, taskIDs [
 // CreateTaskOutputArgs — worker 转存完上游产物后写入.
 // CAS sha256 是核心字段, 同 task 内 (idx, sha256) 唯一 (由调用方保证).
 type CreateTaskOutputArgs struct {
-	TaskID           uuid.UUID
-	Idx              int16
-	Kind             string
-	SHA256           string
-	StorageURL       string
-	StorageKey       string
-	Blurhash         string
-	CoverSHA         string
-	MimeType         string
-	FileSize         int64
-	Width            int
-	Height           int
-	DurationMs       int
-	Metadata         any
+	TaskID     uuid.UUID
+	Idx        int16
+	Kind       string
+	SHA256     string
+	StorageURL string
+	StorageKey string
+	Blurhash   string
+	CoverSHA   string
+	MimeType   string
+	FileSize   int64
+	Width      int
+	Height     int
+	DurationMs int
+	Metadata   any
 }
 
 func (s *Store) CreateTaskOutput(ctx context.Context, a CreateTaskOutputArgs) (*TaskOutput, error) {

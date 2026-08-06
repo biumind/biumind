@@ -31,12 +31,14 @@ import (
 
 // Sentinel errors. Resolver errors translate to HTTP responses upstream
 // (see internal/api/messages.go for the code mapping the client keys on):
-//   ErrModelDisabled    → model_disabled        (admin 把模型 status 置非 active)
-//   ErrModelNotFound    → model_not_found        (model code 不存在)
-//   ErrModelHidden      → model_hidden_for_plan  (plan/分组不可见)
-//   ErrNoActiveChannel  → model_no_channel       (无活跃 channel)
-//   ErrAllChannelsFailed → channel_quota_exhausted / model_no_channel
-//   ErrCredentialUnavailable → model_credential_unavailable
+//
+//	ErrModelDisabled    → model_disabled        (admin 把模型 status 置非 active)
+//	ErrModelNotFound    → model_not_found        (model code 不存在)
+//	ErrModelHidden      → model_hidden_for_plan  (plan/分组不可见)
+//	ErrNoActiveChannel  → model_no_channel       (无活跃 channel)
+//	ErrAllChannelsFailed → channel_quota_exhausted / model_no_channel
+//	ErrCredentialUnavailable → model_credential_unavailable
+//
 // ErrModelDisabled 与 ErrModelNotFound 分开,是为了让客户端把「模型已停用,
 // 请重新选择」与「模型不存在」给出不同文案 —— 两者的用户动作其实一样(换个
 // 模型),但停用是 admin 侧可逆操作,文案更准能减少困惑。

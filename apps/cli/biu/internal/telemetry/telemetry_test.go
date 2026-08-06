@@ -161,8 +161,8 @@ func TestRotateIfHugeMovesFile(t *testing.T) {
 
 func TestClassifyError(t *testing.T) {
 	cases := []struct {
-		err   error
-		want  ErrorClass
+		err  error
+		want ErrorClass
 	}{
 		{nil, ""},
 		{errors.New("user-cancelled context canceled"), ErrUserCancel},

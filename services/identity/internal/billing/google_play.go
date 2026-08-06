@@ -24,8 +24,8 @@ import (
 )
 
 var (
-	ErrGooglePlayBadEnvelope     = errors.New("google_play: malformed pub/sub envelope")
-	ErrGooglePlayUnknownVersion  = errors.New("google_play: unsupported notification version")
+	ErrGooglePlayBadEnvelope    = errors.New("google_play: malformed pub/sub envelope")
+	ErrGooglePlayUnknownVersion = errors.New("google_play: unsupported notification version")
 )
 
 // ─── pub/sub envelope ─────────────────────────
@@ -46,13 +46,13 @@ type pubsubMessage struct {
 
 // GooglePlayNotification — RTDN 解码后内容.
 type GooglePlayNotification struct {
-	Version                  string                            `json:"version"`
-	PackageName              string                            `json:"packageName"`
-	EventTimeMillis          string                            `json:"eventTimeMillis"`
-	SubscriptionNotification *GooglePlaySubscriptionNotif      `json:"subscriptionNotification,omitempty"`
-	OneTimeProductNotif      *GooglePlayOneTimeNotif           `json:"oneTimeProductNotification,omitempty"`
-	VoidedPurchaseNotif      *GooglePlayVoidedPurchaseNotif    `json:"voidedPurchaseNotification,omitempty"`
-	TestNotification         *GooglePlayTestNotif              `json:"testNotification,omitempty"`
+	Version                  string                         `json:"version"`
+	PackageName              string                         `json:"packageName"`
+	EventTimeMillis          string                         `json:"eventTimeMillis"`
+	SubscriptionNotification *GooglePlaySubscriptionNotif   `json:"subscriptionNotification,omitempty"`
+	OneTimeProductNotif      *GooglePlayOneTimeNotif        `json:"oneTimeProductNotification,omitempty"`
+	VoidedPurchaseNotif      *GooglePlayVoidedPurchaseNotif `json:"voidedPurchaseNotification,omitempty"`
+	TestNotification         *GooglePlayTestNotif           `json:"testNotification,omitempty"`
 }
 
 type GooglePlaySubscriptionNotif struct {
@@ -133,14 +133,14 @@ func DecodeRTDN(body []byte) (*GooglePlayNotification, error) {
 // SubscriptionPurchase — androidpublisher.purchases.subscriptions.get
 // 返回的核心字段子集.
 type SubscriptionPurchase struct {
-	OrderID                string `json:"orderId"`
-	PurchaseTimeMillis     int64  `json:"purchaseTimeMillis,omitempty"`
-	ExpiryTimeMillis       int64  `json:"expiryTimeMillis,omitempty"`
-	AutoRenewing           bool   `json:"autoRenewing"`
-	PaymentState           int    `json:"paymentState"`           // 0=Pending, 1=Received, 2=Free trial, 3=Pending deferred upgrade
-	CountryCode            string `json:"countryCode"`
-	AcknowledgementState   int    `json:"acknowledgementState"`   // 0=Yet to be ACKed, 1=Acknowledged
-	Kind                   string `json:"kind"`
+	OrderID              string `json:"orderId"`
+	PurchaseTimeMillis   int64  `json:"purchaseTimeMillis,omitempty"`
+	ExpiryTimeMillis     int64  `json:"expiryTimeMillis,omitempty"`
+	AutoRenewing         bool   `json:"autoRenewing"`
+	PaymentState         int    `json:"paymentState"` // 0=Pending, 1=Received, 2=Free trial, 3=Pending deferred upgrade
+	CountryCode          string `json:"countryCode"`
+	AcknowledgementState int    `json:"acknowledgementState"` // 0=Yet to be ACKed, 1=Acknowledged
+	Kind                 string `json:"kind"`
 }
 
 // GooglePlayClient — purchases.subscriptions.get / acknowledge 接口.

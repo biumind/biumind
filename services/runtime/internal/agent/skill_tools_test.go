@@ -215,11 +215,11 @@ func TestSkillPropose_RejectsIncompleteDraft(t *testing.T) {
 		Registry: &skillsreg.Registry{}, OrgID: uuid.New(), OwnerID: uuid.New(), AgentID: uuid.New(),
 	})
 	cases := []map[string]any{
-		{"name": "X", "description": "Y", "body": "Z"},                        // missing identifier
-		{"identifier": "x", "description": "Y", "body": "Z"},                  // missing name
-		{"identifier": "x", "name": "X", "body": "Z"},                         // missing description
-		{"identifier": "x", "name": "X", "description": "Y"},                  // missing body
-		{"identifier": "x", "name": "X", "description": "Y", "body": "  "},    // whitespace body
+		{"name": "X", "description": "Y", "body": "Z"},                     // missing identifier
+		{"identifier": "x", "description": "Y", "body": "Z"},               // missing name
+		{"identifier": "x", "name": "X", "body": "Z"},                      // missing description
+		{"identifier": "x", "name": "X", "description": "Y"},               // missing body
+		{"identifier": "x", "name": "X", "description": "Y", "body": "  "}, // whitespace body
 	}
 	for i, c := range cases {
 		t.Run(strSubcaseName(i, c), func(t *testing.T) {

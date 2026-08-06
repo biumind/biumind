@@ -145,8 +145,8 @@ func loadInline(pemStr string) (*TrustStore, error) {
 //
 //   - empty store + no signature  → ok (permissive)
 //   - empty store + signature     → ok (signature ignored; we have no way
-//                                    to check it, but we don't reject
-//                                    benign-looking input)
+//     to check it, but we don't reject
+//     benign-looking input)
 //   - non-empty store + no sig    → ErrSignatureRequired
 //   - non-empty store + sig OK    → ok, returns publisher id
 //   - non-empty store + sig fail  → ErrUntrusted (or structural err)

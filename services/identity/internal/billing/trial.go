@@ -28,19 +28,19 @@ type TrialEligibility struct {
 }
 
 const (
-	TrialReasonOK              = ""
-	TrialReasonUserUsed        = "user_already_trialed"
-	TrialReasonDeviceShared    = "device_shared_too_many_users"
-	TrialReasonIPRateLimited   = "ip_rate_limited"
+	TrialReasonOK            = ""
+	TrialReasonUserUsed      = "user_already_trialed"
+	TrialReasonDeviceShared  = "device_shared_too_many_users"
+	TrialReasonIPRateLimited = "ip_rate_limited"
 )
 
 // TrialChecker — 资格检查器.
 type TrialChecker struct {
-	pool             *pgxpool.Pool
-	deviceMaxUsers   int           // 同 device_fp 允许的最大不同 user 数 (含本次)
-	ipMaxAttempts    int           // 同 ip 在 ipWindow 内允许的最大尝试次数
-	ipWindow         time.Duration // 默认 24h
-	now              func() time.Time
+	pool           *pgxpool.Pool
+	deviceMaxUsers int           // 同 device_fp 允许的最大不同 user 数 (含本次)
+	ipMaxAttempts  int           // 同 ip 在 ipWindow 内允许的最大尝试次数
+	ipWindow       time.Duration // 默认 24h
+	now            func() time.Time
 }
 
 // NewTrialChecker — 默认阈值 3 / 5 / 24h, 可通过 setters 调.

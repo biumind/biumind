@@ -34,11 +34,11 @@ import (
 type Server struct {
 	BM25      *bm25.Searcher
 	SearxNG   *searxng.Client
-	Vector    *vector.Searcher        // optional: nil ⇒ no vector path
-	Relevance *wikirelevance.Store    // optional: nil ⇒ no graph path
-	Embedder  embed.Embedder          // optional: nil disables vector path
-	Reranker  rerank.Reranker         // optional: nil ⇒ no cross-encoder rerank
-	Notes     noteSearcher            // optional: nil ⇒ notes path off
+	Vector    *vector.Searcher     // optional: nil ⇒ no vector path
+	Relevance *wikirelevance.Store // optional: nil ⇒ no graph path
+	Embedder  embed.Embedder       // optional: nil disables vector path
+	Reranker  rerank.Reranker      // optional: nil ⇒ no cross-encoder rerank
+	Notes     noteSearcher         // optional: nil ⇒ notes path off
 	Decay     *decay.Decay
 	Verifier  *bauth.Verifier
 	Logger    *slog.Logger
@@ -114,15 +114,15 @@ type searchReq struct {
 }
 
 type searchResp struct {
-	Query  string       `json:"query"`
-	Scope  string       `json:"scope"`
-	Wiki   []wikiHit    `json:"wiki,omitempty"`
-	Web    []webHit     `json:"web,omitempty"`
-	Vector []vectorHit  `json:"vector,omitempty"`
-	Graph  []graphHit   `json:"graph,omitempty"`
-	Notes  []noteHit    `json:"notes,omitempty"`
-	Images []imageHit   `json:"images,omitempty"`
-	Fused  []fusedHit   `json:"fused,omitempty"`
+	Query  string      `json:"query"`
+	Scope  string      `json:"scope"`
+	Wiki   []wikiHit   `json:"wiki,omitempty"`
+	Web    []webHit    `json:"web,omitempty"`
+	Vector []vectorHit `json:"vector,omitempty"`
+	Graph  []graphHit  `json:"graph,omitempty"`
+	Notes  []noteHit   `json:"notes,omitempty"`
+	Images []imageHit  `json:"images,omitempty"`
+	Fused  []fusedHit  `json:"fused,omitempty"`
 }
 
 // noteHit is one personal-note hit from the notes retrieval path
@@ -148,12 +148,12 @@ type noteHit struct {
 // candidates to images appearing on already-matched pages and
 // classify each by whether its alt overlaps the query tokens.
 type imageHit struct {
-	URL              string `json:"url"`
-	Alt              string `json:"alt"`
-	PageID           string `json:"page_id"`
-	BlockID          string `json:"block_id,omitempty"`
-	PageTitle        string `json:"page_title"`
-	AltMatchesQuery  bool   `json:"alt_matches_query"`
+	URL             string `json:"url"`
+	Alt             string `json:"alt"`
+	PageID          string `json:"page_id"`
+	BlockID         string `json:"block_id,omitempty"`
+	PageTitle       string `json:"page_title"`
+	AltMatchesQuery bool   `json:"alt_matches_query"`
 }
 
 // graphHit is one wiki page surfaced by the graph-relevance path —
@@ -479,11 +479,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 				l = append(l, rrf.Result{
 					ID: "wiki:page:" + h.PageID, Score: h.Score,
 					Meta: map[string]any{
-						"kind":            "page",
-						"page_id":         h.PageID,
-						"title":           h.Title,
-						"via_seed_page":   h.ViaSeed,
-						"source":          "graph",
+						"kind":          "page",
+						"page_id":       h.PageID,
+						"title":         h.Title,
+						"via_seed_page": h.ViaSeed,
+						"source":        "graph",
 					},
 				})
 			}
@@ -800,7 +800,7 @@ func isCJK(r rune) bool {
 	return (r >= 0x4E00 && r <= 0x9FFF) ||
 		(r >= 0x3400 && r <= 0x4DBF) ||
 		(r >= 0x3040 && r <= 0x30FF) || // Hiragana/Katakana
-		(r >= 0xAC00 && r <= 0xD7AF)    // Hangul
+		(r >= 0xAC00 && r <= 0xD7AF) // Hangul
 }
 
 func altMatchesQuery(alt string, tokens []string) bool {

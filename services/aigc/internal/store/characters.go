@@ -85,9 +85,9 @@ func (s *Store) GetCharacter(ctx context.Context, id uuid.UUID) (*Character, err
 // ListCharactersArgs — UserID 为空时 (admin 看全部); 普通用户传自己的 uid + IncludePublic
 // 拿 自己的 ∪ 系统内置 (user_id IS NULL).
 type ListCharactersArgs struct {
-	UserID         *uuid.UUID
-	IncludePublic  bool
-	Limit, Offset  int
+	UserID        *uuid.UUID
+	IncludePublic bool
+	Limit, Offset int
 }
 
 func (s *Store) ListCharacters(ctx context.Context, a ListCharactersArgs) ([]*Character, error) {

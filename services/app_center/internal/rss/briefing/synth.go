@@ -44,25 +44,25 @@ import (
 )
 
 const (
-	defaultModel    = "cosyvoice-v3-plus"
-	defaultVoice    = "longanyang"
-	defaultFormat   = "mp3"
-	defaultTTL      = 24 * time.Hour
-	defaultTimeout  = 60 * time.Second
-	maxAudioBytes   = 4 * 1024 * 1024 // 4 MB safety cap (~ 4 min mp3)
+	defaultModel   = "cosyvoice-v3-plus"
+	defaultVoice   = "longanyang"
+	defaultFormat  = "mp3"
+	defaultTTL     = 24 * time.Hour
+	defaultTimeout = 60 * time.Second
+	maxAudioBytes  = 4 * 1024 * 1024 // 4 MB safety cap (~ 4 min mp3)
 )
 
 var ErrUpstream = errors.New("briefing: upstream tts failed")
 
 type Result struct {
-	Mp3        []byte
-	Script     string
-	Voice      string
-	Model      string
-	Characters int
-	Cached     bool
+	Mp3         []byte
+	Script      string
+	Voice       string
+	Model       string
+	Characters  int
+	Cached      bool
 	GeneratedAt time.Time
-	HeadlineN  int
+	HeadlineN   int
 }
 
 type Synthesizer struct {
