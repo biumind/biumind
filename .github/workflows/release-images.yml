@@ -149,7 +149,7 @@ jobs:
 
       - name: Build (no push) for scan
         if: steps.filt.outputs.skip == 'false'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/${{ matrix.service }}/Dockerfile
@@ -175,7 +175,7 @@ jobs:
       - name: Build + push (multi-arch)
         if: steps.filt.outputs.skip == 'false'
         id: pushed
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: services/${{ matrix.service }}/Dockerfile
