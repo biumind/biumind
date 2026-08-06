@@ -137,7 +137,12 @@ func (h *Hub) Publish(e ledger.Event) (delivered, dropped int) {
 	h.mu.RUnlock()
 
 	for _, c := range targets {
+		// Hold closeMu so Close() cannot close c.out between the closed
+		// check and the send. The send stays non-blocking, so the lock
+		// is never held while waiting on a consumer.
+		c.closeMu.Lock()
 		if c.closed.Load() {
+			c.closeMu.Unlock()
 			continue
 		}
 		select {
@@ -148,6 +153,7 @@ func (h *Hub) Publish(e ledger.Event) (delivered, dropped int) {
 			dropped++
 			go c.Close()
 		}
+		c.closeMu.Unlock()
 	}
 	return
 }

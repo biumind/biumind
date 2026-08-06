@@ -28,7 +28,7 @@ func updateNote(t *testing.T, h *storeHarness, uid, noteID uuid.UUID, title, con
 func backdateLastEditRevision(t *testing.T, h *storeHarness, noteID uuid.UUID, d time.Duration) {
 	t.Helper()
 	tag, err := h.pool.Exec(context.Background(), `
-		UPDATE brain.note_revisions SET created_at = now() - $2
+		UPDATE brain.note_revisions SET created_at = now() - $2::interval
 		WHERE id = (
 			SELECT id FROM brain.note_revisions
 			WHERE note_id = $1 AND change_type = 'edit'

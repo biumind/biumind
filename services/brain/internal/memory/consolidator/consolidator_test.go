@@ -73,7 +73,7 @@ func TestDedupe_MergesIdenticalContent(t *testing.T) {
 		_ = m
 	}
 	// Embed them so the dedupe pass has something to compare.
-	w := memworker.New(s, embed.NewStub(1536),
+	w := memworker.New(s, embed.NewStub(1024),
 		memworker.Config{Interval: time.Hour, Batch: 10})
 	if got := w.RunOnce(ctx); got != 2 {
 		t.Fatalf("worker: want 2 embedded, got %d", got)
@@ -122,7 +122,7 @@ func TestDedupe_DoesNotMergeDifferentContent(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 	}
-	w := memworker.New(s, embed.NewStub(1536),
+	w := memworker.New(s, embed.NewStub(1024),
 		memworker.Config{Interval: time.Hour, Batch: 10})
 	w.RunOnce(ctx)
 
@@ -153,7 +153,7 @@ func TestDedupe_DoesNotCrossProjects(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 	}
-	w := memworker.New(s, embed.NewStub(1536),
+	w := memworker.New(s, embed.NewStub(1024),
 		memworker.Config{Interval: time.Hour, Batch: 10})
 	w.RunOnce(ctx)
 

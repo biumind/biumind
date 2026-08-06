@@ -78,7 +78,10 @@ func TestUpsertAndList(t *testing.T) {
 	s := startTestServer(t, nil)
 	s.UpsertApp(DevApp{Slug: "rss", Identifier: "rss", Title: "RSS", Version: "0.1.0"})
 	s.UpsertApp(DevApp{Slug: "tasks", Identifier: "tasks", Title: "Tasks", Version: "0.2.0"})
-	resp, _ := http.Get("http://" + s.Addr() + "/v1/dev/apps")
+	resp, err := http.Get("http://" + s.Addr() + "/v1/dev/apps")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var body struct{ Apps []DevApp }
 	_ = json.NewDecoder(resp.Body).Decode(&body)
@@ -87,7 +90,10 @@ func TestUpsertAndList(t *testing.T) {
 	}
 	// SetApps should drop entries.
 	s.SetApps([]DevApp{{Slug: "rss"}})
-	resp2, _ := http.Get("http://" + s.Addr() + "/v1/dev/apps")
+	resp2, err := http.Get("http://" + s.Addr() + "/v1/dev/apps")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp2.Body.Close()
 	var body2 struct{ Apps []DevApp }
 	_ = json.NewDecoder(resp2.Body).Decode(&body2)
@@ -120,11 +126,14 @@ func TestInvokeRoutesToInvoker(t *testing.T) {
 
 func TestInvokeMissingActionRejected(t *testing.T) {
 	s := startTestServer(t, &stubInvoker{})
-	resp, _ := http.Post(
+	resp, err := http.Post(
 		"http://"+s.Addr()+"/v1/dev/apps/rss/invoke",
 		"application/json",
 		strings.NewReader(`{}`),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
@@ -133,11 +142,14 @@ func TestInvokeMissingActionRejected(t *testing.T) {
 
 func TestInvokeInvokerError(t *testing.T) {
 	s := startTestServer(t, &stubInvoker{err: errors.New("boom")})
-	resp, _ := http.Post(
+	resp, err := http.Post(
 		"http://"+s.Addr()+"/v1/dev/apps/rss/invoke",
 		"application/json",
 		strings.NewReader(`{"action":"fetch"}`),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Errorf("expected 400 on invoke error, got %d", resp.StatusCode)
@@ -146,11 +158,14 @@ func TestInvokeInvokerError(t *testing.T) {
 
 func TestInvokeWithoutInvoker503(t *testing.T) {
 	s := startTestServer(t, nil)
-	resp, _ := http.Post(
+	resp, err := http.Post(
 		"http://"+s.Addr()+"/v1/dev/apps/rss/invoke",
 		"application/json",
 		strings.NewReader(`{"action":"fetch"}`),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 503 {
 		t.Errorf("expected 503, got %d", resp.StatusCode)
@@ -171,7 +186,10 @@ func TestPushEventBufferRing(t *testing.T) {
 
 func TestManifest404OnUnknownSlug(t *testing.T) {
 	s := startTestServer(t, nil)
-	resp, _ := http.Get("http://" + s.Addr() + "/v1/dev/apps/missing/manifest")
+	resp, err := http.Get("http://" + s.Addr() + "/v1/dev/apps/missing/manifest")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
@@ -184,7 +202,10 @@ func TestManifestServesUpsertedApp(t *testing.T) {
 		Slug:     "rss",
 		Manifest: map[string]any{"name": "rss", "version": "0.1.0"},
 	})
-	resp, _ := http.Get("http://" + s.Addr() + "/v1/dev/apps/rss/manifest")
+	resp, err := http.Get("http://" + s.Addr() + "/v1/dev/apps/rss/manifest")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
