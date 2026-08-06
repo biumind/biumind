@@ -1,0 +1,225 @@
+# Nightly build for the Flutter client.
+#
+# On every push to main that touches apps/client/** (plus manual
+# workflow_dispatch), rebuilds Android .apk + macOS .dmg and publishes
+# them to a single ROLLING GitHub pre-release tagged `nightly`.
+#
+# This is NOT a stable release:
+#   * prerelease: true + make_latest: false → not the "latest" release,
+#     won't notify followers as a real release, won't be served as the
+#     stable download on the Releases page.
+#   * releases.json untouched → client auto-update (minClientVersion)
+#     only ever sees tagged stable releases. Real users never get
+#     pushed a nightly.
+#
+# Signing is skipped (no APPLE_*/ANDROID_KEYSTORE_*/IOS_* secrets):
+#   * macOS .dmg   — unsigned; Gatekeeper warns on first launch.
+#   * Android .apk — debug-signed; side-loadable, Play Console rejects.
+#   * iOS          — not built (needs the full IOS_* signing set).
+# Stable, signed, distributed releases stay tag-triggered via
+# release-client.yml (push a `client-v*` tag).
+#
+# Architecture: two parallel build jobs (ubuntu → Android, macos-14 →
+# macOS) upload their artefact; a final `nightly-release` job downloads
+# both and owns the single rolling pre-release, so there is no
+# create/update race between the two platform jobs. Fixed asset names
+# (no sha) so each push overwrites the previous nightly's assets.
+
+name: Client nightly
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/release-client-nightly.yml"
+  workflow_dispatch:
+
+# Cancel a superseded in-flight run when a newer commit lands on main.
+concurrency:
+  group: client-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write     # create/update the rolling `nightly` tag + release
+
+jobs:
+  android-apk:
+    name: Android nightly .apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Milkdown editor bundle is not in the repo (.gitignore drops
+      # assets/editor/ and web/editor/); build it or the native editor
+      # region white-screens (index.html / chunks 404).
+      - name: Build editor bundle (Milkdown)
+        working-directory: apps/client/editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      # Debug-signed (no keystore secret) — side-loadable for testing only.
+      - name: Build .apk
+        run: flutter build apk --release
+
+      - name: Stage artefact
+        run: |
+          mkdir -p "$RUNNER_TEMP/nightly"
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             "$RUNNER_TEMP/nightly/BiuMind-nightly-android.apk"
+
+      - name: Upload artefact (inter-job)
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-android
+          path: ${{ runner.temp }}/nightly/BiuMind-nightly-android.apk
+          retention-days: 1
+
+  macos-dmg:
+    name: macOS nightly .dmg
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build editor bundle (Milkdown)
+        working-directory: apps/client/editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build macos --release
+
+      # biu CLI sidecar into .app Resources (daemon auto-start). Nightly
+      # builds only the host-arch (arm64) sidecar, not the 4 standalone
+      # binaries — those feed releases.json, which this workflow skips.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+
+      - name: Build biu sidecar
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          APP_RES="$GITHUB_WORKSPACE/apps/client/build/macos/Build/Products/Release/biumind.app/Contents/Resources"
+          mkdir -p "$APP_RES"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+            -o "$APP_RES/biu" ./cmd/biu
+
+      # Unsigned — Gatekeeper warns on first launch (acceptable for nightly).
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create .dmg
+        run: |
+          DMG="BiuMind-nightly-macos-arm64.dmg"
+          create-dmg \
+            --volname "BiuMind" \
+            --window-size 600 380 \
+            --icon-size 96 \
+            --app-drop-link 420 180 \
+            --icon "biumind.app" 180 180 \
+            --no-internet-enable \
+            "$DMG" \
+            "build/macos/Build/Products/Release/biumind.app"
+          mkdir -p "$RUNNER_TEMP/nightly"
+          mv "$DMG" "$RUNNER_TEMP/nightly/"
+
+      - name: Upload artefact (inter-job)
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-macos
+          path: ${{ runner.temp }}/nightly/BiuMind-nightly-macos-arm64.dmg
+          retention-days: 1
+
+  # Owns the single rolling `nightly` pre-release — runs after both
+  # platform builds so there's no create/update race. `always()` lets it
+  # run even if a build failed, but the verify step below blocks publish
+  # unless BOTH artefacts are present (no partial nightly).
+  nightly-release:
+    name: Publish nightly pre-release
+    needs: [android-apk, macos-dmg]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always() && !cancelled()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artefacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-*
+          merge-multiple: true
+          path: nightly
+
+      - name: Verify both artefacts present
+        run: |
+          ls -la nightly/
+          test -f nightly/BiuMind-nightly-android.apk \
+            || { echo "::error::android .apk missing — build failed"; exit 1; }
+          test -f nightly/BiuMind-nightly-macos-arm64.dmg \
+            || { echo "::error::macOS .dmg missing — build failed"; exit 1; }
+
+      - name: Publish rolling nightly pre-release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          name: Nightly (main)
+          prerelease: true
+          make_latest: "false"
+          body: |
+            **Automatic nightly build from the `main` branch.**
+
+            ⚠️ **Not a stable release.** Built without code signing:
+            - **macOS `.dmg`** — unsigned. Gatekeeper blocks first launch. Bypass: right-click → *Open*, or `xattr -dr com.apple.quarantine BiuMind-nightly-macos-arm64.dmg`.
+            - **Android `.apk`** — debug-signed; side-load only. Not Play Store compatible.
+            - **iOS** — not built.
+
+            For signed, stable builds see the [latest release](https://github.com/biumind/biumind/releases/latest).
+          files: |
+            nightly/BiuMind-nightly-android.apk
+            nightly/BiuMind-nightly-macos-arm64.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
