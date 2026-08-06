@@ -141,7 +141,7 @@ jobs:
       # ~/.local/bin/biu。文件名对齐 biumind-{version}-{platform} 约定,
       # upload-release.sh 的 biumind-${VER}* glob 发布 OSS 时会自动带上。
       - name: Set up Go (biu CLI build)
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: apps/cli/biu/go.mod
 
