@@ -46,7 +46,7 @@ jobs:
           - services/app_center
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
       - name: Install govulncheck
@@ -61,7 +61,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.work
       - name: Run gosec across all modules
@@ -172,7 +172,7 @@ jobs:
         language: [go, javascript-typescript]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: matrix.language == 'go'
         with:
           go-version-file: go.work
