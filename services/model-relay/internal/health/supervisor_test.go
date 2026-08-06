@@ -40,6 +40,15 @@ func TestSupervisorAutoDisableThenRecover(t *testing.T) {
 		}
 	}
 
+	// R4-B: 翻到 auto_disabled 时 RecordFailureKind 会按指数退避写
+	// cooldown_until（第一档 30s）。本测试关心 sweep→probe→恢复链路，
+	// 把 cooldown 拨到过去，让下一个 sweep tick 就能捞起这条记录。
+	if _, err := fx.pool.Exec(ctx,
+		"UPDATE model_relay.channels SET cooldown_until = now() - interval '1 second' WHERE id = $1",
+		fx.channel.ID); err != nil {
+		t.Fatalf("reset cooldown_until: %v", err)
+	}
+
 	// Wait for sweep to run — it polls every 50ms; 1s is plenty.
 	deadline := time.Now().Add(2 * time.Second)
 	var got *registry.Channel
