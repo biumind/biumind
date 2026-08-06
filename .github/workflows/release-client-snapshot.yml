@@ -1,0 +1,193 @@
+# Snapshot build for the Flutter client.
+#
+# Builds Android .apk + macOS .dmg on every push to main that touches
+# apps/client/**, plus manual workflow_dispatch. Artefacts are unsigned
+# (or debug-signed for Android) and uploaded as workflow artifacts for
+# QA / sideloading — NOT attached to a GitHub release and NOT versioned
+# into releases.json. Real, signed, distributed releases stay
+# tag-triggered via release-client.yml.
+#
+# Why a separate workflow (not a branch trigger on release-client.yml):
+# release-client.yml is tag-bound — it resolves version from the tag,
+# attaches artefacts to a draft GitHub Release, and emits releases.json.
+# None of that applies to a branch push (no tag → no release target).
+# Mirrors the biu CLI's release-biu-snapshot.yml / release-biu.yml split.
+#
+# Signing is intentionally skipped:
+#   * macOS .dmg   — unsigned; Gatekeeper warns on first launch.
+#                    Acceptable for internal snapshots, not distribution.
+#   * Android .apk — debug-signed (Flutter default); side-loadable for
+#                    testing, Play Console would reject it.
+#                    AAB (Play Store) is not built — useless unsigned.
+#   * iOS          — not built (needs the full IOS_* signing set).
+#
+# Cost: macos-14 runner on every client-touching main push. concurrency
+# cancels superseded runs so only the latest commit's build completes.
+
+name: Client snapshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/client/**"
+      - ".github/workflows/release-client-snapshot.yml"
+  workflow_dispatch:
+
+# Cancel a superseded in-flight run when a newer commit lands on main.
+concurrency:
+  group: client-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Android snapshot .apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          PUBSPEC_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          PUBSPEC_VER="${PUBSPEC_VER%%+*}"   # strip +build metadata
+          SHORT="${GITHUB_SHA::7}"
+          echo "version=${PUBSPEC_VER}-snapshot.${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "snapshot version: ${PUBSPEC_VER}-snapshot.${SHORT}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Milkdown editor bundle is not in the repo (.gitignore drops
+      # assets/editor/ and web/editor/); build it or the native editor
+      # region white-screens (index.html / chunks 404).
+      - name: Build editor bundle (Milkdown)
+        working-directory: editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      # Debug-signed (no keystore secret) — side-loadable for testing only.
+      - name: Build .apk
+        run: flutter build apk --release
+
+      - name: Rename .apk
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/biumind-${VERSION}-android.apk
+          echo "APK_PATH=$PWD/build/app/outputs/biumind-${VERSION}-android.apk" >> "$GITHUB_ENV"
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v7
+        with:
+          name: client-snapshot-android
+          path: ${{ env.APK_PATH }}
+          retention-days: 7
+
+  macos-dmg:
+    name: macOS snapshot .dmg
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          PUBSPEC_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          PUBSPEC_VER="${PUBSPEC_VER%%+*}"   # strip +build metadata
+          SHORT="${GITHUB_SHA::7}"
+          echo "version=${PUBSPEC_VER}-snapshot.${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "snapshot version: ${PUBSPEC_VER}-snapshot.${SHORT}"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build editor bundle (Milkdown)
+        working-directory: editor-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/editor/index.html
+          test -d ../assets/editor/assets
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: Build release
+        run: flutter build macos --release
+
+      # biu CLI sidecar into .app Resources (daemon auto-start; the app
+      # looks it up there). Snapshot builds only the host-arch (arm64)
+      # sidecar, not the 4 standalone binaries — those feed releases.json,
+      # which this workflow does not produce.
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.work
+
+      - name: Build biu sidecar
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          APP_RES="$GITHUB_WORKSPACE/apps/client/build/macos/Build/Products/Release/biumind.app/Contents/Resources"
+          mkdir -p "$APP_RES"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+            -o "$APP_RES/biu" ./cmd/biu
+
+      # Unsigned — Gatekeeper warns on first launch (acceptable for snapshot).
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Create .dmg
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          DMG="biumind-${VERSION}-macos-arm64.dmg"
+          create-dmg \
+            --volname "BiuMind" \
+            --window-size 600 380 \
+            --icon-size 96 \
+            --app-drop-link 420 180 \
+            --icon "biumind.app" 180 180 \
+            --no-internet-enable \
+            "$DMG" \
+            "build/macos/Build/Products/Release/biumind.app"
+          echo "DMG_PATH=$PWD/$DMG" >> "$GITHUB_ENV"
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v7
+        with:
+          name: client-snapshot-macos
+          path: ${{ env.DMG_PATH }}
+          retention-days: 7
