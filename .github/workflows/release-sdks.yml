@@ -166,7 +166,7 @@ jobs:
 
       - name: Create GitHub Release
         if: ${{ !inputs.dry_run && github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: Go SDK ${{ steps.ver.outputs.version }}
           tag_name: ${{ github.ref_name }}

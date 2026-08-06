@@ -245,7 +245,7 @@ jobs:
           xcrun stapler staple "$DMG_PATH"
 
       - name: Upload DMG to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: |
@@ -395,7 +395,7 @@ jobs:
           echo "APK_FILENAME=biumind-${VERSION}-android.apk" >> "$GITHUB_ENV"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: |
@@ -616,7 +616,7 @@ jobs:
 
       - name: Upload .ipa to release
         if: steps.ios_signing.outputs.ready == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: ${{ env.IPA_PATH }}
@@ -715,7 +715,7 @@ jobs:
           echo "✓ releases.json structure OK"
 
       - name: Upload releases.json to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           files: releases.json
