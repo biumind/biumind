@@ -131,7 +131,7 @@ type ManifestAuthor struct {
 }
 
 // Skill — one row of runtime.skills, hydrated for application use.
-// Field order matches the SQL column order in 00002_skills.sql so
+// Field order matches the SQL column order in migrations/00001_baseline.sql so
 // rows.Scan can reuse the same positional layout.
 type Skill struct {
 	ID            string
@@ -167,7 +167,7 @@ type AgentSkill struct {
 }
 
 // ActivationTrigger labels how a skill came to be loaded for a run.
-// Constrained at the DB level (see migrations/00002_skills.sql) so
+// Constrained at the DB level (see migrations/00001_baseline.sql) so
 // adding a new value here without updating the CHECK constraint will
 // surface as a write failure in tests.
 type ActivationTrigger string

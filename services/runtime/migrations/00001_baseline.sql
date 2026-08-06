@@ -1,13 +1,48 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- ─── Skills subsystem (Phase S1.3 — schema only) ─────────────
+-- 基线 migration：由 00001_tasks.sql / 00002_skills.sql /
+-- 00003_skill_update_of.sql 三个历史 migration squash 而来，
+-- 仅面向全新部署场景（fresh deploy），不承担存量库升级。
 --
--- Three tables landing in one migration so the FK loop is consistent
--- and a single rollback unwinds everything cleanly. No application
--- code touches these yet (PS2.1 wires the registry); this migration's
--- job is to make `goose up && goose down` round-trip on a fresh
--- runtime DB so PS2 can build on top.
+-- 相比历史版本的差异：
+--   1. CREATE SCHEMA runtime 提到最前 —— 历史上它在 00002，而
+--      00001 已创建 runtime.tasks，顺序倒挂靠部署脚本兜底；基线
+--      直接修正。
+--   2. 00003 的 skills.update_of_id 列（自引用 FK）与
+--      skills_update_of_idx 索引折叠进 skills 的 CREATE TABLE。
+--   3. 全部 DDL 幂等：CREATE TABLE / CREATE INDEX 一律带
+--      IF NOT EXISTS（原 00001 的两个索引是裸写，此处补上）。
+
+CREATE SCHEMA IF NOT EXISTS runtime;
+
+-- ─── Tasks ───────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS runtime.tasks (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         uuid NOT NULL,
+    project_id      uuid,
+    agent           text NOT NULL DEFAULT 'biu',
+    prompt          text NOT NULL,
+    system_prompt   text NOT NULL DEFAULT '',
+    model           text NOT NULL,
+    permission_mode text NOT NULL DEFAULT 'ask',
+    status          text NOT NULL DEFAULT 'pending',
+    error_message   text NOT NULL DEFAULT '',
+    thread_id       text NOT NULL,
+    run_id          text NOT NULL,
+    cost_tokens_in  bigint NOT NULL DEFAULT 0,
+    cost_tokens_out bigint NOT NULL DEFAULT 0,
+    cost_usd_micros bigint NOT NULL DEFAULT 0,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    started_at      timestamptz,
+    finished_at     timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS tasks_user_status_idx ON runtime.tasks (user_id, status);
+CREATE INDEX IF NOT EXISTS tasks_run_idx ON runtime.tasks (run_id);
+
+-- ─── Skills subsystem ────────────────────────────────────────
 --
 -- Design provenance: docs/BiuMind-Skills-Design.md §5 "数据库 Schema".
 -- Field names match proto packages/proto/biumind/runtime/v1/skills.proto
@@ -24,8 +59,6 @@
 --     agents table at the SQL level; agents are owned by Identity and
 --     may be created / deleted out of band. We index for lookup speed
 --     instead and rely on application-level cleanup.
-
-CREATE SCHEMA IF NOT EXISTS runtime;
 
 -- 1. Catalogue. One row per skill, scoped to org. owner_id is set for
 --    user-private skills and NULL for org-shared / bundled.
@@ -65,6 +98,21 @@ CREATE TABLE IF NOT EXISTS runtime.skills (
     status          text NOT NULL DEFAULT 'active'
                          CHECK (status IN ('active', 'disabled', 'staged', 'staged_org', 'suspended')),
 
+    -- update_of_id — pointer from a staged skill to the previously-active
+    -- row it intends to replace. Set on propose when client carries
+    -- `update_of`; null on fresh skills. Lets the approver UI render a
+    -- diff against the predecessor without round-tripping through the
+    -- propose response cache.
+    --
+    -- Self-referential FK is intentional. Loop detection isn't needed:
+    --   - propose flow only sets it once at creation;
+    --   - approve flow doesn't touch it (the staged row stays linked to
+    --     its predecessor for audit even after activation).
+    -- ON DELETE SET NULL because the predecessor might be hard-deleted
+    -- (rare, but admin tooling exists). Losing the pointer is fine —
+    -- the staged row stands on its own.
+    update_of_id    text REFERENCES runtime.skills(id) ON DELETE SET NULL,
+
     created_at      timestamptz NOT NULL DEFAULT now(),
     updated_at      timestamptz NOT NULL DEFAULT now(),
 
@@ -86,6 +134,10 @@ CREATE INDEX IF NOT EXISTS skills_source_idx
 
 CREATE INDEX IF NOT EXISTS skills_content_hash_idx
     ON runtime.skills (content_hash);
+
+CREATE INDEX IF NOT EXISTS skills_update_of_idx
+    ON runtime.skills (update_of_id)
+    WHERE update_of_id IS NOT NULL;
 
 -- 2. Per-agent enablement. Composite PK (agent_id, skill_id) — at
 --    most one row per pair. ON DELETE CASCADE on skill_id only;
@@ -127,16 +179,17 @@ CREATE INDEX IF NOT EXISTS skill_act_skill_recent_idx
     ON runtime.skill_activations (skill_id, occurred_at DESC);
 
 -- +goose StatementEnd
+
 -- +goose Down
 -- +goose StatementBegin
 
--- Drop in reverse FK order; CASCADE is safe because nothing outside
--- this migration depends on these tables yet (PS2.1 not landed).
+-- Drop in reverse FK order.
 DROP TABLE IF EXISTS runtime.skill_activations;
 DROP TABLE IF EXISTS runtime.agent_skills;
 DROP TABLE IF EXISTS runtime.skills;
+DROP TABLE IF EXISTS runtime.tasks;
 
--- We do NOT drop the runtime schema; it predates this migration
--- (00001_tasks.sql lives in the same namespace).
+-- We do NOT drop the runtime schema; it may be shared with other
+-- services' objects beyond this migration's tables.
 
 -- +goose StatementEnd

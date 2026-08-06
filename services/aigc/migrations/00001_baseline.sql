@@ -2,9 +2,25 @@
 -- +goose StatementBegin
 
 -- ═══════════════════════════════════════════════════════════════════
--- aigc subsystem (P1 — full schema baseline)
+-- aigc subsystem (P1 — full schema baseline, squashed)
 --
--- 文生图 / 文生视频 / 数字人 / 爆款解析的统一存储 schema。
+-- 本文件是 00001–00005 五个 migration 的 squash 基线 (部署场景只有
+-- 全新部署, 不需要历史升级路径):
+--   00001_aigc_schema.sql          — 全量 schema
+--   00002_seed.sql                 — 死表 aigc.providers/models seed (消除)
+--   00003_volcengine_seed.sql      — 死表 aigc.providers/models seed (消除)
+--   00004_drop_models_fk.sql       — 解 tasks.model_code FK (并入本文件)
+--   00005_drop_dictionary_tables.sql — DROP aigc.{providers,models} (消除)
+--
+-- 净效果 = 00001 去掉两张已下线死表:
+--   * aigc.providers / aigc.models 及其索引 aigc_models_type_enabled_sort
+--     (模型字典已迁移到 model_relay.{providers,models}, 1:1 join via code)
+--   * models.provider_code→providers FK, tasks.model_code→models(code) FK
+--   * tasks.model_code 列保留 (text 兜底), 并保留 00004 的列注释
+--
+-- 存活 9 张表: tasks / task_outputs / uploaded_files / asset_lineage /
+--   characters / hotparse_videos / inference_cache / public_mirrors /
+--   moderation_results, 按原 00001 定义 (除上述 FK 移除).
 --
 -- 设计来源:
 --   docs/BiuMind-AIGC-Migration-Plan.md §2.3
@@ -21,55 +37,22 @@
 -- 时间字段: 全部 timestamptz, 默认 now()
 -- ═══════════════════════════════════════════════════════════════════
 
+-- 部署时 postgres init 已跑过 CREATE EXTENSION, 此处幂等声明保证自包含.
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 CREATE SCHEMA IF NOT EXISTS aigc;
-
--- ─── 模型字典 / 供应商 ────────────────────────────────────
-
--- 供应商: dashscope (阿里通义) / volcengine (火山豆包) / openai / replicate / ...
--- credentials_ref 指向 model_relay.credentials 表的 id, 复用统一的 BYOK
--- 信封加密机制 (services/model-relay/internal/keys), 不重复实现.
-CREATE TABLE aigc.providers (
-    code            text PRIMARY KEY,
-    name            text NOT NULL,
-    base_url        text NOT NULL,
-    credentials_ref text,
-    priority        integer DEFAULT 0,
-    enabled         boolean DEFAULT true,
-    config          jsonb DEFAULT '{}'::jsonb,
-    created_at      timestamptz DEFAULT now(),
-    updated_at      timestamptz DEFAULT now()
-);
-
--- 模型: 'wanx-2.6-t2v' / 'doubao-seedream-4.0' / ...
--- price_credits 是基础积分, pricing_rule 描述按参数加价规则 (如视频按时长).
--- config JSON 给前端 UI 渲染参数面板 (aspect_ratios / resolutions / duration / features).
-CREATE TABLE aigc.models (
-    code            text PRIMARY KEY,
-    type            text NOT NULL CHECK (type IN ('image','video','digital_human','hotparse')),
-    display_name    text NOT NULL,
-    provider_code   text NOT NULL REFERENCES aigc.providers(code),
-    price_credits   bigint NOT NULL DEFAULT 0,
-    pricing_rule    jsonb,
-    config          jsonb NOT NULL DEFAULT '{}'::jsonb,
-    enabled         boolean DEFAULT true,
-    sort_order      integer DEFAULT 0,
-    created_at      timestamptz DEFAULT now(),
-    updated_at      timestamptz DEFAULT now()
-);
-CREATE INDEX aigc_models_type_enabled_sort
-    ON aigc.models (type, enabled, sort_order);
 
 -- ─── 任务 ────────────────────────────────────────────────
 
 -- 一行一任务. status 状态机: pending → queued → running → completed/failed/blocked/cancelled.
 -- cache_key (v2): 推理缓存键, 命中时 cache_hit=true, 不调上游, 直接复用历史 output_sha.
 -- deleted_at: 软删 30d 缓冲, 后台 GC job 物理删除.
-CREATE TABLE aigc.tasks (
+CREATE TABLE IF NOT EXISTS aigc.tasks (
     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id          uuid NOT NULL,
     org_id           uuid,
     type             text NOT NULL CHECK (type IN ('image','video','digital_human','hotparse')),
-    model_code       text NOT NULL REFERENCES aigc.models(code),
+    model_code       text NOT NULL,
     provider_code    text NOT NULL,
     prompt           text,
     negative_prompt  text,
@@ -98,28 +81,34 @@ CREATE TABLE aigc.tasks (
     started_at       timestamptz,
     completed_at     timestamptz
 );
-CREATE INDEX aigc_tasks_user_created
+CREATE INDEX IF NOT EXISTS aigc_tasks_user_created
     ON aigc.tasks (user_id, created_at DESC)
     WHERE deleted_at IS NULL;
-CREATE INDEX aigc_tasks_status_active
+CREATE INDEX IF NOT EXISTS aigc_tasks_status_active
     ON aigc.tasks (status)
     WHERE status IN ('pending','queued','running');
-CREATE INDEX aigc_tasks_public
+CREATE INDEX IF NOT EXISTS aigc_tasks_public
     ON aigc.tasks (is_public, created_at DESC)
     WHERE is_public AND status = 'completed' AND deleted_at IS NULL;
-CREATE INDEX aigc_tasks_cache_key
+CREATE INDEX IF NOT EXISTS aigc_tasks_cache_key
     ON aigc.tasks (cache_key)
     WHERE cache_key IS NOT NULL;
-CREATE INDEX aigc_tasks_deleted
+CREATE INDEX IF NOT EXISTS aigc_tasks_deleted
     ON aigc.tasks (deleted_at)
     WHERE deleted_at IS NOT NULL;
+
+-- 来自 00004: 不再 FK 到 aigc.models, 真实模型字典在 model_relay.models.
+COMMENT ON COLUMN aigc.tasks.model_code IS
+    'P4.S3.4: 不再 FK 到 aigc.models. 段 3.6 删 aigc.models 后此字段
+    仍保留作文本兜底; 当前真实模型字典在 model_relay.models, 通过 code
+    1:1 对应即可 join.';
 
 -- ─── 输出 ────────────────────────────────────────────────
 
 -- 1 task : N outputs (不学 zhiying tb_creation.image_url_1~9 宽表).
 -- sha256 是 CAS 业务主键 (storage_key 是物理位置).
 -- moderation_status: 后置审核结果 (pass / block / review).
-CREATE TABLE aigc.task_outputs (
+CREATE TABLE IF NOT EXISTS aigc.task_outputs (
     id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id           uuid NOT NULL REFERENCES aigc.tasks(id) ON DELETE CASCADE,
     idx               smallint NOT NULL,
@@ -144,12 +133,12 @@ CREATE TABLE aigc.task_outputs (
     metadata          jsonb DEFAULT '{}'::jsonb,
     created_at        timestamptz DEFAULT now()
 );
-CREATE INDEX aigc_task_outputs_task ON aigc.task_outputs (task_id);
-CREATE INDEX aigc_task_outputs_sha  ON aigc.task_outputs (sha256);
+CREATE INDEX IF NOT EXISTS aigc_task_outputs_task ON aigc.task_outputs (task_id);
+CREATE INDEX IF NOT EXISTS aigc_task_outputs_sha  ON aigc.task_outputs (sha256);
 
 -- ─── 用户上传源 (首帧 / 参考图 / 爆款视频源 / 数字人参考) ──────
 
-CREATE TABLE aigc.uploaded_files (
+CREATE TABLE IF NOT EXISTS aigc.uploaded_files (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     uuid NOT NULL,
     sha256      text NOT NULL,
@@ -165,9 +154,9 @@ CREATE TABLE aigc.uploaded_files (
     created_at  timestamptz DEFAULT now(),
     expires_at  timestamptz
 );
-CREATE UNIQUE INDEX aigc_uploaded_files_user_sha
+CREATE UNIQUE INDEX IF NOT EXISTS aigc_uploaded_files_user_sha
     ON aigc.uploaded_files (user_id, sha256);
-CREATE INDEX aigc_uploaded_files_gc
+CREATE INDEX IF NOT EXISTS aigc_uploaded_files_gc
     ON aigc.uploaded_files (expires_at)
     WHERE ref_count = 0;
 
@@ -176,7 +165,7 @@ CREATE INDEX aigc_uploaded_files_gc
 -- 一条边: child_sha 由 parent_sha 经 op 派生而来.
 -- op: remix | edit | inpaint | upscale | i2v | extract_frame |
 --     style_transfer | first_frame | reference | cache_hit
-CREATE TABLE aigc.asset_lineage (
+CREATE TABLE IF NOT EXISTS aigc.asset_lineage (
     child_sha     text NOT NULL,
     parent_sha    text NOT NULL,
     op            text NOT NULL,
@@ -185,12 +174,12 @@ CREATE TABLE aigc.asset_lineage (
     created_at    timestamptz DEFAULT now(),
     PRIMARY KEY (child_sha, parent_sha, op)
 );
-CREATE INDEX aigc_asset_lineage_parent ON aigc.asset_lineage (parent_sha);
-CREATE INDEX aigc_asset_lineage_child  ON aigc.asset_lineage (child_sha);
+CREATE INDEX IF NOT EXISTS aigc_asset_lineage_parent ON aigc.asset_lineage (parent_sha);
+CREATE INDEX IF NOT EXISTS aigc_asset_lineage_child  ON aigc.asset_lineage (child_sha);
 
 -- ─── 数字人角色 / 爆款视频 ──────────────────────────────────
 
-CREATE TABLE aigc.characters (
+CREATE TABLE IF NOT EXISTS aigc.characters (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         uuid,
     name            text NOT NULL,
@@ -200,10 +189,10 @@ CREATE TABLE aigc.characters (
     is_public       boolean DEFAULT false,
     created_at      timestamptz DEFAULT now()
 );
-CREATE INDEX aigc_characters_user ON aigc.characters (user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX aigc_characters_public ON aigc.characters (is_public) WHERE is_public;
+CREATE INDEX IF NOT EXISTS aigc_characters_user ON aigc.characters (user_id) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS aigc_characters_public ON aigc.characters (is_public) WHERE is_public;
 
-CREATE TABLE aigc.hotparse_videos (
+CREATE TABLE IF NOT EXISTS aigc.hotparse_videos (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     uuid NOT NULL,
     source      text NOT NULL CHECK (source IN
@@ -215,11 +204,11 @@ CREATE TABLE aigc.hotparse_videos (
     metadata    jsonb DEFAULT '{}'::jsonb,
     created_at  timestamptz DEFAULT now()
 );
-CREATE INDEX aigc_hotparse_videos_user ON aigc.hotparse_videos (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS aigc_hotparse_videos_user ON aigc.hotparse_videos (user_id, created_at DESC);
 
 -- ─── 推理缓存 (v2 启用, P1 建表占位) ──────────────────────────
 
-CREATE TABLE aigc.inference_cache (
+CREATE TABLE IF NOT EXISTS aigc.inference_cache (
     cache_key   text PRIMARY KEY,
     output_sha  text NOT NULL,
     task_id     uuid NOT NULL REFERENCES aigc.tasks(id) ON DELETE CASCADE,
@@ -227,11 +216,11 @@ CREATE TABLE aigc.inference_cache (
     last_hit_at timestamptz DEFAULT now(),
     created_at  timestamptz DEFAULT now()
 );
-CREATE INDEX aigc_inference_cache_output ON aigc.inference_cache (output_sha);
+CREATE INDEX IF NOT EXISTS aigc_inference_cache_output ON aigc.inference_cache (output_sha);
 
 -- ─── 公开作品 CDN 镜像 ────────────────────────────────────
 
-CREATE TABLE aigc.public_mirrors (
+CREATE TABLE IF NOT EXISTS aigc.public_mirrors (
     output_sha     text PRIMARY KEY,
     cdn_url        text NOT NULL,
     bytes_served   bigint DEFAULT 0,
@@ -241,7 +230,7 @@ CREATE TABLE aigc.public_mirrors (
 
 -- ─── 内容审核结果 ─────────────────────────────────────────
 
-CREATE TABLE aigc.moderation_results (
+CREATE TABLE IF NOT EXISTS aigc.moderation_results (
     sha256       text PRIMARY KEY,
     status       text NOT NULL CHECK (status IN ('pending','pass','block','review')),
     provider     text NOT NULL,
@@ -264,8 +253,6 @@ DROP TABLE IF EXISTS aigc.asset_lineage;
 DROP TABLE IF EXISTS aigc.uploaded_files;
 DROP TABLE IF EXISTS aigc.task_outputs;
 DROP TABLE IF EXISTS aigc.tasks;
-DROP TABLE IF EXISTS aigc.models;
-DROP TABLE IF EXISTS aigc.providers;
 
 DROP SCHEMA IF EXISTS aigc;
 

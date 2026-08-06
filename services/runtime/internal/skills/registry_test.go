@@ -28,7 +28,7 @@ func openDB(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(p.Close)
 
 	for _, q := range []struct{ table, name string }{
-		{"runtime.skills", "00002_skills.sql"},
+		{"runtime.skills", "00001_baseline.sql"},
 		{"brain.events", "00001_wiki.sql"},
 	} {
 		var exists bool
