@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy FS scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -138,7 +138,7 @@ jobs:
           - ghcr.io/biumind/authz:latest
           - ghcr.io/biumind/deploy:latest
     steps:
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         # If the image hasn't been published yet (fresh repo, first
         # week before release-images runs) trivy errors with "image
         # not found"; treat that as informational rather than red.
