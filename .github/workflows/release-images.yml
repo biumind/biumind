@@ -1,6 +1,9 @@
-# Release images — push container images to GHCR on tag.
+# Release images — push container images to GHCR.
 #
 # Triggered by:
+#   * Push to `main` — CI build of all 10 service images, tagged
+#     `:sha-<short>` (immutable, per-commit) + `:main` (rolling).
+#     Trivy-gated; NOT signed (release-only).
 #   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
 #     all 10 service images so they share a version tag and digest
 #     table.
@@ -22,6 +25,11 @@ name: Release images
 
 on:
   push:
+    branches:
+      # Every commit to main rebuilds all service images tagged
+      # :sha-<short> + :main (rolling). Release tags below still
+      # produce :v* + :latest; the two never collide.
+      - main
     tags:
       # All-services release.
       - "service-v*"
@@ -96,14 +104,18 @@ jobs:
       #   1. workflow_dispatch with a `service` input that doesn't match
       #      this matrix row.
       #   2. Per-service tag (e.g. `hub-v0.3.0`) that doesn't match this
-      #      matrix row. The `service-v*` tag is treated as "all services"
-      #      so it never skips.
+      #      matrix row. The `service-v*` tag and a `main` branch push
+      #      are both "all services", so they never skip.
       - name: Filter
         id: filt
         run: |
           want_service=""
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             want_service="${{ inputs.service }}"
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
+            # Branch push (e.g. main) — build ALL services, like the
+            # `service-v*` tag. want_service stays empty.
+            :
           elif [[ "$GITHUB_REF_NAME" != service-v* ]]; then
             # Tag format is "<service>-v<version>" — extract before the
             # last "-v". Use parameter expansion so we don't fork awk.
@@ -136,16 +148,25 @@ jobs:
         if: steps.filt.outputs.skip == 'false'
         id: ver
         run: |
-          # Tag layouts we recognise:
-          #   service-v0.3.0    → image tag "v0.3.0" (everyone same version)
-          #   hub-v0.3.1        → image tag "v0.3.1" (hub-only hotfix)
-          # Strip whatever prefix is on the tag, leaving the v-version.
+          base="ghcr.io/biumind/${{ matrix.service }}"
           if [[ "$GITHUB_REF_NAME" == *-v* ]]; then
+            # Release tag → :v* + :latest
+            #   service-v0.3.0 → v0.3.0 (all services, same version)
+            #   hub-v0.3.1     → v0.3.1 (hub-only hotfix)
             v="v${GITHUB_REF_NAME##*-v}"
+            tags="${base}:${v}"$'\n'"${base}:latest"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            # Branch push (main) → immutable :sha-<short> + rolling :main
+            tags="${base}:sha-${GITHUB_SHA::7}"$'\n'"${base}:main"
           else
-            v="latest"
+            # workflow_dispatch fallback → :latest
+            tags="${base}:latest"
           fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          {
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build (no push) for scan
         if: steps.filt.outputs.skip == 'false'
@@ -180,19 +201,19 @@ jobs:
           context: .
           file: services/${{ matrix.service }}/Dockerfile
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ghcr.io/biumind/${{ matrix.service }}:${{ steps.ver.outputs.version }}
-            ghcr.io/biumind/${{ matrix.service }}:latest
+          tags: ${{ steps.ver.outputs.tags }}
           push: true
           provenance: true
           sbom: true
 
+      # Signing only on release tags — keyless cosign writes a rekor
+      # entry per image; skip for the per-commit :sha/:main CI builds.
       - name: Install cosign
-        if: steps.filt.outputs.skip == 'false'
+        if: steps.filt.outputs.skip == 'false' && startsWith(github.ref, 'refs/tags/')
         uses: sigstore/cosign-installer@v3
 
       - name: Sign image (keyless)
-        if: steps.filt.outputs.skip == 'false'
+        if: steps.filt.outputs.skip == 'false' && startsWith(github.ref, 'refs/tags/')
         env:
           DIGEST: ${{ steps.pushed.outputs.digest }}
         run: |
