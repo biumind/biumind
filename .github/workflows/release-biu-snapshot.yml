@@ -1,14 +1,24 @@
 # Snapshot dry-run for the biu CLI release pipeline.
 #
-# Runs `goreleaser release --snapshot` on every PR that touches the
-# release config or anything under apps/cli/biu/. Catches breakage in
-# the GoReleaser config (yaml errors, ldflag typos, missing files) before
-# someone cuts a real tag and the actual release blows up. No upload,
-# no tag required.
+# Runs `goreleaser release --snapshot`:
+#   - on every PR that touches the release config or anything under
+#     apps/cli/biu/ — catches breakage in the GoReleaser config (yaml
+#     errors, ldflag typos, missing files) before someone cuts a real
+#     tag and the actual release blows up;
+#   - on every push to main touching the same paths — gives a ready
+#     snapshot build of trunk for testing without cutting a tag.
+# No GitHub release is created; artefacts are only uploaded as
+# workflow artifacts for inspection. Real releases stay tag-triggered
+# via release-biu.yml.
 
 name: biu release snapshot
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/cli/biu/**"
+      - ".github/workflows/release-biu*.yml"
   pull_request:
     paths:
       - "apps/cli/biu/**"
