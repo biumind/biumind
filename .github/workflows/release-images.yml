@@ -19,7 +19,7 @@
 #   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
 #     all 10 service images so they share a version tag and digest
 #     table.
-#   * `<svc>-v*` tag (e.g. `hub-v0.3.1`, `brain-v0.4.0`) — single-
+#   * `<svc>-v*` tag (e.g. `model-relay-v0.3.1`, `brain-v0.4.0`) — single-
 #     service hotfix release; only the matching image is built.
 #   * Manual workflow_dispatch with a `service` input — push just one.
 #
@@ -47,15 +47,12 @@ on:
       # Per-service hotfix tags. Each prefix MUST match a matrix row
       # below; the filter step extracts the service name from the tag.
       - "identity-v*"
-      - "hub-v*"
+      - "model-relay-v*"
       - "brain-v*"
-      - "sandbox-v*"
       - "runtime-v*"
       - "realtime-v*"
-      - "channels-v*"
       - "app_center-v*"
       - "authz-v*"
-      - "deploy-v*"
   workflow_dispatch:
     inputs:
       service:
@@ -65,15 +62,12 @@ on:
         options:
           - ""
           - identity
-          - hub
+          - model-relay
           - brain
-          - sandbox
           - runtime
           - realtime
-          - channels
           - app_center
           - authz
-          - deploy
       severity:
         description: "Trivy fail threshold"
         required: false
@@ -93,20 +87,24 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # secrets 不能直接出现在 if: 里 — 先在 job env 里折算成布尔字符串。
+      HAVE_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      HAVE_ALIYUN_PASSWORD: ${{ secrets.ALIYUN_PASSWORD != '' }}
     strategy:
       fail-fast: false
       matrix:
         service:
+          # 只列仓库里实际有 Dockerfile 的服务（hub/sandbox/channels/
+          # deploy 在公开仓库不存在或无 Dockerfile；hub 的公开名是
+          # model-relay）。
           - identity
-          - hub
+          - model-relay
           - brain
-          - sandbox
           - runtime
           - realtime
-          - channels
           - app_center
           - authz
-          - deploy
 
     steps:
       - uses: actions/checkout@v4
@@ -158,7 +156,7 @@ jobs:
       # Optional registries — skipped unless both namespace var and
       # credential secret are configured in repo settings.
       - name: Log in to Docker Hub
-        if: steps.filt.outputs.skip == 'false' && vars.DOCKERHUB_NAMESPACE != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: steps.filt.outputs.skip == 'false' && vars.DOCKERHUB_NAMESPACE != '' && env.HAVE_DOCKERHUB_TOKEN == 'true'
         uses: docker/login-action@v3
         with:
           registry: docker.io
@@ -166,7 +164,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to Aliyun ACR
-        if: steps.filt.outputs.skip == 'false' && vars.ALIYUN_REGISTRY != '' && secrets.ALIYUN_PASSWORD != ''
+        if: steps.filt.outputs.skip == 'false' && vars.ALIYUN_REGISTRY != '' && env.HAVE_ALIYUN_PASSWORD == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ vars.ALIYUN_REGISTRY }}
