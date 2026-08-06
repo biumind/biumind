@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/biumind/biumind/packages/go-sdk/biu v0.0.0
-	github.com/cedar-policy/cedar-go v1.2.5
+	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 )
 
@@ -31,9 +31,9 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.7.1 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
-	golang.org/x/net v0.53.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260420184626-e10c466a9529 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
