@@ -231,7 +231,7 @@ jobs:
 
       # ── Optional notarization ────────────────────────────────
       - name: Notarize and staple
-        if: ${{ steps.cert.outputs.identity != '' && secrets.APPLE_ID != '' }}
+        if: ${{ steps.cert.outputs.identity != '' && env.APPLE_ID != '' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

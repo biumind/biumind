@@ -18,11 +18,16 @@ jobs:
   k6:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # `secrets` is not allowed in step `if:` expressions; mirror the
+      # secrets we gate on into job-level env instead.
+      PERF_MODEL_RELAY_URL: ${{ secrets.PERF_MODEL_RELAY_URL }}
+      PERF_BRAIN_URL: ${{ secrets.PERF_BRAIN_URL }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Skip if no perf target configured
-        if: ${{ !secrets.PERF_MODEL_RELAY_URL }}
+        if: ${{ env.PERF_MODEL_RELAY_URL == '' }}
         run: |
           echo "::warning::PERF_MODEL_RELAY_URL secret not set — skipping perf run"
           echo "SKIP=1" >> $GITHUB_ENV
@@ -46,7 +51,7 @@ jobs:
         run: k6 run deploy/perf/k6/hub-relay.js
 
       - name: Brain recall
-        if: ${{ env.SKIP != '1' && secrets.PERF_BRAIN_URL != '' }}
+        if: ${{ env.SKIP != '1' && env.PERF_BRAIN_URL != '' }}
         env:
           BRAIN_URL:    ${{ secrets.PERF_BRAIN_URL }}
           BRAIN_BEARER: ${{ secrets.PERF_BRAIN_BEARER }}
