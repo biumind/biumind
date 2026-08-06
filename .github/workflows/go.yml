@@ -120,7 +120,7 @@ jobs:
       - name: Upload coverage to Codecov
         # Public repo — no token needed; CODECOV_TOKEN is read if set
         # (private repos / org accounts that require auth).
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ${{ matrix.module }}/coverage.out
           flags: ${{ matrix.module }}
