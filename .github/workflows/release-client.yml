@@ -290,9 +290,12 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: asset-macos
+          # path is relative to GITHUB_WORKSPACE (repo root), NOT the
+          # job's working-directory — the json was written under apps/client.
           path: |
-            asset-macos.json
-            asset-biu.json
+            apps/client/asset-macos.json
+            apps/client/asset-biu.json
+          if-no-files-found: error
           retention-days: 1
 
   android-aab:
@@ -424,7 +427,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: asset-android
-          path: asset-android.json
+          path: apps/client/asset-android.json
+          if-no-files-found: error
           retention-days: 1
 
   # ── iOS .ipa ──────────────────────────────────────────────
