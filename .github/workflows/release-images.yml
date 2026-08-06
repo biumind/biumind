@@ -162,7 +162,7 @@ jobs:
 
       - name: Trivy scan
         if: steps.filt.outputs.skip == 'false'
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/biumind/${{ matrix.service }}:scan-${{ github.run_id }}
           format: table
