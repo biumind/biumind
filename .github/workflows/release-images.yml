@@ -1,4 +1,16 @@
-# Release images — push container images to GHCR.
+# Release images — push container images to multiple registries.
+#
+# Registries (all optional except GHCR; presence-gated by vars/secrets):
+#   * GHCR (always)      → ghcr.io/biumind/<service>
+#   * Docker Hub         → docker.io/<DOCKERHUB_NAMESPACE>/<service>
+#                          needs vars.DOCKERHUB_NAMESPACE
+#                               + secrets.DOCKERHUB_USERNAME / _TOKEN
+#   * Aliyun ACR (个人版) → <ALIYUN_REGISTRY>/<ALIYUN_NAMESPACE>/<service>
+#                          e.g. registry.cn-hangzhou.aliyuncs.com/biumind/<service>
+#                          needs vars.ALIYUN_REGISTRY / _NAMESPACE
+#                               + secrets.ALIYUN_USERNAME / _PASSWORD
+# A missing namespace/secret silently skips that registry, so GHCR
+# always works and the others are clean opt-in.
 #
 # Triggered by:
 #   * Push to `main` — CI build of all 10 service images, tagged
@@ -13,8 +25,7 @@
 #
 # Each image is built FROM SCRATCH using the per-service Dockerfile
 # (services/<name>/Dockerfile). Multi-arch (linux/amd64 + linux/arm64)
-# via buildx; arm64 makes the prod cluster cheaper on Graviton and the
-# dev cluster usable on Apple Silicon (k3s in Docker Desktop).
+# via buildx; one build pushes every configured registry's tags.
 #
 # Trivy scan runs after each image is built and BLOCKS the push when a
 # CRITICAL vulnerability is found. (Configurable via `severity` input
@@ -144,27 +155,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Optional registries — skipped unless both namespace var and
+      # credential secret are configured in repo settings.
+      - name: Log in to Docker Hub
+        if: steps.filt.outputs.skip == 'false' && vars.DOCKERHUB_NAMESPACE != '' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to Aliyun ACR
+        if: steps.filt.outputs.skip == 'false' && vars.ALIYUN_REGISTRY != '' && secrets.ALIYUN_PASSWORD != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
       - name: Compute version
         if: steps.filt.outputs.skip == 'false'
         id: ver
+        env:
+          SVC: ${{ matrix.service }}
+          DOCKERHUB_NS: ${{ vars.DOCKERHUB_NAMESPACE }}
+          ALIYUN_REG: ${{ vars.ALIYUN_REGISTRY }}
+          ALIYUN_NS: ${{ vars.ALIYUN_NAMESPACE }}
         run: |
-          base="ghcr.io/biumind/${{ matrix.service }}"
+          # 1. version suffix(es) for this trigger
           if [[ "$GITHUB_REF_NAME" == *-v* ]]; then
-            # Release tag → :v* + :latest
             #   service-v0.3.0 → v0.3.0 (all services, same version)
             #   hub-v0.3.1     → v0.3.1 (hub-only hotfix)
             v="v${GITHUB_REF_NAME##*-v}"
-            tags="${base}:${v}"$'\n'"${base}:latest"
+            vers=("$v" "latest")
           elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            # Branch push (main) → immutable :sha-<short> + rolling :main
-            tags="${base}:sha-${GITHUB_SHA::7}"$'\n'"${base}:main"
+            # main branch → immutable :sha-<short> + rolling :main
+            vers=("sha-${GITHUB_SHA::7}" "main")
           else
-            # workflow_dispatch fallback → :latest
-            tags="${base}:latest"
+            vers=("latest")
           fi
+
+          # 2. configured registries (GHCR always on)
+          regs=("ghcr.io/biumind")
+          [ -n "$DOCKERHUB_NS" ] && regs+=("docker.io/${DOCKERHUB_NS}")
+          if [ -n "$ALIYUN_REG" ] && [ -n "$ALIYUN_NS" ]; then
+            regs+=("${ALIYUN_REG}/${ALIYUN_NS}")
+          fi
+
+          # 3. cartesian product → full tag list
           {
             echo "tags<<EOF"
-            echo "$tags"
+            for r in "${regs[@]}"; do
+              for v in "${vers[@]}"; do
+                echo "${r}/${SVC}:${v}"
+              done
+            done
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -192,7 +237,8 @@ jobs:
           severity: ${{ inputs.severity || 'CRITICAL' }}
           vuln-type: "os,library"
 
-      # Once Trivy has cleared the scan, build for both arches and push.
+      # Once Trivy has cleared the scan, build for both arches and push
+      # to every configured registry (one build, multi-registry push).
       - name: Build + push (multi-arch)
         if: steps.filt.outputs.skip == 'false'
         id: pushed
@@ -208,6 +254,9 @@ jobs:
 
       # Signing only on release tags — keyless cosign writes a rekor
       # entry per image; skip for the per-commit :sha/:main CI builds.
+      #The signature attaches to the GHCR ref by digest; the identical
+      # manifest copied to Docker Hub / Aliyun verifies against the same
+      # digest.
       - name: Install cosign
         if: steps.filt.outputs.skip == 'false' && startsWith(github.ref, 'refs/tags/')
         uses: sigstore/cosign-installer@v3
