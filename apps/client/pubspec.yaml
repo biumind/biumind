@@ -52,7 +52,7 @@ dependencies:
 
   # Platform / OS integration
   flutter_secure_storage: ^9.2.2
-  package_info_plus: ^8.1.2
+  package_info_plus: ^9.0.1
 
   # Utils
   intl: ^0.20.1
