@@ -287,7 +287,7 @@ jobs:
           cat asset-biu.json
 
       - name: Upload asset metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: asset-macos
           path: |
@@ -421,7 +421,7 @@ jobs:
           cat asset-android.json
 
       - name: Upload asset metadata
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: asset-android
           path: asset-android.json
@@ -502,7 +502,7 @@ jobs:
 
       - name: Upload unsigned bundle
         if: steps.ios_signing.outputs.ready != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: biumind-ios-unsigned
           path: ${{ env.UNSIGNED_PATH }}
