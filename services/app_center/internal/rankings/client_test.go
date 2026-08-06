@@ -129,23 +129,23 @@ func TestValidateSnapshot_AllowsExactAndSubdomain(t *testing.T) {
 		wantSubstr string
 	}{
 		{
-			name: "exact host",
-			snap: &Snapshot{Items: []Item{{Title: "x", URL: "https://baidu.com/s"}}},
+			name:   "exact host",
+			snap:   &Snapshot{Items: []Item{{Title: "x", URL: "https://baidu.com/s"}}},
 			domain: "baidu.com", wantOK: true,
 		},
 		{
-			name: "subdomain",
-			snap: &Snapshot{Items: []Item{{Title: "x", URL: "https://www.baidu.com/s"}}},
+			name:   "subdomain",
+			snap:   &Snapshot{Items: []Item{{Title: "x", URL: "https://www.baidu.com/s"}}},
 			domain: "baidu.com", wantOK: true,
 		},
 		{
-			name: "wrong host",
-			snap: &Snapshot{Items: []Item{{Title: "x", URL: "https://evil.com/s"}}},
+			name:   "wrong host",
+			snap:   &Snapshot{Items: []Item{{Title: "x", URL: "https://evil.com/s"}}},
 			domain: "baidu.com", wantOK: false, wantSubstr: "evil.com",
 		},
 		{
-			name: "http rejected",
-			snap: &Snapshot{Items: []Item{{Title: "x", URL: "http://baidu.com/s"}}},
+			name:   "http rejected",
+			snap:   &Snapshot{Items: []Item{{Title: "x", URL: "http://baidu.com/s"}}},
 			domain: "baidu.com", wantOK: false, wantSubstr: "non-https",
 		},
 		{
@@ -159,8 +159,8 @@ func TestValidateSnapshot_AllowsExactAndSubdomain(t *testing.T) {
 			domain: "baidu.com", wantOK: true,
 		},
 		{
-			name: "lookalike domain",
-			snap: &Snapshot{Items: []Item{{Title: "x", URL: "https://baidu.com.evil/s"}}},
+			name:   "lookalike domain",
+			snap:   &Snapshot{Items: []Item{{Title: "x", URL: "https://baidu.com.evil/s"}}},
 			domain: "baidu.com", wantOK: false, wantSubstr: "baidu.com.evil",
 		},
 	}

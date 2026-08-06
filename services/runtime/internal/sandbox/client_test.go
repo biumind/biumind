@@ -208,8 +208,8 @@ func TestBuildPrep_MixedInlineAndCAS(t *testing.T) {
 	}}
 	c := &Client{Files: stub}
 	skill := &skillsreg.Skill{Resources: map[string]skillsreg.ResourceMeta{
-		"inline.md":   {Inline: "inlined-body"},
-		"large.bin":   {Sha256: "hash1", SizeBytes: 1024 * 100},
+		"inline.md": {Inline: "inlined-body"},
+		"large.bin": {Sha256: "hash1", SizeBytes: 1024 * 100},
 	}}
 	prep, err := c.buildPrepCommand(context.Background(), skill)
 	if err != nil {

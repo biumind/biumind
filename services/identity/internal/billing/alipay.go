@@ -37,12 +37,12 @@ var (
 type AlipayConfig struct {
 	Enabled            bool   `json:"enabled"`
 	AppID              string `json:"app_id"`
-	PrivateKeyPEM      string `json:"private_key_pem"`        // 应用私钥 (PKCS8 / PKCS1)
-	AlipayPublicKeyPEM string `json:"alipay_public_key_pem"`  // 支付宝公钥 (验签回调用)
-	NotifyURL          string `json:"notify_url"`             // 异步回调
-	ReturnURL          string `json:"return_url"`             // 同步跳转 (可选)
-	Gateway            string `json:"gateway,omitempty"`      // 留空用 AlipayGateway
-	SignType           string `json:"sign_type,omitempty"`    // 留空用 RSA2
+	PrivateKeyPEM      string `json:"private_key_pem"`       // 应用私钥 (PKCS8 / PKCS1)
+	AlipayPublicKeyPEM string `json:"alipay_public_key_pem"` // 支付宝公钥 (验签回调用)
+	NotifyURL          string `json:"notify_url"`            // 异步回调
+	ReturnURL          string `json:"return_url"`            // 同步跳转 (可选)
+	Gateway            string `json:"gateway,omitempty"`     // 留空用 AlipayGateway
+	SignType           string `json:"sign_type,omitempty"`   // 留空用 RSA2
 }
 
 func (c AlipayConfig) Validate() error {
@@ -101,9 +101,9 @@ func NewAlipayClient(cfg AlipayConfig, logger *slog.Logger) (*AlipayClient, erro
 	return c, nil
 }
 
-func (c *AlipayClient) SetClock(now func() time.Time)      { c.now = now }
-func (c *AlipayClient) SetHTTPClient(h *http.Client)       { c.http = h }
-func (c *AlipayClient) Enabled() bool                      { return c != nil && c.cfg.Enabled }
+func (c *AlipayClient) SetClock(now func() time.Time) { c.now = now }
+func (c *AlipayClient) SetHTTPClient(h *http.Client)  { c.http = h }
+func (c *AlipayClient) Enabled() bool                 { return c != nil && c.cfg.Enabled }
 
 func (c *AlipayClient) gateway() string {
 	if c.cfg.Gateway != "" {
@@ -124,13 +124,13 @@ func (c *AlipayClient) signType() string {
 // commonParams — 所有接口都需要的公共字段.
 func (c *AlipayClient) commonParams(method string) map[string]string {
 	return map[string]string{
-		"app_id":    c.cfg.AppID,
-		"method":    method,
-		"format":    "JSON",
-		"charset":   "utf-8",
-		"sign_type": c.signType(),
-		"timestamp": c.now().Format("2006-01-02 15:04:05"),
-		"version":   "1.0",
+		"app_id":     c.cfg.AppID,
+		"method":     method,
+		"format":     "JSON",
+		"charset":    "utf-8",
+		"sign_type":  c.signType(),
+		"timestamp":  c.now().Format("2006-01-02 15:04:05"),
+		"version":    "1.0",
 		"notify_url": c.cfg.NotifyURL,
 	}
 }
@@ -139,11 +139,11 @@ func (c *AlipayClient) commonParams(method string) map[string]string {
 
 // AlipayTradeArgs — page.pay / wap.pay 共用的 biz_content 字段集.
 type AlipayTradeArgs struct {
-	OutTradeNo  string  `json:"out_trade_no"`            // 商户订单号
-	TotalAmount float64 `json:"total_amount"`            // 元 (.2f)
-	Subject     string  `json:"subject"`                 // 商品标题
-	Body        string  `json:"body,omitempty"`          // 详情
-	TimeoutExpress string `json:"timeout_express,omitempty"` // e.g. "30m"
+	OutTradeNo     string  `json:"out_trade_no"`              // 商户订单号
+	TotalAmount    float64 `json:"total_amount"`              // 元 (.2f)
+	Subject        string  `json:"subject"`                   // 商品标题
+	Body           string  `json:"body,omitempty"`            // 详情
+	TimeoutExpress string  `json:"timeout_express,omitempty"` // e.g. "30m"
 }
 
 // CreatePagePay — alipay.trade.page.pay (PC 网站支付).

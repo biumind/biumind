@@ -106,25 +106,25 @@ func NewRelayEngine(endpoint, bearerToken string) *AnthropicEngineProvider {
 //     freed cleanly.
 
 type anthropicReq struct {
-	Model     string                `json:"model"`
+	Model     string                 `json:"model"`
 	System    []anthropicSystemBlock `json:"system,omitempty"`
-	Messages  []anthropicReqMessage `json:"messages"`
-	Tools     []anthropicReqTool    `json:"tools,omitempty"`
-	MaxTokens int                   `json:"max_tokens"`
-	Stream    bool                  `json:"stream"`
+	Messages  []anthropicReqMessage  `json:"messages"`
+	Tools     []anthropicReqTool     `json:"tools,omitempty"`
+	MaxTokens int                    `json:"max_tokens"`
+	Stream    bool                   `json:"stream"`
 }
 
 // anthropicSystemBlock is one entry in the multi-block system array.
 // Each block is plain text; only the stable (cacheable) ones get a
 // cache_control marker.
 type anthropicSystemBlock struct {
-	Type         string         `json:"type"` // always "text"
-	Text         string         `json:"text"`
-	CacheControl *cacheControl  `json:"cache_control,omitempty"`
+	Type         string        `json:"type"` // always "text"
+	Text         string        `json:"text"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
 
 type cacheControl struct {
-	Type string `json:"type"` // always "ephemeral" — TTL via separate field
+	Type string `json:"type"`          // always "ephemeral" — TTL via separate field
 	TTL  string `json:"ttl,omitempty"` // "5m" (default) or "1h" — opt-in
 }
 
@@ -271,10 +271,10 @@ const SystemDynamicBoundary = "<!-- biu:system-dynamic-boundary -->"
 //
 // Strategy:
 //
-//   * No boundary present → one block, marked cacheable. The whole
+//   - No boundary present → one block, marked cacheable. The whole
 //     prompt is treated as static. The most common case for biu
 //     today (CLI prefix + BIUMIND.md is all static).
-//   * Boundary present → two blocks: static prefix marked cacheable,
+//   - Boundary present → two blocks: static prefix marked cacheable,
 //     dynamic suffix unmarked. Caller can use this to pin per-turn
 //     metadata without busting the cache for the rest of the prompt.
 //
@@ -317,12 +317,12 @@ func splitSystem(text string) []anthropicSystemBlock {
 // A single marker is placed on the rotating "last message" position
 // because:
 //
-//   1. The Anthropic API only allows a small fixed number of
-//      message-level markers per request — wasting them on internal
-//      positions starves the rotation.
-//   2. With one marker the previous turn's KV cache pages are freed
-//      promptly; with two markers an internal position gets pinned and
-//      bloats memory without ever being resumed from.
+//  1. The Anthropic API only allows a small fixed number of
+//     message-level markers per request — wasting them on internal
+//     positions starves the rotation.
+//  2. With one marker the previous turn's KV cache pages are freed
+//     promptly; with two markers an internal position gets pinned and
+//     bloats memory without ever being resumed from.
 //
 // `messages` is mutated in place.
 func markLastMessageForCache(messages []anthropicReqMessage) {
@@ -547,9 +547,9 @@ func decodeAnthropicEvent(event, data string) *engine.StreamFrame {
 		StopSequence string `json:"stop_sequence,omitempty"`
 	}
 	type wireUsage struct {
-		InputTokens             int `json:"input_tokens"`
-		OutputTokens            int `json:"output_tokens"`
-		CacheReadInputTokens    int `json:"cache_read_input_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	}
 	type wireMessage struct {

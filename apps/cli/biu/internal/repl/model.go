@@ -24,10 +24,10 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
@@ -35,7 +35,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/client"
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
 	"github.com/biumind/biumind/apps/cli/biu/internal/mcp"
-	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
 	"github.com/biumind/biumind/apps/cli/biu/internal/output"
 	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
@@ -45,6 +44,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/skills"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
+	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
 
@@ -132,12 +132,12 @@ type model struct {
 	cacheBreaker string // one-shot nonce armed by /break-cache; cleared after the next send
 
 	// Conversation
-	history      []client.Message
+	history []client.Message
 
 	// UI components
-	viewport     viewport.Model
-	textarea     textarea.Model
-	spinner      spinner.Model
+	viewport viewport.Model
+	textarea textarea.Model
+	spinner  spinner.Model
 
 	// Streaming state
 	state        runState
@@ -146,14 +146,14 @@ type model struct {
 	lastErr      error
 
 	// Engine path: per-call decoration shown above the assistant text
-	toolRows        []toolRow
-	permissionAsk   *engine.PermissionAskEvent
-	questionAsk     *engine.UserQuestionAskEvent
-	questionCursor  int            // currently focused option index (highlights preview)
-	questionPicked  map[int]bool   // multi-select toggle state
-	questionOther   bool           // true when the synthesised "Other" row is focused / picked
-	questionTyping  bool           // true when the textarea captures free-text for "Other" / notes
-	questionTypeFor int            // 0 = Other free-text answer; 1 = notes annotation
+	toolRows             []toolRow
+	permissionAsk        *engine.PermissionAskEvent
+	questionAsk          *engine.UserQuestionAskEvent
+	questionCursor       int          // currently focused option index (highlights preview)
+	questionPicked       map[int]bool // multi-select toggle state
+	questionOther        bool         // true when the synthesised "Other" row is focused / picked
+	questionTyping       bool         // true when the textarea captures free-text for "Other" / notes
+	questionTypeFor      int          // 0 = Other free-text answer; 1 = notes annotation
 	lastUsageInput       int
 	lastUsageOutput      int
 	lastUsageCacheRead   int
@@ -161,20 +161,20 @@ type model struct {
 	lastStopReason       string
 
 	// Slash-command UI
-	slashOpen    bool
-	slashItems   []SlashCmd
-	slashCursor  int
+	slashOpen   bool
+	slashItems  []SlashCmd
+	slashCursor int
 
 	// Layout
-	width        int
-	height       int
+	width  int
+	height int
 
 	// Markdown renderer (re-built when width changes)
-	md           *glamour.TermRenderer
+	md *glamour.TermRenderer
 
 	// Status counters
-	turnsCount   int
-	startedAt    time.Time
+	turnsCount int
+	startedAt  time.Time
 
 	// Output styles + memory views (Phase D additions).
 	styles      *output.Registry
@@ -248,24 +248,24 @@ func New(opt Options) tea.Model {
 	}
 
 	m := model{
-		provider:   opt.Provider,
-		engine:     opt.Engine,
-		modelID:    opt.Model,
-		system:     opt.System,
-		sessionLog: opt.Session,
-		viewport:   vp,
-		textarea:   ta,
-		spinner:    sp,
-		md:         md,
-		startedAt:  time.Now(),
-		styles:     styles,
+		provider:    opt.Provider,
+		engine:      opt.Engine,
+		modelID:     opt.Model,
+		system:      opt.System,
+		sessionLog:  opt.Session,
+		viewport:    vp,
+		textarea:    ta,
+		spinner:     sp,
+		md:          md,
+		startedAt:   time.Now(),
+		styles:      styles,
 		activeStyle: "default",
 		memoryFiles: opt.MemoryFiles,
-		statusLine: opt.StatusLine,
-		bgTasks:    opt.BgTasks,
-		mcp:        opt.MCP,
-		trust:      opt.Trust,
-		skills:     opt.Skills,
+		statusLine:  opt.StatusLine,
+		bgTasks:     opt.BgTasks,
+		mcp:         opt.MCP,
+		trust:       opt.Trust,
+		skills:      opt.Skills,
 	}
 	m.viewport.SetContent(m.welcome())
 	return m
@@ -1440,7 +1440,6 @@ func (m model) slashPanel() string {
 	return styleSlashPanel.Render(b.String())
 }
 
-
 func helpText() string {
 	return strings.TrimSpace(`
 biu REPL commands:
@@ -1463,6 +1462,3 @@ shortcuts:
   Ctrl-D              exit
 `)
 }
-
-
-

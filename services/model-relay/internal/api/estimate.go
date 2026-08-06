@@ -48,11 +48,11 @@ type estimateReq struct {
 }
 
 type estimateResp struct {
-	Provider    string `json:"provider"`
-	Model       string `json:"model"`
-	BYOKActive  bool   `json:"byok_active"`
-	MinCredits  int64  `json:"min_credits"`
-	MaxCredits  int64  `json:"max_credits"`
+	Provider   string `json:"provider"`
+	Model      string `json:"model"`
+	BYOKActive bool   `json:"byok_active"`
+	MinCredits int64  `json:"min_credits"`
+	MaxCredits int64  `json:"max_credits"`
 	// 警告 (e.g. pricing not found)
 	Warning string `json:"warning,omitempty"`
 }

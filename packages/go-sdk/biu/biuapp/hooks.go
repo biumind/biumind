@@ -87,11 +87,11 @@ type TriggerHandler interface {
 // will render against (typically by dispatching to the
 // view.data_source.action under the hood).
 type ViewDataRequest struct {
-	Install      Install
-	ViewID       string
-	RouteParams  map[string]string
-	QueryParams  map[string]string
-	UserLocale   string
+	Install     Install
+	ViewID      string
+	RouteParams map[string]string
+	QueryParams map[string]string
+	UserLocale  string
 }
 
 // ViewDataProvider is implemented by Apps that need view data fetched

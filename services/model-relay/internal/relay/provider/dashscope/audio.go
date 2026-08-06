@@ -66,11 +66,12 @@ func New() *Adaptor { return &Adaptor{} }
 func (a *Adaptor) Name() string { return "dashscope" }
 
 // Capabilities —
-//  M1:    audio_speech (cosyvoice TTS, audio.go)
-//  M2.5:  rerank (gte-rerank-v2 / qwen3-rerank, rerank.go)
-//  M3:    image_generation (wanx-* / qwen-image, image.go async submit+poll)
-//  M4:    video_generation (wanx-video / wanx2.1-i2v-turbo, video.go async submit+poll)
-//  M6.5:  audio_transcription (paraformer-v2 / sensevoice, transcribe.go async)
+//
+//	M1:    audio_speech (cosyvoice TTS, audio.go)
+//	M2.5:  rerank (gte-rerank-v2 / qwen3-rerank, rerank.go)
+//	M3:    image_generation (wanx-* / qwen-image, image.go async submit+poll)
+//	M4:    video_generation (wanx-video / wanx2.1-i2v-turbo, video.go async submit+poll)
+//	M6.5:  audio_transcription (paraformer-v2 / sensevoice, transcribe.go async)
 //
 // 加 modality 时同时:
 //  1. 追加方法实现对应 interface
@@ -85,25 +86,25 @@ func (a *Adaptor) Capabilities() []string {
 
 // dashscopeSpeechRequest 是上游 body shape. 字段名严格对齐文档.
 type dashscopeSpeechRequest struct {
-	Model string                  `json:"model"`
+	Model string                   `json:"model"`
 	Input dashscopeSpeechInputBody `json:"input"`
 }
 
 type dashscopeSpeechInputBody struct {
-	Text                  string   `json:"text"`
-	Voice                 string   `json:"voice"`
-	Format                string   `json:"format,omitempty"`
-	SampleRate            int      `json:"sample_rate,omitempty"`
-	Volume                int      `json:"volume,omitempty"`
-	Rate                  float64  `json:"rate,omitempty"`
-	Pitch                 float64  `json:"pitch,omitempty"`
-	BitRate               int      `json:"bit_rate,omitempty"`
-	EnableSSML            bool     `json:"enable_ssml,omitempty"`
-	WordTimestampEnabled  bool     `json:"word_timestamp_enabled,omitempty"`
-	Seed                  int      `json:"seed,omitempty"`
-	LanguageHints         []string `json:"language_hints,omitempty"`
-	Instruction           string   `json:"instruction,omitempty"`
-	EnableMarkdownFilter  bool     `json:"enable_markdown_filter,omitempty"`
+	Text                 string   `json:"text"`
+	Voice                string   `json:"voice"`
+	Format               string   `json:"format,omitempty"`
+	SampleRate           int      `json:"sample_rate,omitempty"`
+	Volume               int      `json:"volume,omitempty"`
+	Rate                 float64  `json:"rate,omitempty"`
+	Pitch                float64  `json:"pitch,omitempty"`
+	BitRate              int      `json:"bit_rate,omitempty"`
+	EnableSSML           bool     `json:"enable_ssml,omitempty"`
+	WordTimestampEnabled bool     `json:"word_timestamp_enabled,omitempty"`
+	Seed                 int      `json:"seed,omitempty"`
+	LanguageHints        []string `json:"language_hints,omitempty"`
+	Instruction          string   `json:"instruction,omitempty"`
+	EnableMarkdownFilter bool     `json:"enable_markdown_filter,omitempty"`
 }
 
 // TranslateSpeechRequest — 永远启用 SSE (X-DashScope-SSE: enable). 即便调用方

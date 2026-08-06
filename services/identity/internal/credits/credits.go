@@ -59,11 +59,11 @@ const (
 type PackageSource string
 
 const (
-	SourceRecharge   PackageSource = "recharge"
-	SourcePlanGrant  PackageSource = "plan_grant"
-	SourceReward     PackageSource = "reward"
-	SourceRefund     PackageSource = "refund"
-	SourceAdmin      PackageSource = "admin"
+	SourceRecharge  PackageSource = "recharge"
+	SourcePlanGrant PackageSource = "plan_grant"
+	SourceReward    PackageSource = "reward"
+	SourceRefund    PackageSource = "refund"
+	SourceAdmin     PackageSource = "admin"
 )
 
 type LogRefType string
@@ -87,11 +87,11 @@ const (
 )
 
 type Balance struct {
-	UserID                     uuid.UUID `json:"user_id"`
-	PermanentBalance           int64     `json:"permanent_balance"`
-	TimeLimitedBalance         int64     `json:"time_limited_balance"`
+	UserID                     uuid.UUID  `json:"user_id"`
+	PermanentBalance           int64      `json:"permanent_balance"`
+	TimeLimitedBalance         int64      `json:"time_limited_balance"`
 	TimeLimitedEarliestExpires *time.Time `json:"time_limited_earliest_expires,omitempty"`
-	UpdatedAt                  time.Time `json:"updated_at"`
+	UpdatedAt                  time.Time  `json:"updated_at"`
 }
 
 func (b *Balance) Total() int64 { return b.PermanentBalance + b.TimeLimitedBalance }
@@ -109,17 +109,17 @@ type Package struct {
 }
 
 type Log struct {
-	ID                   uuid.UUID  `json:"id"`
-	UserID               uuid.UUID  `json:"user_id"`
-	Delta                int64      `json:"delta"` // >0 入账, <0 出账
-	ConsumeBreakdown     []Breakdown `json:"consume_breakdown,omitempty"`
-	BalanceAfter         int64      `json:"balance_after"`
-	RefType              LogRefType `json:"ref_type"`
-	RefID                string     `json:"ref_id,omitempty"`
-	Remark               string     `json:"remark,omitempty"`
-	RefundOfLogID        *uuid.UUID `json:"refund_of_log_id,omitempty"`
-	IdempotencyKey       string     `json:"idempotency_key,omitempty"`
-	CreatedAt            time.Time  `json:"created_at"`
+	ID               uuid.UUID   `json:"id"`
+	UserID           uuid.UUID   `json:"user_id"`
+	Delta            int64       `json:"delta"` // >0 入账, <0 出账
+	ConsumeBreakdown []Breakdown `json:"consume_breakdown,omitempty"`
+	BalanceAfter     int64       `json:"balance_after"`
+	RefType          LogRefType  `json:"ref_type"`
+	RefID            string      `json:"ref_id,omitempty"`
+	Remark           string      `json:"remark,omitempty"`
+	RefundOfLogID    *uuid.UUID  `json:"refund_of_log_id,omitempty"`
+	IdempotencyKey   string      `json:"idempotency_key,omitempty"`
+	CreatedAt        time.Time   `json:"created_at"`
 }
 
 // Breakdown 描述一次出账（或退款）涉及哪个 package、扣/退多少。

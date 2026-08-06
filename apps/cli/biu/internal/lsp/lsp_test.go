@@ -44,15 +44,15 @@ func TestLSPNoServersConfigured(t *testing.T) {
 
 func TestBuildMethodMapsOperations(t *testing.T) {
 	cases := map[string]string{
-		"goToDefinition":     "textDocument/definition",
-		"findReferences":     "textDocument/references",
-		"hover":              "textDocument/hover",
-		"documentSymbol":     "textDocument/documentSymbol",
-		"workspaceSymbol":    "workspace/symbol",
-		"goToImplementation": "textDocument/implementation",
+		"goToDefinition":       "textDocument/definition",
+		"findReferences":       "textDocument/references",
+		"hover":                "textDocument/hover",
+		"documentSymbol":       "textDocument/documentSymbol",
+		"workspaceSymbol":      "workspace/symbol",
+		"goToImplementation":   "textDocument/implementation",
 		"prepareCallHierarchy": "textDocument/prepareCallHierarchy",
-		"incomingCalls":      "callHierarchy/incomingCalls",
-		"outgoingCalls":      "callHierarchy/outgoingCalls",
+		"incomingCalls":        "callHierarchy/incomingCalls",
+		"outgoingCalls":        "callHierarchy/outgoingCalls",
 	}
 	for op, want := range cases {
 		got, params := buildMethod(web.LSPRequest{Operation: op, FilePath: "/x.go"})

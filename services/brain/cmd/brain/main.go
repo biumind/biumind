@@ -23,18 +23,15 @@ import (
 	bdb "github.com/biumind/biumind/packages/go-sdk/biu/db"
 	"github.com/biumind/biumind/packages/go-sdk/biu/dbmigrate"
 	"github.com/biumind/biumind/packages/go-sdk/biu/embed"
-	"github.com/biumind/biumind/packages/go-sdk/biu/rerank"
 	bhealth "github.com/biumind/biumind/packages/go-sdk/biu/healthz"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	botel "github.com/biumind/biumind/packages/go-sdk/biu/otel"
-	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
-	toolspkg "github.com/biumind/biumind/services/brain/internal/tools"
-	toolsapi "github.com/biumind/biumind/services/brain/internal/tools/api"
-	toolsbuiltin "github.com/biumind/biumind/services/brain/internal/tools/builtin"
+	"github.com/biumind/biumind/packages/go-sdk/biu/rerank"
 	agentplanepkg "github.com/biumind/biumind/services/brain/internal/agentplane"
-	filespkg "github.com/biumind/biumind/services/brain/internal/files"
+	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
 	providerspkg "github.com/biumind/biumind/services/brain/internal/chat/providers"
 	"github.com/biumind/biumind/services/brain/internal/events"
+	filespkg "github.com/biumind/biumind/services/brain/internal/files"
 	graphapi "github.com/biumind/biumind/services/brain/internal/graph/api"
 	graphstore "github.com/biumind/biumind/services/brain/internal/graph/store"
 	graphsub "github.com/biumind/biumind/services/brain/internal/graph/subscriber"
@@ -45,33 +42,36 @@ import (
 	memworker "github.com/biumind/biumind/services/brain/internal/memory/worker"
 	noteapi "github.com/biumind/biumind/services/brain/internal/note/api"
 	notestore "github.com/biumind/biumind/services/brain/internal/note/store"
-	wikiactivity "github.com/biumind/biumind/services/brain/internal/wiki/activity"
-	wikiapitokens "github.com/biumind/biumind/services/brain/internal/wiki/apitokens"
-	wikichat "github.com/biumind/biumind/services/brain/internal/wiki/chat"
-	wikigraphproj "github.com/biumind/biumind/services/brain/internal/wiki/graph"
-	wikillmsettings "github.com/biumind/biumind/services/brain/internal/wiki/llmsettings"
-	wikioauth "github.com/biumind/biumind/services/brain/internal/wiki/oauth"
-	wikisearchproj "github.com/biumind/biumind/services/brain/internal/wiki/search"
-	wikisources "github.com/biumind/biumind/services/brain/internal/wiki/sources"
-	wikisuggestions "github.com/biumind/biumind/services/brain/internal/wiki/suggestions"
-	wikisynccp "github.com/biumind/biumind/services/brain/internal/wiki/synccheckpoint"
-	wikisyncws "github.com/biumind/biumind/services/brain/internal/wiki/syncws"
 	"github.com/biumind/biumind/services/brain/internal/publisher"
 	searchapi "github.com/biumind/biumind/services/brain/internal/search/api"
 	"github.com/biumind/biumind/services/brain/internal/search/bm25"
 	"github.com/biumind/biumind/services/brain/internal/search/decay"
 	"github.com/biumind/biumind/services/brain/internal/search/searxng"
 	searchvector "github.com/biumind/biumind/services/brain/internal/search/vector"
+	toolspkg "github.com/biumind/biumind/services/brain/internal/tools"
+	toolsapi "github.com/biumind/biumind/services/brain/internal/tools/api"
+	toolsbuiltin "github.com/biumind/biumind/services/brain/internal/tools/builtin"
+	wikiactivity "github.com/biumind/biumind/services/brain/internal/wiki/activity"
 	"github.com/biumind/biumind/services/brain/internal/wiki/api"
+	wikiapitokens "github.com/biumind/biumind/services/brain/internal/wiki/apitokens"
+	wikichat "github.com/biumind/biumind/services/brain/internal/wiki/chat"
 	wikichunks "github.com/biumind/biumind/services/brain/internal/wiki/chunks"
 	wikiembed "github.com/biumind/biumind/services/brain/internal/wiki/embedworker"
 	wikienrich "github.com/biumind/biumind/services/brain/internal/wiki/enrich"
-	wikiresearch "github.com/biumind/biumind/services/brain/internal/wiki/research"
-	wikivision "github.com/biumind/biumind/services/brain/internal/wiki/vision"
+	wikigraphproj "github.com/biumind/biumind/services/brain/internal/wiki/graph"
 	wikiingest "github.com/biumind/biumind/services/brain/internal/wiki/ingest"
+	wikillmsettings "github.com/biumind/biumind/services/brain/internal/wiki/llmsettings"
+	wikioauth "github.com/biumind/biumind/services/brain/internal/wiki/oauth"
 	wikirelevance "github.com/biumind/biumind/services/brain/internal/wiki/relevance"
+	wikiresearch "github.com/biumind/biumind/services/brain/internal/wiki/research"
 	wikireviews "github.com/biumind/biumind/services/brain/internal/wiki/reviews"
+	wikisearchproj "github.com/biumind/biumind/services/brain/internal/wiki/search"
+	wikisources "github.com/biumind/biumind/services/brain/internal/wiki/sources"
 	"github.com/biumind/biumind/services/brain/internal/wiki/store"
+	wikisuggestions "github.com/biumind/biumind/services/brain/internal/wiki/suggestions"
+	wikisynccp "github.com/biumind/biumind/services/brain/internal/wiki/synccheckpoint"
+	wikisyncws "github.com/biumind/biumind/services/brain/internal/wiki/syncws"
+	wikivision "github.com/biumind/biumind/services/brain/internal/wiki/vision"
 )
 
 const (
@@ -89,9 +89,9 @@ type Config struct {
 	// MigrationsDir 启动自动跑 goose up. 容器里默认 /etc/biumind/migrations/brain.
 	// 留空跳过 (单测).
 	MigrationsDir string `env:"BIUMIND_MIGRATIONS_DIR" default:"/etc/biumind/migrations/brain"`
-	JWTSecret    string `env:"JWT_SECRET" required:"true"`
-	JWTIssuer    string `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
-	JWTAudience  string `env:"JWT_AUDIENCE" default:"biumind-api"`
+	JWTSecret     string `env:"JWT_SECRET" required:"true"`
+	JWTIssuer     string `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
+	JWTAudience   string `env:"JWT_AUDIENCE" default:"biumind-api"`
 	// IdentityJWKSURL — Identity's public JWKS endpoint. When set, this
 	// service verifies RS256 tokens against it instead of the shared HS256
 	// secret. JWT_SECRET is still required as the dev/test fallback.
@@ -123,12 +123,12 @@ type Config struct {
 	// ─── Files / MinIO blob storage (artifacts L3 + future generic file ref) ──
 	// 空 endpoint 时 files 模块不挂载 — 上传 / 下载 endpoint 整个不存在。
 	// 部署时给 MINIO_ENDPOINT='minio:9000' / ACCESS_KEY / SECRET_KEY 即开。
-	MinioEndpoint        string `env:"MINIO_ENDPOINT"          default:""`
-	MinioAccessKey       string `env:"MINIO_ACCESS_KEY"        default:""`
-	MinioSecretKey       string `env:"MINIO_SECRET_KEY"        default:""`
-	MinioUseSSL          bool   `env:"MINIO_USE_SSL"           default:"false"`
-	MinioBucket          string `env:"MINIO_BUCKET"            default:"biumind-files"`
-	FilesMaxUploadBytes  int64  `env:"FILES_MAX_UPLOAD_BYTES"  default:"104857600"` // 100MB
+	MinioEndpoint       string `env:"MINIO_ENDPOINT"          default:""`
+	MinioAccessKey      string `env:"MINIO_ACCESS_KEY"        default:""`
+	MinioSecretKey      string `env:"MINIO_SECRET_KEY"        default:""`
+	MinioUseSSL         bool   `env:"MINIO_USE_SSL"           default:"false"`
+	MinioBucket         string `env:"MINIO_BUCKET"            default:"biumind-files"`
+	FilesMaxUploadBytes int64  `env:"FILES_MAX_UPLOAD_BYTES"  default:"104857600"` // 100MB
 
 	// GraphAutoExtract — when true (and NATS is connected), Brain runs
 	// the heuristic graph extractor against every block.created/updated
@@ -247,10 +247,10 @@ type Config struct {
 	// Periodic scan of brain.wiki_chunks ANN distance to surface near-
 	// duplicate pages as review_items. 0h disables the worker; the
 	// REST + MCP surface still works for manually-injected reviews.
-	DedupIntervalHours    int     `env:"DEDUP_INTERVAL_HOURS" default:"6"`
-	DedupMaxDistance      float64 `env:"DEDUP_MAX_DISTANCE"   default:"0.08"`
-	DedupMaxPairsPerProj  int     `env:"DEDUP_MAX_PAIRS_PER_PROJECT" default:"50"`
-	DedupMaxOpenPerProj   int     `env:"DEDUP_MAX_OPEN_PER_PROJECT"  default:"100"`
+	DedupIntervalHours   int     `env:"DEDUP_INTERVAL_HOURS" default:"6"`
+	DedupMaxDistance     float64 `env:"DEDUP_MAX_DISTANCE"   default:"0.08"`
+	DedupMaxPairsPerProj int     `env:"DEDUP_MAX_PAIRS_PER_PROJECT" default:"50"`
+	DedupMaxOpenPerProj  int     `env:"DEDUP_MAX_OPEN_PER_PROJECT"  default:"100"`
 
 	// LLM 二次过滤. true 时 worker 在 cosine 候选基础上再调 model-relay 让模型判
 	// duplicate vs related, 拦掉假阳性. 需要 MODEL_RELAY_URL 已配 (本来就要给
@@ -263,9 +263,9 @@ type Config struct {
 	// Periodic rules-based audit (untitled / empty / stub / dead
 	// wikilinks). 0h disables; rules + REST/MCP surface still work
 	// for direct integration tests.
-	LintIntervalHours    int  `env:"LINT_INTERVAL_HOURS"        default:"12"`
-	LintMaxOpenPerProj   int  `env:"LINT_MAX_OPEN_PER_PROJECT"  default:"200"`
-	LintLLMFilter        bool `env:"LINT_LLM_FILTER"            default:"true"`
+	LintIntervalHours  int  `env:"LINT_INTERVAL_HOURS"        default:"12"`
+	LintMaxOpenPerProj int  `env:"LINT_MAX_OPEN_PER_PROJECT"  default:"200"`
+	LintLLMFilter      bool `env:"LINT_LLM_FILTER"            default:"true"`
 
 	// ─── Wiki relevance worker ───────────────────────────────────
 	// Periodic page-pair scoring (direct wikilink + Adamic-Adar +
@@ -278,11 +278,11 @@ type Config struct {
 	// ─── Wiki sweep worker ───────────────────────────────────────
 	// Daily audit for stale (long un-updated) and orphaned (no
 	// incoming wikilinks + stale) pages. 0h disables.
-	SweepIntervalHours  int  `env:"SWEEP_INTERVAL_HOURS"        default:"24"`
-	SweepStaleAfterDays int  `env:"SWEEP_STALE_AFTER_DAYS"      default:"90"`
-	SweepOrphanAfterDays int `env:"SWEEP_ORPHAN_AFTER_DAYS"    default:"60"`
-	SweepMaxOpenPerProj int  `env:"SWEEP_MAX_OPEN_PER_PROJECT"  default:"200"`
-	SweepLLMFilter      bool `env:"SWEEP_LLM_FILTER"            default:"true"`
+	SweepIntervalHours   int  `env:"SWEEP_INTERVAL_HOURS"        default:"24"`
+	SweepStaleAfterDays  int  `env:"SWEEP_STALE_AFTER_DAYS"      default:"90"`
+	SweepOrphanAfterDays int  `env:"SWEEP_ORPHAN_AFTER_DAYS"    default:"60"`
+	SweepMaxOpenPerProj  int  `env:"SWEEP_MAX_OPEN_PER_PROJECT"  default:"200"`
+	SweepLLMFilter       bool `env:"SWEEP_LLM_FILTER"            default:"true"`
 
 	// ─── Wiki enrich worker (LLM-driven [[wikilink]]) ───────────
 	// Polls pages where enriched_at < updated_at and asks the model

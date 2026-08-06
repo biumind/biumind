@@ -17,14 +17,14 @@ import (
 // BoardSummary is the SDK-side projection of a rankings board row.
 // Implementations live in services/app_center/internal/rankings.
 type BoardSummary struct {
-	ID                  string
-	Name                string
-	Color               string
-	Enabled             bool
-	RefreshSec          int
-	LastFetchedAt       time.Time
-	LastStatus          string
-	LastError           string
+	ID            string
+	Name          string
+	Color         string
+	Enabled       bool
+	RefreshSec    int
+	LastFetchedAt time.Time
+	LastStatus    string
+	LastError     string
 }
 
 // BoardItem is one item in a board snapshot.

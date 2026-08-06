@@ -27,8 +27,8 @@ func TestNormalizePreset(t *testing.T) {
 
 func TestIntersectPreset(t *testing.T) {
 	cases := []struct{ daemon, brain, want string }{
-		{"full", "readonly", "readonly"},          // brain 收窄
-		{"readonly", "full", "readonly"},          // daemon 上限胜
+		{"full", "readonly", "readonly"}, // brain 收窄
+		{"readonly", "full", "readonly"}, // daemon 上限胜
 		{"workspace-write", "full", "workspace-write"},
 		{"workspace-write", "", "workspace-write"}, // brain 空 → daemon
 		{"full", "", "full"},

@@ -51,11 +51,11 @@ type aliasTool struct {
 	inner engine.Tool
 }
 
-func (a aliasTool) Name() string                            { return a.name }
-func (a aliasTool) Description(in map[string]any) string    { return a.inner.Description(in) }
-func (a aliasTool) InputSchema() map[string]any             { return a.inner.InputSchema() }
-func (a aliasTool) IsReadOnly(in map[string]any) bool       { return a.inner.IsReadOnly(in) }
-func (a aliasTool) IsDestructive(in map[string]any) bool    { return a.inner.IsDestructive(in) }
+func (a aliasTool) Name() string                             { return a.name }
+func (a aliasTool) Description(in map[string]any) string     { return a.inner.Description(in) }
+func (a aliasTool) InputSchema() map[string]any              { return a.inner.InputSchema() }
+func (a aliasTool) IsReadOnly(in map[string]any) bool        { return a.inner.IsReadOnly(in) }
+func (a aliasTool) IsDestructive(in map[string]any) bool     { return a.inner.IsDestructive(in) }
 func (a aliasTool) IsConcurrencySafe(in map[string]any) bool { return a.inner.IsConcurrencySafe(in) }
 func (a aliasTool) InterruptBehavior() string                { return a.inner.InterruptBehavior() }
 func (a aliasTool) Call(ctx context.Context, in map[string]any, env *engine.ToolEnv) (*engine.ToolResultPayload, error) {

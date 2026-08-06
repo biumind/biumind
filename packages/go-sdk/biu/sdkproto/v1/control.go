@@ -26,7 +26,7 @@ type Initialize struct {
 }
 
 func (*Initialize) isControlRequestInner() {}
-func (*Initialize) Subtype() string         { return "initialize" }
+func (*Initialize) Subtype() string        { return "initialize" }
 
 // ── interrupt ───────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ type Interrupt struct {
 }
 
 func (*Interrupt) isControlRequestInner() {}
-func (*Interrupt) Subtype() string         { return "interrupt" }
+func (*Interrupt) Subtype() string        { return "interrupt" }
 
 // ── permission (can_use_tool) ───────────────────────────────
 
@@ -54,7 +54,7 @@ type PermissionRequest struct {
 }
 
 func (*PermissionRequest) isControlRequestInner() {}
-func (*PermissionRequest) Subtype() string         { return "can_use_tool" }
+func (*PermissionRequest) Subtype() string        { return "can_use_tool" }
 
 // ── set_model / set_permission_mode / set_max_thinking_tokens ─
 
@@ -64,7 +64,7 @@ type SetModel struct {
 }
 
 func (*SetModel) isControlRequestInner() {}
-func (*SetModel) Subtype() string         { return "set_model" }
+func (*SetModel) Subtype() string        { return "set_model" }
 
 type SetPermissionMode struct {
 	SubtypeF  string `json:"subtype"` // "set_permission_mode"
@@ -73,7 +73,7 @@ type SetPermissionMode struct {
 }
 
 func (*SetPermissionMode) isControlRequestInner() {}
-func (*SetPermissionMode) Subtype() string         { return "set_permission_mode" }
+func (*SetPermissionMode) Subtype() string        { return "set_permission_mode" }
 
 type SetMaxThinkingTokens struct {
 	SubtypeF          string `json:"subtype"` // "set_max_thinking_tokens"
@@ -81,7 +81,7 @@ type SetMaxThinkingTokens struct {
 }
 
 func (*SetMaxThinkingTokens) isControlRequestInner() {}
-func (*SetMaxThinkingTokens) Subtype() string         { return "set_max_thinking_tokens" }
+func (*SetMaxThinkingTokens) Subtype() string        { return "set_max_thinking_tokens" }
 
 // ── mcp_status / mcp_message / mcp_set_servers / mcp_reconnect / mcp_toggle ─
 
@@ -90,7 +90,7 @@ type McpStatus struct {
 }
 
 func (*McpStatus) isControlRequestInner() {}
-func (*McpStatus) Subtype() string         { return "mcp_status" }
+func (*McpStatus) Subtype() string        { return "mcp_status" }
 
 type McpMessage struct {
 	SubtypeF   string          `json:"subtype"` // "mcp_message"
@@ -99,7 +99,7 @@ type McpMessage struct {
 }
 
 func (*McpMessage) isControlRequestInner() {}
-func (*McpMessage) Subtype() string         { return "mcp_message" }
+func (*McpMessage) Subtype() string        { return "mcp_message" }
 
 type McpSetServers struct {
 	SubtypeF string                     `json:"subtype"` // "mcp_set_servers"
@@ -107,7 +107,7 @@ type McpSetServers struct {
 }
 
 func (*McpSetServers) isControlRequestInner() {}
-func (*McpSetServers) Subtype() string         { return "mcp_set_servers" }
+func (*McpSetServers) Subtype() string        { return "mcp_set_servers" }
 
 type McpReconnect struct {
 	SubtypeF   string `json:"subtype"` // "mcp_reconnect"
@@ -115,7 +115,7 @@ type McpReconnect struct {
 }
 
 func (*McpReconnect) isControlRequestInner() {}
-func (*McpReconnect) Subtype() string         { return "mcp_reconnect" }
+func (*McpReconnect) Subtype() string        { return "mcp_reconnect" }
 
 type McpToggle struct {
 	SubtypeF   string `json:"subtype"` // "mcp_toggle"
@@ -124,7 +124,7 @@ type McpToggle struct {
 }
 
 func (*McpToggle) isControlRequestInner() {}
-func (*McpToggle) Subtype() string         { return "mcp_toggle" }
+func (*McpToggle) Subtype() string        { return "mcp_toggle" }
 
 // ── get_context_usage ───────────────────────────────────────
 
@@ -133,7 +133,7 @@ type GetContextUsage struct {
 }
 
 func (*GetContextUsage) isControlRequestInner() {}
-func (*GetContextUsage) Subtype() string         { return "get_context_usage" }
+func (*GetContextUsage) Subtype() string        { return "get_context_usage" }
 
 // ── hook_callback ───────────────────────────────────────────
 
@@ -145,7 +145,7 @@ type HookCallback struct {
 }
 
 func (*HookCallback) isControlRequestInner() {}
-func (*HookCallback) Subtype() string         { return "hook_callback" }
+func (*HookCallback) Subtype() string        { return "hook_callback" }
 
 // ── rewind_files ────────────────────────────────────────────
 
@@ -156,7 +156,7 @@ type RewindFiles struct {
 }
 
 func (*RewindFiles) isControlRequestInner() {}
-func (*RewindFiles) Subtype() string         { return "rewind_files" }
+func (*RewindFiles) Subtype() string        { return "rewind_files" }
 
 // ── cancel_async_message ────────────────────────────────────
 
@@ -166,7 +166,7 @@ type CancelAsyncMessage struct {
 }
 
 func (*CancelAsyncMessage) isControlRequestInner() {}
-func (*CancelAsyncMessage) Subtype() string         { return "cancel_async_message" }
+func (*CancelAsyncMessage) Subtype() string        { return "cancel_async_message" }
 
 // ── seed_read_state ─────────────────────────────────────────
 
@@ -177,7 +177,7 @@ type SeedReadState struct {
 }
 
 func (*SeedReadState) isControlRequestInner() {}
-func (*SeedReadState) Subtype() string         { return "seed_read_state" }
+func (*SeedReadState) Subtype() string        { return "seed_read_state" }
 
 // ── reload_plugins ──────────────────────────────────────────
 
@@ -186,7 +186,7 @@ type ReloadPlugins struct {
 }
 
 func (*ReloadPlugins) isControlRequestInner() {}
-func (*ReloadPlugins) Subtype() string         { return "reload_plugins" }
+func (*ReloadPlugins) Subtype() string        { return "reload_plugins" }
 
 // ── stop_task ───────────────────────────────────────────────
 
@@ -196,7 +196,7 @@ type StopTask struct {
 }
 
 func (*StopTask) isControlRequestInner() {}
-func (*StopTask) Subtype() string         { return "stop_task" }
+func (*StopTask) Subtype() string        { return "stop_task" }
 
 // ── apply_flag_settings / get_settings ──────────────────────
 
@@ -206,14 +206,14 @@ type ApplyFlagSettings struct {
 }
 
 func (*ApplyFlagSettings) isControlRequestInner() {}
-func (*ApplyFlagSettings) Subtype() string         { return "apply_flag_settings" }
+func (*ApplyFlagSettings) Subtype() string        { return "apply_flag_settings" }
 
 type GetSettings struct {
 	SubtypeF string `json:"subtype"` // "get_settings"
 }
 
 func (*GetSettings) isControlRequestInner() {}
-func (*GetSettings) Subtype() string         { return "get_settings" }
+func (*GetSettings) Subtype() string        { return "get_settings" }
 
 // ── elicitation ─────────────────────────────────────────────
 
@@ -228,4 +228,4 @@ type Elicitation struct {
 }
 
 func (*Elicitation) isControlRequestInner() {}
-func (*Elicitation) Subtype() string         { return "elicitation" }
+func (*Elicitation) Subtype() string        { return "elicitation" }

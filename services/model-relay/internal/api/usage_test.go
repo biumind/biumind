@@ -20,8 +20,8 @@ func TestTPS(t *testing.T) {
 		want    float64
 	}{
 		{0, 0, 0},
-		{100, 0, 0},   // zero latency → guard
-		{0, 1000, 0},  // zero output → guard
+		{100, 0, 0},  // zero latency → guard
+		{0, 1000, 0}, // zero output → guard
 		{1000, 1000, 1000.0},
 		{50, 500, 100.0},
 	}
@@ -112,7 +112,7 @@ func TestUsageHandler(t *testing.T) {
 		t.Fatalf("with claims: got %d want 200 (%s)", w.Code, w.Body.String())
 	}
 	var body struct {
-		Month   string `json:"month"`
+		Month   string                `json:"month"`
 		Summary registry.UsageSummary `json:"summary"`
 		Calls   []struct {
 			Model   string  `json:"model"`

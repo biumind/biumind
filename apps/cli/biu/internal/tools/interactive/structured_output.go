@@ -1,7 +1,7 @@
 // StructuredOutput — final structured response tool for SDK / headless
 // callers.
 //
-// 
+//
 // (called SyntheticOutputTool internally; surfaced as
 // "StructuredOutput" to the model). When biu runs as a library
 // (pkg/biumindkit) or via `biu --json`, the caller often wants the

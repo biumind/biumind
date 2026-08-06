@@ -51,8 +51,8 @@ func newIntegrationLoop() *AgentLoop {
 	return NewAgentLoop(nil, tools.New())
 }
 
-// 1. 单 turn 文本：最基础。模型回一段 plain text，end_turn 收尾。
-//    验：RunV2 跑通 + emitter 拿到非空 accumulated text + StopReason=end_turn。
+//  1. 单 turn 文本：最基础。模型回一段 plain text，end_turn 收尾。
+//     验：RunV2 跑通 + emitter 拿到非空 accumulated text + StopReason=end_turn。
 func TestIntegration_SingleTurnText(t *testing.T) {
 	apiKey, baseURL, model := integrationEnv(t)
 	loop := newIntegrationLoop()
@@ -86,8 +86,8 @@ func TestIntegration_SingleTurnText(t *testing.T) {
 		got, res.StopReason, res.PromptTokens, res.CompletionTokens)
 }
 
-// 2. 工具回路：注册 echo cloud 工具，prompt 引导模型调它，验 RunV2
-//    完整跑完 tool-use → tool_result → 最终文本回路。
+//  2. 工具回路：注册 echo cloud 工具，prompt 引导模型调它，验 RunV2
+//     完整跑完 tool-use → tool_result → 最终文本回路。
 func TestIntegration_ToolRoundTrip(t *testing.T) {
 	apiKey, baseURL, model := integrationEnv(t)
 	reg := tools.New()
@@ -148,8 +148,8 @@ func TestIntegration_ToolRoundTrip(t *testing.T) {
 	}
 }
 
-// 3. 工具错误恢复：工具 invoke 抛错，模型应该看到错误信息后用文本回应而非
-//    再死循环调同一工具。
+//  3. 工具错误恢复：工具 invoke 抛错，模型应该看到错误信息后用文本回应而非
+//     再死循环调同一工具。
 func TestIntegration_ToolErrorRecovery(t *testing.T) {
 	apiKey, baseURL, model := integrationEnv(t)
 	reg := tools.New()
@@ -207,8 +207,8 @@ func TestIntegration_ToolErrorRecovery(t *testing.T) {
 		got, res.StopReason, invocations)
 }
 
-// 4. 多 turn 历史：3 条消息（user / assistant / user），让模型基于已知信息
-//    回答后续问题。验 PriorMessages 翻译能让上下文连贯。
+//  4. 多 turn 历史：3 条消息（user / assistant / user），让模型基于已知信息
+//     回答后续问题。验 PriorMessages 翻译能让上下文连贯。
 func TestIntegration_MultiTurnHistory(t *testing.T) {
 	apiKey, baseURL, model := integrationEnv(t)
 	loop := newIntegrationLoop()
@@ -250,8 +250,8 @@ func TestIntegration_MultiTurnHistory(t *testing.T) {
 	}
 }
 
-// 5. Max tokens 边界：极小 max_tokens 让模型必须截断。验 stop_reason
-//    返 max_tokens（不是 end_turn），客户端能区分截断 vs 完整。
+//  5. Max tokens 边界：极小 max_tokens 让模型必须截断。验 stop_reason
+//     返 max_tokens（不是 end_turn），客户端能区分截断 vs 完整。
 func TestIntegration_MaxTokensBoundary(t *testing.T) {
 	apiKey, baseURL, model := integrationEnv(t)
 	loop := newIntegrationLoop()

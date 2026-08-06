@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Memory is one stored memory record. ``Score`` is only populated by
+// Memory is one stored memory record. “Score“ is only populated by
 // recall responses.
 type Memory struct {
 	ID             string    `json:"id"`

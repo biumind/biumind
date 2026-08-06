@@ -60,7 +60,7 @@ func ensureSeedProviderModel(t *testing.T, s *Store) (providerCode, modelCode st
 
 	if err := s.UpsertProvider(ctx, UpsertProviderArgs{
 		Code: providerCode, Name: "Test DashScope",
-		BaseURL: "https://dashscope.aliyuncs.com",
+		BaseURL:  "https://dashscope.aliyuncs.com",
 		Priority: 100, Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed provider: %v", err)
@@ -296,7 +296,7 @@ func TestCreateTaskOutput_AndList(t *testing.T) {
 		TaskID: task.ID, Idx: 0, Kind: "image",
 		SHA256: "sha-abc", StorageURL: "cas:sha-abc",
 		StorageKey: "outputs/sh/a/sha-abc.png",
-		Width: 1024, Height: 1024, FileSize: 234567,
+		Width:      1024, Height: 1024, FileSize: 234567,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -458,7 +458,7 @@ func TestLineage_HasAncestor(t *testing.T) {
 		sha, ancestor string
 		want          bool
 	}{
-		{"D", "A", true},  // 隔三跳
+		{"D", "A", true}, // 隔三跳
 		{"D", "B", true},
 		{"D", "C", true},
 		{"D", "D", true},  // 自己

@@ -17,15 +17,15 @@ const (
 	ProtocolVersion = "2024-11-05"
 
 	// Methods we send.
-	MethodInitialize           = "initialize"
-	MethodInitialized          = "notifications/initialized"
-	MethodToolsList            = "tools/list"
-	MethodToolsCall            = "tools/call"
-	MethodResourcesList        = "resources/list"
-	MethodResourcesRead        = "resources/read"
-	MethodPromptsList          = "prompts/list"
-	MethodPromptsGet           = "prompts/get"
-	MethodPing                 = "ping"
+	MethodInitialize    = "initialize"
+	MethodInitialized   = "notifications/initialized"
+	MethodToolsList     = "tools/list"
+	MethodToolsCall     = "tools/call"
+	MethodResourcesList = "resources/list"
+	MethodResourcesRead = "resources/read"
+	MethodPromptsList   = "prompts/list"
+	MethodPromptsGet    = "prompts/get"
+	MethodPing          = "ping"
 )
 
 // JSONRPCRequest is the standard JSON-RPC 2.0 request envelope. ID is
@@ -120,10 +120,10 @@ type ListToolsResult struct {
 // ToolDef is the server's declaration of a single tool. Mirrors the
 // shape the LLM would see when this tool is registered.
 type ToolDef struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	InputSchema map[string]any         `json:"inputSchema"`
-	Annotations map[string]any         `json:"annotations,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"inputSchema"`
+	Annotations map[string]any `json:"annotations,omitempty"`
 }
 
 type CallToolParams struct {
@@ -137,7 +137,8 @@ type CallToolResult struct {
 }
 
 // ContentBlock is a typed payload chunk in a tool result. MCP defines:
-//   text, image, resource (reference), audio (since 2025-03)
+//
+//	text, image, resource (reference), audio (since 2025-03)
 type ContentBlock struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text,omitempty"`

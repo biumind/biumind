@@ -11,13 +11,13 @@ import (
 
 func TestFormatThousandsShape(t *testing.T) {
 	cases := map[int]string{
-		0:        "0",
-		1:        "1",
-		999:      "999",
-		1000:     "1,000",
-		12345:    "12,345",
-		1234567:  "1,234,567",
-		-1234:    "-1,234",
+		0:       "0",
+		1:       "1",
+		999:     "999",
+		1000:    "1,000",
+		12345:   "12,345",
+		1234567: "1,234,567",
+		-1234:   "-1,234",
 	}
 	for in, want := range cases {
 		if got := formatThousands(in); got != want {

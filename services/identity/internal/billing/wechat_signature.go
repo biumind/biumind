@@ -29,12 +29,12 @@ import (
 // ─── Sentinel errors ───────────────────────────────────
 
 var (
-	ErrWechatBadPrivateKey   = errors.New("wechat: invalid PEM private key")
-	ErrWechatBadPublicKey    = errors.New("wechat: invalid PEM public key")
-	ErrWechatBadSignature    = errors.New("wechat: signature verification failed")
-	ErrWechatBadAPIv3Key     = errors.New("wechat: APIv3Key must be 32 bytes")
-	ErrWechatTimestampSkew   = errors.New("wechat: callback timestamp skew > 5min")
-	ErrWechatBadCiphertext   = errors.New("wechat: ciphertext decode failed")
+	ErrWechatBadPrivateKey = errors.New("wechat: invalid PEM private key")
+	ErrWechatBadPublicKey  = errors.New("wechat: invalid PEM public key")
+	ErrWechatBadSignature  = errors.New("wechat: signature verification failed")
+	ErrWechatBadAPIv3Key   = errors.New("wechat: APIv3Key must be 32 bytes")
+	ErrWechatTimestampSkew = errors.New("wechat: callback timestamp skew > 5min")
+	ErrWechatBadCiphertext = errors.New("wechat: ciphertext decode failed")
 )
 
 // ─── PEM helpers ───────────────────────────────────────
@@ -201,4 +201,3 @@ func randomHex(n int) (string, error) {
 	}
 	return strings.ToUpper(fmt.Sprintf("%x", b)), nil
 }
-

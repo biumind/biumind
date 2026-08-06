@@ -16,7 +16,7 @@ func TestPriorMessagesFromHistory(t *testing.T) {
 	in := []agentplane.ChatTurn{
 		{Role: "user", Content: "当前目录有啥"},
 		{Role: "assistant", Content: "有 3 个文件"},
-		{Role: "user", Content: ""},          // 空内容 → 跳过
+		{Role: "user", Content: ""},            // 空内容 → 跳过
 		{Role: "tool", Content: "should skip"}, // 非 user/assistant → 跳过(P1 文本级)
 		{Role: "user", Content: "我刚才问的啥"},
 	}

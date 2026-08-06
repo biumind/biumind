@@ -33,12 +33,12 @@ func (discardLogger) Error(string, ...any) {}
 // NewEntry is the SDK-side projection of a freshly-inserted entry,
 // passed to OnNew. The radar matcher uses this to produce candidates.
 type NewEntry struct {
-	FeedID    string
-	OwnerScope string
+	FeedID       string
+	OwnerScope   string
 	OwnerScopeID string
-	Title     string
-	URL       string
-	TitleHash []byte
+	Title        string
+	URL          string
+	TitleHash    []byte
 }
 
 // SchedulerCallback is invoked once per RefreshAll tick with the

@@ -48,13 +48,13 @@ import (
 
 // Dispatcher is the cron poller / fire engine.
 type Dispatcher struct {
-	Pool          *pgxpool.Pool
-	Registry      *biuapp.Registry
-	Logger        *slog.Logger
-	PollInterval  time.Duration // default 30s
-	LockTTL       time.Duration // default 5m
-	BatchSize     int           // default 50
-	HandlerWait   time.Duration // default 60s — wall-clock cap on a single dispatch
+	Pool         *pgxpool.Pool
+	Registry     *biuapp.Registry
+	Logger       *slog.Logger
+	PollInterval time.Duration // default 30s
+	LockTTL      time.Duration // default 5m
+	BatchSize    int           // default 50
+	HandlerWait  time.Duration // default 60s — wall-clock cap on a single dispatch
 
 	wg sync.WaitGroup
 }
@@ -266,9 +266,9 @@ func (d *Dispatcher) fire(ctx context.Context, j claimedJob) {
 }
 
 // recordOutcome closes one tx that:
-//   1. updates scheduler_jobs (next_run, last_run_at, last_status, ...)
-//   2. inserts the audit row in app_center.invocations
-//   3. writes a single events row (kind=app.trigger_fired)
+//  1. updates scheduler_jobs (next_run, last_run_at, last_status, ...)
+//  2. inserts the audit row in app_center.invocations
+//  3. writes a single events row (kind=app.trigger_fired)
 func (d *Dispatcher) recordOutcome(ctx context.Context, j claimedJob, status, errMsg string, durationMs int, nextRun time.Time) error {
 	tx, err := d.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

@@ -35,10 +35,10 @@ import (
 )
 
 var (
-	ErrAppleBadJWS         = errors.New("apple: malformed JWS")
-	ErrAppleBadSignature   = errors.New("apple: signature verify failed")
-	ErrAppleNoCertChain    = errors.New("apple: x5c header missing")
-	ErrAppleCertChainBad   = errors.New("apple: cert chain not trusted")
+	ErrAppleBadJWS       = errors.New("apple: malformed JWS")
+	ErrAppleBadSignature = errors.New("apple: signature verify failed")
+	ErrAppleNoCertChain  = errors.New("apple: x5c header missing")
+	ErrAppleCertChainBad = errors.New("apple: cert chain not trusted")
 )
 
 // ─── JWS header / payload ──────────────────────
@@ -83,9 +83,9 @@ func ParseJWS(token string) (*appleJWSHeader, []byte, []byte, []byte, error) {
 // VerifyJWS — 用 x5c 链验. rootCerts 是受信 Apple Root CA. now 用作链验时间戳.
 //
 // 简化: 校验
-//   1. x5c 链非空
-//   2. leaf cert 验签 signing_input
-//   3. leaf 链可被 rootCerts 之一验证 (Verify method)
+//  1. x5c 链非空
+//  2. leaf cert 验签 signing_input
+//  3. leaf 链可被 rootCerts 之一验证 (Verify method)
 //
 // 不做 OCSP / CRL revocation; Apple Root 永不过期 (2035), 短期内没必要.
 func VerifyJWS(token string, rootCerts []*x509.Certificate, now time.Time) ([]byte, error) {
@@ -164,20 +164,20 @@ func VerifyJWS(token string, rootCerts []*x509.Certificate, now time.Time) ([]by
 
 // AppleNotificationV2 — Apple Server Notifications v2 ResponseBodyV2 (顶层).
 type AppleNotificationV2 struct {
-	NotificationType string                  `json:"notificationType"`
-	Subtype          string                  `json:"subtype,omitempty"`
-	NotificationUUID string                  `json:"notificationUUID"`
-	Data             AppleNotificationData   `json:"data"`
-	Version          string                  `json:"version"`
-	SignedDate       int64                   `json:"signedDate"`
+	NotificationType string                `json:"notificationType"`
+	Subtype          string                `json:"subtype,omitempty"`
+	NotificationUUID string                `json:"notificationUUID"`
+	Data             AppleNotificationData `json:"data"`
+	Version          string                `json:"version"`
+	SignedDate       int64                 `json:"signedDate"`
 }
 
 type AppleNotificationData struct {
-	BundleID                   string `json:"bundleId"`
-	Environment                string `json:"environment"` // Sandbox / Production
-	SignedRenewalInfo          string `json:"signedRenewalInfo,omitempty"`
-	SignedTransactionInfo      string `json:"signedTransactionInfo,omitempty"`
-	AppAppleID                 int64  `json:"appAppleId,omitempty"`
+	BundleID              string `json:"bundleId"`
+	Environment           string `json:"environment"` // Sandbox / Production
+	SignedRenewalInfo     string `json:"signedRenewalInfo,omitempty"`
+	SignedTransactionInfo string `json:"signedTransactionInfo,omitempty"`
+	AppAppleID            int64  `json:"appAppleId,omitempty"`
 }
 
 // AppleTransaction — JWSTransactionDecodedPayload 关键字段.

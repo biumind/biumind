@@ -155,8 +155,8 @@ const (
 
 // Summary is one aggregated row.
 type Summary struct {
-	Period     string  // YYYY-MM-DD / YYYY-Www / YYYY-MM
-	Model      string  // empty when grouping ignores model
+	Period     string // YYYY-MM-DD / YYYY-Www / YYYY-MM
+	Model      string // empty when grouping ignores model
 	Input      int
 	Output     int
 	CacheRead  int

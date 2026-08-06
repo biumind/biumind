@@ -11,7 +11,7 @@
 //
 // Modularity (undirected weighted graph):
 //
-//   Q = (1 / 2m) * Σ_ij (A_ij - k_i*k_j/2m) δ(c_i, c_j)
+//	Q = (1 / 2m) * Σ_ij (A_ij - k_i*k_j/2m) δ(c_i, c_j)
 //
 // The local greedy moves pick, for each node, the neighbour community
 // that maximises ΔQ. Iterates until no node moves.
@@ -468,4 +468,3 @@ func makeIdentity(nodes []uuid.UUID) map[uuid.UUID]int {
 	}
 	return out
 }
-

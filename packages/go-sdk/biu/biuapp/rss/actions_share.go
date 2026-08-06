@@ -43,10 +43,10 @@ func (a *App) invokeSharesCreate(ctx context.Context, raw json.RawMessage) (any,
 		return nil, errors.New("rss: pg not wired")
 	}
 	var in struct {
-		ViewKind     string          `json:"view_kind"`
-		Filter       json.RawMessage `json:"filter,omitempty"`
-		ExpiresInDays int            `json:"expires_in_days,omitempty"`
-		Scope        string          `json:"scope,omitempty"`
+		ViewKind      string          `json:"view_kind"`
+		Filter        json.RawMessage `json:"filter,omitempty"`
+		ExpiresInDays int             `json:"expires_in_days,omitempty"`
+		Scope         string          `json:"scope,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, fmt.Errorf("rss: bad input: %w", err)

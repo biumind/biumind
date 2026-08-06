@@ -229,7 +229,6 @@ func oneLine(s string) string {
 	return s
 }
 
-
 // ─── list ─────────────────────────────────────────────────────
 
 func newPluginListCmd() *cobra.Command {

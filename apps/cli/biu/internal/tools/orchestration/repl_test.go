@@ -13,20 +13,20 @@ import (
 // without spinning up real Read / Bash / etc. Records its inputs
 // + returns a canned result.
 type stubTool struct {
-	name        string
-	calls       int
-	lastInput   map[string]any
-	wantErr     bool
-	resultBody  string
+	name       string
+	calls      int
+	lastInput  map[string]any
+	wantErr    bool
+	resultBody string
 }
 
-func (s *stubTool) Name() string                       { return s.name }
-func (s *stubTool) Description(map[string]any) string  { return "stub: " + s.name }
-func (s *stubTool) InputSchema() map[string]any        { return map[string]any{"type": "object"} }
-func (s *stubTool) IsReadOnly(map[string]any) bool     { return true }
-func (s *stubTool) IsDestructive(map[string]any) bool  { return false }
+func (s *stubTool) Name() string                          { return s.name }
+func (s *stubTool) Description(map[string]any) string     { return "stub: " + s.name }
+func (s *stubTool) InputSchema() map[string]any           { return map[string]any{"type": "object"} }
+func (s *stubTool) IsReadOnly(map[string]any) bool        { return true }
+func (s *stubTool) IsDestructive(map[string]any) bool     { return false }
 func (s *stubTool) IsConcurrencySafe(map[string]any) bool { return true }
-func (s *stubTool) InterruptBehavior() string          { return "complete" }
+func (s *stubTool) InterruptBehavior() string             { return "complete" }
 func (s *stubTool) Call(ctx context.Context, in map[string]any, env *engine.ToolEnv) (*engine.ToolResultPayload, error) {
 	s.calls++
 	s.lastInput = in

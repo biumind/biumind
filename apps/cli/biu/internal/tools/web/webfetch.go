@@ -108,10 +108,10 @@ func (w WebFetchTool) Call(ctx context.Context, input map[string]any, _ *engine.
 // goquery for this — the model rarely needs perfect parsing, just
 // readable text. Strips:
 //
-//   * <script>...</script> blocks (with content)
-//   * <style>...</style> blocks
-//   * any other HTML tag (keeps inner text)
-//   * collapses whitespace runs
+//   - <script>...</script> blocks (with content)
+//   - <style>...</style> blocks
+//   - any other HTML tag (keeps inner text)
+//   - collapses whitespace runs
 //
 // Entities are not decoded (&amp; survives) — fine for the LLM, which
 // will infer them.

@@ -18,8 +18,8 @@ type stubApp struct {
 	failOn   string
 }
 
-func (s *stubApp) Manifest() biuapp.Manifest                      { return s.manifest }
-func (s *stubApp) Init(ctx context.Context, _ biuapp.Deps) error  { return nil }
+func (s *stubApp) Manifest() biuapp.Manifest                     { return s.manifest }
+func (s *stubApp) Init(ctx context.Context, _ biuapp.Deps) error { return nil }
 func (s *stubApp) Invoke(_ context.Context, action string, in json.RawMessage) (any, error) {
 	s.calls = append(s.calls, action+":"+string(in))
 	if action == s.failOn {

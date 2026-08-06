@@ -46,12 +46,12 @@ func TestEmail_ParseMailgun_HappyPath(t *testing.T) {
 	d := NewEmail(VendorMailgun)
 	d.MailgunSigningKey = "test-key"
 	r := mailgunForm(t, "test-key", map[string]string{
-		"from":         "Alice <alice@example.com>",
-		"subject":      "Hello",
-		"body-plain":   "This is the body.",
-		"Message-Id":   "<msg-1@example.com>",
-		"In-Reply-To":  "<msg-0@example.com>",
-		"References":   "<msg-0@example.com>",
+		"from":        "Alice <alice@example.com>",
+		"subject":     "Hello",
+		"body-plain":  "This is the body.",
+		"Message-Id":  "<msg-1@example.com>",
+		"In-Reply-To": "<msg-0@example.com>",
+		"References":  "<msg-0@example.com>",
 	})
 	envs, err := d.VerifyAndParse(r)
 	if err != nil {
@@ -201,11 +201,11 @@ func TestEmail_ParsePostmark_BasicAuthRequired(t *testing.T) {
 
 func TestEmail_Send_ConstructsRfc5322Message(t *testing.T) {
 	var captured struct {
-		addr     string
-		from     string
-		to       []string
-		body     []byte
-		auth     smtp.Auth
+		addr string
+		from string
+		to   []string
+		body []byte
+		auth smtp.Auth
 	}
 	d := NewEmail(VendorMailgun)
 	d.SMTPHost = "smtp.test"
@@ -245,7 +245,7 @@ func TestEmail_Send_ConstructsRfc5322Message(t *testing.T) {
 	for _, want := range []string{
 		"From: BiuMind <bot@biumind.com>",
 		"To: alice@example.com",
-		"Subject: Re: Hello",                  // auto-prefixed
+		"Subject: Re: Hello", // auto-prefixed
 		"In-Reply-To: <msg-0@example.com>",
 		"Hi Alice!",
 	} {

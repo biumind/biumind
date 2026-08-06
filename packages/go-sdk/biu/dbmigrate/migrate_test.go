@@ -24,15 +24,15 @@ func TestValidServiceName_AcceptsRealServices(t *testing.T) {
 
 func TestValidServiceName_RejectsHostileInput(t *testing.T) {
 	bad := []string{
-		"",                          // empty
-		"Identity",                  // uppercase
-		"a-b",                       // dash
-		"a.b",                       // dot
-		"a;DROP TABLE users",        // sql injection classic
-		`a" OR 1=1; --`,             // quote injection
-		"a b",                       // space
-		"123start",                  // leading digit
-		"_underscore_first",         // leading underscore
+		"",                   // empty
+		"Identity",           // uppercase
+		"a-b",                // dash
+		"a.b",                // dot
+		"a;DROP TABLE users", // sql injection classic
+		`a" OR 1=1; --`,      // quote injection
+		"a b",                // space
+		"123start",           // leading digit
+		"_underscore_first",  // leading underscore
 		"way_too_long_service_name_that_exceeds_limit", // > 31 chars
 	}
 	for _, name := range bad {

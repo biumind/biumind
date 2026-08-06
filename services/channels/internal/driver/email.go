@@ -52,9 +52,9 @@ const (
 // only-inbound or only-outbound use needs to fill just one half.
 type Email struct {
 	// Inbound webhook authentication.
-	Vendor              EmailVendor
-	MailgunSigningKey   string // shared across all your Mailgun domains
-	PostmarkBasicAuth   string // "user:pass" basic auth header value
+	Vendor            EmailVendor
+	MailgunSigningKey string // shared across all your Mailgun domains
+	PostmarkBasicAuth string // "user:pass" basic auth header value
 	// Anti-replay window for Mailgun signatures (default 5 min).
 	ClockSkew time.Duration
 
@@ -406,4 +406,3 @@ func randomToken(n int) string {
 	}
 	return string(b)
 }
-

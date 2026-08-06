@@ -98,12 +98,12 @@ func (r *Registry) Lookup(name string) (RuntimeSkill, bool) {
 //
 // Matching rules:
 //
-//   * Pattern with no glob characters matches when cwd has it as a
+//   - Pattern with no glob characters matches when cwd has it as a
 //     suffix or as a containing directory (so `apps/cli/biu` matches
 //     for any path inside that subtree).
-//   * Pattern with `*` / `?` / `**` runs filepath.Match against cwd
+//   - Pattern with `*` / `?` / `**` runs filepath.Match against cwd
 //     itself plus every entry in recentlyTouched.
-//   * Skills with no Paths constraint never auto-attach — they
+//   - Skills with no Paths constraint never auto-attach — they
 //     remain available via `/<skill>` invocation.
 func (r *Registry) AutoAttach(cwd string, recentlyTouched ...string) []Skill {
 	if r == nil {
@@ -161,9 +161,9 @@ func (r *Registry) sortedNames() []string {
 // matchesAny reports whether any of the supplied paths satisfies any
 // of the glob patterns. Each pattern can be:
 //
-//   "literal/dir"     — substring match against each path
-//   "*.go"            — filepath.Match against each path's basename
-//   "src/**/*.go"     — `**`-aware regex against each path
+//	"literal/dir"     — substring match against each path
+//	"*.go"            — filepath.Match against each path's basename
+//	"src/**/*.go"     — `**`-aware regex against each path
 func matchesAny(patterns, paths []string) bool {
 	for _, pat := range patterns {
 		for _, p := range paths {
@@ -227,7 +227,6 @@ type RuntimeSkill struct{ Skill }
 func (s RuntimeSkill) Name() string {
 	return s.Skill.Name
 }
-
 
 // Load walks all three layers and returns a populated registry.
 // Order is bundled → user → project, with later layers overwriting

@@ -58,13 +58,16 @@ type stubApp struct {
 	configUpdated int
 }
 
-func (s *stubApp) Manifest() biuapp.Manifest                  { return s.manifest }
+func (s *stubApp) Manifest() biuapp.Manifest                     { return s.manifest }
 func (s *stubApp) Init(ctx context.Context, _ biuapp.Deps) error { return nil }
 func (s *stubApp) Invoke(ctx context.Context, action string, in json.RawMessage) (any, error) {
 	return map[string]any{"ok": true}, nil
 }
-func (s *stubApp) OnInstall(ctx context.Context, in biuapp.Install) error  { s.installed++; return nil }
-func (s *stubApp) OnUninstall(ctx context.Context, in biuapp.Install) error { s.uninstalled++; return nil }
+func (s *stubApp) OnInstall(ctx context.Context, in biuapp.Install) error { s.installed++; return nil }
+func (s *stubApp) OnUninstall(ctx context.Context, in biuapp.Install) error {
+	s.uninstalled++
+	return nil
+}
 func (s *stubApp) OnUpgrade(ctx context.Context, in biuapp.Install, from string) error {
 	s.upgraded++
 	return nil
@@ -408,7 +411,7 @@ func TestInstaller_DefaultPin_AppendsExisting(t *testing.T) {
 func TestInstaller_DefaultPin_TopPositionPrepends(t *testing.T) {
 	pool := openDB(t)
 	ctx := context.Background()
-	first := newStubApp("test-pin-first").withDefaultPin()              // 默认 (middle/append)
+	first := newStubApp("test-pin-first").withDefaultPin()             // 默认 (middle/append)
 	second := newStubApp("test-pin-top").withDefaultPinPosition("top") // top
 	reg := biuapp.NewRegistry(biuapp.Deps{})
 	_ = reg.Register(ctx, first)

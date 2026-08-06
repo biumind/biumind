@@ -16,47 +16,47 @@ import (
 
 // OAuthClient is one row of identity.oauth_clients.
 type OAuthClient struct {
-	ClientID                 uuid.UUID
-	ClientSecretHash         string // empty for public clients
-	ClientName               string
-	RedirectURIs             []string
-	GrantTypes               []string
-	ResponseTypes            []string
-	TokenEndpointAuthMethod  string
-	Scope                    string
-	Contacts                 []string
-	LogoURI                  string
-	ClientURI                string
-	TosURI                   string
-	PolicyURI                string
-	SoftwareID               string
-	SoftwareVersion          string
+	ClientID                    uuid.UUID
+	ClientSecretHash            string // empty for public clients
+	ClientName                  string
+	RedirectURIs                []string
+	GrantTypes                  []string
+	ResponseTypes               []string
+	TokenEndpointAuthMethod     string
+	Scope                       string
+	Contacts                    []string
+	LogoURI                     string
+	ClientURI                   string
+	TosURI                      string
+	PolicyURI                   string
+	SoftwareID                  string
+	SoftwareVersion             string
 	RegistrationAccessTokenHash string
-	CreatedBy                *uuid.UUID
-	CreatedAt                time.Time
-	UpdatedAt                time.Time
+	CreatedBy                   *uuid.UUID
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
 }
 
 var ErrOAuthClientNotFound = errors.New("oauth client not found")
 
 // CreateOAuthClientInput is what DCR fills in.
 type CreateOAuthClientInput struct {
-	ClientSecretHash         string
-	ClientName               string
-	RedirectURIs             []string
-	GrantTypes               []string
-	ResponseTypes            []string
-	TokenEndpointAuthMethod  string
-	Scope                    string
-	Contacts                 []string
-	LogoURI                  string
-	ClientURI                string
-	TosURI                   string
-	PolicyURI                string
-	SoftwareID               string
-	SoftwareVersion          string
+	ClientSecretHash            string
+	ClientName                  string
+	RedirectURIs                []string
+	GrantTypes                  []string
+	ResponseTypes               []string
+	TokenEndpointAuthMethod     string
+	Scope                       string
+	Contacts                    []string
+	LogoURI                     string
+	ClientURI                   string
+	TosURI                      string
+	PolicyURI                   string
+	SoftwareID                  string
+	SoftwareVersion             string
 	RegistrationAccessTokenHash string
-	CreatedBy                *uuid.UUID
+	CreatedBy                   *uuid.UUID
 }
 
 func (s *Store) CreateOAuthClient(ctx context.Context, in CreateOAuthClientInput) (*OAuthClient, error) {

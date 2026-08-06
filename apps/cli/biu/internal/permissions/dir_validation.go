@@ -24,21 +24,21 @@ import (
 type DirValidationKind string
 
 const (
-	DirValidEmpty                  DirValidationKind = "emptyPath"
-	DirValidPathNotFound           DirValidationKind = "pathNotFound"
-	DirValidNotADirectory          DirValidationKind = "notADirectory"
-	DirValidAlreadyInWorkingDir    DirValidationKind = "alreadyInWorkingDirectory"
-	DirValidSuccess                DirValidationKind = "success"
+	DirValidEmpty               DirValidationKind = "emptyPath"
+	DirValidPathNotFound        DirValidationKind = "pathNotFound"
+	DirValidNotADirectory       DirValidationKind = "notADirectory"
+	DirValidAlreadyInWorkingDir DirValidationKind = "alreadyInWorkingDirectory"
+	DirValidSuccess             DirValidationKind = "success"
 )
 
 // DirValidationResult is one of the five terminal states. Fields are
 // populated only when relevant to the kind:
 //
-//   Empty:                {Kind}
-//   PathNotFound:         {Kind, Input, AbsolutePath}
-//   NotADirectory:        {Kind, Input, AbsolutePath}
-//   AlreadyInWorkingDir:  {Kind, Input, ExistingWorkingDir}
-//   Success:              {Kind, Input, AbsolutePath}
+//	Empty:                {Kind}
+//	PathNotFound:         {Kind, Input, AbsolutePath}
+//	NotADirectory:        {Kind, Input, AbsolutePath}
+//	AlreadyInWorkingDir:  {Kind, Input, ExistingWorkingDir}
+//	Success:              {Kind, Input, AbsolutePath}
 type DirValidationResult struct {
 	Kind               DirValidationKind
 	Input              string
@@ -73,15 +73,15 @@ func (r DirValidationResult) HelpMessage() string {
 // as the implicit primary working directory).
 //
 // Order of checks:
-//   1. Empty path → DirValidEmpty
-//   2. Resolve absolute (~ expansion + Abs)
-//   3. Stat: missing / EACCES / EPERM → DirValidPathNotFound
-//             (a non-existent path is a config-time mistake, not a
-//             reason to crash startup)
-//   4. Stat: not a directory → DirValidNotADirectory
-//   5. Containment: already inside any working dir →
-//      DirValidAlreadyInWorkingDir (returns the matching dir)
-//   6. otherwise DirValidSuccess
+//  1. Empty path → DirValidEmpty
+//  2. Resolve absolute (~ expansion + Abs)
+//  3. Stat: missing / EACCES / EPERM → DirValidPathNotFound
+//     (a non-existent path is a config-time mistake, not a
+//     reason to crash startup)
+//  4. Stat: not a directory → DirValidNotADirectory
+//  5. Containment: already inside any working dir →
+//     DirValidAlreadyInWorkingDir (returns the matching dir)
+//  6. otherwise DirValidSuccess
 //
 // ctx may be nil (caller has no permission state yet during early
 // startup); only the cwd containment check is then performed.

@@ -94,14 +94,14 @@ type SingleTurnInput struct {
 	UseRelayAuth bool
 	Model        string
 	System       string
-	Prompt       string       // 当前 turn user prompt
+	Prompt       string // 当前 turn user prompt
 	// History 是当前 turn **之前**的对话历史(按时间升序,user/assistant 交替)。
 	// 空 = 单轮(向后兼容,老行为)。Runtime v3 R4：WS chat 多轮上下文由 Flutter
 	// 经 WorkPayload.History 带入(brain 不持久化 WS chat 消息,维持 Agent Plane
 	// 与 chat.Store 解耦)。RunSingleTurn 把 History + Prompt 拼成 RunV2 的 History。
-	History      []PriorTurn
-	Images       []ImageInput // 图片附件(空 = 纯文本)。视觉模型才有效。
-	Emitter      EventEmitter
+	History []PriorTurn
+	Images  []ImageInput // 图片附件(空 = 纯文本)。视觉模型才有效。
+	Emitter EventEmitter
 }
 
 // PriorTurn 是一轮历史消息(公开类型,跨包契约——避免暴露私有 hubMessage)。
@@ -201,8 +201,8 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 		ExtraTools:          bkTools,
 		PriorMessages:       prior,
 		PermissionPolicy:    biumindkit.PermissionAllow(), // chat 模式 cloud 工具全部 read-only，不询问
-		LoadProjectMemory:   biumindkit.NoMemory,           // brain 不读本地 BIUMIND.md
-		LoadProjectSettings: biumindkit.NoSettings,         // brain 不读本地 settings.json
+		LoadProjectMemory:   biumindkit.NoMemory,          // brain 不读本地 BIUMIND.md
+		LoadProjectSettings: biumindkit.NoSettings,        // brain 不读本地 settings.json
 		BypassPermissions:   true,
 	})
 	if err != nil {

@@ -272,7 +272,7 @@ func (r *CredentialRepo) Update(ctx context.Context, id uuid.UUID, u CredentialU
 	// Two query shapes — one keeps the old ciphertext (label-only edit),
 	// one rotates. Cleaner than COALESCE on each column.
 	var (
-		q   string
+		q    string
 		args []any
 	)
 	if rotating {

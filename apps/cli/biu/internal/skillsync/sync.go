@@ -115,9 +115,9 @@ type PushResult struct {
 type PushAction string
 
 const (
-	PushCreated    PushAction = "created"
-	PushUpdated    PushAction = "updated"
-	PushUnchanged  PushAction = "unchanged"
+	PushCreated   PushAction = "created"
+	PushUpdated   PushAction = "updated"
+	PushUnchanged PushAction = "unchanged"
 )
 
 func Push(ctx context.Context, c *Client, root, identifier string) (*PushResult, error) {

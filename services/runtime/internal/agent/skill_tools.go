@@ -420,7 +420,7 @@ func skillExecScriptTool(d SkillToolDeps) *Tool {
 				return "", fmt.Errorf("identifier + command required")
 			}
 			if d.Sandbox == nil {
-				return "", fmt.Errorf("sandbox not configured (PS3.6 wires the runtime "+
+				return "", fmt.Errorf("sandbox not configured (PS3.6 wires the runtime " +
 					"sandbox client); fall back to bash for non-bundled commands")
 			}
 			s, err := d.Registry.GetByIdentifier(ctx, d.OrgID, ident)

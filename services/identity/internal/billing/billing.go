@@ -65,8 +65,8 @@ type PlanLimits struct {
 	HubTPM            int64
 	SandboxDaily      int64
 	SandboxConcurrent int
-	MemoryQuota       int   // max stored memories per project
-	BrainProjects     int   // max projects per user
+	MemoryQuota       int // max stored memories per project
+	BrainProjects     int // max projects per user
 }
 
 // DefaultLimits is the baseline mapping we ship with. Override via
@@ -147,18 +147,18 @@ func (s *Server) Mount(mux *http.ServeMux) {
 // stripeEvent — only the fields we need; keeps us decoupled from
 // the upstream stripe-go SDK (which would balloon module size).
 type stripeEvent struct {
-	ID   string          `json:"id"`
-	Type string          `json:"type"`
+	ID   string `json:"id"`
+	Type string `json:"type"`
 	Data struct {
 		Object json.RawMessage `json:"object"`
 	} `json:"data"`
 }
 
 type stripeSubscription struct {
-	ID         string `json:"id"`
-	Customer   string `json:"customer"`
-	Status     string `json:"status"`
-	Items      struct {
+	ID       string `json:"id"`
+	Customer string `json:"customer"`
+	Status   string `json:"status"`
+	Items    struct {
 		Data []struct {
 			Price struct {
 				ID string `json:"id"`
@@ -170,21 +170,21 @@ type stripeSubscription struct {
 	// W2-7: 周期与试用期 — Stripe Unix timestamp (秒)
 	CurrentPeriodStart int64 `json:"current_period_start"`
 	CurrentPeriodEnd   int64 `json:"current_period_end"`
-	TrialEnd           int64 `json:"trial_end"`            // 0 = no trial
-	CancelAt           int64 `json:"cancel_at"`            // 用户预约取消时点
-	CanceledAt         int64 `json:"canceled_at"`          // 实际取消时点
+	TrialEnd           int64 `json:"trial_end"`   // 0 = no trial
+	CancelAt           int64 `json:"cancel_at"`   // 用户预约取消时点
+	CanceledAt         int64 `json:"canceled_at"` // 实际取消时点
 }
 
 // stripeInvoice — invoice.payment_{succeeded,failed} event 的 data.object.
 type stripeInvoice struct {
-	ID             string `json:"id"`
-	Customer       string `json:"customer"`
-	Subscription   string `json:"subscription"`            // sub_xxx
-	Status         string `json:"status"`                  // paid | open | uncollectible | void
-	AmountPaid     int64  `json:"amount_paid"`             // cents
-	Currency       string `json:"currency"`
-	Paid           bool   `json:"paid"`
-	BillingReason  string `json:"billing_reason"`          // subscription_create | subscription_cycle | ...
+	ID            string `json:"id"`
+	Customer      string `json:"customer"`
+	Subscription  string `json:"subscription"` // sub_xxx
+	Status        string `json:"status"`       // paid | open | uncollectible | void
+	AmountPaid    int64  `json:"amount_paid"`  // cents
+	Currency      string `json:"currency"`
+	Paid          bool   `json:"paid"`
+	BillingReason string `json:"billing_reason"` // subscription_create | subscription_cycle | ...
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +237,8 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 //
 // 旧路径 (Plans/Subscriptions nil): 仅 SetUserPlan 维护 users.plan denorm.
 // 新路径: 同步写 billing.subscriptions + subscription_events, 然后
-//         SetUserPlan 维护 denorm.
+//
+//	SetUserPlan 维护 denorm.
 func (s *Server) applySubscription(ctx Context, ev stripeEvent) error {
 	var sub stripeSubscription
 	if err := json.Unmarshal(ev.Data.Object, &sub); err != nil {
@@ -279,12 +280,13 @@ func (s *Server) applySubscription(ctx Context, ev stripeEvent) error {
 
 // syncSubscriptionRow 维护 billing.subscriptions 行与 Stripe 事件一致.
 // 五条路径:
-//   created  → SubscriptionsRepo.Create (status=trialing/active 看 Stripe status)
-//   updated, plan 变 → ChangePlan + 写 upgraded/downgraded event
-//   updated, status='canceled' → Transition canceled (用户取消)
-//   updated, status='past_due' → Transition past_due
-//   updated, status='active' from past_due → Transition active (recovered)
-//   deleted  → Transition canceled / expired (按 Stripe 来)
+//
+//	created  → SubscriptionsRepo.Create (status=trialing/active 看 Stripe status)
+//	updated, plan 变 → ChangePlan + 写 upgraded/downgraded event
+//	updated, status='canceled' → Transition canceled (用户取消)
+//	updated, status='past_due' → Transition past_due
+//	updated, status='active' from past_due → Transition active (recovered)
+//	deleted  → Transition canceled / expired (按 Stripe 来)
 func (s *Server) syncSubscriptionRow(rawCtx Context, ev stripeEvent, sub *stripeSubscription, plan Plan) error {
 	ctx, ok := rawCtx.(context.Context)
 	if !ok {
@@ -356,11 +358,11 @@ func (s *Server) syncSubscriptionRow(rawCtx Context, ev stripeEvent, sub *stripe
 		_, err = s.Subscriptions.Create(ctx, CreateInput{
 			UserID: userID, PlanID: planRow.ID, Status: init,
 			CurrentPeriodStart: stripePeriodStart, CurrentPeriodEnd: stripePeriodEnd,
-			TrialEndAt:         trialEnd,
-			BillingCycle:       "monthly",
-			StripeCustomerID:   sub.Customer,
+			TrialEndAt:           trialEnd,
+			BillingCycle:         "monthly",
+			StripeCustomerID:     sub.Customer,
 			StripeSubscriptionID: sub.ID,
-			Metadata: json.RawMessage(`{"source":"stripe_webhook_backfill","event_id":"` + ev.ID + `"}`),
+			Metadata:             json.RawMessage(`{"source":"stripe_webhook_backfill","event_id":"` + ev.ID + `"}`),
 		})
 		return err
 

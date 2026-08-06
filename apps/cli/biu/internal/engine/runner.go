@@ -45,7 +45,7 @@ import (
 
 // runnerInput is what the batcher hands to the runner.
 type runnerInput struct {
-	UseID string         // tool_use id from the AssistantMessage block
+	UseID string // tool_use id from the AssistantMessage block
 	Name  string
 	Input map[string]any
 }
@@ -586,11 +586,11 @@ func (e *QueryEngine) firePermissionDeniedHook(ctx context.Context, name string,
 		e.hooks.For(hooks.EventPermissionDenied, name),
 		hooks.EventPermissionDenied,
 		map[string]any{
-			"session_id":     e.agentID,
-			"tool_name":      name,
-			"tool_input":     input,
-			"denial_source":  source,
-			"reason":         reason,
+			"session_id":    e.agentID,
+			"tool_name":     name,
+			"tool_input":    input,
+			"denial_source": source,
+			"reason":        reason,
 		})
 }
 

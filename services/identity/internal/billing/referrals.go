@@ -74,7 +74,7 @@ func inviteCodeForUser(userID uuid.UUID) string {
 // ─── Repo ────────────────────────────────────────
 
 type ReferralRepo struct {
-	pool             *pgxpool.Pool
+	pool              *pgxpool.Pool
 	deviceMaxInvitees int
 	ipMax24h          int
 	ipWindow          time.Duration
@@ -83,7 +83,7 @@ type ReferralRepo struct {
 
 func NewReferralRepo(pool *pgxpool.Pool) *ReferralRepo {
 	return &ReferralRepo{
-		pool:             pool,
+		pool:              pool,
 		deviceMaxInvitees: 3,
 		ipMax24h:          5,
 		ipWindow:          24 * time.Hour,
@@ -228,11 +228,11 @@ func (r *ReferralRepo) Revert(ctx context.Context, referralID uuid.UUID) error {
 // ─── Reads ────────────────────────────────────
 
 type ReferralStats struct {
-	Total          int
-	Rewarded       int
-	Pending        int
-	Reverted       int
-	InviteCode     string
+	Total      int
+	Rewarded   int
+	Pending    int
+	Reverted   int
+	InviteCode string
 }
 
 func (r *ReferralRepo) Stats(ctx context.Context, inviterUserID uuid.UUID) (*ReferralStats, error) {

@@ -50,8 +50,8 @@ type HitSummary struct {
 	// Snapshot of (rule.name, rule.on_hit_badge) at fire time, joined
 	// in by the store so the UI can render the timeline without
 	// loading rules.
-	RuleName     string
-	HitSeverity  string
+	RuleName    string
+	HitSeverity string
 }
 
 // RadarStore is the SDK-side surface for rules + hits CRUD. The
@@ -366,16 +366,16 @@ func ruleJSON(r *RuleSummary) map[string]any {
 
 func hitJSON(h *HitSummary) map[string]any {
 	out := map[string]any{
-		"id":          h.ID,
-		"rule_id":     h.RuleID.String(),
-		"rule_name":   h.RuleName,
-		"hit_at":      h.HitAt,
-		"source":      h.Source,
-		"title":       h.Title,
-		"url":         h.URL,
-		"notified":    h.Notified,
-		"unread":      !h.Read,
-		"severity":    h.HitSeverity,
+		"id":        h.ID,
+		"rule_id":   h.RuleID.String(),
+		"rule_name": h.RuleName,
+		"hit_at":    h.HitAt,
+		"source":    h.Source,
+		"title":     h.Title,
+		"url":       h.URL,
+		"notified":  h.Notified,
+		"unread":    !h.Read,
+		"severity":  h.HitSeverity,
 	}
 	if h.HitSeverity == "error" {
 		out["severity_label"] = "🚨 紧急"

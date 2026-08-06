@@ -7,11 +7,11 @@ import (
 
 func TestCostForKnownModels(t *testing.T) {
 	cases := map[string]ModelCost{
-		"claude-sonnet-4-6":   TierSonnet,
+		"claude-sonnet-4-6":         TierSonnet,
 		"claude-haiku-4-5-20251001": TierHaiku45,
-		"claude-opus-4-1":     TierOpusOld,
-		"claude-opus-4-6":     TierOpus,
-		"unknown-model-x":     DefaultCost,
+		"claude-opus-4-1":           TierOpusOld,
+		"claude-opus-4-6":           TierOpus,
+		"unknown-model-x":           DefaultCost,
 	}
 	for m, want := range cases {
 		if got := CostFor(m); got != want {

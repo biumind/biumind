@@ -24,9 +24,9 @@ import (
 )
 
 var (
-	ErrNotFound  = errors.New("chat: not found")
-	ErrConflict  = errors.New("chat: client_id collision")
-	ErrInvalid   = errors.New("chat: invalid input")
+	ErrNotFound = errors.New("chat: not found")
+	ErrConflict = errors.New("chat: client_id collision")
+	ErrInvalid  = errors.New("chat: invalid input")
 )
 
 // 6-state machine aligned with cherry-studio (design doc §14.4).
@@ -61,24 +61,24 @@ func validRole(r string) bool {
 // 位置由 agent_sessions.mode 表达；工具执行环境由 agent_sessions.runtime_env_mode
 // 表达（轴 B）。chat 模式工具集恒走 tools.ExecutionCloud（loop 在 brain）。
 type Thread struct {
-	ID               uuid.UUID
-	UserID           uuid.UUID
-	ProjectID        *uuid.UUID
-	Title            string
-	LastMsgPreview   string
-	Model            *string
-	SystemPrompt     *string
-	Pinned           bool
-	Archived         bool
-	Summary          *string
-	SummaryUntilPos  *int64
-	AgentID          *uuid.UUID
-	AgentChain       []byte // raw JSON
-	ParentThreadID   *uuid.UUID
-	SyncEnabled      bool
-	Metadata         []byte // raw JSON
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID              uuid.UUID
+	UserID          uuid.UUID
+	ProjectID       *uuid.UUID
+	Title           string
+	LastMsgPreview  string
+	Model           *string
+	SystemPrompt    *string
+	Pinned          bool
+	Archived        bool
+	Summary         *string
+	SummaryUntilPos *int64
+	AgentID         *uuid.UUID
+	AgentChain      []byte // raw JSON
+	ParentThreadID  *uuid.UUID
+	SyncEnabled     bool
+	Metadata        []byte // raw JSON
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Message is one turn inside a thread.
@@ -183,7 +183,7 @@ func (s *Store) GetThread(ctx context.Context, userID, threadID uuid.UUID) (*Thr
 
 type ListThreadsInput struct {
 	UserID   uuid.UUID
-	Archived *bool      // nil = both; true/false to filter
+	Archived *bool // nil = both; true/false to filter
 	// Cursor-based pagination using updated_at + id (id breaks ties).
 	BeforeUpdatedAt *time.Time
 	// UpdatedAfter restricts to threads with updated_at > value —
@@ -256,15 +256,15 @@ func (s *Store) ListThreads(ctx context.Context, in ListThreadsInput) ([]*Thread
 }
 
 type UpdateThreadInput struct {
-	UserID        uuid.UUID
-	ThreadID      uuid.UUID
-	Title         *string
-	Model         *string
-	SystemPrompt  *string
-	Pinned        *bool
-	Archived      *bool
-	AgentID       *uuid.UUID
-	SyncEnabled   *bool
+	UserID       uuid.UUID
+	ThreadID     uuid.UUID
+	Title        *string
+	Model        *string
+	SystemPrompt *string
+	Pinned       *bool
+	Archived     *bool
+	AgentID      *uuid.UUID
+	SyncEnabled  *bool
 	// ModelParams replaces metadata.model_params wholesale (not a
 	// deep merge). Pass an empty struct via &json.RawMessage("{}")
 	// to clear it. nil = leave the existing value alone.
@@ -404,19 +404,19 @@ type CreateMessageInput struct {
 	// ID 可选：client 生成并透传的 message uuid。非空 → INSERT 用之作 PK
 	// （方案3：本地 message.id == brain chat.messages.id，编辑/删除上行直连）。
 	// 空 → 走列默认 gen_random_uuid（向后兼容旧 client / brain 内部落库）。
-	ID               *uuid.UUID
-	ThreadID         uuid.UUID
-	UserID           uuid.UUID
-	Role             string
-	Content          string
-	Parts            []byte // raw JSON; may be empty
-	ToolCallID       *string
-	ParentID         *uuid.UUID
-	Model            *string
-	Status           string // defaults to StatusSuccess
-	ClientID         *string
-	AgentID          *uuid.UUID
-	MessageGroupID   *uuid.UUID
+	ID             *uuid.UUID
+	ThreadID       uuid.UUID
+	UserID         uuid.UUID
+	Role           string
+	Content        string
+	Parts          []byte // raw JSON; may be empty
+	ToolCallID     *string
+	ParentID       *uuid.UUID
+	Model          *string
+	Status         string // defaults to StatusSuccess
+	ClientID       *string
+	AgentID        *uuid.UUID
+	MessageGroupID *uuid.UUID
 }
 
 // CreateMessage inserts a new message. Honors client_id dedup: a

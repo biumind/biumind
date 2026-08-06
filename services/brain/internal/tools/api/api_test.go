@@ -68,7 +68,7 @@ func TestListReturnsAvailableForCloud(t *testing.T) {
 		t.Fatalf("status: %d body=%s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Mode  string `json:"execution_mode"`
+		Mode  string           `json:"execution_mode"`
 		Tools []map[string]any `json:"tools"`
 	}
 	_ = json.NewDecoder(rec.Body).Decode(&resp)

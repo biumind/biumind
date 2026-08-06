@@ -23,22 +23,22 @@ import (
 )
 
 type RelayVisionCaller struct {
-	RelayURL  string
-	Model   string
-	Signer  *bauth.Signer
-	HTTP    *http.Client
-	Timeout time.Duration
-	Logger  *slog.Logger
+	RelayURL string
+	Model    string
+	Signer   *bauth.Signer
+	HTTP     *http.Client
+	Timeout  time.Duration
+	Logger   *slog.Logger
 }
 
 func NewRelayVisionCaller(relayURL, model string, signer *bauth.Signer, logger *slog.Logger) *RelayVisionCaller {
 	return &RelayVisionCaller{
-		RelayURL:  strings.TrimRight(relayURL, "/"),
-		Model:   model,
-		Signer:  signer,
-		HTTP:    &http.Client{Timeout: 90 * time.Second},
-		Timeout: 75 * time.Second,
-		Logger:  logger,
+		RelayURL: strings.TrimRight(relayURL, "/"),
+		Model:    model,
+		Signer:   signer,
+		HTTP:     &http.Client{Timeout: 90 * time.Second},
+		Timeout:  75 * time.Second,
+		Logger:   logger,
 	}
 }
 

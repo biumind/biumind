@@ -85,8 +85,8 @@ func (a *App) Manifest() biuapp.Manifest {
 				Description: "Mark a task done",
 				Risk:        biuapp.RiskLow,
 				InputSchema: map[string]any{
-					"type":     "object",
-					"required": []string{"id"},
+					"type":       "object",
+					"required":   []string{"id"},
 					"properties": map[string]any{"id": map[string]any{"type": "string"}},
 				},
 			},
@@ -95,8 +95,8 @@ func (a *App) Manifest() biuapp.Manifest {
 				Description: "Delete a task",
 				Risk:        biuapp.RiskLow,
 				InputSchema: map[string]any{
-					"type":     "object",
-					"required": []string{"id"},
+					"type":       "object",
+					"required":   []string{"id"},
 					"properties": map[string]any{"id": map[string]any{"type": "string"}},
 				},
 			},
@@ -105,8 +105,8 @@ func (a *App) Manifest() biuapp.Manifest {
 				Description: "Get one task by id",
 				Risk:        biuapp.RiskLow,
 				InputSchema: map[string]any{
-					"type":     "object",
-					"required": []string{"id"},
+					"type":       "object",
+					"required":   []string{"id"},
 					"properties": map[string]any{"id": map[string]any{"type": "string"}},
 				},
 			},
@@ -124,10 +124,10 @@ func (a *App) Manifest() biuapp.Manifest {
 			Kind:       "hybrid",
 			Views: []biuapp.ViewSpec{
 				{
-					ID:     "home",
-					Route:  "/apps/tasks",
-					Title:  "任务",
-					Layout: biuapp.LayoutListDetail,
+					ID:         "home",
+					Route:      "/apps/tasks",
+					Title:      "任务",
+					Layout:     biuapp.LayoutListDetail,
 					DataSource: &biuapp.ViewDataSource{Action: "list"},
 					ItemTemplate: &biuapp.ViewItemTemplate{
 						Kind:     "card",

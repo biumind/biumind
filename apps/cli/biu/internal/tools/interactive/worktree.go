@@ -171,7 +171,7 @@ func (ExitWorktreeTool) InputSchema() map[string]any {
 	}
 }
 
-func (ExitWorktreeTool) IsReadOnly(_ map[string]any) bool        { return false }
+func (ExitWorktreeTool) IsReadOnly(_ map[string]any) bool { return false }
 func (ExitWorktreeTool) IsDestructive(input map[string]any) bool {
 	a, _ := input["action"].(string)
 	return a == "remove"

@@ -74,7 +74,7 @@ func TestVersionGreater(t *testing.T) {
 		{"0.1.0", "0.1.0", false},
 		// Pre-release tags ignored — 0.2.0 > 0.2.0-rc1 (we lose Semver
 		// §11 precedence for v2.0 simplicity; documented).
-		{"0.2.0", "0.2.0-rc1", false},  // numeric prefix tied
+		{"0.2.0", "0.2.0-rc1", false}, // numeric prefix tied
 		// Bad input → treated as 0
 		{"abc", "0.0.1", false},
 	}

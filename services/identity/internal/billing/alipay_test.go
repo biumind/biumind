@@ -192,9 +192,9 @@ func TestAlipayConfig_Validate(t *testing.T) {
 func TestNewAlipayClient_BadPEM(t *testing.T) {
 	cfg := AlipayConfig{
 		Enabled: true, AppID: "X",
-		PrivateKeyPEM: "garbage",
+		PrivateKeyPEM:      "garbage",
 		AlipayPublicKeyPEM: "garbage",
-		NotifyURL: "https://x/cb",
+		NotifyURL:          "https://x/cb",
 	}
 	if _, err := NewAlipayClient(cfg, slog.Default()); err == nil {
 		t.Fatalf("should fail")

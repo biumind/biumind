@@ -80,9 +80,9 @@ type TranscribeAdaptor interface {
 // AsyncTranscribeAdaptor — ASR 异步 file_url 模式 (paraformer-v2 / sensevoice).
 //
 // dashscope 是 3 步:
-//   1. submit (file_url) → task_id
-//   2. poll task → SUCCEEDED + transcription_url (二次)
-//   3. fetch transcription_url → 真正的 ASR JSON
+//  1. submit (file_url) → task_id
+//  2. poll task → SUCCEEDED + transcription_url (二次)
+//  3. fetch transcription_url → 真正的 ASR JSON
 //
 // 接口设计为 caller (handler) 持 httpClient 做 HTTP IO; adaptor 只负责
 // translate/parse. ParseTranscribePollResponse 同时提供两种成功形态:
@@ -128,11 +128,11 @@ type ImageAdaptor interface {
 //
 // handler 类型断言决定路径:
 //
-//   if asyncA, ok := adaptor.(provider.AsyncImageAdaptor); ok {
-//       // submit + poll loop
-//   } else {
-//       // sync 单次 HTTP
-//   }
+//	if asyncA, ok := adaptor.(provider.AsyncImageAdaptor); ok {
+//	    // submit + poll loop
+//	} else {
+//	    // sync 单次 HTTP
+//	}
 //
 // 同一 adaptor 也可同时实现 ImageAdaptor (sync) 和 AsyncImageAdaptor —
 // 后者优先 (provider.dashscope 走 async).
@@ -167,11 +167,12 @@ type VideoAdaptor interface {
 // 等). 跟 AsyncImageAdaptor 平行结构, M4 起用.
 //
 // handler 类型断言:
-//   if asyncV, ok := adaptor.(AsyncVideoAdaptor); ok {
-//       // submit → poll loop
-//   } else if syncV, ok := adaptor.(VideoAdaptor); ok {
-//       // 单次 HTTP
-//   }
+//
+//	if asyncV, ok := adaptor.(AsyncVideoAdaptor); ok {
+//	    // submit → poll loop
+//	} else if syncV, ok := adaptor.(VideoAdaptor); ok {
+//	    // 单次 HTTP
+//	}
 type AsyncVideoAdaptor interface {
 	VideoAdaptor
 
@@ -202,9 +203,12 @@ type RerankAdaptor interface {
 //
 // 阶段 1: EstimateBilling — 提交前按用户参数估算 (例: 5s 视频 × cost_per_video_second)
 // 阶段 2: BuildSubmitRequest → 上游 ack → AdjustBillingOnSubmit
-//         (上游可能调整接受参数, 例: 用户请求 5s 实际接受 3s)
+//
+//	(上游可能调整接受参数, 例: 用户请求 5s 实际接受 3s)
+//
 // 阶段 3: PollTaskStatus → 完成后 AdjustBillingOnComplete + ParseFinalOutput
-//         (按上游回报的实际产出秒数/帧数最终结算 delta)
+//
+//	(按上游回报的实际产出秒数/帧数最终结算 delta)
 type TaskAdaptor interface {
 	BaseAdaptor
 	EstimateBilling(ctx context.Context, req *TaskRequest) (estimate Credits, ratios map[string]float64, err error)

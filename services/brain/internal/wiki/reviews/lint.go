@@ -29,13 +29,13 @@ import (
 // dismiss/resolve transitions persist by key. Renaming a rule is a
 // migration — old findings stay under the old key until re-scan.
 const (
-	RuleUntitledPage      = "untitled_page"
-	RuleEmptyPage         = "empty_page"
-	RuleStubPage          = "stub_page"
-	RuleDeadWikilink      = "dead_wikilink"
+	RuleUntitledPage       = "untitled_page"
+	RuleEmptyPage          = "empty_page"
+	RuleStubPage           = "stub_page"
+	RuleDeadWikilink       = "dead_wikilink"
 	RuleMissingFrontmatter = "missing_frontmatter"
-	RuleDuplicateTitle    = "duplicate_title"
-	RuleOrphanPage        = "orphan_page"
+	RuleDuplicateTitle     = "duplicate_title"
+	RuleOrphanPage         = "orphan_page"
 )
 
 // Finding is one detection from one rule against one page.
@@ -56,8 +56,8 @@ type Finding struct {
 // just title + frontmatter + block contents. Producers of LintInput
 // (the worker) are responsible for filtering deleted blocks.
 type LintInput struct {
-	Page       PageView
-	Blocks     []BlockView
+	Page   PageView
+	Blocks []BlockView
 	// KnownPageTitles holds the titles of all live pages in the same
 	// project, lowercased + trimmed. dead_wikilink uses it to detect
 	// targets that don't resolve. Empty map = no project context, so

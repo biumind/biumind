@@ -47,11 +47,11 @@ import (
 
 func newAppRunCmd() *cobra.Command {
 	var (
-		devMode    bool
-		source     string
-		addr       string
-		mockDir    string
-		noSubproc  bool
+		devMode   bool
+		source    string
+		addr      string
+		mockDir   string
+		noSubproc bool
 	)
 	cmd := &cobra.Command{
 		Use:   "run",

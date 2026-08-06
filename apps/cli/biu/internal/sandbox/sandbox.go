@@ -34,9 +34,9 @@ import (
 type Mode string
 
 const (
-	ModeOff       Mode = "off"          // running as a bare child process
-	ModeMacOS     Mode = "macos-sandbox" // sandbox-exec on darwin
-	ModeBubblewrap Mode = "bwrap"       // bwrap on linux
+	ModeOff        Mode = "off"           // running as a bare child process
+	ModeMacOS      Mode = "macos-sandbox" // sandbox-exec on darwin
+	ModeBubblewrap Mode = "bwrap"         // bwrap on linux
 )
 
 // Options control how strict the sandbox should be.
@@ -52,10 +52,10 @@ const (
 // Layered fields follow a read/write deny/allow matrix so a future
 // settings.json migration plugs in directly:
 //
-//   FSReadDeny             ↔ fsRead.denyOnly
-//   FSReadAllowWithinDeny  ↔ fsRead.allowWithinDeny
-//   FSWriteAllowExtra      ↔ fsWrite.allowOnly  (extra; cwd is implicit)
-//   FSWriteDenyWithinAllow ↔ fsWrite.denyWithinAllow
+//	FSReadDeny             ↔ fsRead.denyOnly
+//	FSReadAllowWithinDeny  ↔ fsRead.allowWithinDeny
+//	FSWriteAllowExtra      ↔ fsWrite.allowOnly  (extra; cwd is implicit)
+//	FSWriteDenyWithinAllow ↔ fsWrite.denyWithinAllow
 //
 // All fields holding paths must be ABSOLUTE; relative paths are
 // silently dropped to avoid escape via "../". The caller is
@@ -230,12 +230,12 @@ func buildMacProfile(opt Options) string {
 //
 // Mapping Options fields to bwrap flags:
 //
-//   FSReadDeny             → --tmpfs <path>  (mask the dir with empty tmpfs)
-//   FSReadAllowWithinDeny  → --ro-bind <path> <path>  (re-mount specific
-//                             files read-only on top of the tmpfs mask)
-//   FSWriteAllowExtra      → --bind <path> <path>      (read-write mount)
-//   FSWriteDenyWithinAllow → --ro-bind <path> <path>   (downgrade to RO
-//                             on top of an enclosing rw mount)
+//	FSReadDeny             → --tmpfs <path>  (mask the dir with empty tmpfs)
+//	FSReadAllowWithinDeny  → --ro-bind <path> <path>  (re-mount specific
+//	                          files read-only on top of the tmpfs mask)
+//	FSWriteAllowExtra      → --bind <path> <path>      (read-write mount)
+//	FSWriteDenyWithinAllow → --ro-bind <path> <path>   (downgrade to RO
+//	                          on top of an enclosing rw mount)
 //
 // bwrap evaluates mount args in order, so later mounts override
 // earlier ones — that's what makes the "deny within allow" carving
@@ -302,8 +302,10 @@ func buildBwrapArgs(opt Options) []string {
 //     security regression.
 //
 // Without the probe, biu would either:
-//   (a) report bwrap mode while every command actually fails, or
-//   (b) require operators to harden their CI containers.
+//
+//	(a) report bwrap mode while every command actually fails, or
+//	(b) require operators to harden their CI containers.
+//
 // Falling back to ModeOff is the lesser evil — the caller still
 // sees the mode label "off" and can decide whether to allow the
 // command at the permission layer.

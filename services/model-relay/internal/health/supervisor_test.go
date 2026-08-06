@@ -11,9 +11,9 @@ import (
 )
 
 // End-to-end auto-disable + recovery cycle:
-//   1. Request path RecordFailure × 5 → channel flips to auto_disabled
-//   2. Sweep tick (forced) probes via stub upstream → healthy
-//   3. Channel recovers to active, failure_count reset
+//  1. Request path RecordFailure × 5 → channel flips to auto_disabled
+//  2. Sweep tick (forced) probes via stub upstream → healthy
+//  3. Channel recovers to active, failure_count reset
 func TestSupervisorAutoDisableThenRecover(t *testing.T) {
 	fx := newProbeFixture(t, "ok")
 	ctx := context.Background()

@@ -7,10 +7,10 @@ import (
 
 func TestOsascriptStringEscapes(t *testing.T) {
 	cases := map[string]string{
-		`hello`:                  `"hello"`,
-		`he said "hi"`:           `"he said \"hi\""`,
-		`back\slash`:             `"back\\slash"`,
-		"line\nbreak":            "\"line\nbreak\"",
+		`hello`:        `"hello"`,
+		`he said "hi"`: `"he said \"hi\""`,
+		`back\slash`:   `"back\\slash"`,
+		"line\nbreak":  "\"line\nbreak\"",
 	}
 	for in, want := range cases {
 		if got := osascriptString(in); got != want {

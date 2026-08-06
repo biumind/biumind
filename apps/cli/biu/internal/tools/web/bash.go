@@ -234,11 +234,11 @@ func (BashTool) InputSchema() map[string]any {
 				"description": "Permit outbound network access for this call.",
 			},
 			"run_in_background": map[string]any{
-				"type": "boolean",
+				"type":        "boolean",
 				"description": "Fork the command into the background and return a task ID immediately. Use BashOutput to poll captured output and KillBash to terminate. Only set when you don't need the result inline (long log tails, dev servers, watchers).",
 			},
 			"dangerously_disable_sandbox": map[string]any{
-				"type": "boolean",
+				"type":        "boolean",
 				"description": "Bypass the sandbox layer for this single call. Required when a legitimate command needs filesystem or network access the active sandbox forbids (writes to ~/.config/git, network egress to a non-allowed host, etc.). Default false. Per-call only — the next call returns to sandboxed defaults regardless of this flag.",
 			},
 		},

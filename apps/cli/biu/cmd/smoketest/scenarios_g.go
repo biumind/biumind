@@ -97,8 +97,8 @@ func init() {
 	// allows other Bash. The recording getter lets us inspect what
 	// got asked.
 	register(scenario{
-		name: "G4.policy-custom-conditional",
-		prompt: "Run `rm /tmp/biu-g4-target` via Bash. If denied, reply with literally CUSTOM-DENY-OK and stop.",
+		name:    "G4.policy-custom-conditional",
+		prompt:  "Run `rm /tmp/biu-g4-target` via Bash. If denied, reply with literally CUSTOM-DENY-OK and stop.",
 		timeout: 45 * time.Second,
 		policy: func(_ context.Context, req biumindkit.PermissionRequest) biumindkit.PermissionDecision {
 			if req.ToolName == "Bash" {
@@ -187,8 +187,8 @@ func init() {
 	// through without ask. We seed a settings.json + flip
 	// loadSettings on so the SDK pipes it into permCtx.
 	register(scenario{
-		name: "G8.settings-allow-git",
-		prompt: "Use Bash to run `git --version`. Reply with the first word of the output.",
+		name:         "G8.settings-allow-git",
+		prompt:       "Use Bash to run `git --version`. Reply with the first word of the output.",
 		wantTools:    []string{"Bash"},
 		timeout:      45 * time.Second,
 		loadSettings: true,
@@ -313,8 +313,8 @@ func init() {
 
 	// G12: recordingPolicy — verifies the policy callback is reached.
 	register(scenario{
-		name: "G12.policy-callback-fires",
-		prompt: "Use Bash to run `echo G12`. Reply with the output.",
+		name:    "G12.policy-callback-fires",
+		prompt:  "Use Bash to run `echo G12`. Reply with the output.",
 		timeout: 30 * time.Second,
 		policy: func() biumindkit.PermissionPolicyFn {
 			fn, _ := recordingPolicy(biumindkit.PermAllow)

@@ -138,8 +138,8 @@ func (s *Server) handleCreditsRefund(w http.ResponseWriter, r *http.Request) {
 type grantReqBody struct {
 	UserID         string `json:"user_id"`
 	Amount         int64  `json:"amount"`
-	Kind           string `json:"kind"`            // permanent | time_limited
-	Source         string `json:"source"`          // recharge | plan_grant | reward | refund | admin
+	Kind           string `json:"kind"`                    // permanent | time_limited
+	Source         string `json:"source"`                  // recharge | plan_grant | reward | refund | admin
 	ExpiresAtMS    int64  `json:"expires_at_ms,omitempty"` // unix ms; 0 = nil
 	Remark         string `json:"remark,omitempty"`
 	IdempotencyKey string `json:"idempotency_key,omitempty"`

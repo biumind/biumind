@@ -9,9 +9,9 @@ func TestStub_OrdersByOverlap(t *testing.T) {
 	r := NewStub()
 	query := "transformer attention mechanism"
 	docs := []string{
-		"cooking pasta recipe",                      // 0 shared
-		"the transformer attention mechanism",       // 3 shared → top
-		"attention is all you need",                 // 1 shared
+		"cooking pasta recipe",                // 0 shared
+		"the transformer attention mechanism", // 3 shared → top
+		"attention is all you need",           // 1 shared
 	}
 	scores, err := r.Rerank(context.Background(), query, docs, 0)
 	if err != nil {

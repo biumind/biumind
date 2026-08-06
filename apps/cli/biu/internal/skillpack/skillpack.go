@@ -7,17 +7,17 @@
 // signatures only hold if Pack(dir) yields the exact same bytes for
 // the same source tree. Three rules pin determinism:
 //
-//   1. Entries sorted lexicographically by archive path.
-//   2. Modification time fixed to the Unix epoch.
-//   3. Permission bits fixed to 0o644 for files (and 0o755 for dirs,
-//      though we don't emit dir entries — every file is path-prefixed).
+//  1. Entries sorted lexicographically by archive path.
+//  2. Modification time fixed to the Unix epoch.
+//  3. Permission bits fixed to 0o644 for files (and 0o755 for dirs,
+//     though we don't emit dir entries — every file is path-prefixed).
 //
 // Layout (mirrors installer.FromZip's accepted shape):
 //
-//   SKILL.md            (required, at archive root)
-//   scripts/<file>      (optional; bash/python helpers)
-//   references/<file>   (optional; supporting docs)
-//   assets/<file>       (optional; templates / icons)
+//	SKILL.md            (required, at archive root)
+//	scripts/<file>      (optional; bash/python helpers)
+//	references/<file>   (optional; supporting docs)
+//	assets/<file>       (optional; templates / icons)
 //
 // Anything outside those three top-level dirs (and the SKILL.md root)
 // is ignored at pack time, with a warning. Same rule as the installer

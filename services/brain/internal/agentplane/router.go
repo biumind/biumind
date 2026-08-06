@@ -122,15 +122,15 @@ type ChatTurn struct {
 // 敏感字段（API key 等）后续可走 envelope encryption (S3-4) —— 当前 stage
 // 全字段明文，等下个 stage 启用加密层。
 type WorkPayload struct {
-	SessionID    uuid.UUID `json:"session_id"`
-	UserID       uuid.UUID `json:"user_id"`
-	Mode         string    `json:"mode"`
-	Prompt       string    `json:"prompt,omitempty"`
-	Model        string    `json:"model,omitempty"`
+	SessionID uuid.UUID `json:"session_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Mode      string    `json:"mode"`
+	Prompt    string    `json:"prompt,omitempty"`
+	Model     string    `json:"model,omitempty"`
 	// ProviderID 锁定走哪个 chat.providers.provider_id slug。空 → 老语义。
-	ProviderID   string    `json:"provider_id,omitempty"`
-	SystemPrompt string    `json:"system_prompt,omitempty"`
-	ThreadID     string    `json:"thread_id,omitempty"`
+	ProviderID   string `json:"provider_id,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
 	// Workdir 让 daemon 知道在哪个目录跑工具。空 → daemon 用启动时的 cwd。
 	// daemon 端 worker.go::handleWork 把它写到 biumindkit Options.Cwd +
 	// 通过 PermissionUpdate.AddDirectories 加入工作目录白名单。
@@ -426,8 +426,8 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request, uid 
 		Prompt: req.Prompt, Model: req.Model, ProviderID: req.ProviderID,
 		SystemPrompt: req.SystemPrompt, ThreadID: req.ThreadID, Workdir: req.Workdir,
 		RuntimeEnvMode: renv, Backend: req.Backend,
-		UserBearer: bearerFromAuthHeader(r.Header.Get("Authorization")),
-		History: history,
+		UserBearer:         bearerFromAuthHeader(r.Header.Get("Authorization")),
+		History:            history,
 		ClientSideRecordID: req.ClientSideRecordID,
 		ClientSideBaseURL:  req.ClientSideBaseURL,
 		ClientSideProtocol: req.ClientSideProtocol,
@@ -484,8 +484,8 @@ const (
 // agentWorkSpec 是构建 agent WorkPayload 的中性输入（createAgentSession 在线
 // 路径 + 离线重派路径共用，不依赖 HTTP req）。
 type agentWorkSpec struct {
-	SessionID                                                          uuid.UUID
-	UserID                                                             uuid.UUID
+	SessionID                                                                           uuid.UUID
+	UserID                                                                              uuid.UUID
 	Prompt, Model, ProviderID, SystemPrompt, ThreadID, Workdir, RuntimeEnvMode, Backend string
 	// UserBearer 是当前请求的用户 JWT（bearerFromAuthHeader 抽出）。在线路径
 	// 从 HTTP req 来；离线重派路径无 req → 空 → daemon 回退平台池（BYOK 不生效，
@@ -507,19 +507,19 @@ type agentWorkSpec struct {
 // header fast-path，那条链是死信）。
 func (s *Server) buildAgentWorkPayload(ctx context.Context, env *Environment, spec agentWorkSpec) WorkPayload {
 	payload := WorkPayload{
-		SessionID:      spec.SessionID,
-		UserID:         spec.UserID,
-		Mode:           "agent",
-		Prompt:         spec.Prompt,
-		Model:          spec.Model,
-		ProviderID:     spec.ProviderID,
-		SystemPrompt:   spec.SystemPrompt,
-		ThreadID:       spec.ThreadID,
-		Workdir:        spec.Workdir,
-		RuntimeEnvMode: spec.RuntimeEnvMode,
-		Backend:        spec.Backend,
-		UserBearer:     spec.UserBearer,
-		History:        spec.History,
+		SessionID:          spec.SessionID,
+		UserID:             spec.UserID,
+		Mode:               "agent",
+		Prompt:             spec.Prompt,
+		Model:              spec.Model,
+		ProviderID:         spec.ProviderID,
+		SystemPrompt:       spec.SystemPrompt,
+		ThreadID:           spec.ThreadID,
+		Workdir:            spec.Workdir,
+		RuntimeEnvMode:     spec.RuntimeEnvMode,
+		Backend:            spec.Backend,
+		UserBearer:         spec.UserBearer,
+		History:            spec.History,
 		ClientSideRecordID: spec.ClientSideRecordID,
 		ClientSideBaseURL:  spec.ClientSideBaseURL,
 		ClientSideProtocol: spec.ClientSideProtocol,
@@ -631,14 +631,14 @@ func (s *Server) writeSessionCreated(w http.ResponseWriter, userID uuid.UUID, se
 	subjectIn := "biu.session." + sess.SessionID.String() + ".in"
 	subjectOut := "biu.session." + sess.SessionID.String() + ".out"
 	out := map[string]any{
-		"session_id":             sess.SessionID.String(),
-		"session_token":          tok,
-		"expires_at":             expiresAt.UnixMilli(),
-		"mode":                   sess.Mode,
-		"state":                  sess.State,
-		"jetstream_subject_in":   subjectIn,
-		"jetstream_subject_out":  subjectOut,
-		"created_at":             sess.CreatedAt.UnixMilli(),
+		"session_id":            sess.SessionID.String(),
+		"session_token":         tok,
+		"expires_at":            expiresAt.UnixMilli(),
+		"mode":                  sess.Mode,
+		"state":                 sess.State,
+		"jetstream_subject_in":  subjectIn,
+		"jetstream_subject_out": subjectOut,
+		"created_at":            sess.CreatedAt.UnixMilli(),
 	}
 	if sess.EnvironmentID != nil {
 		out["environment_id"] = sess.EnvironmentID.String()
@@ -654,15 +654,15 @@ func (s *Server) writeSessionCreated(w http.ResponseWriter, userID uuid.UUID, se
 // FinalizeOpts 是 ingress 检测到 SDKResultMessage 时收集的字段。所有字段
 // optional —— ingress 能取到啥就传啥，不能取到留空让 store 写 NULL。
 type FinalizeOpts struct {
-	Status            string  // 'completed' | 'failed' | 'cancelled'
-	FinalText         string
-	FinalParts        []byte // JSONB raw
-	ToolCallsSummary  []byte
-	CostUSD           float64
-	PromptTokens      int
-	CompletionTokens  int
-	DurationMs        int64
-	ErrorMessage      string
+	Status           string // 'completed' | 'failed' | 'cancelled'
+	FinalText        string
+	FinalParts       []byte // JSONB raw
+	ToolCallsSummary []byte
+	CostUSD          float64
+	PromptTokens     int
+	CompletionTokens int
+	DurationMs       int64
+	ErrorMessage     string
 }
 
 // FinalizeSessionResult 是 ingress 在 SDKResultMessage 时调。Task 模式

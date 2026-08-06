@@ -27,15 +27,15 @@ import (
 
 // ServiceProbe — 各服务的健康状态.
 type ServiceProbe struct {
-	Name         string         `json:"name"`
-	URL          string         `json:"url"`
-	Status       string         `json:"status"` // healthy | degraded | unhealthy | unknown
-	Version      string         `json:"version,omitempty"`
-	HTTPStatus   int            `json:"http_status,omitempty"`
-	LatencyMS    int            `json:"latency_ms,omitempty"`
-	LastCheckAt  time.Time      `json:"last_check_at"`
-	Error        string         `json:"error,omitempty"`
-	SubProbes    []SubProbe     `json:"probes,omitempty"`
+	Name        string     `json:"name"`
+	URL         string     `json:"url"`
+	Status      string     `json:"status"` // healthy | degraded | unhealthy | unknown
+	Version     string     `json:"version,omitempty"`
+	HTTPStatus  int        `json:"http_status,omitempty"`
+	LatencyMS   int        `json:"latency_ms,omitempty"`
+	LastCheckAt time.Time  `json:"last_check_at"`
+	Error       string     `json:"error,omitempty"`
+	SubProbes   []SubProbe `json:"probes,omitempty"`
 }
 
 // SubProbe — 服务自报的子探针 (e.g. postgres / nats).
@@ -46,9 +46,9 @@ type SubProbe struct {
 
 // healthzReply — 各服务 /healthz 标准格式 (跟 packages/go-sdk/biu/healthz 对齐).
 type healthzReply struct {
-	Service string                 `json:"service"`
-	Version string                 `json:"version"`
-	Status  string                 `json:"status"`
+	Service string                  `json:"service"`
+	Version string                  `json:"version"`
+	Status  string                  `json:"status"`
 	Probes  map[string]healthzProbe `json:"probes,omitempty"`
 }
 
@@ -301,4 +301,3 @@ func (s *Server) handleMonitorQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-

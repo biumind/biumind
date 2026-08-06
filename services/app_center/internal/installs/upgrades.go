@@ -36,9 +36,9 @@ import (
 // ─── Errors ────────────────────────────────────────────────────────
 
 var (
-	ErrAlreadyLatest         = errors.New("upgrade: already on latest version")
-	ErrPinnedVersion         = errors.New("upgrade: installation is pinned to its current version")
-	ErrApprovalRequired      = errors.New("upgrade: new permissions require approval")
+	ErrAlreadyLatest          = errors.New("upgrade: already on latest version")
+	ErrPinnedVersion          = errors.New("upgrade: installation is pinned to its current version")
+	ErrApprovalRequired       = errors.New("upgrade: new permissions require approval")
 	ErrPermissionsNotAccepted = errors.New("upgrade: granted_permissions must include every newly-added permission")
 )
 
@@ -48,11 +48,16 @@ var (
 // granted_permissions and the catalogue manifest's required permissions.
 //
 // Added — in target manifest, not in current install. These are the
-//   ones that *require user approval* before auto-rolling.
+//
+//	ones that *require user approval* before auto-rolling.
+//
 // Removed — was granted, no longer requested by the new manifest.
-//   Auto-prune on upgrade; user doesn't need to confirm.
+//
+//	Auto-prune on upgrade; user doesn't need to confirm.
+//
 // Unchanged — granted on both sides; surfaced to the UI for context
-//   but not a decision point.
+//
+//	but not a decision point.
 type PermsDiff struct {
 	Added     []string `json:"added"`
 	Removed   []string `json:"removed"`
@@ -237,11 +242,11 @@ func splitVersion(v string) []int {
 // is what the user clicked-through in the Modal; on the auto-eligible
 // path it's empty/optional.
 type UpgradeRequest struct {
-	InstallID                string
-	AcceptedNewPermissions   []string
-	CallerUserID             string
-	CallerOrgID              string
-	CallerRoles              []string
+	InstallID              string
+	AcceptedNewPermissions []string
+	CallerUserID           string
+	CallerOrgID            string
+	CallerRoles            []string
 }
 
 // Upgrade bumps the installation's version to the registry's current
@@ -344,11 +349,11 @@ func (in *Installer) Upgrade(ctx context.Context, req UpgradeRequest) (*Installa
 		ActorID:   req.CallerUserID,
 		Type:      events.AppUpgraded,
 		Payload: map[string]any{
-			"identifier":     row.Identifier,
-			"from_version":   status.CurrentVersion,
-			"to_version":     status.TargetVersion,
-			"perms_added":    status.PermsDiff.Added,
-			"perms_removed":  status.PermsDiff.Removed,
+			"identifier":    row.Identifier,
+			"from_version":  status.CurrentVersion,
+			"to_version":    status.TargetVersion,
+			"perms_added":   status.PermsDiff.Added,
+			"perms_removed": status.PermsDiff.Removed,
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("upgrade: events: %w", err)

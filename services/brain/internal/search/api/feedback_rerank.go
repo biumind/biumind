@@ -9,16 +9,16 @@
 // Strategy — normalized additive bonus (chosen over hard pin/filter so
 // the effect is graduated and reversible):
 //
-//	1. Normalize each list's scores to [0,1] by the list's own max score
-//	   (scores are non-negative rank/sim values). This makes the bonus
-//	   meaningful regardless of whether the list is RRF-fused (~0.02) or
-//	   raw BM25 (~tens) — scale-independent.
-//	2. Add +0.5 for an "up" verdict, −0.5 for "down". Half the unit
-//	   range is enough to promote a mid-ranked upvoted page past an
-//	   unvoted one without overriding a strongly-relevant top hit, and
-//	   to demote a downvoted top page below the unvoted middle.
-//	3. Stable-sort by adjusted score descending. Equal adjusted scores
-//	   keep the engine's original order.
+//  1. Normalize each list's scores to [0,1] by the list's own max score
+//     (scores are non-negative rank/sim values). This makes the bonus
+//     meaningful regardless of whether the list is RRF-fused (~0.02) or
+//     raw BM25 (~tens) — scale-independent.
+//  2. Add +0.5 for an "up" verdict, −0.5 for "down". Half the unit
+//     range is enough to promote a mid-ranked upvoted page past an
+//     unvoted one without overriding a strongly-relevant top hit, and
+//     to demote a downvoted top page below the unvoted middle.
+//  3. Stable-sort by adjusted score descending. Equal adjusted scores
+//     keep the engine's original order.
 //
 // Raw scores are returned unchanged — only order moves — and each moved
 // row carries a Feedback badge so the UI can explain the ranking.

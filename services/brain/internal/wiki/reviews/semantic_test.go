@@ -77,9 +77,9 @@ func TestPostFilter_MissingPageDrop(t *testing.T) {
 	}
 	findings := []SemanticFinding{
 		{Category: "missing-page", Title: "Transformer", Detail: "d1"},
-		{Category: "missing-page", Title: "全新概念", Detail: "d2"},   // 无现页 → 保留
-		{Category: "contradiction", Title: "冲突", Detail: "d3"},    // 非缺页 → 保留
-		{Category: "suggestion", Title: "建议补图", Detail: "d4"},     // 保留
+		{Category: "missing-page", Title: "全新概念", Detail: "d2"}, // 无现页 → 保留
+		{Category: "contradiction", Title: "冲突", Detail: "d3"},  // 非缺页 → 保留
+		{Category: "suggestion", Title: "建议补图", Detail: "d4"},   // 保留
 	}
 	got := r.postFilter(findings, titleMap)
 	if len(got) != 3 {

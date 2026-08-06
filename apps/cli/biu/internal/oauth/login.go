@@ -29,18 +29,18 @@ import (
 
 // LoginResult is what Login returns on success.
 type LoginResult struct {
-	Tokens     Tokens
+	Tokens       Tokens
 	AuthorizeURL string // URL the user opened (returned for telemetry / display)
 }
 
 // Login executes the full PKCE flow.
 //
-//   * UrlOpener is invoked with the authorize URL the moment we have
+//   - UrlOpener is invoked with the authorize URL the moment we have
 //     it; it should open the user's default browser. CLI callers can
 //     just print the URL.
-//   * When ctx is cancelled before the callback arrives, the listener
+//   - When ctx is cancelled before the callback arrives, the listener
 //     is torn down and an error is returned.
-//   * When ManualCode is non-empty, the listener is skipped entirely
+//   - When ManualCode is non-empty, the listener is skipped entirely
 //     — the caller has already extracted `code` from a manual-paste
 //     flow (e.g. via prompt) and we go straight to token exchange.
 type Login struct {
@@ -354,4 +354,3 @@ const callbackPage = `<!doctype html>
 <h2>✓ Logged in</h2>
 <p>You can close this tab and return to the terminal.</p>
 `
-

@@ -347,10 +347,10 @@ func (a *Aggregator) AttachHooks(reg *hooks.Registry) {
 // mcp.ConnectHTTP calls. Returned via McpServerConfigs() instead of
 // pushed into a registry directly because:
 //
-//	1. mcp.Registry.Connect is async + blocking and depends on
-//	   ctx — not the aggregator's job to manage that lifecycle.
-//	2. settings.json MCP servers go through the same wiring path,
-//	   so plugin and settings sources merge naturally there.
+//  1. mcp.Registry.Connect is async + blocking and depends on
+//     ctx — not the aggregator's job to manage that lifecycle.
+//  2. settings.json MCP servers go through the same wiring path,
+//     so plugin and settings sources merge naturally there.
 type McpServerConfig struct {
 	Name       string // namespaced as "<plugin>__<server>" to avoid collisions
 	PluginName string // origin plugin name

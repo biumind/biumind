@@ -151,12 +151,12 @@ func TestFilterToolsDenyList(t *testing.T) {
 
 func TestParseList(t *testing.T) {
 	cases := map[string]int{
-		"":              0,
-		"a":             1,
-		"a, b, c":       3,
-		"[a, b]":        2,
-		`"x", "y"`:      2,
-		"  a  ,  b ":    2,
+		"":           0,
+		"a":          1,
+		"a, b, c":    3,
+		"[a, b]":     2,
+		`"x", "y"`:   2,
+		"  a  ,  b ": 2,
 	}
 	for in, want := range cases {
 		if got := parseList(in); len(got) != want {

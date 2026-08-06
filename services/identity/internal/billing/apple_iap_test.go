@@ -55,7 +55,7 @@ func mkSelfSignedECDSA(t *testing.T) (*ecdsa.PrivateKey, []byte) {
 		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test"},
 		NotBefore: time.Now().Add(-1 * time.Hour),
 		NotAfter:  time.Now().Add(24 * time.Hour),
-		KeyUsage: x509.KeyUsageDigitalSignature,
+		KeyUsage:  x509.KeyUsageDigitalSignature,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	if err != nil {

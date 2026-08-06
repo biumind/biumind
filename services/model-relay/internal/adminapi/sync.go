@@ -56,17 +56,17 @@ import (
 // upstreamModel mirrors the basellm.github.io/llm-metadata model JSON.
 // We only decode the fields we actually use.
 type upstreamModel struct {
-	ModelName             string  `json:"model_name"`
-	VendorName            string  `json:"vendor_name"`
-	Description           string  `json:"description"`
-	Icon                  string  `json:"icon"`
-	Tags                  string  `json:"tags"`
-	Status                int     `json:"status"`
-	NameRule              int     `json:"name_rule"`
-	PricePerMInput        float64 `json:"price_per_m_input"`
-	PricePerMOutput       float64 `json:"price_per_m_output"`
-	PricePerMCacheRead    float64 `json:"price_per_m_cache_read"`
-	PricePerMCacheWrite   float64 `json:"price_per_m_cache_write"`
+	ModelName           string  `json:"model_name"`
+	VendorName          string  `json:"vendor_name"`
+	Description         string  `json:"description"`
+	Icon                string  `json:"icon"`
+	Tags                string  `json:"tags"`
+	Status              int     `json:"status"`
+	NameRule            int     `json:"name_rule"`
+	PricePerMInput      float64 `json:"price_per_m_input"`
+	PricePerMOutput     float64 `json:"price_per_m_output"`
+	PricePerMCacheRead  float64 `json:"price_per_m_cache_read"`
+	PricePerMCacheWrite float64 `json:"price_per_m_cache_write"`
 	// Mode 上游不一定提供; 我们在 inferMode 里兜底.
 	Mode string `json:"mode"`
 }
@@ -460,9 +460,9 @@ func inferMode(modelName, vendor, tags string) string {
 // parseTags maps the comma-separated upstream tag string to capabilities
 // + context window. Examples:
 //
-//   "Tools,Files,Vision,200K"    → {tools, vision, cache?:false}, 200_000
-//   "Reasoning,Tools,Vision,128K" → {tools, vision, thinking}, 128_000
-//   "1M"                          → 1_000_000
+//	"Tools,Files,Vision,200K"    → {tools, vision, cache?:false}, 200_000
+//	"Reasoning,Tools,Vision,128K" → {tools, vision, thinking}, 128_000
+//	"1M"                          → 1_000_000
 //
 // Unknown tags are silently ignored — upstream may add new ones.
 func parseTags(tags string) (registry.Capabilities, int) {

@@ -57,23 +57,23 @@ func (e *ValidationError) Error() string {
 // permission requires adding the prefix here AND a matching Cedar
 // translation rule in services/authz.
 var permissionPrefixes = map[string]struct{}{
-	"net.outbound":     {},
-	"hub.invoke":       {}, // legacy alias; kept for v1.0 compat
+	"net.outbound":       {},
+	"hub.invoke":         {}, // legacy alias; kept for v1.0 compat
 	"model-relay.invoke": {},
-	"wiki.read":      {},
-	"wiki.write":     {},
-	"graph.read":     {},
-	"graph.write":    {},
-	"memory.read":    {},
-	"memory.write":   {},
-	"files.read":     {},
-	"files.write":    {},
-	"cron.register":  {},
-	"webhook.register": {},
-	"notify.send":    {},
-	"sandbox.exec":   {},
-	"oauth":          {}, // oauth:<provider>
-	"secrets.read":   {}, // secrets.read:<provider>
+	"wiki.read":          {},
+	"wiki.write":         {},
+	"graph.read":         {},
+	"graph.write":        {},
+	"memory.read":        {},
+	"memory.write":       {},
+	"files.read":         {},
+	"files.write":        {},
+	"cron.register":      {},
+	"webhook.register":   {},
+	"notify.send":        {},
+	"sandbox.exec":       {},
+	"oauth":              {}, // oauth:<provider>
+	"secrets.read":       {}, // secrets.read:<provider>
 }
 
 var validCategories = map[string]struct{}{
@@ -177,11 +177,11 @@ func (v *validator) run() {
 
 // checkIcon — manifest.icon 字段格式校验。允许:
 //
-//	1. 空字符串 (客户端 fallback)
-//	2. 单字符 / 短文字 (≤ 8 字节, 给 emoji 用 — emoji UTF-8 多字节 + ZWJ
-//	   组合最多约 7 字节)
-//	3. http(s):// URL (公网 / 用户自填)
-//	4. cas:<sha256> — 64 位小写 hex 表示的 sha256
+//  1. 空字符串 (客户端 fallback)
+//  2. 单字符 / 短文字 (≤ 8 字节, 给 emoji 用 — emoji UTF-8 多字节 + ZWJ
+//     组合最多约 7 字节)
+//  3. http(s):// URL (公网 / 用户自填)
+//  4. cas:<sha256> — 64 位小写 hex 表示的 sha256
 //
 // 拒绝其它前缀 (`caz:` / `cas: ` 含空格 / 错长度的 sha) — 这种 typo
 // 客户端只能 letter fallback, 早 fail 让作者立即看到。

@@ -43,8 +43,8 @@ const (
 type Workflow struct {
 	Name        string
 	Description string
-	Args        []ArgSpec  // documentation only today
-	Requires    []string   // pre-flight check names
+	Args        []ArgSpec // documentation only today
+	Requires    []string  // pre-flight check names
 	Body        string
 	Path        string
 	Source      Source
@@ -176,9 +176,9 @@ func (w *Workflow) Render(args string) string {
 //
 // Recognised checks:
 //
-//   git_repo      — current cwd is inside a git working tree
-//   clean_tree    — `git status --porcelain` is empty
-//   staged_changes — `git diff --cached --name-only` non-empty
+//	git_repo      — current cwd is inside a git working tree
+//	clean_tree    — `git status --porcelain` is empty
+//	staged_changes — `git diff --cached --name-only` non-empty
 //
 // Unknown check names yield an error so a typo doesn't silently
 // pass the gate.

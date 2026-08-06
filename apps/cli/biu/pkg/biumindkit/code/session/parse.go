@@ -100,10 +100,10 @@ func parseClaudeUser(msg json.RawMessage, ts string) []map[string]any {
 	var out []map[string]any
 	for _, block := range m.Content {
 		var b struct {
-			Type      string `json:"type"`
-			ToolUseID string `json:"tool_use_id"`
+			Type      string          `json:"type"`
+			ToolUseID string          `json:"tool_use_id"`
 			Content   json.RawMessage `json:"content"`
-			IsError   bool   `json:"is_error"`
+			IsError   bool            `json:"is_error"`
 		}
 		if json.Unmarshal(block, &b) != nil {
 			continue

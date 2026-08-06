@@ -79,8 +79,8 @@ type Server struct {
 	Relevance *wikirelevance.Store
 	// Reranker is optional; when set, wiki.search applies a cross-encoder
 	// relevance rerank to the RRF-fused list (P1-2). Mirrors search/api.
-	Reranker  rerank.Reranker
-	Logger    *slog.Logger
+	Reranker rerank.Reranker
+	Logger   *slog.Logger
 }
 
 func New(m *memstore.Store, w *wikistore.Store, v *bauth.Verifier, l *slog.Logger) *Server {

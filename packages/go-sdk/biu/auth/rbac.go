@@ -33,8 +33,8 @@ import (
 type RoleCache struct {
 	pool *pgxpool.Pool
 
-	mu      sync.RWMutex
-	byRole  map[string]map[string]struct{} // role → set of permission names
+	mu     sync.RWMutex
+	byRole map[string]map[string]struct{} // role → set of permission names
 }
 
 // NewRoleCache 构造空缓存. 必须先调 Reload 才有数据.
@@ -84,10 +84,10 @@ func (c *RoleCache) Reload(ctx context.Context) error {
 
 // HasPermission 判断 role 是否拥有 perm. 通配规则:
 //
-//   '*'              → 任何 perm 都通过
-//   'users:*'        → 任何 'users:*' perm 都通过
-//   'users:read:*'   → 任何 'users:read:*' perm 都通过
-//   精确字符串       → 完全匹配
+//	'*'              → 任何 perm 都通过
+//	'users:*'        → 任何 'users:*' perm 都通过
+//	'users:read:*'   → 任何 'users:read:*' perm 都通过
+//	精确字符串       → 完全匹配
 func (c *RoleCache) HasPermission(role, perm string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -152,10 +152,10 @@ func (c *RoleCache) PermissionsForRole(role string) []string {
 // claims 注入 context.
 //
 // 检查顺序:
-//   1. Bearer token 解析 (verifier.Verify)
-//   2. roles 取 claims.Roles[0] (当前单角色; 多角色后期扩展)
-//   3. cache.HasPermission(role, perm)
-//   4. claims 注入 ctx, 调用 next
+//  1. Bearer token 解析 (verifier.Verify)
+//  2. roles 取 claims.Roles[0] (当前单角色; 多角色后期扩展)
+//  3. cache.HasPermission(role, perm)
+//  4. claims 注入 ctx, 调用 next
 func (c *RoleCache) RequirePermission(verifier *Verifier, perm string) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

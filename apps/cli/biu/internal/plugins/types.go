@@ -32,11 +32,11 @@ import (
 type Source string
 
 const (
-	SrcBundled  Source = "bundled"        // shipped inside the biu binary (PP8b)
-	SrcUser     Source = "user"           // ~/.biumind/plugins/
-	SrcProject  Source = "project"        // <cwd>/.biumind/plugins/
-	SrcMarket   Source = "marketplace"    // installed via marketplace (PP7)
-	SrcCompat   Source = "compat-claude"  // ~/.claude/plugins/ (PP8a)
+	SrcBundled Source = "bundled"       // shipped inside the biu binary (PP8b)
+	SrcUser    Source = "user"          // ~/.biumind/plugins/
+	SrcProject Source = "project"       // <cwd>/.biumind/plugins/
+	SrcMarket  Source = "marketplace"   // installed via marketplace (PP7)
+	SrcCompat  Source = "compat-claude" // ~/.claude/plugins/ (PP8a)
 )
 
 // LoadedPlugin is one plugin after the loader has resolved every

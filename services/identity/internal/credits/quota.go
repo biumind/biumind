@@ -139,11 +139,11 @@ func RefundQuotaUsage(ctx context.Context, tx pgx.Tx, userID uuid.UUID, refType 
 // QuotaState — GET /v1/subscriptions/me 用; 返当前 plan 在某 ref_type
 // 的本月 quota 配额 + 用量.
 type QuotaState struct {
-	RefType        LogRefType
-	MonthlyAmount  int64
-	UsedAmount     int64
-	PeriodStart    time.Time
-	PeriodEnd      time.Time
+	RefType       LogRefType
+	MonthlyAmount int64
+	UsedAmount    int64
+	PeriodStart   time.Time
+	PeriodEnd     time.Time
 }
 
 // QuotaQuerier — pgx.Tx / pgxpool.Pool 共同满足 (Query 方法).
@@ -239,8 +239,9 @@ func loadQuotaState(ctx context.Context, tx pgx.Tx, userID uuid.UUID, refType Lo
 }
 
 // monthBounds — 返当前自然月 UTC 边界 [period_start, period_end).
-//   periodStart = 当月 1 号 00:00:00 UTC
-//   periodEnd   = 下月 1 号 00:00:00 UTC
+//
+//	periodStart = 当月 1 号 00:00:00 UTC
+//	periodEnd   = 下月 1 号 00:00:00 UTC
 func monthBounds(now time.Time) (start, end time.Time) {
 	t := now.UTC()
 	start = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)

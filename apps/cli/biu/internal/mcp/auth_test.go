@@ -7,12 +7,12 @@ import (
 
 func TestParseAuthChallenge(t *testing.T) {
 	tests := []struct {
-		name             string
-		header           string
-		wantOK           bool
-		wantRealm        string
-		wantResource     string
-		wantScope        string
+		name         string
+		header       string
+		wantOK       bool
+		wantRealm    string
+		wantResource string
+		wantScope    string
 	}{
 		{
 			name:   "no header",

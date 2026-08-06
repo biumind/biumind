@@ -400,7 +400,7 @@ func TestFilesAPI_DownloadBySha_BadHex(t *testing.T) {
 	for _, badSha := range []string{
 		"shorty",
 		"012345",
-		strings.Repeat("z", 64),  // 64 但非 hex
+		strings.Repeat("z", 64), // 64 但非 hex
 	} {
 		req, _ := http.NewRequest("GET", h.server.URL+"/v1/brain/files-by-sha/"+badSha, nil)
 		req.Header.Set("Authorization", "Bearer "+tok)

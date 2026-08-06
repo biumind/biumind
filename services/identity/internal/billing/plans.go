@@ -23,21 +23,21 @@ import (
 // PlanRow — billing.plans 一行的 Go 表示. PriceCurrency / PriceMonthly /
 // PriceYearly 主存原币种 (一般 USD), 客户端按用户结算币种走 fx_rates 折算.
 type PlanRow struct {
-	ID                   uuid.UUID
-	Code                 Plan
-	Name                 string
-	Description          string
-	SortOrder            int
-	PriceCurrency        string
-	PriceMonthly         float64
-	PriceYearly          float64
-	MonthlyCredits       int64
-	Benefits             PlanLimits // 从 jsonb benefits 反序列化
-	StripePriceMonthly   string     // NULL → ""
-	StripePriceYearly    string     // NULL → ""
-	Status               string     // 'active' | 'archived'
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	ID                 uuid.UUID
+	Code               Plan
+	Name               string
+	Description        string
+	SortOrder          int
+	PriceCurrency      string
+	PriceMonthly       float64
+	PriceYearly        float64
+	MonthlyCredits     int64
+	Benefits           PlanLimits // 从 jsonb benefits 反序列化
+	StripePriceMonthly string     // NULL → ""
+	StripePriceYearly  string     // NULL → ""
+	Status             string     // 'active' | 'archived'
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // jsonBenefits 是 billing.plans.benefits 的 JSON wire shape.
@@ -195,9 +195,9 @@ func scanPlan(scan func(...any) error) (PlanRow, error) {
 }
 
 // ResolveLimits — W2-9 用. 给定 plan code, 返 PlanLimits.
-//   1. 先查 DB (DefaultLimits 当 fallback)
-//   2. DB 不可用 (查询 err) → DefaultLimits[code] (内置)
-//   3. 都没有 → DefaultLimits[PlanFree] (永远不 panic)
+//  1. 先查 DB (DefaultLimits 当 fallback)
+//  2. DB 不可用 (查询 err) → DefaultLimits[code] (内置)
+//  3. 都没有 → DefaultLimits[PlanFree] (永远不 panic)
 //
 // 调用频率: model-relay 每次解析 user plan 时, 60s cache 命中后才查 DB.
 // 所以 N 次 query/min ≈ 服务副本数, 不会成瓶颈.

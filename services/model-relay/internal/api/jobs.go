@@ -81,19 +81,19 @@ type jobSubmitResponse struct {
 
 // jobStatusResponse 是 GET /v1/jobs/{id} 返回.
 type jobStatusResponse struct {
-	JobID         string         `json:"job_id"`
-	Status        string         `json:"status"`
-	Progress      int            `json:"progress"`
-	Type          string         `json:"type"` // image|video|digital_human|hotparse
-	ModelCode     string         `json:"model_code"`
-	CostCredits   int64          `json:"cost_credits"`
-	ErrorCode     string         `json:"error_code,omitempty"`
-	ErrorMessage  string         `json:"error_message,omitempty"`
-	CreatedAt     string         `json:"created_at"`
-	CompletedAt   string         `json:"completed_at,omitempty"`
-	Outputs       []jobOutput    `json:"outputs,omitempty"`
-	ExternalTask  string         `json:"external_task_id,omitempty"`
-	Params        map[string]any `json:"params,omitempty"`
+	JobID        string         `json:"job_id"`
+	Status       string         `json:"status"`
+	Progress     int            `json:"progress"`
+	Type         string         `json:"type"` // image|video|digital_human|hotparse
+	ModelCode    string         `json:"model_code"`
+	CostCredits  int64          `json:"cost_credits"`
+	ErrorCode    string         `json:"error_code,omitempty"`
+	ErrorMessage string         `json:"error_message,omitempty"`
+	CreatedAt    string         `json:"created_at"`
+	CompletedAt  string         `json:"completed_at,omitempty"`
+	Outputs      []jobOutput    `json:"outputs,omitempty"`
+	ExternalTask string         `json:"external_task_id,omitempty"`
+	Params       map[string]any `json:"params,omitempty"`
 }
 
 type jobOutput struct {
@@ -123,9 +123,11 @@ func (h *JobsHandler) logger() *slog.Logger {
 }
 
 // estimateCredits 按 model.pricing_strategy 估算 Hold 上限.
-//   token     不适用 (image/video 不应该走 token; 设为 0 让 caller 报错)
-//   fixed     cost_per_image / cost_per_video_second × duration / 等
-//   parameter base × Π(matched multiplier from pricing_rules)
+//
+//	token     不适用 (image/video 不应该走 token; 设为 0 让 caller 报错)
+//	fixed     cost_per_image / cost_per_video_second × duration / 等
+//	parameter base × Π(matched multiplier from pricing_rules)
+//
 // 返回积分整数 (向上取整). 单位与 identity.credits 一致 (毫分对应表
 // 见 BiuMind-Billing-Redesign.md §3).
 func (h *JobsHandler) estimateCredits(
@@ -378,7 +380,7 @@ func (h *JobsHandler) SubmitJob(w http.ResponseWriter, r *http.Request) {
 			MaxAmount:      maxCredits,
 			RefType:        "aigc_task",
 			IdempotencyKey: req.IdempotencyKey,
-			TTLSeconds:     600, // 10min — 视频任务通常 1-3min, 留余量
+			TTLSeconds:     600,       // 10min — 视频任务通常 1-3min, 留余量
 			ModelCode:      req.Model, // W3-7: dashboard 按模型分布用
 		})
 		if err != nil {
@@ -458,7 +460,7 @@ func (h *JobsHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	err = h.Pool.QueryRow(r.Context(), q, jobID, claims.UserID).Scan(
 		&out.JobID, &out.Type, &out.ModelCode, &out.Status, &out.Progress,
 		&out.CostCredits, &out.ErrorCode, &out.ErrorMessage,
-		&out.CreatedAt /* time.Time auto-formats; will overwrite below */,
+		&out.CreatedAt, /* time.Time auto-formats; will overwrite below */
 		&completedAt, &out.ExternalTask, &paramsRaw,
 	)
 	if err != nil {

@@ -32,9 +32,9 @@ import (
 // 推回原 channel。每次 channels.Inbound 创了 task session 调
 // SubscribeAndReply 起一条 listener，session 完成后自动结束。
 type Listener struct {
-	JS       bus.JetStream
-	Drivers  map[string]driver.Driver
-	Logger   *slog.Logger
+	JS      bus.JetStream
+	Drivers map[string]driver.Driver
+	Logger  *slog.Logger
 
 	// PerSessionTimeout —— 防 listener 在客户端断 session 后泄漏。生产
 	// task mode 大部分 ≤ 60s 完成；30 分钟 hard cap 兜底。
@@ -58,10 +58,10 @@ func NewListener(js bus.JetStream, drivers map[string]driver.Driver, logger *slo
 // ReplyContext —— SubscribeAndReply 收到 result 帧后构造回复 envelope 用。
 // 由 router.Inbound 提供（拿原 inbound envelope 的 channel + sender 反推）。
 type ReplyContext struct {
-	Channel        string           // 用哪个 driver 推送
-	ConversationID string           // 落到 reply envelope.ConversationID
-	ReplyTo        string           // 上游 message_id 让 driver 做 thread reply
-	Recipient      envelope.Sender  // 给谁
+	Channel        string          // 用哪个 driver 推送
+	ConversationID string          // 落到 reply envelope.ConversationID
+	ReplyTo        string          // 上游 message_id 让 driver 做 thread reply
+	Recipient      envelope.Sender // 给谁
 }
 
 // SubscribeAndReply 起一个独立 goroutine 订阅 session.out subject。session

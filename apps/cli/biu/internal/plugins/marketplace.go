@@ -63,10 +63,10 @@ type Marketplace struct {
 // MarketplacePlugin is one entry in a marketplace's `plugins` array:
 // a plugin name plus where to fetch it.
 type MarketplacePlugin struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Version     string         `json:"version,omitempty"`
-	Source      PluginSource   `json:"source"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	Version     string       `json:"version,omitempty"`
+	Source      PluginSource `json:"source"`
 	// PinnedKey is an optional ed25519 public-key fingerprint the
 	// marketplace publisher recommends for verifying this plugin's
 	// signed payload. Format: "ed25519:<base64-spki-sha256>". biu

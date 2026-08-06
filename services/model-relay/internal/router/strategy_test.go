@@ -82,8 +82,8 @@ func TestWeighted_DistributionWithinTier(t *testing.T) {
 
 // Higher priority always wins over lower, regardless of weight.
 func TestWeighted_PriorityBeatsWeight(t *testing.T) {
-	high := ch("high", 100, 1)  // priority 100, weight 1
-	low := ch("low", 50, 1000)  // priority 50, weight 1000
+	high := ch("high", 100, 1) // priority 100, weight 1
+	low := ch("low", 50, 1000) // priority 50, weight 1000
 	w := NewWeighted()
 
 	for i := 0; i < 50; i++ {

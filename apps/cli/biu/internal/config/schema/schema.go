@@ -53,10 +53,10 @@ var validSearchModes = []string{"model-relay", "direct"}
 // ~/.biu/config.toml file.
 func ConfigSchema() map[string]any {
 	return map[string]any{
-		"$schema":     "https://json-schema.org/draft/2020-12/schema",
-		"title":       "biu config.toml",
-		"description": "Configuration for the biu CLI; lives at ~/.biu/config.toml.",
-		"type":        "object",
+		"$schema":              "https://json-schema.org/draft/2020-12/schema",
+		"title":                "biu config.toml",
+		"description":          "Configuration for the biu CLI; lives at ~/.biu/config.toml.",
+		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"default": map[string]any{
@@ -199,8 +199,8 @@ func SettingsSchema() map[string]any {
 				"description": "Override the default model when this layer is active.",
 			},
 			"env": map[string]any{
-				"type":        "object",
-				"description": "Environment variables exported into the agent process at session start.",
+				"type":                 "object",
+				"description":          "Environment variables exported into the agent process at session start.",
 				"additionalProperties": map[string]any{"type": "string"},
 			},
 			"claudeMdExcludes": map[string]any{
@@ -213,8 +213,8 @@ func SettingsSchema() map[string]any {
 				"description": "User shell command rendered as the right cluster of the REPL status bar. The command receives a small JSON payload on stdin; first line of stdout becomes the segment text. Errors / non-zero exits silently degrade to no segment.",
 				"required":    []string{"command"},
 				"properties": map[string]any{
-					"type":    map[string]any{"type": "string", "enum": []string{"command"}, "description": "Reserved for future shapes; today only \"command\" is supported."},
-					"command": map[string]any{"type": "string", "description": "Shell snippet executed via /bin/sh -c."},
+					"type":      map[string]any{"type": "string", "enum": []string{"command"}, "description": "Reserved for future shapes; today only \"command\" is supported."},
+					"command":   map[string]any{"type": "string", "description": "Shell snippet executed via /bin/sh -c."},
 					"timeoutMs": map[string]any{"type": "integer", "minimum": 0, "description": "Cap on execution time in milliseconds. 0 → package default (5 s)."},
 				},
 			},

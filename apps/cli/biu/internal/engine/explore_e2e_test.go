@@ -231,12 +231,12 @@ func TestExploreAgent_DefinitionApplyShape(t *testing.T) {
 
 // TestExploreAgent_DispatchViaAgentToolE2E drives the full flow:
 //
-//   parent script: Agent tool_use with subagent_type=Explore
-//     → orchestration.AgentTool merges Definition into SpawnRequest
-//     → engineSpawner forks perms + filters tool catalog
-//     → child engine emits one assistant text
-//     → text bubbles up tagged "[Explore] …" to parent
-//     → parent script: end-turn text using sub-agent's reply
+//	parent script: Agent tool_use with subagent_type=Explore
+//	  → orchestration.AgentTool merges Definition into SpawnRequest
+//	  → engineSpawner forks perms + filters tool catalog
+//	  → child engine emits one assistant text
+//	  → text bubbles up tagged "[Explore] …" to parent
+//	  → parent script: end-turn text using sub-agent's reply
 func TestExploreAgent_DispatchViaAgentToolE2E(t *testing.T) {
 	registry, err := agents.Load(t.TempDir())
 	if err != nil {

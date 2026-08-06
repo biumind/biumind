@@ -14,10 +14,10 @@ import (
 
 // fakeAgentPlane 记录调用 + 配置返回值，让测试控分支。
 type fakeAgentPlane struct {
-	created     atomic.Int32
-	subscribed  atomic.Int32
-	createErr   error
-	sessionID   string
+	created      atomic.Int32
+	subscribed   atomic.Int32
+	createErr    error
+	sessionID    string
 	subscribeErr error
 }
 
@@ -47,7 +47,7 @@ func (noRuntimeErrType) Error() string { return "agentplane: HTTP 503: no_runtim
 // IsNoRuntime() bool 的 sentinel struct。
 type fakeNoRuntimeErr struct{}
 
-func (fakeNoRuntimeErr) Error() string    { return "no_runtime_available" }
+func (fakeNoRuntimeErr) Error() string     { return "no_runtime_available" }
 func (fakeNoRuntimeErr) IsNoRuntime() bool { return true }
 
 func TestRouter_AgentPlane_HappyPath(t *testing.T) {

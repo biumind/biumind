@@ -437,7 +437,7 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 		"type":       "permission_response",
 		"session_id": sessionID.String(),
 		"request_id": head.Response.RequestID,
-		"subtype":    head.Response.Subtype, // "success" | "error"
+		"subtype":    head.Response.Subtype,  // "success" | "error"
 		"response":   head.Response.Response, // 嵌套 PermissionResult JSON
 		"error":      head.Response.Error,
 	}

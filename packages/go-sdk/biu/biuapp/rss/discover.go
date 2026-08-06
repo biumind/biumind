@@ -34,7 +34,7 @@ import (
 type SourceKind string
 
 const (
-	KindRSS     SourceKind = "rss"     // already a feed URL
+	KindRSS     SourceKind = "rss" // already a feed URL
 	KindYouTube SourceKind = "youtube"
 	KindGitHub  SourceKind = "github"
 	KindWeChat  SourceKind = "wechat"  // M13.3 公众号 via werss / wewe-rss relay
@@ -154,9 +154,9 @@ type DiscoverResult struct {
 // boot and share. Cache keys on the original URL — same URL probed
 // twice in a row hits memo.
 type Discoverer struct {
-	HTTP    *http.Client
-	mu      sync.Mutex
-	memo    map[string]*DiscoverResult
+	HTTP *http.Client
+	mu   sync.Mutex
+	memo map[string]*DiscoverResult
 }
 
 func NewDiscoverer() *Discoverer {
@@ -213,8 +213,9 @@ func (d *Discoverer) Discover(ctx context.Context, rawURL string) (*DiscoverResu
 
 // youtubeFeed turns a channel URL into the standard videos.xml feed.
 // Two flavours:
-//   /channel/UCxxx              — already canonical, just substitute
-//   /@handle                    — need to resolve handle → channel id
+//
+//	/channel/UCxxx              — already canonical, just substitute
+//	/@handle                    — need to resolve handle → channel id
 func (d *Discoverer) youtubeFeed(ctx context.Context, rawURL string) (string, error) {
 	m := youtubeChannelRe.FindStringSubmatch(rawURL)
 	if len(m) < 3 {

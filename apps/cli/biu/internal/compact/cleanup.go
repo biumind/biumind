@@ -56,9 +56,9 @@ type CleanupFunc func(scope CleanupScope)
 // cleanupEntry keeps the callback alongside metadata for telemetry
 // + scope filtering.
 type cleanupEntry struct {
-	Name          string
-	SubagentSafe  bool
-	Fn            CleanupFunc
+	Name         string
+	SubagentSafe bool
+	Fn           CleanupFunc
 }
 
 var (

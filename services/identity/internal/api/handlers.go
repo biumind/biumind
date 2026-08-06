@@ -55,9 +55,9 @@ const defaultRefreshAbsoluteTTL = 8760 * time.Hour
 const defaultRefreshReuseGrace = 10 * time.Second
 
 type Server struct {
-	Store          *store.Store
-	Signer         *bauth.Signer
-	Verifier       *bauth.Verifier
+	Store      *store.Store
+	Signer     *bauth.Signer
+	Verifier   *bauth.Verifier
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 	// RefreshAbsoluteTTL — refresh_token 的绝对上限 (created_at + this).
@@ -71,8 +71,8 @@ type Server struct {
 	// RefreshGraceKey — grace replay 密文的 AES-256 key (DeriveGraceKey 输出,
 	// 32B)。空时 grace replay 禁用: 宽限窗口内重放仍走 reuse detection。
 	RefreshGraceKey []byte
-	PasswordParams passwords.Params
-	Logger         *slog.Logger
+	PasswordParams  passwords.Params
+	Logger          *slog.Logger
 
 	// RoleCache 注入后,login/register/me 响应附带 role + permissions.
 	// nil 时退化为只返 id/email/display_name (单元测试场景).
@@ -655,7 +655,7 @@ func (s *Server) handleResendVerification(w http.ResponseWriter, r *http.Request
 			s.appendAudit(admin.AuditEvent{
 				ActorEmail: email, ActorIP: ip, ActorUA: ua,
 				Action: "auth.email.resend_throttled", Resource: "email_verification",
-				Success:   false, ErrorCode: "rate_limited",
+				Success: false, ErrorCode: "rate_limited",
 				Detail: fmt.Sprintf("retry_after=%s", retry.Round(time.Second)),
 			})
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(retry.Seconds())+1))
@@ -899,7 +899,7 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		Action: "auth.password_reset.success", Resource: "password_reset",
 		Target: u.ID.String(), TargetType: "user",
 		Success: true,
-		Detail: fmt.Sprintf("revoked_sessions=%d kept_session=%v", revoked, keptSession),
+		Detail:  fmt.Sprintf("revoked_sessions=%d kept_session=%v", revoked, keptSession),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"reset":            true,
@@ -1606,7 +1606,7 @@ func (s *Server) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	self := c.DeviceID != "" && sid.String() == c.DeviceID
 	s.appendAudit(admin.AuditEvent{
-		ActorID: uid.String(), ActorEmail: "" /*不在 claims, 留空*/,
+		ActorID: uid.String(), ActorEmail: "", /*不在 claims, 留空*/
 		ActorIP: admin.ClientIP(r), ActorUA: r.UserAgent(),
 		Action: "auth.session.revoked", Resource: "session",
 		Target: sid.String(), TargetType: "session",

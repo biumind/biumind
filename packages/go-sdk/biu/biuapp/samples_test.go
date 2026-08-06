@@ -29,13 +29,13 @@ func TestSampleManifests_Validate(t *testing.T) {
 		name string
 		file string
 	}{
-		{"minimal",     "minimal.yaml"},
-		{"view_only",   "view_only.yaml"},
+		{"minimal", "minimal.yaml"},
+		{"view_only", "view_only.yaml"},
 		{"hybrid_full", "hybrid_full.yaml"},
-		{"webview",     "webview.yaml"},
-		{"grid",        "grid.yaml"},
-		{"dashboard",   "dashboard.yaml"},
-		{"agent_chat",  "agent_chat.yaml"},
+		{"webview", "webview.yaml"},
+		{"grid", "grid.yaml"},
+		{"dashboard", "dashboard.yaml"},
+		{"agent_chat", "agent_chat.yaml"},
 	}
 	dir := filepath.Join(repoRoot(t), "docs", "samples", "app_center")
 	for _, c := range cases {

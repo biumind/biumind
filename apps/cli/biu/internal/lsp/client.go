@@ -59,7 +59,7 @@ func DefaultServers() []ServerSpec {
 		{Name: "pyright", Command: "pyright-langserver",
 			Args: []string{"--stdio"}, Extensions: []string{".py"}},
 		{Name: "tsserver", Command: "typescript-language-server",
-			Args: []string{"--stdio"},
+			Args:       []string{"--stdio"},
 			Extensions: []string{".ts", ".tsx", ".js", ".jsx"}},
 	}
 	out := []ServerSpec{}
@@ -166,8 +166,8 @@ func (p *Pool) Close() error {
 // ─── single server ────────────────────────────────────
 
 type server struct {
-	spec ServerSpec
-	cmd  *exec.Cmd
+	spec   ServerSpec
+	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 
@@ -217,7 +217,7 @@ func startServer(spec ServerSpec, root string) (*server, error) {
 	}
 	s := &server{
 		spec: spec, cmd: cmd, stdin: stdin,
-		stdout: bufio.NewReader(stdout),
+		stdout:  bufio.NewReader(stdout),
 		pending: map[int64]chan rawResponse{},
 		docs:    map[string]*docState{},
 	}

@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/biumind/biumind/services/model-relay/internal/keys"
+	"github.com/google/uuid"
 )
 
 // CredentialVault wires CredentialRepo + Envelope together.
@@ -224,9 +224,9 @@ func (v *CredentialVault) RevealForProbe(ctx context.Context, id uuid.UUID) ([]b
 // buildKeyPreview produces a human-recognisable hint without exposing
 // the full key. Format chosen to match common upstream conventions:
 //
-//   sk-1234567890abcdef    →  "sk-12...cdef"   (12 chars, 4+ellipsis+4)
-//   sk-ant-very-short      →  "sk-ant...hort"
-//   abc                    →  "abc"            (too short — return as-is, not sensitive)
+//	sk-1234567890abcdef    →  "sk-12...cdef"   (12 chars, 4+ellipsis+4)
+//	sk-ant-very-short      →  "sk-ant...hort"
+//	abc                    →  "abc"            (too short — return as-is, not sensitive)
 //
 // We never want to store the plain key here, but we DO want enough to
 // help an admin disambiguate "OpenAI account A vs B" at a glance.

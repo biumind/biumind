@@ -37,13 +37,13 @@ import (
 const (
 	CodeOK           = ""
 	CodeTimeout      = "timeout"
-	CodeUnauthorized = "unauthorized"  // 401 / 403
-	CodeRateLimited  = "rate_limited"  // 429
-	CodeServer       = "server_error"  // 5xx
-	CodeNetwork      = "network"        // TCP / TLS / DNS
-	CodeDecrypt      = "decrypt"        // envelope unwrap failed
-	CodeUnsupported  = "unsupported"    // no adaptor registered for provider
-	CodeBadResponse  = "bad_response"   // 2xx but body unparseable
+	CodeUnauthorized = "unauthorized" // 401 / 403
+	CodeRateLimited  = "rate_limited" // 429
+	CodeServer       = "server_error" // 5xx
+	CodeNetwork      = "network"      // TCP / TLS / DNS
+	CodeDecrypt      = "decrypt"      // envelope unwrap failed
+	CodeUnsupported  = "unsupported"  // no adaptor registered for provider
+	CodeBadResponse  = "bad_response" // 2xx but body unparseable
 )
 
 // ProbeResult is the outcome of a single hello probe.
@@ -659,7 +659,7 @@ func (p *Probe) runVideoHTTP(
 	req := &provider.VideoRequest{
 		Model:           upstreamModel,
 		Prompt:          "a red apple", // 短 prompt, 跟 image probe 一致
-		DurationSeconds: 5,              // 最短时长省钱
+		DurationSeconds: 5,             // 最短时长省钱
 	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
@@ -838,8 +838,8 @@ func minimalWAV() []byte {
 	writeLE32(buf, totalSize)
 	buf.WriteString("WAVE")
 	buf.WriteString("fmt ")
-	writeLE32(buf, 16)        // fmt chunk size
-	writeLE16(buf, 1)         // audio format = PCM
+	writeLE32(buf, 16) // fmt chunk size
+	writeLE16(buf, 1)  // audio format = PCM
 	writeLE16(buf, numChannels)
 	writeLE32(buf, sampleRate)
 	writeLE32(buf, byteRate)
@@ -1049,11 +1049,11 @@ func (p *Probe) lookupAdaptor(prov *registry.Provider) provider.Adaptor {
 // lookupModalityAdaptor — 非 chat 路径用. 跟 router/mode_router.go
 // lookupAdaptor 同样的多重 fallback 链条:
 //
-//   1. provider.Code 精确匹配 ("openai" / "dashscope" / "dashscope-bailian")
-//   2. provider.Protocol 名 ("openai_compat" / "anthropic" / "dashscope")
-//   3. protocol=openai_compat → "openai" alias
-//   4. protocol=anthropic    → "anthropic" alias
-//   5. protocol=dashscope    → "dashscope" alias
+//  1. provider.Code 精确匹配 ("openai" / "dashscope" / "dashscope-bailian")
+//  2. provider.Protocol 名 ("openai_compat" / "anthropic" / "dashscope")
+//  3. protocol=openai_compat → "openai" alias
+//  4. protocol=anthropic    → "anthropic" alias
+//  5. protocol=dashscope    → "dashscope" alias
 //
 // 返 BaseAdaptor — caller 按 modality 自己 type-assert 到 EmbedAdaptor /
 // RerankAdaptor / SpeechAdaptor / ImageAdaptor / AsyncImageAdaptor.

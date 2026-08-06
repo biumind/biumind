@@ -214,7 +214,7 @@ func TestMergeJSON_routesInternalHook(t *testing.T) {
 func TestRunner_commandBranchUnchanged(t *testing.T) {
 	defer ResetInternal()
 	entry := Entry{
-		Source: "test",
+		Source:  "test",
 		Command: Command{Type: "command", Command: "echo hi"},
 	}
 	results := Run(context.Background(), []Entry{entry}, EventPreToolUse, nil)

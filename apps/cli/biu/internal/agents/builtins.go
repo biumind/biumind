@@ -167,7 +167,7 @@ the question is answered.
 //     prompt, not from the permission mode.
 func exploreBuiltin() *Definition {
 	return &Definition{
-		Name: "Explore",
+		Name:        "Explore",
 		Description: "Fast read-only search agent for locating code. Use it to find files by pattern (e.g. \"src/**/*.go\"), grep for symbols or keywords, or answer \"where is X defined / which files reference Y.\" Specify thoroughness as \"quick\" / \"medium\" / \"very thorough\" in the prompt.",
 		// Allow-list: read-only research tools only. Glob/Grep/Read
 		// for the bulk of work; Bash for `ls / git log / git diff`
@@ -291,9 +291,9 @@ Now read the diff and review.
 // haiku-quick passes can override per-agent.
 func codeReviewBuiltin() *Definition {
 	return &Definition{
-		Name: "CodeReview",
+		Name:        "CodeReview",
 		Description: "Read-only senior code reviewer. Use after a non-trivial implementation when you want a structured critique (correctness > security > API > maintainability > performance > tests). Pass the diff scope or files in the prompt; the agent runs `git diff`, reads source + tests, and returns severity-tagged findings. Read-only — it does NOT edit code.",
-		Tools: []string{"Read", "Glob", "Grep", "Bash", "WebFetch"},
+		Tools:       []string{"Read", "Glob", "Grep", "Bash", "WebFetch"},
 		// Same deny-list as Explore: no recursive Agent spawn, no
 		// edit-side tools, no plan-mode transitions (CodeReview is a
 		// terminal step, not an orchestrator).
@@ -453,7 +453,7 @@ whether this is a bug." If you can run the check, decide PASS or FAIL.
 // dev server, hit it with `curl`, then `KillBash` cleanly.
 func verificationBuiltin() *Definition {
 	return &Definition{
-		Name: "Verification",
+		Name:        "Verification",
 		Description: "Runs the implementation to try to break it. Use AFTER a non-trivial change (frontend / backend / CLI / migration / library) when you want PASS/FAIL/PARTIAL evidence — not a code review. Pass the original task description, files changed, and approach taken. The agent runs builds, test suites, adversarial probes, and reports a verdict with command outputs as evidence. Read-only on the project — it does NOT modify code.",
 		Tools: []string{
 			// Foreground execution + read-only research.
@@ -536,7 +536,7 @@ Keep it under 30 lines unless the task genuinely needs more — the parent has i
 // Code.
 func generalPurposeBuiltin() *Definition {
 	return &Definition{
-		Name: "general-purpose",
+		Name:        "general-purpose",
 		Description: "General-purpose sub-agent for multi-step research, code search, and questions that span many files. Prefer Explore for pure search and the other specialists (Plan / CodeReview / Verification) when they fit; reach for general-purpose when the task doesn't cleanly match a specialist.",
 		// Empty Tools = no allow-list filter; inherit the parent's
 		// catalog. FilterTools handles this in agents/agents.go.

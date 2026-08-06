@@ -15,6 +15,7 @@
 //   - dedup worker (P2-D-1)  kind=dedup
 //   - lint worker  (P2-D-2)  kind=lint
 //   - sweep worker (P2-D-3)  kind=sweep
+//
 // They share review_items but never fight: each kind has its own
 // dedupe_key namespace and its own UI/MCP filter.
 package reviews
@@ -281,13 +282,13 @@ func (w *SweepWorker) fetchPages(ctx context.Context, projectID uuid.UUID) ([]sw
 // for [[target]] mentions and resolving against `idByTitle`.
 //
 // We do the regex match in Go, not in Postgres, because:
-//   1. Postgres regex over a jsonb column doesn't use any index — it's
-//      a sequential scan either way.
-//   2. The counted-set semantics (distinct referencing pages, not
-//      total link count) is awkward in SQL with our jsonb shape and
-//      easy in Go via a set per target.
-//   3. Future rules will want richer graph data (e.g. who links to
-//      whom) and the Go path positions us to add it incrementally.
+//  1. Postgres regex over a jsonb column doesn't use any index — it's
+//     a sequential scan either way.
+//  2. The counted-set semantics (distinct referencing pages, not
+//     total link count) is awkward in SQL with our jsonb shape and
+//     easy in Go via a set per target.
+//  3. Future rules will want richer graph data (e.g. who links to
+//     whom) and the Go path positions us to add it incrementally.
 func (w *SweepWorker) fetchIncomingLinkCounts(
 	ctx context.Context,
 	projectID uuid.UUID,

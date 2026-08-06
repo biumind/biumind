@@ -34,12 +34,12 @@ func TestAssertSandboxPath(t *testing.T) {
 		}
 	}
 	bad := []string{
-		"etc",                   // 相对
-		"../etc",                // 相对 + ..
-		"/etc/passwd",           // 越界根
-		"/root",                 // 越界根
-		"/workspace/../etc",     // 遍历逃逸
-		"/workspace/../../etc",  // 多级逃逸
+		"etc",                  // 相对
+		"../etc",               // 相对 + ..
+		"/etc/passwd",          // 越界根
+		"/root",                // 越界根
+		"/workspace/../etc",    // 遍历逃逸
+		"/workspace/../../etc", // 多级逃逸
 		"/tmp/../workspace/../etc",
 	}
 	for _, p := range bad {

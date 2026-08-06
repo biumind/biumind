@@ -196,12 +196,12 @@ func presetLabel(p string) string {
 // shape that matches a real-world starting point.
 func renderScaffold(name, preset string) string {
 	var (
-		description    string
-		tools          string
+		description     string
+		tools           string
 		disallowedTools string
-		permissionMode string
-		model          string
-		body           string
+		permissionMode  string
+		model           string
+		body            string
 	)
 
 	switch preset {

@@ -165,10 +165,10 @@ func (r *Registry) All() []*Command {
 // Render expands placeholders in the command body. Supported tokens
 // (case-sensitive, $-prefixed):
 //
-//   $ARGUMENTS — verbatim string the user typed after the slash
-//                ("/refactor pkg/auth.go" → "pkg/auth.go")
-//   $CWD       — process cwd at render time (absolute path)
-//   $DATE      — today's date in YYYY-MM-DD (UTC)
+//	$ARGUMENTS — verbatim string the user typed after the slash
+//	             ("/refactor pkg/auth.go" → "pkg/auth.go")
+//	$CWD       — process cwd at render time (absolute path)
+//	$DATE      — today's date in YYYY-MM-DD (UTC)
 //
 // Unknown $TOKENS are left as-is so the model sees them in the
 // final prompt — that's the user's typo to fix, not biu's job to

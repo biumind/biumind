@@ -107,10 +107,10 @@ func TestParseMarketplace_validation(t *testing.T) {
 
 func TestSplitPluginRef(t *testing.T) {
 	cases := []struct {
-		in       string
-		plugin   string
-		market   string
-		ok       bool
+		in     string
+		plugin string
+		market string
+		ok     bool
 	}{
 		{"code-review@biumind", "code-review", "biumind", true},
 		{"x@y", "x", "y", true},

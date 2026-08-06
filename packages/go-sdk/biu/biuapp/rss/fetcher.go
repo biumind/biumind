@@ -34,8 +34,8 @@ type FetchRequest struct {
 }
 
 type FetchResult struct {
-	NotModified bool
-	Etag        string
+	NotModified  bool
+	Etag         string
 	LastModified string
 
 	Title       string
@@ -64,9 +64,9 @@ type Fetcher interface {
 }
 
 type DefaultFetcher struct {
-	HTTP        *http.Client
-	UserAgent   string
-	MaxBodyMiB  int
+	HTTP       *http.Client
+	UserAgent  string
+	MaxBodyMiB int
 }
 
 func NewDefaultFetcher() *DefaultFetcher {

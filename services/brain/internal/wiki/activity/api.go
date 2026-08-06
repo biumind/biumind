@@ -131,14 +131,14 @@ func (s *Server) fetchIngest(ctx context.Context, pid uuid.UUID) ([]item, error)
 	out := make([]item, 0, 50)
 	for rows.Next() {
 		var (
-			id                  uuid.UUID
-			status, title       string
-			progressJSON        []byte
-			resultPages         []uuid.UUID
-			cancelReq, started  *time.Time
-			finished            *time.Time
+			id                   uuid.UUID
+			status, title        string
+			progressJSON         []byte
+			resultPages          []uuid.UUID
+			cancelReq, started   *time.Time
+			finished             *time.Time
 			createdAt, updatedAt time.Time
-			errMsg              string
+			errMsg               string
 		)
 		if err := rows.Scan(&id, &status, &title, &progressJSON, &resultPages,
 			&cancelReq, &started, &finished, &createdAt, &updatedAt, &errMsg); err != nil {

@@ -44,7 +44,7 @@ const (
 	// switch in prod once Anthropic Haiku is provisioned.
 	defaultModel       = "glm-5.1"
 	defaultMaxTokens   = 400
-	defaultMaxContent  = 4000  // input chars cap (≈ 4k tokens for zh)
+	defaultMaxContent  = 4000 // input chars cap (≈ 4k tokens for zh)
 	defaultTimeout     = 25 * time.Second
 	defaultConcurrency = 8
 	defaultQueueSize   = 256

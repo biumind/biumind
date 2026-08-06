@@ -7,12 +7,12 @@
 //
 // The package is consumed by:
 //
-//	- services/runtime/internal/api/skills_server.go (PS2.2): the
-//	  Connect-Go SkillsService handler that translates proto requests
-//	  into Registry calls.
-//	- services/runtime/internal/agent/skill_tools.go (PS2.4): the six
-//	  builtin tools (skill.list / activate / read_reference /
-//	  exec_script / export_file / propose) all bottom out here.
+//   - services/runtime/internal/api/skills_server.go (PS2.2): the
+//     Connect-Go SkillsService handler that translates proto requests
+//     into Registry calls.
+//   - services/runtime/internal/agent/skill_tools.go (PS2.4): the six
+//     builtin tools (skill.list / activate / read_reference /
+//     exec_script / export_file / propose) all bottom out here.
 //
 // We deliberately keep this layer transport-agnostic: no proto types,
 // no http.Request, no logging side-effects (callers thread a slog
@@ -110,11 +110,11 @@ type ResourceMeta struct {
 // stored as JSONB. Extra captures fields the platform doesn't model
 // yet so a third-party manifest can pass through unchanged.
 type Manifest struct {
-	Version    string            `json:"version,omitempty"`
-	Author     ManifestAuthor    `json:"author,omitempty"`
-	License    string            `json:"license,omitempty"`
-	Repository string            `json:"repository,omitempty"`
-	SourceURL  string            `json:"source_url,omitempty"`
+	Version    string         `json:"version,omitempty"`
+	Author     ManifestAuthor `json:"author,omitempty"`
+	License    string         `json:"license,omitempty"`
+	Repository string         `json:"repository,omitempty"`
+	SourceURL  string         `json:"source_url,omitempty"`
 	// Icon is a short visual hint shown in lists / cards. Two shapes
 	// the client knows how to render:
 	//   - Single emoji ("🛠", "🧠"): rendered as text inside an
@@ -391,23 +391,23 @@ func (r *Registry) List(ctx context.Context, in ListInput) ([]*Skill, error) {
 // matching the proto (so transport layer can copy 1:1). Fields where
 // Set* is false are left untouched server-side.
 type UpdateInput struct {
-	ID                 string
-	Name               string
-	SetName            bool
-	Description        string
-	SetDescription     bool
-	Content            string
-	SetContent         bool
-	Manifest           Manifest
-	SetManifest        bool
-	Paths              []string
-	SetPaths           bool
-	Permissions        []string
-	SetPermissions     bool
-	Resources          map[string]ResourceMeta
-	SetResources       bool
-	ZipFileSha256      string
-	SetZipFileSha256   bool
+	ID               string
+	Name             string
+	SetName          bool
+	Description      string
+	SetDescription   bool
+	Content          string
+	SetContent       bool
+	Manifest         Manifest
+	SetManifest      bool
+	Paths            []string
+	SetPaths         bool
+	Permissions      []string
+	SetPermissions   bool
+	Resources        map[string]ResourceMeta
+	SetResources     bool
+	ZipFileSha256    string
+	SetZipFileSha256 bool
 }
 
 // Update applies a sparse field set. Returns the post-update row.
@@ -684,8 +684,8 @@ func (r *Registry) LogActivation(ctx context.Context, in Activation) (*Activatio
 	`, in.SessionID, in.SkillID, string(in.Trigger), in.TraceID,
 		in.TokensIn, in.TokensOut)
 	var (
-		out         Activation
-		triggerStr  string
+		out        Activation
+		triggerStr string
 	)
 	if err := row.Scan(
 		&out.ID, &out.SessionID, &out.SkillID, &triggerStr,

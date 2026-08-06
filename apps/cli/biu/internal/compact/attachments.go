@@ -60,9 +60,9 @@ const MaxFileAttachmentCount = 10
 
 // FileAttachment is one file's re-injection payload.
 type FileAttachment struct {
-	Path        string
-	Content     string
-	SizeBytes   int64 // size BEFORE truncation (so the model knows)
+	Path         string
+	Content      string
+	SizeBytes    int64 // size BEFORE truncation (so the model knows)
 	WasTruncated bool
 }
 

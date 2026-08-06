@@ -248,6 +248,7 @@ func TestC21_Compact_NonLLM(t *testing.T) {
 // menuSettleDelay covers two phases:
 //   - keystrokes drain through the PTY into bubbletea
 //   - the slash dropdown closes once Enter selects + submits
+//
 // 1.5 s is generous; faster machines could go lower but this is
 // imperceptible against the 30-180 s sub-agent dispatch that follows.
 const menuSettleDelay = 1500 * time.Millisecond

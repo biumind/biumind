@@ -2,18 +2,18 @@
 //
 // Tick loop:
 //
-//	1. SELECT blocks WHERE deleted_at IS NULL AND
-//	   (captioned_at IS NULL OR captioned_at < updated_at)
-//	   ORDER BY updated_at ASC LIMIT N.
-//	2. For each block:
-//	     - parse `![alt](url)` refs out of content.text
-//	     - drop ones whose alt is real → no work needed
-//	     - for each remaining URL: cache lookup; on miss fetch image
-//	       bytes, call vision LLM, write cache row
-//	     - apply captions back into content.text via ApplyCaptions
-//	     - UpdateBlock with IfMatchVersion (lose-the-race-skip)
-//	     - UPDATE captioned_at = now() either way (so noop blocks
-//	       with no images don't get re-scanned every tick)
+//  1. SELECT blocks WHERE deleted_at IS NULL AND
+//     (captioned_at IS NULL OR captioned_at < updated_at)
+//     ORDER BY updated_at ASC LIMIT N.
+//  2. For each block:
+//     - parse `![alt](url)` refs out of content.text
+//     - drop ones whose alt is real → no work needed
+//     - for each remaining URL: cache lookup; on miss fetch image
+//     bytes, call vision LLM, write cache row
+//     - apply captions back into content.text via ApplyCaptions
+//     - UpdateBlock with IfMatchVersion (lose-the-race-skip)
+//     - UPDATE captioned_at = now() either way (so noop blocks
+//     with no images don't get re-scanned every tick)
 //
 // All failures are logged and skipped — next tick retries. Cache
 // inserts use ON CONFLICT DO NOTHING so concurrent workers can't
@@ -43,10 +43,11 @@ import (
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
 // Caller is the minimal vision-LLM interface the worker needs.
-//   ownerID: the project's owner — brain mints a JWT for them so model-relay
-//     resolves their BYOK / pool credentials.
-//   imageBytes: raw bytes of the image (caller already fetched).
-//   mediaType: MIME type ("image/png", "image/jpeg", ...).
+//
+//	ownerID: the project's owner — brain mints a JWT for them so model-relay
+//	  resolves their BYOK / pool credentials.
+//	imageBytes: raw bytes of the image (caller already fetched).
+//	mediaType: MIME type ("image/png", "image/jpeg", ...).
 type Caller interface {
 	Caption(ctx context.Context, ownerID uuid.UUID, imageBytes []byte, mediaType string) (string, error)
 }

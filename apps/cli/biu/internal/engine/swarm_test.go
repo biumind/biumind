@@ -32,12 +32,12 @@ type swarmProvider struct {
 	childAReply []StreamFrame
 	childBReply []StreamFrame
 
-	mu        sync.Mutex
-	parentHit int
-	overlapMu sync.Mutex
+	mu                         sync.Mutex
+	parentHit                  int
+	overlapMu                  sync.Mutex
 	overlapStartA, overlapEndA time.Time
 	overlapStartB, overlapEndB time.Time
-	delay     time.Duration
+	delay                      time.Duration
 }
 
 func (p *swarmProvider) Stream(ctx context.Context, req StreamRequest) (<-chan StreamFrame, error) {

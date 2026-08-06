@@ -41,10 +41,10 @@ import (
 type Status string
 
 const (
-	StatusRunning  Status = "running"
-	StatusDone     Status = "done"
-	StatusFailed   Status = "failed"
-	StatusKilled   Status = "killed"
+	StatusRunning Status = "running"
+	StatusDone    Status = "done"
+	StatusFailed  Status = "failed"
+	StatusKilled  Status = "killed"
 )
 
 // MaxBufferLines caps the per-task output ring. 10 000 lines is
@@ -66,27 +66,27 @@ type Task struct {
 	StartedAt time.Time
 
 	// Mutable fields below are guarded by mu.
-	mu          sync.Mutex
-	status      Status
-	endedAt     time.Time
-	exitCode    int
-	lines       []string
-	dropped     int // number of lines lost to buffer cap
-	cancel      context.CancelFunc
-	cmd         *exec.Cmd
-	doneCh      chan struct{}
+	mu       sync.Mutex
+	status   Status
+	endedAt  time.Time
+	exitCode int
+	lines    []string
+	dropped  int // number of lines lost to buffer cap
+	cancel   context.CancelFunc
+	cmd      *exec.Cmd
+	doneCh   chan struct{}
 }
 
 // Snapshot is a stable read-only view of a Task — what /tasks
 // list rows render and what BashOutput reports back.
 type Snapshot struct {
-	ID        string
-	Command   string
-	Cwd       string
-	Status    Status
-	StartedAt time.Time
-	EndedAt   time.Time // zero when still running
-	ExitCode  int
+	ID         string
+	Command    string
+	Cwd        string
+	Status     Status
+	StartedAt  time.Time
+	EndedAt    time.Time // zero when still running
+	ExitCode   int
 	TotalLines int
 	Dropped    int
 }
@@ -337,7 +337,7 @@ func numericSuffix(id string) int {
 //   - next:      pass this as the next sinceLine
 //   - status:    current task status (so the model knows when to stop polling)
 //   - dropped:   total lines lost to the buffer cap (so the model
-//                knows when its sinceLine is older than the buffer head)
+//     knows when its sinceLine is older than the buffer head)
 //
 // When sinceLine < dropped, lines we've already discarded won't
 // reappear; the model can detect this by seeing the gap.

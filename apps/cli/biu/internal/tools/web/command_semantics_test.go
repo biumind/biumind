@@ -113,18 +113,18 @@ func TestInterpretCommandResultDefault(t *testing.T) {
 // semantic dispatch follows the last command name.
 func TestHeuristicBaseCommandPicksLastSegment(t *testing.T) {
 	cases := map[string]string{
-		"ls | grep foo":          "grep",
-		"cat a | rg pat":         "rg",
-		"true && diff a b":       "diff",
-		"false; test -f x":       "test",
-		"a || b || grep z":       "grep",
-		"echo hi":                "echo",
-		"":                       "",
-		"   ":                    "",
+		"ls | grep foo":           "grep",
+		"cat a | rg pat":          "rg",
+		"true && diff a b":        "diff",
+		"false; test -f x":        "test",
+		"a || b || grep z":        "grep",
+		"echo hi":                 "echo",
+		"":                        "",
+		"   ":                     "",
 		`grep 'pipe | here' file`: "grep", // pipe inside quotes ignored
-		`grep "x|y" file`:        "grep",
-		"FOO=bar grep needle":    "grep", // env-var prefix skipped
-		"FOO=bar BAZ=qux rg pat": "rg",
+		`grep "x|y" file`:         "grep",
+		"FOO=bar grep needle":     "grep", // env-var prefix skipped
+		"FOO=bar BAZ=qux rg pat":  "rg",
 	}
 	for in, want := range cases {
 		if got := heuristicBaseCommand(in); got != want {

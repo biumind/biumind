@@ -276,13 +276,13 @@ func installerToCreate(p *installer.ParsedSkill, orgID, ownerID uuid.UUID, sourc
 // ─── Update ─────────────────────────────────────────────────
 
 type updateSkillReq struct {
-	Description    *string                            `json:"description,omitempty"`
-	Body           *string                            `json:"body,omitempty"`
-	Manifest       *skillsreg.Manifest                `json:"manifest,omitempty"`
-	Paths          *[]string                          `json:"paths,omitempty"`
-	Permissions    *[]string                          `json:"permissions,omitempty"`
-	Resources      *map[string]skillsreg.ResourceMeta `json:"resources,omitempty"`
-	ZipFileSha256  *string                            `json:"zip_file_sha256,omitempty"`
+	Description   *string                            `json:"description,omitempty"`
+	Body          *string                            `json:"body,omitempty"`
+	Manifest      *skillsreg.Manifest                `json:"manifest,omitempty"`
+	Paths         *[]string                          `json:"paths,omitempty"`
+	Permissions   *[]string                          `json:"permissions,omitempty"`
+	Resources     *map[string]skillsreg.ResourceMeta `json:"resources,omitempty"`
+	ZipFileSha256 *string                            `json:"zip_file_sha256,omitempty"`
 }
 
 func (s *Server) handleUpdateSkill(w http.ResponseWriter, r *http.Request) {
@@ -439,15 +439,16 @@ func (s *Server) handleToggleSkill(w http.ResponseWriter, r *http.Request) {
 // GET /v1/skills/{id}/activations?limit=50
 //
 // Returns:
-//   {
-//     "stats": { "count": 42, "last_at": "2026-05-29T08:30:00Z" },
-//     "items": [
-//       { "id": "...", "session_id": "...", "trigger": "tool_call",
-//         "trace_id": "rn_...", "tokens_in": 12, "tokens_out": 34,
-//         "occurred_at": "2026-05-29T08:30:00Z" },
-//       ...
-//     ]
-//   }
+//
+//	{
+//	  "stats": { "count": 42, "last_at": "2026-05-29T08:30:00Z" },
+//	  "items": [
+//	    { "id": "...", "session_id": "...", "trigger": "tool_call",
+//	      "trace_id": "rn_...", "tokens_in": 12, "tokens_out": 34,
+//	      "occurred_at": "2026-05-29T08:30:00Z" },
+//	    ...
+//	  ]
+//	}
 //
 // Powers the SkillDetail drawer's "调用 N 次 / 最后调用 X 时间前"
 // panel without forcing the client to count rows on its side.
@@ -517,21 +518,21 @@ func (s *Server) handleListSkillActivations(w http.ResponseWriter, r *http.Reque
 // or neither) without bleeding storage details into the wire.
 func skillToJSON(s *skillsreg.Skill) map[string]any {
 	out := map[string]any{
-		"id":              s.ID,
-		"org_id":          s.OrgID.String(),
-		"identifier":      s.Identifier,
-		"name":            s.Name,
-		"description":     s.Description,
-		"source":          string(s.Source),
-		"manifest":        s.Manifest,
-		"content":         s.Content,
-		"content_hash":    s.ContentHash,
-		"resources":       s.Resources,
-		"paths":           s.Paths,
-		"permissions":     s.Permissions,
-		"status":          string(s.Status),
-		"created_at":      s.CreatedAt,
-		"updated_at":      s.UpdatedAt,
+		"id":           s.ID,
+		"org_id":       s.OrgID.String(),
+		"identifier":   s.Identifier,
+		"name":         s.Name,
+		"description":  s.Description,
+		"source":       string(s.Source),
+		"manifest":     s.Manifest,
+		"content":      s.Content,
+		"content_hash": s.ContentHash,
+		"resources":    s.Resources,
+		"paths":        s.Paths,
+		"permissions":  s.Permissions,
+		"status":       string(s.Status),
+		"created_at":   s.CreatedAt,
+		"updated_at":   s.UpdatedAt,
 	}
 	if s.OwnerID != nil {
 		out["owner_id"] = s.OwnerID.String()

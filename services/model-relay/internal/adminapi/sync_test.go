@@ -43,29 +43,29 @@ func TestSyncUpstream_AddsNewModels(t *testing.T) {
 
 	upstreamModels := []upstreamModel{
 		{
-			ModelName: fmt.Sprintf("e2e-claude-%d", time.Now().UnixNano()),
+			ModelName:  fmt.Sprintf("e2e-claude-%d", time.Now().UnixNano()),
 			VendorName: "Anthropic", Description: "haiku", Status: 1,
-			Tags:                "Tools,Files,Vision,200K",
-			PricePerMInput:      0.8, PricePerMOutput: 4.0,
-			PricePerMCacheRead:  0.08, PricePerMCacheWrite: 1.0,
+			Tags:           "Tools,Files,Vision,200K",
+			PricePerMInput: 0.8, PricePerMOutput: 4.0,
+			PricePerMCacheRead: 0.08, PricePerMCacheWrite: 1.0,
 		},
 		{
-			ModelName: fmt.Sprintf("e2e-gpt-%d", time.Now().UnixNano()),
+			ModelName:  fmt.Sprintf("e2e-gpt-%d", time.Now().UnixNano()),
 			VendorName: "OpenAI", Status: 1,
 			Tags:           "Tools,Vision,128K",
 			PricePerMInput: 5.0, PricePerMOutput: 15.0,
 		},
 		{
-			ModelName: "duplicated_model_name",
+			ModelName:  "duplicated_model_name",
 			VendorName: "VendorA", Status: 1,
 			Tags: "Tools,8K",
 		},
 		{
-			ModelName: "duplicated_model_name", // dup
+			ModelName:  "duplicated_model_name", // dup
 			VendorName: "VendorB", Status: 1,
 		},
 		{
-			ModelName: "deactivated_model",
+			ModelName:  "deactivated_model",
 			VendorName: "Bad", Status: 0, // not active → skipped
 		},
 	}
@@ -275,9 +275,9 @@ func TestSyncUpstream_BadGateway(t *testing.T) {
 
 func TestParseTags(t *testing.T) {
 	cases := []struct {
-		in        string
-		wantCaps  registry.Capabilities
-		wantWin   int
+		in       string
+		wantCaps registry.Capabilities
+		wantWin  int
 	}{
 		{"Tools,Files,Vision,200K", registry.Capabilities{Tools: true, Vision: true}, 200_000},
 		{"Reasoning,Tools,Vision,128K", registry.Capabilities{Tools: true, Vision: true, Thinking: true}, 128_000},
@@ -297,20 +297,20 @@ func TestParseTags(t *testing.T) {
 
 func TestFamilyFromName(t *testing.T) {
 	cases := map[string]string{
-		"claude-sonnet-4":         "claude",
-		"gpt-4o":                  "openai",
-		"chatgpt-4o-latest":       "openai",
-		"o3-mini":                 "openai",
-		"gemini-2.5-pro":          "gemini",
-		"deepseek-chat":           "deepseek",
-		"qwen-max":                "qwen",
-		"llama-3.1-70b":           "llama",
-		"kimi-k2":                 "kimi",
-		"moonshot-v1-8k":          "kimi",
-		"glm-4.5":                 "zhipu",
-		"grok-2":                  "grok",
-		"mistral-large":           "mistral",
-		"random-internal-model":   "other",
+		"claude-sonnet-4":       "claude",
+		"gpt-4o":                "openai",
+		"chatgpt-4o-latest":     "openai",
+		"o3-mini":               "openai",
+		"gemini-2.5-pro":        "gemini",
+		"deepseek-chat":         "deepseek",
+		"qwen-max":              "qwen",
+		"llama-3.1-70b":         "llama",
+		"kimi-k2":               "kimi",
+		"moonshot-v1-8k":        "kimi",
+		"glm-4.5":               "zhipu",
+		"grok-2":                "grok",
+		"mistral-large":         "mistral",
+		"random-internal-model": "other",
 	}
 	for in, want := range cases {
 		if got := familyFromName(in); got != want {

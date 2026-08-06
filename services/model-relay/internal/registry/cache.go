@@ -76,10 +76,10 @@ type Cache struct {
 
 	mu sync.RWMutex
 
-	models           map[uuid.UUID]*Model
-	modelsByCode     map[string]*Model
-	modelsLoadedAt   time.Time
-	modelsDirty      bool
+	models         map[uuid.UUID]*Model
+	modelsByCode   map[string]*Model
+	modelsLoadedAt time.Time
+	modelsDirty    bool
 
 	providers         map[uuid.UUID]*Provider
 	providersLoadedAt time.Time

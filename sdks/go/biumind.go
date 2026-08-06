@@ -29,7 +29,7 @@ import (
 
 // Config bundles the connection settings every client needs.
 type Config struct {
-	RelayURL   string
+	RelayURL string
 	BrainURL string // defaults to RelayURL when empty
 	Token    string
 	Timeout  time.Duration
@@ -64,7 +64,7 @@ func LoadConfig() (Config, error) {
 		return Config{}, errors.New("BIUMIND_TOKEN is required")
 	}
 	cfg := Config{
-		RelayURL:   relay,
+		RelayURL: relay,
 		BrainURL: strings.TrimSpace(os.Getenv("BIUMIND_BRAIN_URL")),
 		Token:    tok,
 	}

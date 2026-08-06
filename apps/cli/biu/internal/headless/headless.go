@@ -140,8 +140,8 @@ func runEngine(
 			if opt.JSON {
 				emit(w, "TOOL_CALL_END", map[string]any{
 					"id": e.ID, "name": e.Name,
-					"output":    e.Output,
-					"is_error":  e.IsError,
+					"output":     e.Output,
+					"is_error":   e.IsError,
 					"elapsed_ms": e.Elapsed.Milliseconds(),
 				})
 			}

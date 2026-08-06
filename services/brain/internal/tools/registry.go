@@ -5,9 +5,9 @@
 //
 // The registry is metadata-only at this stage. The agent loop that
 // actually dispatches tools (W6/W7) consumes this registry to know:
-//   * which tools exist
-//   * which can run on the cloud (Brain) vs the client
-//   * which to advertise to the LLM for a given thread.execution_mode
+//   - which tools exist
+//   - which can run on the cloud (Brain) vs the client
+//   - which to advertise to the LLM for a given thread.execution_mode
 package tools
 
 import (
@@ -159,10 +159,10 @@ func New() *Registry {
 }
 
 var (
-	ErrDuplicate   = errors.New("tools: duplicate registration")
-	ErrUnknownTool = errors.New("tools: unknown tool")
-	ErrEmptyName   = errors.New("tools: empty tool name")
-	ErrInvalidRT   = errors.New("tools: invalid runtime")
+	ErrDuplicate    = errors.New("tools: duplicate registration")
+	ErrUnknownTool  = errors.New("tools: unknown tool")
+	ErrEmptyName    = errors.New("tools: empty tool name")
+	ErrInvalidRT    = errors.New("tools: invalid runtime")
 	ErrNotInvocable = errors.New("tools: tool has no invoker (descriptor-only)")
 )
 

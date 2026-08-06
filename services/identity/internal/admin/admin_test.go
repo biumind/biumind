@@ -209,7 +209,7 @@ func TestAdmin_GetUser_IncludesLimits(t *testing.T) {
 		t.Fatalf("status: %d body=%s", resp.StatusCode, body)
 	}
 	var out struct {
-		User   User              `json:"user"`
+		User   User               `json:"user"`
 		Limits billing.PlanLimits `json:"limits"`
 	}
 	_ = json.Unmarshal(body, &out)

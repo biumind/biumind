@@ -50,8 +50,8 @@ type tickApp struct {
 	failOn   string
 }
 
-func (a *tickApp) Manifest() biuapp.Manifest                      { return a.manifest }
-func (a *tickApp) Init(ctx context.Context, _ biuapp.Deps) error  { return nil }
+func (a *tickApp) Manifest() biuapp.Manifest                     { return a.manifest }
+func (a *tickApp) Init(ctx context.Context, _ biuapp.Deps) error { return nil }
 func (a *tickApp) Invoke(_ context.Context, action string, _ json.RawMessage) (any, error) {
 	atomic.AddInt32(&a.count, 1)
 	a.mu.Lock()

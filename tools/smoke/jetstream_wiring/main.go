@@ -4,9 +4,9 @@
 // `deploy/scripts/smoke-jetstream.sh` should report green.
 //
 // Use case:
-//   * You haven't yet deployed channels + runtime but want to verify
+//   - You haven't yet deployed channels + runtime but want to verify
 //     the broker side independently.
-//   * You want to publish a message and watch it land in the consumer.
+//   - You want to publish a message and watch it land in the consumer.
 //
 // Usage:
 //

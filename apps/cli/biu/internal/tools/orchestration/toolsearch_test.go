@@ -20,14 +20,14 @@ type fakeTool struct {
 	concurrency bool
 }
 
-func (f *fakeTool) Name() string                                    { return f.name }
-func (f *fakeTool) Description(_ map[string]any) string             { return f.desc }
-func (f *fakeTool) InputSchema() map[string]any                     { return f.schema }
-func (f *fakeTool) IsReadOnly(_ map[string]any) bool                { return f.readOnly }
-func (f *fakeTool) IsDestructive(_ map[string]any) bool             { return false }
-func (f *fakeTool) IsConcurrencySafe(_ map[string]any) bool         { return f.concurrency }
-func (f *fakeTool) InterruptBehavior() string                       { return "cancel" }
-func (f *fakeTool) ShouldDefer() bool                               { return f.deferred }
+func (f *fakeTool) Name() string                            { return f.name }
+func (f *fakeTool) Description(_ map[string]any) string     { return f.desc }
+func (f *fakeTool) InputSchema() map[string]any             { return f.schema }
+func (f *fakeTool) IsReadOnly(_ map[string]any) bool        { return f.readOnly }
+func (f *fakeTool) IsDestructive(_ map[string]any) bool     { return false }
+func (f *fakeTool) IsConcurrencySafe(_ map[string]any) bool { return f.concurrency }
+func (f *fakeTool) InterruptBehavior() string               { return "cancel" }
+func (f *fakeTool) ShouldDefer() bool                       { return f.deferred }
 func (f *fakeTool) Call(_ context.Context, _ map[string]any, _ *engine.ToolEnv) (*engine.ToolResultPayload, error) {
 	return plainResult("ok"), nil
 }

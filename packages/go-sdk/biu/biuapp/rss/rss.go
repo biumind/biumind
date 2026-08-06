@@ -4,12 +4,13 @@
 // the Agent calls the same actions as tools.
 //
 // Actions:
-//   subscribe(url, title?, tags?[])    → {subscription_id, ...}
-//   unsubscribe(id)                    → {ok: true}
-//   list_subscriptions()               → {items: [...]}
-//   fetch(url, limit?)                 → {title, items: [...]}
-//   refresh_all()                      → {refreshed: int}
-//   digest(window?, max_items?)        → {summary: text, source_count}
+//
+//	subscribe(url, title?, tags?[])    → {subscription_id, ...}
+//	unsubscribe(id)                    → {ok: true}
+//	list_subscriptions()               → {items: [...]}
+//	fetch(url, limit?)                 → {title, items: [...]}
+//	refresh_all()                      → {refreshed: int}
+//	digest(window?, max_items?)        → {summary: text, source_count}
 //
 // We hand-parse the XML rather than pull a third-party library so
 // the SDK stays dependency-free. Both classic RSS 2.0 (<rss>
@@ -49,14 +50,14 @@ type App struct {
 	httpClient *http.Client
 	store      *store // legacy in-memory; nil when pg is wired
 
-	pg      *PGStore   // PG-backed store; nil for in-memory mode
-	sched   *Scheduler // refresh worker (uses pg + fetcher)
-	fetcher Fetcher    // discovery + scheduled refresh
-	boards  BoardsStore // optional rankings (P1); nil disables boards_*
-	radar   RadarStore  // optional radar (P2); nil disables rules_*/hits_*
-	llm     LLMAdvisor  // optional LLM advisor (P3); nil disables rules_from_nl
-	today   TodayPicker // optional Today picker (M2); nil disables today_picks
-	wiki    WikiSink    // optional wiki sink (M3); nil disables entries_to_wiki
+	pg       *PGStore    // PG-backed store; nil for in-memory mode
+	sched    *Scheduler  // refresh worker (uses pg + fetcher)
+	fetcher  Fetcher     // discovery + scheduled refresh
+	boards   BoardsStore // optional rankings (P1); nil disables boards_*
+	radar    RadarStore  // optional radar (P2); nil disables rules_*/hits_*
+	llm      LLMAdvisor  // optional LLM advisor (P3); nil disables rules_from_nl
+	today    TodayPicker // optional Today picker (M2); nil disables today_picks
+	wiki     WikiSink    // optional wiki sink (M3); nil disables entries_to_wiki
 	discover *Discoverer // M5 source kind detection + feed URL discovery
 
 	// embedQuery — M8.2 cosine 雷达: 算 rule.semantic_query 的 embedding,
@@ -701,10 +702,10 @@ func (a *App) Manifest() biuapp.Manifest {
 					Layout: biuapp.LayoutCustom,
 				},
 				{
-					ID:     "home",
-					Route:  "/apps/rss",
-					Title:  "RSS 订阅",
-					Layout: biuapp.LayoutListDetail,
+					ID:         "home",
+					Route:      "/apps/rss",
+					Title:      "RSS 订阅",
+					Layout:     biuapp.LayoutListDetail,
 					DataSource: &biuapp.ViewDataSource{Action: "list_subscriptions"},
 					RefreshOn: []string{
 						"app:install:<self>:subscription_added",

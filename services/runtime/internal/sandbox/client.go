@@ -161,11 +161,11 @@ func (c *Client) execShell(ctx context.Context, sandboxID, command string) (stri
 // the alpine sandbox base image.
 //
 // Resource sourcing rule:
-//   1. Inline (≤64 KB UTF-8) — embed directly via base64.
-//   2. Sha256 set + Inline empty — fetch via c.Files (CAS) and embed.
-//      When c.Files is nil, the entry is silently skipped: the legacy
-//      contract before CAS landed. Production runtime should wire a
-//      ResourceFetcher; the skipped path is a safety net for dev.
+//  1. Inline (≤64 KB UTF-8) — embed directly via base64.
+//  2. Sha256 set + Inline empty — fetch via c.Files (CAS) and embed.
+//     When c.Files is nil, the entry is silently skipped: the legacy
+//     contract before CAS landed. Production runtime should wire a
+//     ResourceFetcher; the skipped path is a safety net for dev.
 //
 // Returning an error here only happens for fetcher I/O failures.
 // Malformed paths (".." / absolute) are skipped without erroring —
@@ -214,7 +214,7 @@ func (c *Client) buildPrepCommand(ctx context.Context, skill *skillsreg.Skill) (
 }
 
 // shellQuote wraps a string in single quotes, escaping any embedded
-// single-quote with the standard '\'' shell idiom. Safe against
+// single-quote with the standard '\” shell idiom. Safe against
 // every printable byte sequence — used for both filenames and the
 // base64 blob.
 func shellQuote(s string) string {

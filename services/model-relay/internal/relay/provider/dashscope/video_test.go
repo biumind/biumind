@@ -102,8 +102,8 @@ func TestTranslateVideoRequest_AspectToSize(t *testing.T) {
 		{"16:9", "1080p", "1920*1080"},
 		{"9:16", "720p", "720*1280"},
 		{"1:1", "1080p", "1080*1080"},
-		{"16:9", "", "1280*720"},      // 默认 720p
-		{"unknown", "720p", ""},        // 不识别 → 空字符串让上游用默认
+		{"16:9", "", "1280*720"}, // 默认 720p
+		{"unknown", "720p", ""},  // 不识别 → 空字符串让上游用默认
 	}
 	for _, tc := range cases {
 		t.Run(tc.aspect+"_"+tc.res, func(t *testing.T) {

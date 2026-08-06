@@ -2,14 +2,14 @@
 //
 // Pipeline:
 //
-//	1. Web search across the user's queries (or the topic itself)
-//	2. Build wiki index from existing project page titles for cross-ref
-//	3. LLM synthesises results into a markdown wiki page
-//	4. Strip <think> blocks
-//	5. Save as new page in the project — title becomes
-//	   "Research: <topic>", body lives as a single markdown block
-//	   (the standard chunker / embedworker / enrich worker pick it
-//	   up from there).
+//  1. Web search across the user's queries (or the topic itself)
+//  2. Build wiki index from existing project page titles for cross-ref
+//  3. LLM synthesises results into a markdown wiki page
+//  4. Strip <think> blocks
+//  5. Save as new page in the project — title becomes
+//     "Research: <topic>", body lives as a single markdown block
+//     (the standard chunker / embedworker / enrich worker pick it
+//     up from there).
 //
 // The orchestrator runs in its own goroutine. The HTTP handler
 // returns immediately with the task id; the client polls

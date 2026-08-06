@@ -262,8 +262,8 @@ func TestDurableCronSurvivesRestart(t *testing.T) {
 	id := s1.Add(&CronJob{
 		Cron: "*/5 * * * *", Prompt: "ping",
 		Recurring: true, IntervalMin: 5,
-		NextFire:  time.Now().Add(time.Hour),
-		Durable:   true,
+		NextFire: time.Now().Add(time.Hour),
+		Durable:  true,
 	})
 	// In-memory: 1 job.
 	if len(s1.List()) != 1 {
@@ -294,8 +294,8 @@ func TestNonDurableJobsNotPersisted(t *testing.T) {
 	s1.Add(&CronJob{
 		Cron: "*/5 * * * *", Prompt: "ephemeral",
 		Recurring: true, IntervalMin: 5,
-		NextFire:  time.Now().Add(time.Hour),
-		Durable:   false,
+		NextFire: time.Now().Add(time.Hour),
+		Durable:  false,
 	})
 	s1.Close()
 
@@ -375,7 +375,7 @@ func TestPushNotificationBackendErrorIsSoft(t *testing.T) {
 
 type stubSkill struct{ name string }
 
-func (s stubSkill) Name() string                                  { return s.name }
+func (s stubSkill) Name() string { return s.name }
 func (s stubSkill) Run(_ context.Context, args string) (string, error) {
 	return "skill[" + s.name + "]: " + args, nil
 }

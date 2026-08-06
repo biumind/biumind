@@ -239,9 +239,9 @@ func fetchGoogle(ctx context.Context, base, key string, userID uuid.UUID, provid
 	}
 	var parsed struct {
 		Models []struct {
-			Name             string `json:"name"`         // e.g. "models/gemini-1.5-pro"
-			DisplayName      string `json:"displayName"`
-			InputTokenLimit  int    `json:"inputTokenLimit"`
+			Name             string   `json:"name"` // e.g. "models/gemini-1.5-pro"
+			DisplayName      string   `json:"displayName"`
+			InputTokenLimit  int      `json:"inputTokenLimit"`
 			SupportedMethods []string `json:"supportedGenerationMethods"`
 		} `json:"models"`
 	}
@@ -308,4 +308,3 @@ func doRequest(req *http.Request) ([]byte, error) {
 	}
 	return body, nil
 }
-

@@ -81,9 +81,9 @@ type JetStream interface {
 // StreamSpec describes a JetStream stream. Names must be valid NATS
 // stream identifiers (alphanumerics, `_`, `-`).
 type StreamSpec struct {
-	Name      string         // e.g. "BIUMIND_CHANNELS"
-	Subjects  []string       // e.g. ["biumind.dev.channels.>"]
-	MaxAge    time.Duration  // 0 = forever; default 7d
+	Name      string        // e.g. "BIUMIND_CHANNELS"
+	Subjects  []string      // e.g. ["biumind.dev.channels.>"]
+	MaxAge    time.Duration // 0 = forever; default 7d
 	Retention RetentionPolicy
 	Storage   StorageType
 	Replicas  int // 0 = 1

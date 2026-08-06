@@ -488,15 +488,15 @@ func redactEvent(ev Event) Event {
 // secretFieldNames lists arg keys that always carry credentials and
 // must be redacted to a fingerprint. Matched case-insensitively.
 var secretFieldNames = map[string]bool{
-	"api_key":        true,
-	"apikey":         true,
-	"token":          true,
-	"access_token":   true,
-	"refresh_token":  true,
-	"virtual_key":    true,
-	"password":       true,
-	"secret":         true,
-	"authorization":  true,
+	"api_key":       true,
+	"apikey":        true,
+	"token":         true,
+	"access_token":  true,
+	"refresh_token": true,
+	"virtual_key":   true,
+	"password":      true,
+	"secret":        true,
+	"authorization": true,
 }
 
 func redactArgs(args map[string]any) map[string]any {

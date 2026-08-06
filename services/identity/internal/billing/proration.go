@@ -35,8 +35,8 @@ var (
 // ProrationArgs — 计算输入. 价格按相同周期长度归一化 (e.g. 月费 vs 月费;
 // 跨年/月对比时调用方先归一化).
 type ProrationArgs struct {
-	OldPriceCents int64     // 旧 plan 该周期内总价 (cents)
-	NewPriceCents int64     // 新 plan 同周期总价 (cents)
+	OldPriceCents int64 // 旧 plan 该周期内总价 (cents)
+	NewPriceCents int64 // 新 plan 同周期总价 (cents)
 	PeriodStart   time.Time
 	PeriodEnd     time.Time
 	Now           time.Time // 升级发生时刻

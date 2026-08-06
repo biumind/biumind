@@ -51,19 +51,19 @@ const (
 )
 
 type Config struct {
-	ListenAddr   string        `env:"LISTEN_ADDR" default:":7004"`
-	Environment  string        `env:"BIUMIND_ENV" default:"dev"`
-	LogLevel     string        `env:"BIUMIND_LOG_LEVEL" default:"info"`
-	OtlpEndpoint string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:""`
-	DatabaseURL  string        `env:"DATABASE_URL" required:"true"`
+	ListenAddr   string `env:"LISTEN_ADDR" default:":7004"`
+	Environment  string `env:"BIUMIND_ENV" default:"dev"`
+	LogLevel     string `env:"BIUMIND_LOG_LEVEL" default:"info"`
+	OtlpEndpoint string `env:"OTEL_EXPORTER_OTLP_ENDPOINT" default:""`
+	DatabaseURL  string `env:"DATABASE_URL" required:"true"`
 	// MigrationsDir 启动自动跑 goose up. 容器里默认 /etc/biumind/migrations/identity
 	// (Dockerfile COPY 自 services/identity/migrations). 留空跳过 (单测).
 	MigrationsDir string        `env:"BIUMIND_MIGRATIONS_DIR" default:"/etc/biumind/migrations/identity"`
-	JWTSecret    string        `env:"JWT_SECRET" required:"true"`
-	JWTIssuer    string        `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
-	JWTAudience  string        `env:"JWT_AUDIENCE" default:"biumind-api"`
-	AccessTTL  time.Duration `env:"IDENTITY_ACCESS_TTL" default:"15m"`
-	RefreshTTL time.Duration `env:"IDENTITY_REFRESH_TTL" default:"720h"`
+	JWTSecret     string        `env:"JWT_SECRET" required:"true"`
+	JWTIssuer     string        `env:"JWT_ISSUER" default:"https://identity.biumind.local"`
+	JWTAudience   string        `env:"JWT_AUDIENCE" default:"biumind-api"`
+	AccessTTL     time.Duration `env:"IDENTITY_ACCESS_TTL" default:"15m"`
+	RefreshTTL    time.Duration `env:"IDENTITY_REFRESH_TTL" default:"720h"`
 	// RefreshAbsoluteTTL — refresh_token 绝对 cap (created_at + this), rotation
 	// 不重置。详见 BiuMind-Identity-Session-Design §3.1。1 年是合理默认。
 	RefreshAbsoluteTTL time.Duration `env:"IDENTITY_REFRESH_ABSOLUTE_TTL" default:"8760h"`
@@ -291,19 +291,19 @@ func run() error {
 	systemConfigStore := admin.NewSystemConfigStore(pool)
 
 	s := &api.Server{
-		Store:          identityStore,
-		Signer:         signer,
-		Verifier:       verifier,
+		Store:              identityStore,
+		Signer:             signer,
+		Verifier:           verifier,
 		AccessTTL:          cfg.AccessTTL,
 		RefreshTTL:         cfg.RefreshTTL,
 		RefreshAbsoluteTTL: cfg.RefreshAbsoluteTTL,
 		RefreshReuseGrace:  cfg.RefreshReuseGrace,
 		RefreshGraceKey:    graceKey,
-		PasswordParams: passwords.DefaultParams,
-		Logger:         slog.Default(),
-		RoleCache:      roleCache,
-		Audit:          auditor,
-		LoginThrottle:  api.NewLoginThrottle(),
+		PasswordParams:     passwords.DefaultParams,
+		Logger:             slog.Default(),
+		RoleCache:          roleCache,
+		Audit:              auditor,
+		LoginThrottle:      api.NewLoginThrottle(),
 		VerificationMailer: &api.VerificationMailer{
 			Cfg:    systemConfigStore,
 			Logger: slog.Default(),
@@ -369,7 +369,7 @@ func run() error {
 	adminServer.Monitor = mon
 	adminServer.SystemConfig = systemConfigStore
 	adminServer.RBAC = admin.NewRBACStore(pool)
-	adminServer.RoleCache = roleCache // PUT 矩阵后 reload, 让权限变化即时生效
+	adminServer.RoleCache = roleCache    // PUT 矩阵后 reload, 让权限变化即时生效
 	adminServer.AuditSummary = pgAuditor // dashboard 卡片读这里聚合
 	adminServer.Plans = s.Plans          // W2-9: PlanLimits 从 DB 读
 	if cfg.PrometheusURL != "" {

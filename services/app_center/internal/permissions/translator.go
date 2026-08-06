@@ -162,20 +162,20 @@ func AppAttributes(install Installation, manifestPerms []Permission, granted []s
 	sort.Strings(dataScopes)
 
 	return map[string]any{
-		"id":                install.ID,
-		"identifier":        install.Identifier,
-		"app_id":            install.AppID,
-		"scope":             install.Scope,
-		"scope_id":          install.ScopeID,
-		"enabled":           install.Enabled,
-		"forced":            install.Forced,
-		"source":            install.Source,
-		"version":           install.Version,
-		"permissions":       scopeList,    // Cedar set<string>
-		"net_outbound":      netOutbound,  // Cedar set<string>
-		"oauth_providers":   oauth,
-		"secret_providers":  secretsRead,
-		"data_scopes":       dataScopes,
+		"id":               install.ID,
+		"identifier":       install.Identifier,
+		"app_id":           install.AppID,
+		"scope":            install.Scope,
+		"scope_id":         install.ScopeID,
+		"enabled":          install.Enabled,
+		"forced":           install.Forced,
+		"source":           install.Source,
+		"version":          install.Version,
+		"permissions":      scopeList,   // Cedar set<string>
+		"net_outbound":     netOutbound, // Cedar set<string>
+		"oauth_providers":  oauth,
+		"secret_providers": secretsRead,
+		"data_scopes":      dataScopes,
 	}, nil
 }
 

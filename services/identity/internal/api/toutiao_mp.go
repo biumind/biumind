@@ -40,7 +40,7 @@ type toutiaoCode2SessionReq struct {
 }
 
 type toutiaoCode2SessionResp struct {
-	Err  int `json:"err_no"`
+	Err  int    `json:"err_no"`
 	Msg  string `json:"err_tips"`
 	Data struct {
 		OpenID     string `json:"openid"`

@@ -59,11 +59,11 @@ type CleanupWorker struct {
 // CleanupStats — lightweight counters for visibility. Read after a
 // RunOnce call in tests; in production the brain logs them per tick.
 type CleanupStats struct {
-	Scanned       int64
-	BlobsRemoved  int64
-	RowsDeleted   int64
-	BlobErrors    int64
-	StoreErrors   int64
+	Scanned      int64
+	BlobsRemoved int64
+	RowsDeleted  int64
+	BlobErrors   int64
+	StoreErrors  int64
 }
 
 func NewCleanupWorker(pool *pgxpool.Pool, blob *Blob, cfg CleanupConfig) *CleanupWorker {

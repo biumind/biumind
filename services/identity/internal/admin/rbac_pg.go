@@ -109,10 +109,10 @@ func (s *RBACStore) ListRolePermissions(ctx context.Context) (map[string][]strin
 }
 
 // ReplaceRolePermissions 原子替换 role 的 permission 集合.
-//   1. role 必须存在
-//   2. 所有 perm 必须存在 (FK 约束本身会拦, 但提前检查给前端清晰错误)
-//   3. 事务: DELETE old + INSERT new
-//   4. actorID 写到 granted_by (uuid 类型, 空字符串则 NULL)
+//  1. role 必须存在
+//  2. 所有 perm 必须存在 (FK 约束本身会拦, 但提前检查给前端清晰错误)
+//  3. 事务: DELETE old + INSERT new
+//  4. actorID 写到 granted_by (uuid 类型, 空字符串则 NULL)
 //
 // 返回 (added, removed, err) — 增删数量, 用于 audit detail.
 func (s *RBACStore) ReplaceRolePermissions(ctx context.Context, role string, perms []string, actorID string) (added, removed int, err error) {

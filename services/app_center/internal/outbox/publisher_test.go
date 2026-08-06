@@ -39,13 +39,13 @@ func TestTopicForScope_UnknownKindsRoutedSafely(t *testing.T) {
 
 func TestKindFor_KnownEvents(t *testing.T) {
 	cases := map[string]string{
-		"app.installed":            "biumind.app.installed",
-		"app.uninstalled":          "biumind.app.uninstalled",
-		"app.action_invoked":       "biumind.app.action_invoked",
-		"app.view_data_changed":    "biumind.app.view_data_changed",
-		"app.trigger_fired":        "biumind.app.trigger_fired",
-		"app.permissions_changed":  "biumind.app.permissions_changed",
-		"sidebar.layout_changed":   "biumind.sidebar.layout_changed",
+		"app.installed":           "biumind.app.installed",
+		"app.uninstalled":         "biumind.app.uninstalled",
+		"app.action_invoked":      "biumind.app.action_invoked",
+		"app.view_data_changed":   "biumind.app.view_data_changed",
+		"app.trigger_fired":       "biumind.app.trigger_fired",
+		"app.permissions_changed": "biumind.app.permissions_changed",
+		"sidebar.layout_changed":  "biumind.sidebar.layout_changed",
 	}
 	for in, want := range cases {
 		if got := KindFor(in); got != want {

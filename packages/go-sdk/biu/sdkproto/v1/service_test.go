@@ -7,15 +7,15 @@ import (
 )
 
 // 端到端 session 序列测试 —— 模拟一个完整的 Agent 模式 turn：
-//   1. SystemInit       (server → client)
-//   2. UserMessage      (client → server)
-//   3. AssistantPartial (server → client, stream_event)
-//   4. ToolProgress     (server → client)
-//   5. ControlRequest:can_use_tool  (server → client)
-//   6. ControlResponse:success      (client → server, allow)
-//   7. AssistantMessage (server → client)
-//   8. ResultSuccess    (server → client)
-//   9. KeepAlive        (server → client, lifecycle)
+//  1. SystemInit       (server → client)
+//  2. UserMessage      (client → server)
+//  3. AssistantPartial (server → client, stream_event)
+//  4. ToolProgress     (server → client)
+//  5. ControlRequest:can_use_tool  (server → client)
+//  6. ControlResponse:success      (client → server, allow)
+//  7. AssistantMessage (server → client)
+//  8. ResultSuccess    (server → client)
+//  9. KeepAlive        (server → client, lifecycle)
 //
 // 验证每帧能 marshal/unmarshal，dispatch 类型正确，且整套帧都通过 IsStdinMessage/IsStdoutMessage
 // 在正确方向。
@@ -131,8 +131,8 @@ func TestServiceFrame_FullSessionSequence(t *testing.T) {
 			stdout:  true,
 		},
 		{
-			name: "9.keep_alive_lifecycle",
-			raw: `{ "type": "keep_alive", "ts": 1700000000000 }`,
+			name:    "9.keep_alive_lifecycle",
+			raw:     `{ "type": "keep_alive", "ts": 1700000000000 }`,
 			wantTyp: "*sdkproto.KeepAlive",
 			stdin:   false, // KeepAlive 仅 server → client
 			stdout:  true,

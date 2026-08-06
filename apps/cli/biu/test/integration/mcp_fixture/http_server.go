@@ -42,13 +42,13 @@ const (
 // Options configure a fixture HTTP server. Zero value = sensible
 // defaults (default toolset, no auth, valid sessions).
 type Options struct {
-	Toolset    Toolset
-	AuthToken  string // when non-empty, fixture rejects requests without `Authorization: Bearer <token>`.
-	StreamSSE  bool   // when true, responses go out as text/event-stream instead of application/json.
-	InitFail   bool   // initialize replies with JSON-RPC error.
-	ExpireAt   int64  // when >0: after this many requests, return 404 on session lookup (forces reconnect).
-	OnRequest  func(method string)            // optional hook called per method invocation; tests use it to assert ordering.
-	OnSessionExpired func()                   // fired once after ExpireAt trips.
+	Toolset          Toolset
+	AuthToken        string              // when non-empty, fixture rejects requests without `Authorization: Bearer <token>`.
+	StreamSSE        bool                // when true, responses go out as text/event-stream instead of application/json.
+	InitFail         bool                // initialize replies with JSON-RPC error.
+	ExpireAt         int64               // when >0: after this many requests, return 404 on session lookup (forces reconnect).
+	OnRequest        func(method string) // optional hook called per method invocation; tests use it to assert ordering.
+	OnSessionExpired func()              // fired once after ExpireAt trips.
 }
 
 // Server is the running fixture wrapped around an httptest.Server.

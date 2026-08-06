@@ -710,10 +710,10 @@ func (s *Store) InsertSecurityEvent(ctx context.Context, e SecurityEvent) error 
 //
 // 删除条件:
 //   - revoked_at < now() - revokedRetention   已 revoked 且过了 reuse detection
-//                                             保留窗口 (默认 30d)
+//     保留窗口 (默认 30d)
 //   - absolute_expires_at < now() - absExpiredRetention
-//                                             absolute cap 已经过了, 留 7 天
-//                                             给审计/排查后再删
+//     absolute cap 已经过了, 留 7 天
+//     给审计/排查后再删
 //
 // 用 OR 一条 DELETE,batch 受 LIMIT 限制避免大事务卡 vacuum。
 //

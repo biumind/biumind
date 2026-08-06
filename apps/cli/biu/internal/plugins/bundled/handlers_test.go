@@ -239,8 +239,8 @@ func TestSecurityGuard_blocksHardcodedSecret(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Write",
 		"input": map[string]any{
-			"file_path":   "config.go",
-			"content":     `const token = "ghp_abcdefghijklmnop1234567890"`,
+			"file_path": "config.go",
+			"content":   `const token = "ghp_abcdefghijklmnop1234567890"`,
 		},
 	})
 	dec, _ := securityGuardPreTool(context.Background(), payload)

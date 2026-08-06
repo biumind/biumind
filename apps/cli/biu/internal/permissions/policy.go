@@ -31,10 +31,10 @@ const (
 // when a rule produced the decision so the UI can render "blocked by
 // projectSettings".
 type Reason struct {
-	Kind    string // "rule" | "mode" | "readOnly" | "session" | "default"
-	Detail  string
-	Source  Source // populated when Kind == "rule"
-	Rule    RuleValue
+	Kind   string // "rule" | "mode" | "readOnly" | "session" | "default"
+	Detail string
+	Source Source // populated when Kind == "rule"
+	Rule   RuleValue
 }
 
 // Request is the input to Decide / Evaluate.
@@ -47,15 +47,15 @@ type Request struct {
 
 // Decide evaluates a Request against a Context. Order of precedence:
 //
-//   1. bypass mode → allow
-//   2. plan mode → deny anything not read-only
-//   3. session grant cache → allow
-//   4. deny rule match → deny
-//   5. ask rule match → ask
-//   6. allow rule match → allow
-//   7. read-only & non-destructive → allow
-//   8. acceptEdits + Edit/Write → allow
-//   9. dontAsk → deny (sentinel)
+//  1. bypass mode → allow
+//  2. plan mode → deny anything not read-only
+//  3. session grant cache → allow
+//  4. deny rule match → deny
+//  5. ask rule match → ask
+//  6. allow rule match → allow
+//  7. read-only & non-destructive → allow
+//  8. acceptEdits + Edit/Write → allow
+//  9. dontAsk → deny (sentinel)
 //  10. default mode + non-destructive → allow
 //  11. otherwise → ask
 func Decide(ctx *Context, r Request) (Decision, Reason) {

@@ -114,7 +114,7 @@ func TestActive_tracksRefCount(t *testing.T) {
 func TestNilSafe(t *testing.T) {
 	var s *State
 	r := s.Acquire()
-	r()       // must not panic
+	r() // must not panic
 	s.ForceStop()
 	if s.Active() {
 		t.Error("nil state should never be active")

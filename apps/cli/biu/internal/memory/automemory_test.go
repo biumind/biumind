@@ -320,13 +320,13 @@ func TestAppendAllowsExplicitNameOverride(t *testing.T) {
 
 func TestSlugifyShape(t *testing.T) {
 	cases := map[string]string{
-		"":                          "",
-		"hello":                     "hello",
-		"Hello, World!":             "hello-world",
-		"  trim  spaces  ":          "trim-spaces",
-		"unicode 重构 stays ascii":    "unicode-stays-ascii",
-		"a b c d e f g h":           "a-b-c-d-e-f", // 6-segment cap
-		"---only-punct---":          "only-punct",
+		"":                       "",
+		"hello":                  "hello",
+		"Hello, World!":          "hello-world",
+		"  trim  spaces  ":       "trim-spaces",
+		"unicode 重构 stays ascii": "unicode-stays-ascii",
+		"a b c d e f g h":        "a-b-c-d-e-f", // 6-segment cap
+		"---only-punct---":       "only-punct",
 	}
 	for in, want := range cases {
 		if got := slugify(in); got != want {

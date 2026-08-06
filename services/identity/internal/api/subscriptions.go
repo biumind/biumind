@@ -36,8 +36,8 @@ type checkoutReq struct {
 	Provider     string `json:"provider"`      // stripe / wechat_native / wechat_jsapi / wechat_h5 / alipay_pc / alipay_wap
 	Trial        bool   `json:"trial,omitempty"`
 	DeviceFP     string `json:"device_fp,omitempty"`
-	OpenID       string `json:"openid,omitempty"`     // wechat_jsapi 必填
-	ClientIP     string `json:"client_ip,omitempty"`  // wechat_h5 必填; 兜底取 X-Forwarded-For
+	OpenID       string `json:"openid,omitempty"`    // wechat_jsapi 必填
+	ClientIP     string `json:"client_ip,omitempty"` // wechat_h5 必填; 兜底取 X-Forwarded-For
 }
 
 type checkoutResp struct {
@@ -276,9 +276,9 @@ func (s *Server) handleCancelSubscription(w http.ResponseWriter, r *http.Request
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":         updated.ID.String(),
-		"status":     string(updated.Status),
-		"immediate":  req.Immediate,
+		"id":          updated.ID.String(),
+		"status":      string(updated.Status),
+		"immediate":   req.Immediate,
 		"canceled_at": updated.CanceledAt,
 	})
 }
@@ -290,11 +290,11 @@ type changePlanReq struct {
 }
 
 type changePlanResp struct {
-	OldPlan       string         `json:"old_plan"`
-	NewPlan       string         `json:"new_plan"`
-	Effective     string         `json:"effective"` // immediate / period_end
-	Proration     *prorationView `json:"proration,omitempty"`
-	ScheduledAt   *time.Time     `json:"scheduled_at,omitempty"`
+	OldPlan     string         `json:"old_plan"`
+	NewPlan     string         `json:"new_plan"`
+	Effective   string         `json:"effective"` // immediate / period_end
+	Proration   *prorationView `json:"proration,omitempty"`
+	ScheduledAt *time.Time     `json:"scheduled_at,omitempty"`
 }
 
 type prorationView struct {

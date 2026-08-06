@@ -16,15 +16,15 @@ import (
 // is started here — the supervisor / cache / store lifecycles belong
 // to main.go.
 type Server struct {
-	Store        *registry.Store
-	Vault        *registry.CredentialVault
-	Cache        *registry.Cache
-	Probe        *health.Probe
-	Supervisor   *health.Supervisor
-	Strategies   *router.Registry
-	RoleCache    *bauth.RoleCache
-	JWTVerifier  *bauth.Verifier
-	Logger       *slog.Logger
+	Store       *registry.Store
+	Vault       *registry.CredentialVault
+	Cache       *registry.Cache
+	Probe       *health.Probe
+	Supervisor  *health.Supervisor
+	Strategies  *router.Registry
+	RoleCache   *bauth.RoleCache
+	JWTVerifier *bauth.Verifier
+	Logger      *slog.Logger
 
 	// SyncUpstreamURL is the base URL for the model metadata source.
 	// Defaults to https://basellm.github.io/llm-metadata; override via
@@ -44,23 +44,23 @@ type Server struct {
 // Permission map (read = "models:read", write = "models:write" unless
 // noted):
 //
-//   /v1/admin/providers           list/get  → models:read
-//                                 mutate    → models:write
-//   /v1/admin/credentials         list/get  → model_credentials:read
-//                                 mutate    → model_credentials:write
-//                                 :test     → model_credentials:read (probe is read-only on cred row)
-//   /v1/admin/models              list/get  → models:read
-//                                 mutate    → models:write
-//   /v1/admin/channels            list/get  → models:read
-//                                 mutate    → models:write
-//                                 :test     → models:read (same; just checks upstream)
-//   /v1/admin/pricing/{model_id}  read      → models:read
-//                                 set       → pricing:write
-//   /v1/admin/fx-rates            read      → models:read
-//                                 set       → fx_rates:write
-//   /v1/admin/model-groups        read      → models:read
-//                                 mutate    → models:write
-//   /v1/admin/models/sync-upstream → models:write (writes to the catalogue)
+//	/v1/admin/providers           list/get  → models:read
+//	                              mutate    → models:write
+//	/v1/admin/credentials         list/get  → model_credentials:read
+//	                              mutate    → model_credentials:write
+//	                              :test     → model_credentials:read (probe is read-only on cred row)
+//	/v1/admin/models              list/get  → models:read
+//	                              mutate    → models:write
+//	/v1/admin/channels            list/get  → models:read
+//	                              mutate    → models:write
+//	                              :test     → models:read (same; just checks upstream)
+//	/v1/admin/pricing/{model_id}  read      → models:read
+//	                              set       → pricing:write
+//	/v1/admin/fx-rates            read      → models:read
+//	                              set       → fx_rates:write
+//	/v1/admin/model-groups        read      → models:read
+//	                              mutate    → models:write
+//	/v1/admin/models/sync-upstream → models:write (writes to the catalogue)
 func (s *Server) Mount(mux *http.ServeMux) {
 	rc := s.RoleCache
 	v := s.JWTVerifier

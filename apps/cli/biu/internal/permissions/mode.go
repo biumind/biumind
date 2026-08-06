@@ -19,11 +19,11 @@ import "strings"
 type Mode string
 
 const (
-	ModeDefault       Mode = "default"
-	ModeAcceptEdits   Mode = "acceptEdits"
-	ModePlan          Mode = "plan"
-	ModeBypass        Mode = "bypassPermissions"
-	ModeDontAsk       Mode = "dontAsk"
+	ModeDefault     Mode = "default"
+	ModeAcceptEdits Mode = "acceptEdits"
+	ModePlan        Mode = "plan"
+	ModeBypass      Mode = "bypassPermissions"
+	ModeDontAsk     Mode = "dontAsk"
 
 	// ModeFullAccess is a legacy alias kept for backwards compat with
 	// the old config schema. New code should use ModeBypass.

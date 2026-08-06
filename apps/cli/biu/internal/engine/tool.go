@@ -143,7 +143,7 @@ type ToolEnv struct {
 // tool needs the user to make a choice.
 type UserQuestion struct {
 	Question    string
-	Header      string         // short label / chip displayed
+	Header      string // short label / chip displayed
 	Options     []UserOption
 	MultiSelect bool
 }

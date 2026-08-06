@@ -76,8 +76,8 @@ func TestRenderCachesWithinRefreshWindow(t *testing.T) {
 		// Every run appends an 'x' to a counter file then prints
 		// the file's length — gives us both visibility into call
 		// count and a stable status string for cache hits.
-		Command:  `printf x >> ` + counter + `; wc -c < ` + counter,
-		Refresh:  500 * time.Millisecond,
+		Command: `printf x >> ` + counter + `; wc -c < ` + counter,
+		Refresh: 500 * time.Millisecond,
 	})
 	// First call: cold start, runs the script.
 	first := strings.TrimSpace(r.Render(context.Background(), Input{}))
@@ -107,8 +107,8 @@ func TestRenderSingleFlightUnderConcurrency(t *testing.T) {
 	tmp := t.TempDir()
 	counter := tmp + "/n"
 	r := New(Config{
-		Command:  `printf x >> ` + counter + `; sleep 0.1; wc -c < ` + counter,
-		Refresh:  10 * time.Second, // long → strictly cache after first
+		Command: `printf x >> ` + counter + `; sleep 0.1; wc -c < ` + counter,
+		Refresh: 10 * time.Second, // long → strictly cache after first
 	})
 	// Warm the cache with one foreground call.
 	first := strings.TrimSpace(r.Render(context.Background(), Input{}))

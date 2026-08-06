@@ -40,8 +40,8 @@ import (
 
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
-	"github.com/biumind/biumind/packages/go-sdk/biu/agentcrypto"
 	agentpkg "github.com/biumind/biumind/packages/go-sdk/biu/agent"
+	"github.com/biumind/biumind/packages/go-sdk/biu/agentcrypto"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 	"github.com/google/uuid"
@@ -60,15 +60,15 @@ type AgentBuilder func(ctx context.Context, work WorkPayload, askPermission bium
 // WorkPayload 跟 brain 端 router.go::WorkPayload 字段同步。S3-6 brain 投递；
 // S3-8 worker 反序列化。
 type WorkPayload struct {
-	SessionID    uuid.UUID `json:"session_id"`
-	UserID       uuid.UUID `json:"user_id"`
-	Mode         string    `json:"mode"`
-	Prompt       string    `json:"prompt,omitempty"`
-	Model        string    `json:"model,omitempty"`
+	SessionID uuid.UUID `json:"session_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Mode      string    `json:"mode"`
+	Prompt    string    `json:"prompt,omitempty"`
+	Model     string    `json:"model,omitempty"`
 	// ProviderID 锁定走哪个 chat.providers.provider_id slug。
-	ProviderID   string    `json:"provider_id,omitempty"`
-	SystemPrompt string    `json:"system_prompt,omitempty"`
-	ThreadID     string    `json:"thread_id,omitempty"`
+	ProviderID   string `json:"provider_id,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
 	// Workdir 由 brain 透传:agent / task 模式下让 daemon 在指定目录跑工具。
 	// daemon 在 buildAgent 时把它写到 biumindkit Options.Cwd +
 	// PermissionUpdate.AddDirectories(session destination)。空 → 使用 daemon
@@ -117,14 +117,14 @@ type ChatTurn struct {
 
 // WorkerConfig 集中配置 daemon 行为。
 type WorkerConfig struct {
-	EnvironmentName  string   // machine_name；默认 hostname
-	Capabilities     []string // 注册时上报；让 brain 知道这台 daemon 支持啥
-	PoolTag          string   // 通常空（runtime worker 才填）
-	WorkerKind       string   // 默认 'biu_daemon'
-	HeartbeatPeriod  time.Duration
-	PollWait         time.Duration
-	BackoffInitial   time.Duration
-	BackoffMax       time.Duration
+	EnvironmentName string   // machine_name；默认 hostname
+	Capabilities    []string // 注册时上报；让 brain 知道这台 daemon 支持啥
+	PoolTag         string   // 通常空（runtime worker 才填）
+	WorkerKind      string   // 默认 'biu_daemon'
+	HeartbeatPeriod time.Duration
+	PollWait        time.Duration
+	BackoffInitial  time.Duration
+	BackoffMax      time.Duration
 
 	// RunnerBuilder（Runtime v3 R3/Q3）：当 WorkPayload.Backend 指向外部 CLI
 	// backend（claude-cli 等）时返回一个 agent.Runner；返回 nil → 走内建

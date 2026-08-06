@@ -1,14 +1,15 @@
 // Package suggestions HTTP API —— 用户反馈 / 路线图。
 //
 // 简化设计（vs reference/knowcode 多端点拆分）：
-//   GET    /v1/wiki/suggestions               public list
-//   GET    /v1/wiki/suggestions/me            my list
-//   GET    /v1/wiki/suggestions/{sid}         detail
-//   POST   /v1/wiki/suggestions               submit
-//   PATCH  /v1/wiki/suggestions/{sid}         author edit
-//   DELETE /v1/wiki/suggestions/{sid}         author soft-delete
-//   POST   /v1/wiki/suggestions/{sid}/votes   vote up
-//   DELETE /v1/wiki/suggestions/{sid}/votes   remove vote
+//
+//	GET    /v1/wiki/suggestions               public list
+//	GET    /v1/wiki/suggestions/me            my list
+//	GET    /v1/wiki/suggestions/{sid}         detail
+//	POST   /v1/wiki/suggestions               submit
+//	PATCH  /v1/wiki/suggestions/{sid}         author edit
+//	DELETE /v1/wiki/suggestions/{sid}         author soft-delete
+//	POST   /v1/wiki/suggestions/{sid}/votes   vote up
+//	DELETE /v1/wiki/suggestions/{sid}/votes   remove vote
 //
 // 暂未实现（B6.x 后段）：comments / roadmap 视图（按 status 分桶）/
 // release-bound suggestions / admin 状态变更。

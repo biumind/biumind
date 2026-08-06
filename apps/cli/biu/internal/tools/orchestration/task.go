@@ -238,9 +238,9 @@ func (TaskUpdateTool) Call(_ context.Context, input map[string]any, env *engine.
 	if hasStatus && status == "completed" && prevStatus != "completed" &&
 		env.FireHook != nil {
 		env.FireHook("TaskCompleted", map[string]any{
-			"task_id":       id,
-			"prev_status":   prevStatus,
-			"new_status":    status,
+			"task_id":     id,
+			"prev_status": prevStatus,
+			"new_status":  status,
 		})
 	}
 	return text("Task " + id + " updated."), nil

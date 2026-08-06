@@ -57,13 +57,13 @@ type HookInput interface {
 
 type PreToolUse struct {
 	BaseHookInput
-	ToolName   string          `json:"tool_name"`
-	ToolInput  json.RawMessage `json:"tool_input"`
-	ToolUseID  string          `json:"tool_use_id"`
+	ToolName  string          `json:"tool_name"`
+	ToolInput json.RawMessage `json:"tool_input"`
+	ToolUseID string          `json:"tool_use_id"`
 }
 
-func (*PreToolUse) isHookInput()       {}
-func (*PreToolUse) HookEvent() string  { return HookPreToolUse }
+func (*PreToolUse) isHookInput()      {}
+func (*PreToolUse) HookEvent() string { return HookPreToolUse }
 
 type PostToolUse struct {
 	BaseHookInput

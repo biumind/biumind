@@ -11,10 +11,10 @@ import (
 )
 
 // TestSemanticBatch_RealPG — 端到端验证 cosine 路径:
-//   1. 建一条带 semantic_query + semantic_embedding 的 rule
-//   2. 注一个 entry+feed (同 scope), 设置一条 "几乎相同" 的 embedding
-//   3. SemanticBatch 应该返回这条命中
-//   4. 验证 1 - cosine_distance >= threshold
+//  1. 建一条带 semantic_query + semantic_embedding 的 rule
+//  2. 注一个 entry+feed (同 scope), 设置一条 "几乎相同" 的 embedding
+//  3. SemanticBatch 应该返回这条命中
+//  4. 验证 1 - cosine_distance >= threshold
 //
 // 为了避免真去调 model-relay /v1/embeddings, 测试直接 INSERT 已知的
 // vector — 同方向(夹角 0) sim=1.0 大于任何 threshold; 反向 sim=-1.0

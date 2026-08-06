@@ -26,8 +26,8 @@ import (
 
 // LoginThrottle 配置 + 状态.
 type LoginThrottle struct {
-	Window      time.Duration // 滑动窗口长度 (默认 5 分钟)
-	Threshold   int           // 触发阈值 (默认 5 次)
+	Window        time.Duration // 滑动窗口长度 (默认 5 分钟)
+	Threshold     int           // 触发阈值 (默认 5 次)
 	AlertCooldown time.Duration // 触发后多长时间不再重复告警 (默认 15 分钟)
 
 	mu        sync.Mutex
@@ -153,7 +153,7 @@ func sendBruteForceAlert(srv *Server, email, ip, ua string, count int, window ti
 	if err := mailer.Send(mailer.SMTPConfig{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 		User: cfg.SMTPUser, Pass: cfg.SMTPPass,
-		TLS:  cfg.SMTPTLS, From: cfg.From,
+		TLS: cfg.SMTPTLS, From: cfg.From,
 	}, cfg.To, subject, body); err != nil {
 		if srv.Logger != nil {
 			srv.Logger.Warn("brute-force alert email send failed",

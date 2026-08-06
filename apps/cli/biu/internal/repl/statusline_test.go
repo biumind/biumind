@@ -25,14 +25,14 @@ import (
 
 func TestContextBarFillage(t *testing.T) {
 	cases := []struct {
-		pct   int
-		want  int // expected filled cells out of 10
+		pct  int
+		want int // expected filled cells out of 10
 	}{
-		{-5, 0},   // negative clamped to 0
+		{-5, 0}, // negative clamped to 0
 		{0, 0},
-		{1, 1},    // tiny non-zero usage rounded UP to one cell
-		{9, 1},    // 9% truncates to 0 segments → bumped to 1
-		{10, 1},   // exactly one cell
+		{1, 1},  // tiny non-zero usage rounded UP to one cell
+		{9, 1},  // 9% truncates to 0 segments → bumped to 1
+		{10, 1}, // exactly one cell
 		{50, 5},
 		{99, 9},   // 9.9 truncates to 9
 		{100, 10}, // saturated

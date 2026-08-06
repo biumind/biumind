@@ -69,8 +69,8 @@ type Registry struct {
 
 // Entry is one hook + its provenance + matcher.
 type Entry struct {
-	Source  string  // user | project | local
-	Matcher string  // empty = match everything
+	Source  string // user | project | local
+	Matcher string // empty = match everything
 	Command Command
 }
 
@@ -138,8 +138,8 @@ func (r *Registry) MergeJSON(source string, raw []byte) {
 //
 // Per-event values can be either:
 //
-//   * an array of Matcher objects (the canonical form), or
-//   * a single Matcher object.
+//   - an array of Matcher objects (the canonical form), or
+//   - a single Matcher object.
 //
 // Anything else is silently dropped — the goal is to never crash on
 // half-typed config.
@@ -194,10 +194,10 @@ func (r *Registry) appendMatcher(source string, evt Event, m Matcher) {
 // For returns every hook entry registered under evt whose matcher
 // matches `key`. The key is event-specific:
 //
-//   * PreToolUse / PostToolUse: pass the tool name.
-//   * Notification:             the notification type.
-//   * SessionStart:             the source ("startup" | "resume" | "compact").
-//   * Others (Stop, UserPromptSubmit, ...): pass "" — every hook with
+//   - PreToolUse / PostToolUse: pass the tool name.
+//   - Notification:             the notification type.
+//   - SessionStart:             the source ("startup" | "resume" | "compact").
+//   - Others (Stop, UserPromptSubmit, ...): pass "" — every hook with
 //     matcher omitted will match.
 //
 // Matchers support `|` alternation and Go regexp syntax.

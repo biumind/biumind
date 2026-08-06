@@ -171,16 +171,16 @@ func (a *App) invokeMarksList(ctx context.Context, raw json.RawMessage) (any, er
 			return nil, err
 		}
 		row := map[string]any{
-			"id":          id.String(),
-			"feed_id":     feedID.String(),
-			"feed_title":  feedTitle,
-			"title":       title,
-			"url":         url,
-			"author":      author,
-			"ai_takeaway": takeaway,
-			"ai_topics":   topics,
+			"id":           id.String(),
+			"feed_id":      feedID.String(),
+			"feed_title":   feedTitle,
+			"title":        title,
+			"url":          url,
+			"author":       author,
+			"ai_takeaway":  takeaway,
+			"ai_topics":    topics,
 			"published_at": pubAt,
-			"marked_at":   markedAt,
+			"marked_at":    markedAt,
 		}
 		if wikiBlockID != "" {
 			row["wiki_block_id"] = wikiBlockID

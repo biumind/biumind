@@ -139,27 +139,27 @@ type InstallRequest struct {
 // Installation is the canonical row shape returned to API / client.
 // Mirrors app_center.installations 1:1.
 type Installation struct {
-	ID                  string
-	Scope               string
-	ScopeID             string
-	AppID               string
-	Identifier          string
-	Version             string
-	Enabled             bool
-	PinnedVersion       string
-	PermissionsGranted  []string
-	Config              map[string]any
-	Forced              bool
-	InstalledAt         time.Time
-	UpdatedAt           time.Time
-	InstalledBy         string
+	ID                 string
+	Scope              string
+	ScopeID            string
+	AppID              string
+	Identifier         string
+	Version            string
+	Enabled            bool
+	PinnedVersion      string
+	PermissionsGranted []string
+	Config             map[string]any
+	Forced             bool
+	InstalledAt        time.Time
+	UpdatedAt          time.Time
+	InstalledBy        string
 }
 
 // Install creates an installation row. The hook ordering is:
 //
-//   tx: authz → validate → INSERT installations → events.Write → COMMIT
-//   post-tx: registry.DispatchOnInstall (best-effort; logs on error,
-//                                          does NOT roll back)
+//	tx: authz → validate → INSERT installations → events.Write → COMMIT
+//	post-tx: registry.DispatchOnInstall (best-effort; logs on error,
+//	                                       does NOT roll back)
 //
 // We don't roll back on hook error because a hook failure typically
 // means the App needs more setup (OAuth not authorised, remote
@@ -270,12 +270,12 @@ func (in *Installer) Install(ctx context.Context, req InstallRequest) (*Installa
 		ActorID:   req.CallerUserID,
 		Type:      events.AppInstalled,
 		Payload: map[string]any{
-			"identifier":           req.Identifier,
-			"version":              manifest.Version,
-			"scope":                req.Scope,
-			"scope_id":             req.ScopeID,
-			"forced":               req.Forced,
-			"permissions_granted":  req.GrantedPermissions,
+			"identifier":          req.Identifier,
+			"version":             manifest.Version,
+			"scope":               req.Scope,
+			"scope_id":            req.ScopeID,
+			"forced":              req.Forced,
+			"permissions_granted": req.GrantedPermissions,
 		},
 	}); err != nil {
 		return nil, fmt.Errorf("install: events: %w", err)
@@ -310,11 +310,11 @@ func (in *Installer) Install(ctx context.Context, req InstallRequest) (*Installa
 	for _, tr := range manifest.Triggers {
 		jobID := uuid.New()
 		var (
-			cronExpr      *string
-			ifInactive    *string
-			webhookPath   *string
-			inboxPattern  *string
-			nextRun       *time.Time
+			cronExpr     *string
+			ifInactive   *string
+			webhookPath  *string
+			inboxPattern *string
+			nextRun      *time.Time
 		)
 		switch tr.Kind {
 		case biuapp.TriggerCron:
@@ -430,9 +430,9 @@ func (in *Installer) Install(ctx context.Context, req InstallRequest) (*Installa
 			ActorID:   req.CallerUserID,
 			Type:      events.AppPermissionsChanged,
 			Payload: map[string]any{
-				"action":          "default_agent_granted",
-				"agent_id":        req.DefaultAgentID.String(),
-				"identifier":      req.Identifier,
+				"action":     "default_agent_granted",
+				"agent_id":   req.DefaultAgentID.String(),
+				"identifier": req.Identifier,
 			},
 		}); err != nil {
 			return nil, fmt.Errorf("install: default-grant events: %w", err)
@@ -831,9 +831,11 @@ func toAnySlice(in []string) []any {
 //
 // [preferredPosition] 来自 manifest.sidebar.preferred_position 字段
 // (设计 §10A.9), 决定新 pin 在 app 段中的位置:
-//   "top"    → prepend (放最前, 覆盖默认排序)
-//   "bottom" → append  (放最后, 跟"middle" 没声明等价)
-//   "middle" / "" → append (默认行为)
+//
+//	"top"    → prepend (放最前, 覆盖默认排序)
+//	"bottom" → append  (放最后, 跟"middle" 没声明等价)
+//	"middle" / "" → append (默认行为)
+//
 // 仅影响 "app" kind 项之间的相对顺序; system 段位置保持不变。
 //
 // Writes a SidebarLayoutChanged event so other devices Realtime-refresh.
@@ -910,8 +912,8 @@ func autoPinForUser(ctx context.Context, tx pgx.Tx, userIDStr, installID, prefer
 // 相对位置。app 段在 items 中可能跟 system 项交错; 我们按 position 选
 // 落点:
 //
-//   "top"    — 放在第一个 kind="app" 项的位置之前 (相对 app 子序列首)
-//   "bottom" / "middle" / 其它 / "" — append 到最末尾 (跟用户手动 pin 一致)
+//	"top"    — 放在第一个 kind="app" 项的位置之前 (相对 app 子序列首)
+//	"bottom" / "middle" / 其它 / "" — append 到最末尾 (跟用户手动 pin 一致)
 //
 // 落点确定后, 直接 slice 拼接而不重排其它项, 保留 system 项位置。
 func insertPinnedAt(items []map[string]any, newPin map[string]any, position string) []map[string]any {

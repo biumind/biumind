@@ -1,6 +1,6 @@
 // REST surface for page relatedness.
 //
-//   GET /v1/wiki/pages/{id}/related?limit=20
+//	GET /v1/wiki/pages/{id}/related?limit=20
 //
 // Returns the top-K related pages with score + per-signal breakdown.
 // Single endpoint for now — sidebars / "see also" panels in the
@@ -87,8 +87,8 @@ func (s *Server) handleRelated(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"page_id": pageID.String(),
-		"related": out,
+		"page_id":     pageID.String(),
+		"related":     out,
 		"server_time": time.Now().UTC().Format(time.RFC3339),
 	})
 }

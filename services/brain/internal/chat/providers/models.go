@@ -51,21 +51,21 @@ const (
 
 // Model is one row in chat.models, post-decoding.
 type Model struct {
-	ID             uuid.UUID
-	UserID         uuid.UUID
-	ProviderID     string
-	ModelID        string
-	DisplayName    string
-	Type           string
-	Abilities      map[string]bool
-	ContextWindow  *int
-	Pricing        map[string]any
-	ReleasedAt     *time.Time
-	Enabled        bool
-	SortOrder      int
-	Source         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID            uuid.UUID
+	UserID        uuid.UUID
+	ProviderID    string
+	ModelID       string
+	DisplayName   string
+	Type          string
+	Abilities     map[string]bool
+	ContextWindow *int
+	Pricing       map[string]any
+	ReleasedAt    *time.Time
+	Enabled       bool
+	SortOrder     int
+	Source        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ModelInput is what callers pass to upsert a model row. Pointer-y

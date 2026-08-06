@@ -88,9 +88,9 @@ func New(enabled bool, keywords []string) *Analyser {
 // The note string is markdown-light, designed to drop straight into
 // a `<system-note>` block:
 //
-//   This task looks like it'll touch a lot of code (matched
-//   "refactor"). Consider EnterPlanMode first — read + plan, then
-//   ExitPlanMode with a concrete plan + allowedPrompts.
+//	This task looks like it'll touch a lot of code (matched
+//	"refactor"). Consider EnterPlanMode first — read + plan, then
+//	ExitPlanMode with a concrete plan + allowedPrompts.
 func (a *Analyser) Analyse(prompt string) Suggestion {
 	if a == nil || !a.enabled || strings.TrimSpace(prompt) == "" {
 		return Suggestion{}
@@ -99,7 +99,7 @@ func (a *Analyser) Analyse(prompt string) Suggestion {
 	for _, k := range a.keywords {
 		if strings.Contains(low, k) {
 			return Suggestion{
-				Note: buildNote(k),
+				Note:           buildNote(k),
 				MatchedKeyword: k,
 			}
 		}

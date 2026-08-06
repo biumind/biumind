@@ -85,8 +85,8 @@ type LLMRule struct {
 //
 //   - ErrLLMUnavailable     → BaseURL empty (env not set)
 //   - any other error       → upstream / parse failure; UI should
-//                             toast and let the user fall back to
-//                             manual chip entry.
+//     toast and let the user fall back to
+//     manual chip entry.
 func (c *LLMClient) FromNL(ctx context.Context, token, text string) (*LLMRule, error) {
 	if c == nil || c.BaseURL == "" {
 		return nil, ErrLLMUnavailable

@@ -373,7 +373,7 @@ func newAppKeygenCmd() *cobra.Command {
 			fmt.Fprintln(os.Stderr, "  Add the publisher id to manifest.yaml:")
 			fmt.Fprintln(os.Stderr, "    author:")
 			fmt.Fprintln(os.Stderr, "      name: <your name>")
-			fmt.Fprintf(os.Stderr,  "      public_key: %s\n", kp.PublisherID)
+			fmt.Fprintf(os.Stderr, "      public_key: %s\n", kp.PublisherID)
 			return nil
 		},
 	}

@@ -187,22 +187,22 @@ func TestSplitFrontmatterCases(t *testing.T) {
 		wantBody string
 	}{
 		{
-			name: "basic",
-			in: "---\ndescription: hi\n---\nbody\n",
+			name:     "basic",
+			in:       "---\ndescription: hi\n---\nbody\n",
 			wantDesc: "hi", wantBody: "body\n",
 		},
 		{
-			name: "quoted value",
-			in: "---\ndescription: \"quoted value\"\n---\nbody\n",
+			name:     "quoted value",
+			in:       "---\ndescription: \"quoted value\"\n---\nbody\n",
 			wantDesc: "quoted value", wantBody: "body\n",
 		},
 		{
 			name: "no frontmatter",
-			in: "just body\n", wantDesc: "", wantBody: "just body\n",
+			in:   "just body\n", wantDesc: "", wantBody: "just body\n",
 		},
 		{
-			name: "comment line ignored",
-			in: "---\n# this is a comment\ndescription: real\n---\nbody\n",
+			name:     "comment line ignored",
+			in:       "---\n# this is a comment\ndescription: real\n---\nbody\n",
 			wantDesc: "real", wantBody: "body\n",
 		},
 	}
@@ -223,14 +223,14 @@ func TestSplitFrontmatterCases(t *testing.T) {
 // don't regress.
 func TestValidCommandName(t *testing.T) {
 	cases := map[string]bool{
-		"":             false,
-		"refactor":     true,
-		"my-command":   true,
-		"my_command":   true,
-		"with space":   false,
-		"1starts-num":  false,
-		"-leading":     false,
-		"has.dot":      false,
+		"":                      false,
+		"refactor":              true,
+		"my-command":            true,
+		"my_command":            true,
+		"with space":            false,
+		"1starts-num":           false,
+		"-leading":              false,
+		"has.dot":               false,
 		strings.Repeat("x", 33): false,
 		strings.Repeat("x", 32): true,
 	}

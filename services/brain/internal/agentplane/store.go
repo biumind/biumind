@@ -263,10 +263,10 @@ type CreateSessionReq struct {
 
 // Session 是 agent_sessions 行的 Go 表示。state 默认 'active'。
 type Session struct {
-	SessionID     uuid.UUID
-	UserID        uuid.UUID
-	EnvironmentID *uuid.UUID
-	ThreadID      *uuid.UUID
+	SessionID      uuid.UUID
+	UserID         uuid.UUID
+	EnvironmentID  *uuid.UUID
+	ThreadID       *uuid.UUID
 	Mode           string
 	State          string
 	Model          string
@@ -383,16 +383,16 @@ func (s *Store) PickRuntimeEnvironment(ctx context.Context, poolTag string) (*En
 // SessionResult 是 agent_session_results 行的输入。Task 模式 finalize 写。
 // status: 'completed' | 'failed' | 'cancelled' —— DB 有 CHECK 约束。
 type SessionResult struct {
-	SessionID         uuid.UUID
-	Status            string
-	FinalText         string
-	FinalParts        []byte // JSONB raw
-	ToolCallsSummary  []byte // JSONB raw
-	CostUSD           float64
-	PromptTokens      int
-	CompletionTokens  int
-	DurationMs        int64
-	ErrorMessage      string
+	SessionID        uuid.UUID
+	Status           string
+	FinalText        string
+	FinalParts       []byte // JSONB raw
+	ToolCallsSummary []byte // JSONB raw
+	CostUSD          float64
+	PromptTokens     int
+	CompletionTokens int
+	DurationMs       int64
+	ErrorMessage     string
 }
 
 // InsertSessionResult 写一行最终态摘要。session_id 是 PK，重复 insert 会

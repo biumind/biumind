@@ -24,11 +24,11 @@
 //
 // The directive is opt-in for two reasons:
 //
-//   1. Older Anthropic SDK versions reject unknown request fields,
-//      so emitting unconditionally breaks model-relay callers running older
-//      gateway code.
-//   2. Cost / behaviour observability — operators want a clear
-//      switch when debugging "why did the model forget".
+//  1. Older Anthropic SDK versions reject unknown request fields,
+//     so emitting unconditionally breaks model-relay callers running older
+//     gateway code.
+//  2. Cost / behaviour observability — operators want a clear
+//     switch when debugging "why did the model forget".
 package compact
 
 import (

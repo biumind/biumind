@@ -9,9 +9,9 @@ import (
 
 func TestRuntimeAvailability(t *testing.T) {
 	cases := []struct {
-		rt    Runtime
-		mode  ExecutionMode
-		ok    bool
+		rt   Runtime
+		mode ExecutionMode
+		ok   bool
 	}{
 		{RuntimeCloud, ExecutionCloud, true},
 		{RuntimeCloud, ExecutionClient, false},

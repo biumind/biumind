@@ -8,12 +8,12 @@ import (
 
 func TestSanitizeName(t *testing.T) {
 	cases := map[string]string{
-		"  修复登录崩溃  ":            "修复登录崩溃",
-		"\"重构支付模块\"":           "重构支付模块",
-		"`add dark mode`":     "add dark mode",
-		"实现搜索功能。":             "实现搜索功能",
-		"标题\n第二行解释":           "标题",
-		"“给按钮加圆角”":            "给按钮加圆角",
+		"  修复登录崩溃  ":      "修复登录崩溃",
+		"\"重构支付模块\"":      "重构支付模块",
+		"`add dark mode`": "add dark mode",
+		"实现搜索功能。":         "实现搜索功能",
+		"标题\n第二行解释":       "标题",
+		"“给按钮加圆角”":        "给按钮加圆角",
 	}
 	for in, want := range cases {
 		if got := sanitizeName(in); got != want {

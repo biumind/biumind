@@ -67,12 +67,12 @@ type StdioClient struct {
 	readLoopDone chan struct{}
 
 	// Pending request id → response channel. Each id is a unique int.
-	mu       sync.Mutex
-	pending  map[int64]chan json.RawMessage
-	pendErr  map[int64]chan *JSONRPCError
-	nextID   atomic.Int64
-	closed   atomic.Bool
-	encMu    sync.Mutex // serialise stdin writes
+	mu      sync.Mutex
+	pending map[int64]chan json.RawMessage
+	pendErr map[int64]chan *JSONRPCError
+	nextID  atomic.Int64
+	closed  atomic.Bool
+	encMu   sync.Mutex // serialise stdin writes
 
 	// Circuit breaker — incremented on every transport-level failure,
 	// reset on every success. >= MaxConsecutiveErrors tears down the

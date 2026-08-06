@@ -183,7 +183,7 @@ func newAdminFixture(t *testing.T) *adminFixture {
 
 	srv := &Server{
 		Store: store, Vault: vault, Cache: cache,
-		Probe: probe,
+		Probe:       probe,
 		Strategies:  stratReg,
 		RoleCache:   roleCache,
 		JWTVerifier: verifier,
@@ -415,7 +415,7 @@ func TestAdmin_ModelLifecycleWithGroupBinding(t *testing.T) {
 	resp, body := fx.do(t, "POST", "/v1/admin/models", "admin", map[string]any{
 		"code": mcode, "display_name": "M", "min_plan": "pro",
 		"context_window": 8000, "status": "active",
-		"capabilities":   map[string]any{"vision": true},
+		"capabilities": map[string]any{"vision": true},
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create model: %d body=%s", resp.StatusCode, body)

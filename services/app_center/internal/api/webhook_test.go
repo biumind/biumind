@@ -58,8 +58,8 @@ type hookCounter struct {
 	lastEv   biuapp.TriggerEvent
 }
 
-func (h *hookCounter) Manifest() biuapp.Manifest                      { return h.manifest }
-func (h *hookCounter) Init(ctx context.Context, _ biuapp.Deps) error  { return nil }
+func (h *hookCounter) Manifest() biuapp.Manifest                     { return h.manifest }
+func (h *hookCounter) Init(ctx context.Context, _ biuapp.Deps) error { return nil }
 func (h *hookCounter) Invoke(_ context.Context, action string, in json.RawMessage) (any, error) {
 	return map[string]any{"action": action}, nil
 }

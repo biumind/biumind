@@ -128,7 +128,7 @@ func TestRunSingleTurn_WithHistory(t *testing.T) {
 			{Role: "user", Content: "my favorite color is mauve"},
 			{Role: "assistant", Content: "Got it — mauve."},
 			{Role: "system", Content: "should be skipped"}, // 非法 role → 跳过
-			{Role: "user", Content: ""},                     // 空内容 → 跳过
+			{Role: "user", Content: ""},                    // 空内容 → 跳过
 		},
 		Emitter: be,
 	})

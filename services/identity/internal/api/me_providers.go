@@ -22,7 +22,7 @@ import (
 
 type providerOut struct {
 	ID             string  `json:"id"`
-	Provider       string  `json:"provider"`        // 'wechat_mp' / 'alipay_mp' / ...
+	Provider       string  `json:"provider"` // 'wechat_mp' / 'alipay_mp' / ...
 	ProviderUserID string  `json:"provider_user_id"`
 	Nickname       string  `json:"nickname,omitempty"`
 	AvatarURL      string  `json:"avatar_url,omitempty"`

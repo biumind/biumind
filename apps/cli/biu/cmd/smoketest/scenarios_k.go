@@ -115,8 +115,8 @@ func init() {
 	// K2 — PostToolUse fires after a successful Bash call. The hook
 	// just drops a marker; the model's reply is unchanged.
 	register(scenario{
-		name: "K2.posttooluse-fires-after-bash",
-		prompt: "Use Bash to run `echo K2-OK`. Reply with the output.",
+		name:         "K2.posttooluse-fires-after-bash",
+		prompt:       "Use Bash to run `echo K2-OK`. Reply with the output.",
 		wantTools:    []string{"Bash"},
 		timeout:      45 * time.Second,
 		loadSettings: true,
@@ -168,9 +168,9 @@ func init() {
 	// hook just drops a marker; we verify the marker, not the prompt
 	// content (the SDK doesn't expose updatedPrompt back to us).
 	register(scenario{
-		name:    "K4.userpromptsubmit-fires",
-		prompt:  "Reply with literally K4-OK.",
-		timeout: 30 * time.Second,
+		name:         "K4.userpromptsubmit-fires",
+		prompt:       "Reply with literally K4-OK.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			cmd, err := hookScript(dir, "ups.sh", "", "biu-k4-marker")
@@ -196,9 +196,9 @@ func init() {
 	// need to feed `additionalContext` back into the system prompt;
 	// not currently exposed), but we CAN verify the hook fires.
 	register(scenario{
-		name:    "K5.sessionstart-fires",
-		prompt:  "Reply OK.",
-		timeout: 30 * time.Second,
+		name:         "K5.sessionstart-fires",
+		prompt:       "Reply OK.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			cmd, err := hookScript(dir, "ss.sh", "", "biu-k5-marker")
@@ -219,9 +219,9 @@ func init() {
 	// K6 — Stop fires at end-of-turn (model returns end_turn). Hook
 	// drops a marker.
 	register(scenario{
-		name:    "K6.stop-fires-at-turn-end",
-		prompt:  "Reply with K6-DONE.",
-		timeout: 30 * time.Second,
+		name:         "K6.stop-fires-at-turn-end",
+		prompt:       "Reply with K6-DONE.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			cmd, err := hookScript(dir, "stop.sh", "", "biu-k6-marker")
@@ -275,9 +275,9 @@ func init() {
 	// K8 — SessionEnd fires once at session teardown (defer agent.Close
 	// in the runner triggers it).
 	register(scenario{
-		name:    "K8.sessionend-fires",
-		prompt:  "Reply OK briefly.",
-		timeout: 30 * time.Second,
+		name:         "K8.sessionend-fires",
+		prompt:       "Reply OK briefly.",
+		timeout:      30 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {
 			cmd, err := hookScript(dir, "se.sh", "", "biu-k8-marker")
@@ -347,9 +347,9 @@ func init() {
 	// K10 — PreToolUse with NO matcher (catch-all) fires for every
 	// tool. We use a Read invocation to keep it cheap.
 	register(scenario{
-		name:    "K10.pretooluse-catchall",
-		prompt:  "Read demo.txt and tell me its first word.",
-		wantTools: []string{"Read"},
+		name:         "K10.pretooluse-catchall",
+		prompt:       "Read demo.txt and tell me its first word.",
+		wantTools:    []string{"Read"},
 		timeout:      45 * time.Second,
 		loadSettings: true,
 		prep: func(dir string) error {

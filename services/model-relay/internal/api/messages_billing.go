@@ -46,7 +46,8 @@ type requestState struct {
 // 否则按最终 usage 走 CalculateChat. 唯一公式落点 —— finalizeBilling 用它做
 // Settle 金额、fireComplete 用它填 usage_log.credits_charged, 两处永不漂移.
 // (settle 网络失败→release 的极少数情形会让 usage_log 略高报, 接受: 真相账本
-//  始终是 identity.credit_logs, usage_log 的 credits 是"这次调用的标价"视角.)
+//
+//	始终是 identity.credit_logs, usage_log 的 credits 是"这次调用的标价"视角.)
 func (st *requestState) settleCredits() int64 {
 	if st == nil || st.IsBYOK || st.HoldID == "" || !st.Success || st.Pricing == nil {
 		return 0
@@ -163,7 +164,7 @@ func (h *MessagesHandler) preflightBilling(
 			MaxAmount:    maxCost,
 			RefType:      "chat_message",
 			RefID:        r.Header.Get("X-Request-Id"),
-			ModelCode:    modelName,    // W3-7: dashboard 按模型分布用
+			ModelCode:    modelName, // W3-7: dashboard 按模型分布用
 			ProviderCode: providerName,
 		})
 		if errors.Is(herr, billing.ErrInsufficient) {
@@ -262,9 +263,10 @@ func (h *MessagesHandler) finalizeBilling(st *requestState) {
 
 // logBilling 把每条 chat 请求的计费决策落 INFO 日志. 永远输出一行,让
 // grep "billing decision" 能列出全部. decision 取值:
-//   settled / released_on_failure / settle_failed_released
-//   byok_success / byok_auth_fail / byok_upstream_fail / byok_skip_no_client
-//   skip_no_billing_client / skip_no_user_id / skip_no_hold
+//
+//	settled / released_on_failure / settle_failed_released
+//	byok_success / byok_auth_fail / byok_upstream_fail / byok_skip_no_client
+//	skip_no_billing_client / skip_no_user_id / skip_no_hold
 func (h *MessagesHandler) logBilling(decision string, st *requestState, actualMillicents int64) {
 	if h.Logger == nil {
 		return

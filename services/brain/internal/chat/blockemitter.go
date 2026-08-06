@@ -32,11 +32,11 @@ import (
 // W2 only wires the text path. Tool events have first-class methods
 // here for W6 to call into; nothing in send.go uses them yet.
 type BlockEmitter struct {
-	mu         sync.Mutex
-	w          http.ResponseWriter
-	flusher    http.Flusher
-	messageID  uuid.UUID
-	nextIdx    int
+	mu        sync.Mutex
+	w         http.ResponseWriter
+	flusher   http.Flusher
+	messageID uuid.UUID
+	nextIdx   int
 	// Active text block — the one that legacy `delta` events stream
 	// into. Created lazily on first text chunk so a turn that begins
 	// with thinking / tool calls doesn't get an empty leading block.

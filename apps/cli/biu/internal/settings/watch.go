@@ -32,8 +32,8 @@ type Watcher struct {
 	tick   *time.Ticker
 	closed atomic.Bool
 
-	mu      sync.Mutex
-	mtimes  map[string]time.Time
+	mu     sync.Mutex
+	mtimes map[string]time.Time
 }
 
 // NewWatcher starts polling. cb runs on the watcher goroutine the

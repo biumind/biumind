@@ -11,8 +11,8 @@
 // curation workflows.
 //
 // Skip rules:
-//   * project with < 2 pages embedded → skip (no pairs possible)
-//   * project with > MaxOpenPerProject open dedup reviews → skip
+//   - project with < 2 pages embedded → skip (no pairs possible)
+//   - project with > MaxOpenPerProject open dedup reviews → skip
 //     (queue is full; resolve some first)
 //
 // Coexistence with the wiki embed worker (services/brain/internal/wiki/
@@ -33,10 +33,10 @@ import (
 )
 
 type WorkerConfig struct {
-	Interval           time.Duration // default 6h; min 5m
-	DedupOpts          DedupOptions
-	MaxOpenPerProject  int           // skip projects whose open dedup queue exceeds this; default 100
-	PerProjectTimeout  time.Duration // per-project budget; default 30s
+	Interval          time.Duration // default 6h; min 5m
+	DedupOpts         DedupOptions
+	MaxOpenPerProject int           // skip projects whose open dedup queue exceeds this; default 100
+	PerProjectTimeout time.Duration // per-project budget; default 30s
 	// Filter is the optional LLM precision filter. nil ⇒ NoopFilter
 	// (rule-only behaviour, identical to pre-P2-D-LLM).
 	Filter LLMFilter

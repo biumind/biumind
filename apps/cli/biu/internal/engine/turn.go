@@ -253,7 +253,7 @@ func (e *QueryEngine) runSubmit(
 			if e.compact.ShouldFire(snap.InputTokens) {
 				if err := e.runCompact(ctx, out, "tokens_above_threshold"); err != nil {
 					SafeSend(out, &ErrorEvent{
-						Err: fmt.Errorf("auto compact: %w", err),
+						Err:    fmt.Errorf("auto compact: %w", err),
 						Source: ErrSrcCompact, Recoverable: true,
 					}, ctx.Done())
 					// Compact is best-effort; continue regardless.
@@ -323,7 +323,7 @@ func (e *QueryEngine) runSubmit(
 				return
 			}
 			SafeSend(out, &ErrorEvent{
-				Err: fmt.Errorf("provider stream: %w", err),
+				Err:    fmt.Errorf("provider stream: %w", err),
 				Source: ErrSrcLLM, Recoverable: false,
 			}, ctx.Done())
 			return
@@ -364,7 +364,7 @@ func (e *QueryEngine) runSubmit(
 				return
 			}
 			SafeSend(out, &ErrorEvent{
-				Err: fmt.Errorf("parse stream: %w", parseErr),
+				Err:    fmt.Errorf("parse stream: %w", parseErr),
 				Source: ErrSrcLLM, Recoverable: false,
 			}, ctx.Done())
 			return
@@ -439,7 +439,7 @@ func (e *QueryEngine) runSubmit(
 				// Defensive: stop_reason said tool_use but no blocks
 				// found. Bail out so we don't infinite-loop.
 				SafeSend(out, &ErrorEvent{
-					Err: errors.New("stop_reason=tool_use but no tool_use blocks parsed"),
+					Err:    errors.New("stop_reason=tool_use but no tool_use blocks parsed"),
 					Source: ErrSrcInternal, Recoverable: false,
 				}, ctx.Done())
 				return
@@ -475,14 +475,14 @@ func (e *QueryEngine) runSubmit(
 			// the summarised history.
 			if e.compact == nil {
 				SafeSend(out, &ErrorEvent{
-					Err: errors.New("hit max_tokens but compact disabled"),
+					Err:    errors.New("hit max_tokens but compact disabled"),
 					Source: ErrSrcLLM, Recoverable: false,
 				}, ctx.Done())
 				return
 			}
 			if err := e.runCompact(ctx, out, "max_tokens_recovery"); err != nil {
 				SafeSend(out, &ErrorEvent{
-					Err: fmt.Errorf("compact after max_tokens: %w", err),
+					Err:    fmt.Errorf("compact after max_tokens: %w", err),
 					Source: ErrSrcCompact, Recoverable: false,
 				}, ctx.Done())
 				return
@@ -492,7 +492,7 @@ func (e *QueryEngine) runSubmit(
 
 		default:
 			SafeSend(out, &ErrorEvent{
-				Err: fmt.Errorf("unhandled stop_reason %q", stopReason),
+				Err:    fmt.Errorf("unhandled stop_reason %q", stopReason),
 				Source: ErrSrcLLM, Recoverable: false,
 			}, ctx.Done())
 			return
@@ -501,7 +501,7 @@ func (e *QueryEngine) runSubmit(
 
 	// Tool turn budget exhausted.
 	SafeSend(out, &ErrorEvent{
-		Err: fmt.Errorf("tool turn budget %d exhausted", e.maxToolTurns),
+		Err:    fmt.Errorf("tool turn budget %d exhausted", e.maxToolTurns),
 		Source: ErrSrcInternal, Recoverable: false,
 	}, ctx.Done())
 }

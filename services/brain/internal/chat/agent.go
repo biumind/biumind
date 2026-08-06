@@ -32,7 +32,7 @@ import (
 // persist" path. So flipping the agent on costs nothing for threads
 // that haven't opted into tools yet.
 type AgentLoop struct {
-	Relay      *HTTPSender // Reuses HTTPSender.callHubStream + bearer/byok plumbing.
+	Relay    *HTTPSender // Reuses HTTPSender.callHubStream + bearer/byok plumbing.
 	Registry *tools.Registry
 	MaxTurns int // safety cap; 0 → 8
 

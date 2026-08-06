@@ -173,9 +173,9 @@ func (h *History) MarkShown(tipID string) {
 // when no tip qualifies (predicates all false, all over-shown, or
 // registry empty). Selection rules:
 //
-//   1. Filter to tips whose Predicate passes (or is nil).
-//   2. Filter out tips whose history.Counts[id] >= MaxImpressions.
-//   3. Weighted random pick across the survivors.
+//  1. Filter to tips whose Predicate passes (or is nil).
+//  2. Filter out tips whose history.Counts[id] >= MaxImpressions.
+//  3. Weighted random pick across the survivors.
 //
 // rng is exposed for deterministic tests; production callers pass
 // nil to use the default time-seeded source.

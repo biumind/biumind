@@ -7,9 +7,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/model"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/atom"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/json"
+	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/model"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/rdf"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp/rss/internal/miniflux/rss"
 )

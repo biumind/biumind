@@ -71,9 +71,9 @@ func NewDispatcher(pool *pgxpool.Pool) *Dispatcher {
 // Dispatch processes a batch of newly-written hits.
 //
 // M9.2: 当 d.Runner 注入时, 走新路径:
-//   1. 解析 rule.Actions []byte → []ActionSpec
-//   2. 顺序跑每个 action, 失败不阻塞 (stop_on_error=false 默认)
-//   3. 每次执行写一行 rss.action_runs (status / duration_ms / error / result)
+//  1. 解析 rule.Actions []byte → []ActionSpec
+//  2. 顺序跑每个 action, 失败不阻塞 (stop_on_error=false 默认)
+//  3. 每次执行写一行 rss.action_runs (status / duration_ms / error / result)
 //
 // d.Runner 为 nil 时退化到 v2 hardcoded notify+event 路径(老 rule 没有
 // actions[] 字段时仍工作).

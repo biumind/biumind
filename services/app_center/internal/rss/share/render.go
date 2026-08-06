@@ -59,10 +59,10 @@ func Render(ctx context.Context, pool *pgxpool.Pool, token string) (string, erro
 
 func loadView(ctx context.Context, pool *pgxpool.Pool, token string) (*view, error) {
 	var (
-		v          view
-		filterRaw  []byte
-		expiresAt  time.Time
-		revokedAt  *time.Time
+		v         view
+		filterRaw []byte
+		expiresAt time.Time
+		revokedAt *time.Time
 	)
 	err := pool.QueryRow(ctx, `
 		SELECT view_kind, filter_json, scope, scope_id, expires_at, revoked_at

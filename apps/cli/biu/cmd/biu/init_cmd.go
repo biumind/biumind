@@ -34,13 +34,13 @@ import (
 
 func newInitCmd(_ *rootFlags) *cobra.Command {
 	var (
-		modeFlag      string
-		apiKeyFlag    string
-		relayURLFlag    string
-		relayTokenFlag  string
-		modelFlag     string
-		writeMemory   bool
-		writeSettings bool
+		modeFlag       string
+		apiKeyFlag     string
+		relayURLFlag   string
+		relayTokenFlag string
+		modelFlag      string
+		writeMemory    bool
+		writeSettings  bool
 		nonInteractive bool
 	)
 	c := &cobra.Command{

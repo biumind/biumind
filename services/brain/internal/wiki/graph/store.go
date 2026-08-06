@@ -3,8 +3,8 @@
 // The graph is read-only over two tables populated by the relevance
 // worker (relevance/worker.go):
 //
-//   * brain.pages          id, title, frontmatter->>'type', community_id
-//   * brain.page_relevance page_a, page_b, score   (undirected, page_a<b)
+//   - brain.pages          id, title, frontmatter->>'type', community_id
+//   - brain.page_relevance page_a, page_b, score   (undirected, page_a<b)
 //
 // page_relevance holds the top-K strongest relevance pairs per page
 // (ScoreAll output), so the edges here are the *salient* connections,
@@ -80,9 +80,9 @@ func (s *Store) LoadProjectGraph(ctx context.Context, projectID uuid.UUID) (*Gra
 			return nil, err
 		}
 		n := Node{
-			ID:       id.String(),
-			Title:    title,
-			Type:     pageType,
+			ID:        id.String(),
+			Title:     title,
+			Type:      pageType,
 			LinkCount: 0, // degree, derived from edges below
 		}
 		if communityID != nil {

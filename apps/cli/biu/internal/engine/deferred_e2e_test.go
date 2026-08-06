@@ -97,7 +97,7 @@ func catalogRegistry() *engine.SimpleRegistry {
 
 // capturedRequest is one Stream call's snapshot — what the model saw.
 type capturedRequest struct {
-	system   string
+	system    string
 	toolNames []string
 }
 
@@ -105,10 +105,10 @@ type capturedRequest struct {
 // every StreamRequest passed to Stream. Tests assert on the captured
 // log.
 type deferredCaptureProvider struct {
-	mu     sync.Mutex
-	turns  [][]engine.StreamFrame
-	idx    int
-	calls  []capturedRequest
+	mu    sync.Mutex
+	turns [][]engine.StreamFrame
+	idx   int
+	calls []capturedRequest
 }
 
 func newDeferredCaptureProvider(turns ...[]engine.StreamFrame) *deferredCaptureProvider {

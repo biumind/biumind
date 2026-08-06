@@ -10,9 +10,9 @@ import (
 // fakeRunner records args + returns canned outputs keyed on the
 // joined arg string.
 type fakeRunner struct {
-	calls   [][]string
-	out     map[string]string
-	errOn   map[string]error
+	calls [][]string
+	out   map[string]string
+	errOn map[string]error
 }
 
 func (f *fakeRunner) run(ctx context.Context, args ...string) (string, error) {

@@ -25,7 +25,7 @@ import (
 
 // 错误哨兵 — 调用方可用 errors.Is 区分:
 //   - ErrModeMismatch:           model.Mode 与期望的不一致 (例如用 /v1/audio/speech
-//                                调一个 mode='chat' 的 model)
+//     调一个 mode='chat' 的 model)
 //   - ErrModalityNotSupported:   provider 不支持该 modality (adaptor 没实现对应 interface)
 var (
 	ErrModeMismatch         = errors.New("model mode mismatch with requested endpoint")
@@ -76,10 +76,11 @@ func (mr *ModeRouter) ResolveForChat(ctx context.Context, in ResolveInput) (*Res
 }
 
 // lookupAdaptor 按多重优先级查 adaptor:
-//   1. provider.Code 精确匹配 (例: "openai", "dashscope-bailian")
-//   2. provider.Protocol 名 (例: "openai_compat", "anthropic")
-//   3. protocol="openai_compat" 时 fallback 到 "openai" (现实兼容: 大部分
-//      OpenAI 兼容上游都用 openai adaptor)
+//  1. provider.Code 精确匹配 (例: "openai", "dashscope-bailian")
+//  2. provider.Protocol 名 (例: "openai_compat", "anthropic")
+//  3. protocol="openai_compat" 时 fallback 到 "openai" (现实兼容: 大部分
+//     OpenAI 兼容上游都用 openai adaptor)
+//
 // 与 health.probe.lookupAdaptor 保持一致, 见 probe.go:297.
 func (mr *ModeRouter) lookupAdaptor(prov *registry.Provider) (provider.BaseAdaptor, bool) {
 	if a, ok := mr.Adaptors.Get(prov.Code); ok {

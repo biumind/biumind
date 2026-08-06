@@ -13,11 +13,11 @@ import (
 // TodayPicks is the SDK projection of the picker output. The services
 // layer adapts its concrete *today.Picks → this shape.
 type TodayPicks struct {
-	Headline    []TodayEntry  `json:"headline"`
-	Missed      []TodayEntry  `json:"missed"`
-	Trends      []TodayTrend  `json:"trends"`
-	Stats       TodayStats    `json:"stats"`
-	GeneratedAt time.Time     `json:"generated_at"`
+	Headline    []TodayEntry `json:"headline"`
+	Missed      []TodayEntry `json:"missed"`
+	Trends      []TodayTrend `json:"trends"`
+	Stats       TodayStats   `json:"stats"`
+	GeneratedAt time.Time    `json:"generated_at"`
 }
 
 type TodayEntry struct {

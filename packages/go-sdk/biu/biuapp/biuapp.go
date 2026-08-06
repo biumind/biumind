@@ -34,10 +34,10 @@ import (
 // build literal `Manifest{Name: "rss", ...}` structs continue to
 // compile and run unchanged because every new field is optional.
 type Manifest struct {
-	Name        string         `json:"name"        yaml:"-"`         // legacy slug; YAML loader fills this from `identifier:`
-	Version     string         `json:"version"     yaml:"version"`   // semver
+	Name        string         `json:"name"        yaml:"-"`       // legacy slug; YAML loader fills this from `identifier:`
+	Version     string         `json:"version"     yaml:"version"` // semver
 	Description string         `json:"description" yaml:"description"`
-	Author      string         `json:"author,omitempty"  yaml:"-"`   // legacy plain-string author; loader fills from author.name
+	Author      string         `json:"author,omitempty"  yaml:"-"` // legacy plain-string author; loader fills from author.name
 	Actions     []ActionSpec   `json:"actions"           yaml:"actions,omitempty"`
 	Permissions []string       `json:"permissions,omitempty" yaml:"permissions,omitempty"`
 	UI          map[string]any `json:"ui,omitempty"          yaml:"ui,omitempty"`

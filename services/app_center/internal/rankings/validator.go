@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	ErrInsecureURL  = errors.New("rankings: non-https url")
+	ErrInsecureURL    = errors.New("rankings: non-https url")
 	ErrDomainMismatch = errors.New("rankings: url host outside expected_domain")
 )
 

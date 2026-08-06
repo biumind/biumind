@@ -2,10 +2,10 @@
 //
 // Two rules ship in v1, both pure functions over (page, project_state):
 //
-//   stale_page     — page.updated_at older than StaleAfterDays (default 90)
-//   orphaned_page  — page has no incoming wikilinks from any live page
-//                    in the same project AND is also stale enough that
-//                    the lack of links is unlikely to be an oversight
+//	stale_page     — page.updated_at older than StaleAfterDays (default 90)
+//	orphaned_page  — page has no incoming wikilinks from any live page
+//	                 in the same project AND is also stale enough that
+//	                 the lack of links is unlikely to be an oversight
 //
 // The orphan check is conservative: a brand-new page hasn't had time
 // to be linked to from elsewhere, and "no incoming wikilinks" alone
@@ -34,11 +34,11 @@ const (
 // link-graph state. Producers (the worker) are responsible for
 // computing IncomingLinks once per project before iterating pages.
 type SweepInput struct {
-	Page          SweepPageView
-	IncomingLinks int  // count of distinct other pages whose blocks reference this page's title
-	Now           time.Time
-	StaleAfterDays    int // default 90 if zero/negative
-	OrphanAfterDays   int // default 60 if zero/negative
+	Page            SweepPageView
+	IncomingLinks   int // count of distinct other pages whose blocks reference this page's title
+	Now             time.Time
+	StaleAfterDays  int // default 90 if zero/negative
+	OrphanAfterDays int // default 60 if zero/negative
 }
 
 // SweepPageView is the rule-side projection of brain.pages for sweep.

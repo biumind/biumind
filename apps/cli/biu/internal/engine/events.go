@@ -83,8 +83,8 @@ type RequestStartEvent struct {
 type RequestReason string
 
 const (
-	ReasonUserPrompt RequestReason = "user"
-	ReasonAfterTool  RequestReason = "after_tool"
+	ReasonUserPrompt   RequestReason = "user"
+	ReasonAfterTool    RequestReason = "after_tool"
 	ReasonAfterCompact RequestReason = "after_compact"
 )
 
@@ -295,7 +295,7 @@ func (*CompactDoneEvent) eventKind() string { return "compact_done" }
 // is purely informational).
 type CompactWarningEvent struct {
 	baseEvent
-	Level       string  // "info" | "urgent" — see compact.WarningLevel
+	Level       string // "info" | "urgent" — see compact.WarningLevel
 	UsedTokens  int
 	MaxTokens   int
 	Ratio       float64 // 0.0..1.0
@@ -319,11 +319,11 @@ type ErrorEvent struct {
 type ErrorSource string
 
 const (
-	ErrSrcLLM        ErrorSource = "llm"        // LLM API call failed
-	ErrSrcTool       ErrorSource = "tool"       // tool execution panicked
-	ErrSrcHook       ErrorSource = "hook"       // user hook returned error
-	ErrSrcCompact    ErrorSource = "compact"
-	ErrSrcInternal   ErrorSource = "internal"   // engine bug
+	ErrSrcLLM      ErrorSource = "llm"  // LLM API call failed
+	ErrSrcTool     ErrorSource = "tool" // tool execution panicked
+	ErrSrcHook     ErrorSource = "hook" // user hook returned error
+	ErrSrcCompact  ErrorSource = "compact"
+	ErrSrcInternal ErrorSource = "internal" // engine bug
 )
 
 func (*ErrorEvent) eventKind() string { return "error" }

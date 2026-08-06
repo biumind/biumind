@@ -51,10 +51,10 @@ type PluginManifest struct {
 	// belong in README.md.
 	Description string `json:"description,omitempty"`
 
-	Author     Author `json:"author"`
-	Homepage   string `json:"homepage,omitempty"`
-	Repository string `json:"repository,omitempty"`
-	License    string `json:"license,omitempty"`
+	Author     Author   `json:"author"`
+	Homepage   string   `json:"homepage,omitempty"`
+	Repository string   `json:"repository,omitempty"`
+	License    string   `json:"license,omitempty"`
 	Keywords   []string `json:"keywords,omitempty"`
 
 	// ─── component path overrides ────────────────────────────

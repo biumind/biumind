@@ -72,12 +72,12 @@ func (c OAuthChallenge) HasFlow() bool {
 //
 // The grammar is:
 //
-//   challenge = auth-scheme [ 1*SP token68 / [ auth-param *( OWS "," OWS auth-param ) ] ]
+//	challenge = auth-scheme [ 1*SP token68 / [ auth-param *( OWS "," OWS auth-param ) ] ]
 //
 // We don't implement the full grammar — just enough to pull
 // realm / resource_metadata / scope out of the typical shape:
 //
-//   Bearer realm="example", resource_metadata="https://...", scope="mcp"
+//	Bearer realm="example", resource_metadata="https://...", scope="mcp"
 //
 // Quoted values stay intact; unquoted token68 form is also tolerated.
 func parseAuthChallenge(resp *http.Response) (OAuthChallenge, bool) {
@@ -185,10 +185,10 @@ type authState struct {
 // PKCE exchange completes. The HTTPClient consults TokenForRequest to
 // decorate subsequent requests with `Authorization: Bearer <access>`.
 type OAuthTokens struct {
-	AccessToken  string
-	RefreshToken string
-	TokenType    string // typically "Bearer"
-	ExpiresAtUnix int64 // 0 ⇒ no expiry advertised
+	AccessToken   string
+	RefreshToken  string
+	TokenType     string // typically "Bearer"
+	ExpiresAtUnix int64  // 0 ⇒ no expiry advertised
 }
 
 // NeedsAuth reports whether this client is currently in the
