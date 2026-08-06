@@ -21,12 +21,12 @@ dependencies = [
 
 [project.optional-dependencies]
 pdf      = ["pypdf>=4.0,<7"]
-ocr      = ["pytesseract>=0.3.10,<1", "Pillow>=10,<12"]
+ocr      = ["pytesseract>=0.3.10,<1", "Pillow>=10,<13"]
 whisper  = ["faster-whisper>=1.0,<2"]
 all      = [
   "pypdf>=4.0,<7",
   "pytesseract>=0.3.10,<1",
-  "Pillow>=10,<12",
+  "Pillow>=10,<13",
   "faster-whisper>=1.0,<2",
 ]
 dev      = ["pytest>=8", "pytest-asyncio>=0.23"]
