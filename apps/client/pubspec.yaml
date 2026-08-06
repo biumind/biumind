@@ -101,7 +101,7 @@ dependencies:
   # 维护 per-install profile。
   webview_flutter: ^4.10.0
   webview_flutter_wkwebview: ^3.18.0   # iOS / macOS
-  webview_flutter_android: ^4.0.0      # Android
+  webview_flutter_android: ^4.13.0      # Android
   flutter_tts: ^4.2.5
   archive: ^4.0.9
   flutter_highlight: ^0.7.0
