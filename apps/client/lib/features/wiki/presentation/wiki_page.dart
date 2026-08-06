@@ -472,17 +472,23 @@ class _LeftPaneState extends ConsumerState<_LeftPane> {
                   itemBuilder: (_, i) {
                     final p = s.pages[i];
                     final selected = p.id == s.activePage?.id;
-                    return ListTile(
-                      title: Text(p.title.isEmpty ? '(untitled)' : p.title),
-                      trailing: p.pendingCreate
-                          ? const Icon(Icons.cloud_upload_outlined, size: 16)
-                          : null,
-                      selected: selected,
-                      onTap: () {
-                        ref.read(wikiControllerProvider.notifier).selectPage(p);
-                        // 手机 bottom sheet 形态选中后关 sheet（桌面为 null）。
-                        widget.onPageSelected?.call();
-                      },
+                    // 包一层透明 Material：左栏容器是 ColoredBox 背景，
+                    // ListTile 的选中底色/水波纹画在最近 Material 祖先上，
+                    // 新版 Flutter 对此有断言（背景会被 ColoredBox 盖住）。
+                    return Material(
+                      type: MaterialType.transparency,
+                      child: ListTile(
+                        title: Text(p.title.isEmpty ? '(untitled)' : p.title),
+                        trailing: p.pendingCreate
+                            ? const Icon(Icons.cloud_upload_outlined, size: 16)
+                            : null,
+                        selected: selected,
+                        onTap: () {
+                          ref.read(wikiControllerProvider.notifier).selectPage(p);
+                          // 手机 bottom sheet 形态选中后关 sheet（桌面为 null）。
+                          widget.onPageSelected?.call();
+                        },
+                      ),
                     );
                   },
                 ),

@@ -171,6 +171,15 @@ func TestE2E_ChannelAutoDisableThenRecover(t *testing.T) {
 		_, _, _ = sup.RecordFailure(ctx, chA.ID, errors.New("e2e simulated 500"))
 	}
 
+	// R4-B: 翻到 auto_disabled 时会按指数退避写 cooldown_until（第一档
+	// 30s）。本测试关心「上游恢复 → sweep 捞回」链路，把 cooldown 拨到
+	// 过去，让 100ms 的 sweep 下一轮就能重试 chA。
+	if _, err := pool.Exec(ctx,
+		"UPDATE model_relay.channels SET cooldown_until = now() - interval '1 second' WHERE id = $1",
+		chA.ID); err != nil {
+		t.Fatalf("reset cooldown_until: %v", err)
+	}
+
 	// Wait for the NOTIFY → cache invalidation to land.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

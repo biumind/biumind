@@ -143,7 +143,7 @@ jobs:
       - name: Set up Go (biu CLI build)
         uses: actions/setup-go@v7
         with:
-          go-version-file: apps/cli/biu/go.mod
+          go-version-file: go.work
 
       - name: Build biu CLI (app sidecar + 4-platform standalone)
         working-directory: ${{ github.workspace }}

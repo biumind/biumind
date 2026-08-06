@@ -107,7 +107,7 @@ Future<Map<String, dynamic>> apiRequest({
     final headers = <String, String>{
       'accept': 'application/json',
       if (token != null && token.isNotEmpty) 'authorization': 'Bearer $token',
-      if (extraHeaders != null) ...extraHeaders,
+      ...?extraHeaders,
     };
     final encoded = body == null ? null : jsonEncode(body);
     if (encoded != null) headers['content-type'] = 'application/json';
@@ -175,7 +175,7 @@ Future<Uint8List> binaryRequest({
     final headers = <String, String>{
       'accept': accept,
       if (token != null && token.isNotEmpty) 'authorization': 'Bearer $token',
-      if (extraHeaders != null) ...extraHeaders,
+      ...?extraHeaders,
     };
     final encoded = body == null ? null : jsonEncode(body);
     if (encoded != null) headers['content-type'] = 'application/json';

@@ -379,12 +379,11 @@ class SecureSettingsRepo implements SettingsRepo {
   /// 持久化异常(写后读校验失败)钩子 — 留给后续遥测接入;默认 null 时只 print。
   static void Function(String message)? onPersistWarning;
 
-  /// Android 用 EncryptedSharedPreferences(AES/GCM, 替代部分 ROM 上会炸的
-  /// legacy RSA/ECB Keystore) + resetOnError 自愈;iOS/macOS 用
+  /// Android 用 resetOnError 自愈(encryptedSharedPreferences 在 v10 已废弃,
+  /// 首访自动迁移到 custom ciphers);iOS/macOS 用
   /// first_unlock_this_device(不随备份迁移, 重启后首次解锁即可读)。
   static FlutterSecureStorage _defaultStorage() => const FlutterSecureStorage(
     aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
       resetOnError: true,
     ),
     iOptions: IOSOptions(

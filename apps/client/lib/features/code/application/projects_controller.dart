@@ -54,14 +54,13 @@ class CodeProjectsController extends StateNotifier<List<CodeProject>> {
   }
 
   /// 拖拽重排可见(非隐藏)项目。oldIndex/newIndex 为 railProjects 列表内的下标
-  /// (ReorderableList 约定:newIndex 在移除前计)。隐藏项目保持相对序排到末尾,
+  /// (onReorderItem 约定:newIndex 已完成移除项修正)。隐藏项目保持相对序排到末尾,
   /// 整体重写 sortIndex 持久化。
   Future<void> reorderVisible(int oldIndex, int newIndex) async {
     final visible = state.where((p) => !p.hiddenFromRail).toList();
     if (oldIndex < 0 || oldIndex >= visible.length) return;
-    var target = newIndex > oldIndex ? newIndex - 1 : newIndex;
     final moved = visible.removeAt(oldIndex);
-    visible.insert(target.clamp(0, visible.length), moved);
+    visible.insert(newIndex.clamp(0, visible.length), moved);
     final hidden = state.where((p) => p.hiddenFromRail).toList();
     final full = [...visible, ...hidden];
     await _dao.reorder(full.map((p) => p.id).toList());

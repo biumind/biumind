@@ -44,7 +44,7 @@ class ProjectRail extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               buildDefaultDragHandles: false,
               itemCount: projects.length,
-              onReorder: (oldIndex, newIndex) {
+              onReorderItem: (oldIndex, newIndex) {
                 ref
                     .read(codeProjectsControllerProvider.notifier)
                     .reorderVisible(oldIndex, newIndex);

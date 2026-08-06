@@ -74,8 +74,7 @@ jobs:
           cache-dependency-path: |
             **/go.sum
 
-      - name: Apply brain.* schema (modules that need it)
-        if: matrix.module == 'services/brain'
+      - name: Apply service schemas
         env:
           PGHOST: localhost
           PGPORT: 5432
@@ -91,32 +90,12 @@ jobs:
           CREATE EXTENSION IF NOT EXISTS pg_trgm;
           CREATE SCHEMA IF NOT EXISTS brain;
           SQL
-          # Apply the goose-marked migrations in order; we strip the
-          # +goose pragmas with sed so plain psql executes them.
-          for f in services/brain/migrations/*.sql; do
-            echo "-- applying $f --"
-            sed -e '/^-- +goose Down/,$d' \
-                -e '/^-- +goose Up/d' \
-                -e '/^-- +goose StatementBegin/d' \
-                -e '/^-- +goose StatementEnd/d' \
-                "$f" | psql -v ON_ERROR_STOP=1
-          done
-
-      - name: Apply app_center.* schema (modules that need it)
-        if: matrix.module == 'services/app_center'
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: biumind
-          PGPASSWORD: biumind_ci
-          PGDATABASE: biu_core
-        run: |
-          # Extensions + schemas are created by the baseline migration
-          # itself; only the pgvector image's `vector` extension must
-          # be loadable.
-          # Apply the goose-marked migrations in order; we strip the
-          # +goose pragmas with sed so plain psql executes them.
-          for f in services/app_center/migrations/*.sql; do
+          # Tests reach across service schemas (e.g. app_center's
+          # installer touches runtime.skills), so apply every module's
+          # migrations, not just the matrix module's own. Baselines
+          # create their own schemas and are IF NOT EXISTS-idempotent.
+          # Strip the +goose pragmas with sed so plain psql executes them.
+          for f in services/*/migrations/*.sql; do
             echo "-- applying $f --"
             sed -e '/^-- +goose Down/,$d' \
                 -e '/^-- +goose Up/d' \

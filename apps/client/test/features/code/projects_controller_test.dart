@@ -80,8 +80,8 @@ void main() {
     await ctrl.addProjectByPath('/repos/c'); // -2, front
     // current visible order: c, b, a
     expect(ctrl.state.map((p) => p.path), ['/repos/c', '/repos/b', '/repos/a']);
-    // move c (index 0) to the end (newIndex 3 per ReorderableList convention)
-    await ctrl.reorderVisible(0, 3);
+    // move c (index 0) to the end (newIndex 2 per onReorderItem convention)
+    await ctrl.reorderVisible(0, 2);
     expect(ctrl.state.map((p) => p.path), ['/repos/b', '/repos/a', '/repos/c']);
     // persisted: reload from DAO matches
     final reloaded = await CodeProjectsDao(db).loadAll();
