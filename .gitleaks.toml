@@ -1,0 +1,20 @@
+title = "BiuMind gitleaks config"
+
+# Keep the built-in ruleset; only add project allowlists on top.
+[extend]
+useDefault = true
+
+# Findings here are test fixtures / placeholders, not real secrets:
+# - *_test.go: fake API keys, throwaway PEMs used by unit tests
+# - .env.example: documented placeholder values
+# - smoketest scenarios: synthetic keys for e2e harnesses
+# - SystemConfigView.vue: UI textarea placeholder text
+[[allowlists]]
+description = "test fixtures, examples and UI placeholders"
+condition = "OR"
+paths = [
+  '''.*_test\.go''',
+  '''(^|/)\.env\.example$''',
+  '''apps/cli/biu/cmd/smoketest/.*''',
+  '''admin/src/views/SystemConfigView\.vue''',
+]
