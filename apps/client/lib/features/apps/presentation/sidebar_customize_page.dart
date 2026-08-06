@@ -349,8 +349,7 @@ class _Editor extends StatelessWidget {
           ),
         );
       },
-      onReorder: (oldIdx, newIdx) {
-        if (newIdx > oldIdx) newIdx -= 1;
+      onReorderItem: (oldIdx, newIdx) {
         final reorderedIds = [...orderedIds];
         final moved = reorderedIds.removeAt(oldIdx);
         reorderedIds.insert(newIdx, moved);
@@ -458,10 +457,8 @@ class _Editor extends StatelessWidget {
           ),
         );
       },
-      onReorder: (oldIdx, newIdx) {
-        // ReorderableListView convention: when moving down, newIndex
-        // is the post-removal index (one past target). Normalise.
-        if (newIdx > oldIdx) newIdx -= 1;
+      onReorderItem: (oldIdx, newIdx) {
+        // onReorderItem 的 newIndex 已完成移除项修正, 无需手动 -1。
         final reordered = [...appRows];
         final moved = reordered.removeAt(oldIdx);
         reordered.insert(newIdx, moved);
