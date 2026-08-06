@@ -46,6 +46,12 @@ func TestSiteSchemaCopyMatchesDocsCopy(t *testing.T) {
 
 	docsBytes, err := os.ReadFile(docsPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// docs/ lives in the internal monorepo and is not part of
+			// every checkout (e.g. the public mirror) — nothing to
+			// compare against there.
+			t.Skipf("docs schema not present in this checkout: %v", err)
+		}
 		t.Fatalf("read docs schema: %v", err)
 	}
 	siteBytes, err := os.ReadFile(sitePath)
