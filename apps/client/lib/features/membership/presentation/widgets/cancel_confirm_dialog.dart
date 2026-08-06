@@ -38,35 +38,37 @@ class _CancelConfirmDialogState extends State<CancelConfirmDialog> {
 
     return AlertDialog(
       title: const Text('取消订阅'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '当前方案: ${widget.subscription.plan.name}',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 12),
-          RadioListTile<bool>(
-            title: const Text('周期结束时停止'),
-            subtitle: Text('继续服务至 $endStr, 不退款'),
-            value: false,
-            groupValue: _immediate,
-            onChanged: (v) => setState(() => _immediate = v ?? false),
-          ),
-          RadioListTile<bool>(
-            title: const Text('立即停止 + 按比例退款'),
-            subtitle: const Text('剩余周期按 proration 计算退款'),
-            value: true,
-            groupValue: _immediate,
-            onChanged: (v) => setState(() => _immediate = v ?? true),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '取消后随时可在 period_end 前点 "恢复" 撤销操作',
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
-          ),
-        ],
+      content: RadioGroup<bool>(
+        groupValue: _immediate,
+        onChanged: (v) {
+          if (v != null) setState(() => _immediate = v);
+        },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '当前方案: ${widget.subscription.plan.name}',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            RadioListTile<bool>(
+              title: const Text('周期结束时停止'),
+              subtitle: Text('继续服务至 $endStr, 不退款'),
+              value: false,
+            ),
+            RadioListTile<bool>(
+              title: const Text('立即停止 + 按比例退款'),
+              subtitle: const Text('剩余周期按 proration 计算退款'),
+              value: true,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '取消后随时可在 period_end 前点 "恢复" 撤销操作',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(

@@ -43,7 +43,7 @@ class RemoteCursor {
 }
 
 abstract interface class CollabPresence {
-  /// Watch remote cursors on a resource (e.g. wiki://page/<id>).
+  /// Watch remote cursors on a resource (e.g. `wiki://page/<id>`).
   Stream<List<RemoteCursor>> watch(String resourceUri);
 
   /// Push local cursor update; throttled by caller (recommend 200ms).

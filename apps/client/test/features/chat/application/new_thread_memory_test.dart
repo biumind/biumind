@@ -1,6 +1,5 @@
 // NewThreadMemory —— NewThreadDialog 字段记忆单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

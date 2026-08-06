@@ -1,9 +1,7 @@
 // W6-13 客户端 — 6 widget / model 测试.
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/membership/domain/coupon.dart';

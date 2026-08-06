@@ -20,7 +20,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:biumind/features/code/data/code_bridge_client.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

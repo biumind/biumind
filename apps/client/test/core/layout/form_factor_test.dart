@@ -2,8 +2,6 @@
 // 方案: docs/BiuMind-Mobile-Adaptation-Plan.md §4.1/§4.2
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/core/layout/form_factor.dart';

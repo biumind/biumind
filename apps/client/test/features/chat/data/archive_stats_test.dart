@@ -1,7 +1,6 @@
 // ChatRepo —— 归档管理 + 统计单测。
 
 import 'package:drift/drift.dart' show Value;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';

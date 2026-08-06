@@ -1,6 +1,5 @@
 // Greeting —— Hero 欢迎页问候语 + 相对时间单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/domain/greeting.dart';

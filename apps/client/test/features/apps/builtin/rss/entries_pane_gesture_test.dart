@@ -10,9 +10,7 @@ import 'package:biumind/features/apps/builtin/rss/models.dart';
 import 'package:biumind/features/apps/builtin/rss/providers.dart';
 import 'package:biumind/features/apps/builtin/rss/widgets/entries_pane.dart';
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeRssApi extends RssApi {

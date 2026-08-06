@@ -79,30 +79,32 @@ class _PaymentMethodSelectorState extends State<PaymentMethodSelector> {
         ),
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('选择支付方式', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 8),
-        ...options.map(
-          (o) => RadioListTile<PaymentProvider>(
-            title: Row(
-              children: [
-                Icon(o.icon, size: 18),
-                const SizedBox(width: 8),
-                Text(o.label),
-              ],
+    return RadioGroup<PaymentProvider>(
+      groupValue: _selected,
+      onChanged: (v) {
+        if (v == null) return;
+        setState(() => _selected = v);
+        widget.onSelected(v);
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('选择支付方式', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ...options.map(
+            (o) => RadioListTile<PaymentProvider>(
+              title: Row(
+                children: [
+                  Icon(o.icon, size: 18),
+                  const SizedBox(width: 8),
+                  Text(o.label),
+                ],
+              ),
+              value: o.provider,
             ),
-            value: o.provider,
-            groupValue: _selected,
-            onChanged: (v) {
-              if (v == null) return;
-              setState(() => _selected = v);
-              widget.onSelected(v);
-            },
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

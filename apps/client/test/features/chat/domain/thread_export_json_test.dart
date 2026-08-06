@@ -1,6 +1,5 @@
 // thread_export_json —— 会话导入导出 round-trip 单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/domain/chat_models.dart';

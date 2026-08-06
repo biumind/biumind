@@ -167,7 +167,7 @@ const List<Shadow> bannerTextShadow = [
 ///     children: [
 ///       Positioned.fill(child: DecoratedBox(decoration: main)),
 ///       Positioned.fill(child: DecoratedBox(decoration: scrim)),
-///       <content>
+///       `<content>`
 ///     ],
 ///   )
 ({BoxDecoration main, BoxDecoration scrim}) bannerLayers(

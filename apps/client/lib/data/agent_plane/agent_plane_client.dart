@@ -99,23 +99,23 @@ class AgentPlaneClient {
       'mode': mode,
       // 用 if 而非 null-aware (?'key':val) —— 后者跟 ProgressIndicator
       // 等老 SDK 不兼容；info 级 lint 让它存在不影响 build
-      if (environmentId != null) 'environment_id': environmentId,
-      if (threadId != null) 'thread_id': threadId,
-      if (model != null) 'model': model,
-      if (providerId != null) 'provider_id': providerId,
-      if (systemPrompt != null) 'system_prompt': systemPrompt,
-      if (prompt != null) 'prompt': prompt,
-      if (poolTag != null) 'pool_tag': poolTag,
-      if (workdir != null) 'workdir': workdir,
-      if (runtimeEnvMode != null) 'runtime_env_mode': runtimeEnvMode,
-      if (backend != null) 'backend': backend,
+      'environment_id': ?environmentId,
+      'thread_id': ?threadId,
+      'model': ?model,
+      'provider_id': ?providerId,
+      'system_prompt': ?systemPrompt,
+      'prompt': ?prompt,
+      'pool_tag': ?poolTag,
+      'workdir': ?workdir,
+      'runtime_env_mode': ?runtimeEnvMode,
+      'backend': ?backend,
       if (images != null && images.isNotEmpty)
         'images': images.map((i) => i.toJson()).toList(),
-      if (userMessageId != null) 'user_message_id': userMessageId,
-      if (assistantMessageId != null) 'assistant_message_id': assistantMessageId,
-      if (clientSideRecordId != null) 'client_side_record_id': clientSideRecordId,
-      if (clientSideBaseUrl != null) 'client_side_base_url': clientSideBaseUrl,
-      if (clientSideProtocol != null) 'client_side_protocol': clientSideProtocol,
+      'user_message_id': ?userMessageId,
+      'assistant_message_id': ?assistantMessageId,
+      'client_side_record_id': ?clientSideRecordId,
+      'client_side_base_url': ?clientSideBaseUrl,
+      'client_side_protocol': ?clientSideProtocol,
     };
     final sw = Stopwatch()..start();
     debugPrint('[agent_plane] createSession mode=$mode env=$environmentId'

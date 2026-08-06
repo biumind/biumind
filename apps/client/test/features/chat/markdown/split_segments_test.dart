@@ -1,6 +1,5 @@
 // split_segments 测试: R1-R7 + math 块 + markdown 兜底 + 流式 closed=false。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:biumind/features/chat/markdown/segments.dart';
 import 'package:biumind/features/chat/markdown/split_segments.dart';

@@ -1,8 +1,6 @@
 // W4-7 quota_progress widget tests — 进度条 0/half/full + free fallback.
 
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/membership/domain/subscription.dart';

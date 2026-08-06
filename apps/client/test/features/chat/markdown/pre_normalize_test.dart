@@ -1,6 +1,5 @@
 // pre_normalize 5 条规则的单测。Fixture 来自实际 AI 输出。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:biumind/features/chat/markdown/pre_normalize.dart';
 

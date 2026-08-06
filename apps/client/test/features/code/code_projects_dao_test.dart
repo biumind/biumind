@@ -3,7 +3,6 @@
 import 'package:biumind/data/local/db.dart';
 import 'package:biumind/features/code/data/code_projects_dao.dart';
 import 'package:biumind/features/code/domain/project.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -101,7 +101,7 @@ class _EditorNativeViewState extends State<EditorNativeView> {
             iframeAllowFullscreen: false,
           ),
           onWebViewCreated: _onCreated,
-          onLoadStop: (_, __) {
+          onLoadStop: (_, _) {
             // The bundle's `bridge.start()` sends `ready` itself; the
             // controller's onIncomingMessage takes care of everything
             // from there.

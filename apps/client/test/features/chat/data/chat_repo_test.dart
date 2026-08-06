@@ -1,7 +1,6 @@
 // ChatRepo R1 单测 —— AppDb.memory() 内存 sqlite，每个测试一个 fresh db。
 // 覆盖 thread / message / block / session 的 CRUD + watch reactivity。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';

@@ -2,7 +2,6 @@
 // 匹配规则。规则放宽 (保守拒) 比放紧好, 但误伤要可预测。
 
 import 'package:biumind/features/code/workspace/preview_generator.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

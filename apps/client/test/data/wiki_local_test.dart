@@ -12,7 +12,6 @@ import 'package:biumind/data/local/db.dart';
 import 'package:biumind/data/local/wiki_dao.dart';
 import 'package:biumind/data/outbox/wiki_outbox_flusher.dart';
 import 'package:biumind/data/wiki_repository.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeWiki {

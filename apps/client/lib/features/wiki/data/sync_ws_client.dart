@@ -4,7 +4,7 @@
 /// 端点协议格式：
 ///
 ///   - {type: "catchup", events: [...]}
-///   - {type: "ready", since: <event_id>}
+///   - {type: "ready", since: `<event_id>`}
 ///   - {type: "live", event: {...}}
 ///   - {type: "ping"}
 ///   - {type: "error", reason: "..."}

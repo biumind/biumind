@@ -405,7 +405,7 @@ class _OverviewTab extends StatelessWidget {
   /// "—" or hidden once stats arrive.
   final SkillActivationsResult? activations;
   /// When skill.updateOfId points at an existing row, this is the
-  /// predecessor's resolved Skill — drives the "基于 v<hash> · diff"
+  /// predecessor's resolved Skill — drives the "基于 `v<hash>` · diff"
   /// hint above the action buttons.
   final Skill? predecessor;
   final VoidCallback onApprove;

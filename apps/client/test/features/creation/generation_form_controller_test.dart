@@ -2,7 +2,6 @@
 
 import 'package:biumind/features/creation/application/generation_form_controller.dart';
 import 'package:biumind/features/creation/domain/ai_model.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AiModel _videoModel() {

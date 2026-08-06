@@ -514,14 +514,14 @@ class _CancelDialogWrapperState extends ConsumerState<_CancelDialogWrapper> {
         setState(() => _busy = true);
         try {
           await actions.cancel(immediate: immediate);
-          if (mounted) {
+          if (context.mounted) {
             Navigator.of(context).pop();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(immediate ? '订阅已立即取消' : '订阅将于周期末取消')),
             );
           }
         } catch (e) {
-          if (mounted) {
+          if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('取消失败: $e')),
             );

@@ -3,9 +3,7 @@
 
 import 'package:biumind/features/apps/builtin/rss/widgets/latex_html.dart';
 import 'package:flutter/material.dart';
-import 'package:biumind/l10n/app_localizations.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 

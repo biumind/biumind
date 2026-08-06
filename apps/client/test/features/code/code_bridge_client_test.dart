@@ -13,7 +13,6 @@ import 'dart:convert';
 
 import 'package:biumind/data/api/sdkproto/v1/code.dart';
 import 'package:biumind/features/code/data/code_bridge_client.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class FakeCodeTransport implements CodeTransport {

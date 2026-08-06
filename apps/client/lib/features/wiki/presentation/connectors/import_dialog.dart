@@ -244,7 +244,7 @@ class _DialogState extends ConsumerState<_Dialog> {
       metadata: {
         'project_id': widget.projectId,
         'rel_path': filename,
-        if (externalId != null) 'external_id': externalId,
+        'external_id': ?externalId,
       },
       onProgress: (sent, total) =>
           _updateItem(index, sent: sent, total: total),

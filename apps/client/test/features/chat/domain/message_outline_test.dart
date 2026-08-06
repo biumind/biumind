@@ -1,6 +1,5 @@
 // MessageOutline —— markdown heading 提取单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/domain/message_outline.dart';

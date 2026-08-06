@@ -6,7 +6,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/api/chat_client.dart';

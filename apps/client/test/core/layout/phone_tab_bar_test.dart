@@ -81,7 +81,7 @@ void main() {
     final router = GoRouter(routes: [
       GoRoute(
         path: '/',
-        builder: (_, __) => const Scaffold(body: PhoneTabBar()),
+        builder: (_, _) => const Scaffold(body: PhoneTabBar()),
       ),
     ]);
     await tester.pumpWidget(MaterialApp.router(

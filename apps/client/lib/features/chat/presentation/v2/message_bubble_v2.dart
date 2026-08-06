@@ -196,10 +196,13 @@ class _MessageBubbleV2State extends ConsumerState<MessageBubbleV2> {
     // R1.7: 手机长按 → bottom sheet (IM 标准, 对标微信/ChatGPT mobile;
     // popup 在触屏位置不准且小)。桌面维持 popup (定位精确)。sheet 加
     // 「复制」高频项 (footer 已有, 长按镜像方便单手)。
+    if (!context.mounted) return;
     final phone = isPhoneLayout(context);
-    final picked = phone
-        ? await _showLongPressSheet(context, m)
-        : await showMenu<String>(
+    final String? picked;
+    if (phone) {
+      picked = await _showLongPressSheet(context, m);
+    } else {
+      picked = await showMenu<String>(
             context: context,
             position: popupPositionAt(context, pos),
             items: [
@@ -245,6 +248,7 @@ class _MessageBubbleV2State extends ConsumerState<MessageBubbleV2> {
               ),
             ],
           );
+    }
     if (!mounted || picked == null) return;
     final repo = ref.read(chatControllerDepsProvider).repo;
     switch (picked) {

@@ -4,16 +4,12 @@
 // 不模拟 binary 查找：注入 binaryResolver 直接给 sh 路径。
 // 不模拟 brain 注册：daemon 跑的是 sh stub，不真调 brain。
 
-@TestOn('vm')
-
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:biumind/data/agent_plane/biu_daemon_manager.dart';
 import 'package:crypto/crypto.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

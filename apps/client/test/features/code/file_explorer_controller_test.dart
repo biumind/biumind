@@ -6,7 +6,6 @@ import 'dart:convert';
 
 import 'package:biumind/features/code/application/file_explorer_controller.dart';
 import 'package:biumind/features/code/data/code_bridge_client.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class AutoRespondTransport implements CodeTransport {
@@ -31,7 +30,7 @@ class AutoRespondTransport implements CodeTransport {
         'type': 'code_response',
         'request_id': id,
         'ok': result != null,
-        if (result != null) 'result': result,
+        'result': ?result,
         if (result == null) 'error': 'no canned for $method',
       }));
     });

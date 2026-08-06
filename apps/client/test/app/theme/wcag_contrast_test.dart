@@ -21,7 +21,6 @@ import 'dart:math' as math;
 import 'dart:ui' show Color;
 
 import 'package:flutter/material.dart' show Brightness;
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/app/theme/palettes.dart';

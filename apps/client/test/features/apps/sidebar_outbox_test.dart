@@ -5,7 +5,6 @@
 
 import 'package:biumind/data/api/sidebar_client.dart';
 import 'package:biumind/data/sidebar_outbox.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

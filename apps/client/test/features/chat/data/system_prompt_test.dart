@@ -1,6 +1,5 @@
 // ChatRepo.setSystemPrompt —— P0-补 Thread 设置 sheet 后端单测。
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';

@@ -4,7 +4,6 @@
 // stays parse-layer-only (fast, runs without a Flutter binding).
 
 import 'package:biumind/features/apps/domain/a2ui.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

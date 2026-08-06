@@ -1,5 +1,4 @@
 import 'package:biumind/features/wiki/presentation/wikilink/wikilink_parser.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

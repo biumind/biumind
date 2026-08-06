@@ -111,7 +111,7 @@ BridgeMessage setOptionsMessage({BridgeTheme? theme, bool? readOnly}) {
     type: 'setOptions',
     payload: {
       if (theme != null) 'theme': theme.wire,
-      if (readOnly != null) 'readOnly': readOnly,
+      'readOnly': ?readOnly,
     },
   );
 }
@@ -119,7 +119,7 @@ BridgeMessage setOptionsMessage({BridgeTheme? theme, bool? readOnly}) {
 BridgeMessage commandMessage(String name, {Map<String, dynamic>? args}) {
   return BridgeMessage(
     type: 'command',
-    payload: {'name': name, if (args != null) 'args': args},
+    payload: {'name': name, 'args': ?args},
   );
 }
 

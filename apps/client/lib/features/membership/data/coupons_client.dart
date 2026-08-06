@@ -22,9 +22,9 @@ class CouponsClient {
       bearerToken: getToken(),
       body: {
         'code': code,
-        if (planCode != null) 'plan_code': planCode,
-        if (amountCents != null) 'amount_cents': amountCents,
-        if (currency != null) 'currency': currency,
+        'plan_code': ?planCode,
+        'amount_cents': ?amountCents,
+        'currency': ?currency,
       },
     );
     return CouponRedeemResult.fromJson(j);

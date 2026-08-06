@@ -5,7 +5,7 @@
 /// 接通 events_outbox listener 后会真正推 catchup/live 帧）。
 ///
 /// 任何模块都可以 `ref.watch(wikiSyncEventsProvider(projectId))` 监听
-/// 实时事件流（每个事件一个 Map<Object?, Object?>，schema 与 brain.events
+/// 实时事件流（每个事件一个 `Map<Object?, Object?>`，schema 与 brain.events
 /// 表 row 投影一致）。
 library;
 

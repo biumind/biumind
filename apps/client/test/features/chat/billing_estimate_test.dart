@@ -1,6 +1,5 @@
 // Test ChatEstimate display logic.
 
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/data/billing_estimate_client.dart';
