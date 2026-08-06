@@ -99,7 +99,7 @@ dependencies:
   # shared profile per design decision §M12 — Kimi/豆包/Poe 等外部站点
   # 走 webview_flutter 嵌入展示，登录态由浏览器 same-origin 隔离，不再
   # 维护 per-install profile。
-  webview_flutter: ^4.10.0
+  webview_flutter: ^4.14.1
   webview_flutter_wkwebview: ^3.18.0   # iOS / macOS
   webview_flutter_android: ^4.0.0      # Android
   flutter_tts: ^4.2.5
