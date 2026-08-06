@@ -79,7 +79,7 @@ jobs:
       # assets/editor/ and web/editor/); build it or the native editor
       # region white-screens (index.html / chunks 404).
       - name: Build editor bundle (Milkdown)
-        working-directory: editor-web
+        working-directory: apps/client/editor-web
         run: |
           npm ci
           npm run build
@@ -134,7 +134,7 @@ jobs:
           cache: true
 
       - name: Build editor bundle (Milkdown)
-        working-directory: editor-web
+        working-directory: apps/client/editor-web
         run: |
           npm ci
           npm run build
