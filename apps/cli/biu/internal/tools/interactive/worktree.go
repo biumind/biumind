@@ -70,14 +70,14 @@ type WorktreeState struct {
 	Branch    string
 }
 
-func (EnterWorktreeTool) Name() string { return "EnterWorktree" }
+func (*EnterWorktreeTool) Name() string { return "EnterWorktree" }
 
-func (EnterWorktreeTool) Description(_ map[string]any) string {
+func (*EnterWorktreeTool) Description(_ map[string]any) string {
 	return "Create a git worktree (new branch off HEAD) under " +
 		".biumind/worktrees/<name>, then switch the session into it."
 }
 
-func (EnterWorktreeTool) InputSchema() map[string]any {
+func (*EnterWorktreeTool) InputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -89,10 +89,10 @@ func (EnterWorktreeTool) InputSchema() map[string]any {
 	}
 }
 
-func (EnterWorktreeTool) IsReadOnly(_ map[string]any) bool        { return false }
-func (EnterWorktreeTool) IsDestructive(_ map[string]any) bool     { return false }
-func (EnterWorktreeTool) IsConcurrencySafe(_ map[string]any) bool { return false }
-func (EnterWorktreeTool) InterruptBehavior() string               { return "block" }
+func (*EnterWorktreeTool) IsReadOnly(_ map[string]any) bool        { return false }
+func (*EnterWorktreeTool) IsDestructive(_ map[string]any) bool     { return false }
+func (*EnterWorktreeTool) IsConcurrencySafe(_ map[string]any) bool { return false }
+func (*EnterWorktreeTool) InterruptBehavior() string               { return "block" }
 
 func (e *EnterWorktreeTool) Call(ctx context.Context, input map[string]any, env *engine.ToolEnv) (*engine.ToolResultPayload, error) {
 	if e.Cwd == nil {

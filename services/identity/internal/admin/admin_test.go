@@ -260,7 +260,10 @@ func TestAdmin_SetPlan_RejectsInvalidPlan(t *testing.T) {
 		ts.URL+"/v1/admin/users/u1/plan", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Errorf("status: %d, want 400", resp.StatusCode)

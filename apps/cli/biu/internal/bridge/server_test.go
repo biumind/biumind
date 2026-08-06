@@ -56,7 +56,10 @@ func TestAuthMiddlewareBlocks(t *testing.T) {
 	ts := newTestServer(t, "secret")
 	defer ts.Close()
 
-	resp, _ := http.Post(ts.URL+"/v1/code/sessions", "application/json", nil)
+	resp, err := http.Post(ts.URL+"/v1/code/sessions", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("missing token must 401, got %d", resp.StatusCode)
@@ -64,7 +67,10 @@ func TestAuthMiddlewareBlocks(t *testing.T) {
 
 	req, _ := http.NewRequest("POST", ts.URL+"/v1/code/sessions", nil)
 	req.Header.Set("Authorization", "Bearer secret")
-	resp2, _ := http.DefaultClient.Do(req)
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusCreated {
 		t.Errorf("valid token must 201, got %d", resp2.StatusCode)
@@ -105,9 +111,12 @@ func TestSubmitRejectsEmptyPrompt(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&c)
 	resp.Body.Close()
 
-	r2, _ := http.Post(
+	r2, err := http.Post(
 		ts.URL+"/v1/code/sessions/"+c.ID+"/messages",
 		"application/json", bytes.NewReader([]byte(`{"prompt":""}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer r2.Body.Close()
 	if r2.StatusCode != http.StatusBadRequest {
 		t.Errorf("blank prompt should 400, got %d", r2.StatusCode)
@@ -137,7 +146,10 @@ func TestCostEndpointReturnsSnapshot(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&c)
 	resp.Body.Close()
 
-	r2, _ := http.Get(ts.URL + "/v1/code/sessions/" + c.ID + "/cost")
+	r2, err := http.Get(ts.URL + "/v1/code/sessions/" + c.ID + "/cost")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer r2.Body.Close()
 	if r2.StatusCode != http.StatusOK {
 		t.Fatalf("cost = %d", r2.StatusCode)

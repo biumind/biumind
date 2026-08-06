@@ -76,11 +76,9 @@ func TestWorker_BackfillsEmbeddings(t *testing.T) {
 		}
 	}
 
-	// Stub embedder dim=64 — small dim so we don't bloat the test
-	// table and so the migration's vector(1536) column accepts the
-	// shorter literal via pgvector's text format only when dim matches.
-	// Since the column is fixed at 1536, we MUST use 1536 here.
-	w := New(s, embed.NewStub(1536), Config{
+	// The schema column is vector(1024) (bge-m3), so the stub embedder
+	// must emit 1024 dims to match.
+	w := New(s, embed.NewStub(1024), Config{
 		Interval: time.Hour, // never fires; we use RunOnce
 		Batch:    10,
 		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
@@ -170,7 +168,7 @@ func TestWorker_HybridRecallBeatsLexicalAfterEmbedding(t *testing.T) {
 	create("uses Vim with vimwiki for editing notes")  // about 'vim'
 	create("Spanish translation prefs editor on side") // not about 'vim'
 
-	embedder := embed.NewStub(1536)
+	embedder := embed.NewStub(1024)
 	w := New(s, embedder, Config{Interval: time.Hour, Batch: 10})
 	if got := w.RunOnce(ctx); got < 2 {
 		t.Fatalf("expected 2 embedded, got %d", got)

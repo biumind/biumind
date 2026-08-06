@@ -67,7 +67,7 @@ type Config struct {
 	EmbedAPIKey   string `env:"EMBED_API_KEY" default:""`
 	EmbedBaseURL  string `env:"EMBED_BASE_URL" default:""`
 	EmbedModel    string `env:"EMBED_MODEL" default:"text-embedding-3-small"`
-	EmbedDims     int    `env:"EMBED_DIMS" default:"1536"`
+	EmbedDims     int    `env:"EMBED_DIMS" default:"1024"`
 
 	// Optional NATS — required only for wiki.ingest. Empty keeps the
 	// other 9 tools usable offline; wiki.ingest returns a clear
