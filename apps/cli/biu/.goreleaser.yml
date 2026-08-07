@@ -105,7 +105,14 @@ release:
   github:
     owner: biumind
     name: biumind
-  draft: true
+  # draft:false (not true) is REQUIRED for the Homebrew tap to work:
+  # the brew formula hardcodes the release's asset download URL, and
+  # draft-release assets return 404 to unauthenticated downloads
+  # (brew has no auth). Publishing on tag push is the price of a
+  # brew-installable CLI — there's no human review gate before the
+  # release goes public. If you re-enable draft, `brew install
+  # biumind/tap/biu` breaks with a 404 until you manually publish.
+  draft: false
   prerelease: auto
   name_template: "biu {{ .Version }}"
   header: |
