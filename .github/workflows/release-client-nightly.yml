@@ -2,7 +2,10 @@
 #
 # On every push to main that touches apps/client/** (plus manual
 # workflow_dispatch), rebuilds Android .apk + macOS .dmg and publishes
-# them to a single ROLLING GitHub pre-release tagged `nightly`.
+# them as a VERSIONED, ACCUMULATING GitHub pre-release — one per run,
+# tagged client-nightly.<run_number> (e.g. client-nightly.6). The
+# newest sorts to the top of the Releases page by publish date and the
+# history is retained; a final cleanup job prunes all but the latest 100.
 #
 # This is NOT a stable release:
 #   * prerelease: true + make_latest: false → not the "latest" release,
@@ -20,12 +23,13 @@
 # release-client.yml (push a `client-v*` tag).
 #
 # Architecture: two parallel build jobs (ubuntu → Android, macos-14 →
-# macOS) upload their artefact; a final `nightly-release` job downloads
-# both and owns the single rolling pre-release, so there is no
-# create/update race between the two platform jobs. Fixed asset names
-# (no sha) so each push overwrites the previous nightly's assets.
+# macOS) upload their artefact under a versioned name; a final
+# `nightly-release` job downloads both and owns the versioned
+# pre-release, so there is no create/update race between the two
+# platform jobs. A `cleanup` job then drops anything older than the
+# last 100 nightlies.
 
-name: Client nightly
+name: Client Nightly
 
 on:
   push:
@@ -41,7 +45,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write     # create/update the rolling `nightly` tag + release
+  contents: write     # create nightly tags + releases; prune old ones
 
 jobs:
   android-apk:
@@ -54,6 +58,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read client version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "asset=BiuMind-${v}-client-nightly.${{ github.run_number }}-android.apk" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -86,16 +97,18 @@ jobs:
         run: flutter build apk --release
 
       - name: Stage artefact
+        env:
+          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
           mkdir -p "$RUNNER_TEMP/nightly"
           cp build/app/outputs/flutter-apk/app-release.apk \
-             "$RUNNER_TEMP/nightly/BiuMind-nightly-android.apk"
+             "$RUNNER_TEMP/nightly/$ASSET"
 
       - name: Upload artefact (inter-job)
         uses: actions/upload-artifact@v7
         with:
           name: nightly-android
-          path: ${{ runner.temp }}/nightly/BiuMind-nightly-android.apk
+          path: ${{ runner.temp }}/nightly/${{ steps.ver.outputs.asset }}
           retention-days: 1
 
   macos-dmg:
@@ -108,6 +121,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read client version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "asset=BiuMind-${v}-client-nightly.${{ github.run_number }}-macos-arm64.dmg" >> "$GITHUB_OUTPUT"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -152,8 +172,9 @@ jobs:
         run: brew install create-dmg
 
       - name: Create .dmg
+        env:
+          ASSET: ${{ steps.ver.outputs.asset }}
         run: |
-          DMG="BiuMind-nightly-macos-arm64.dmg"
           create-dmg \
             --volname "BiuMind" \
             --window-size 600 380 \
@@ -161,22 +182,22 @@ jobs:
             --app-drop-link 420 180 \
             --icon "biumind.app" 180 180 \
             --no-internet-enable \
-            "$DMG" \
+            "$ASSET" \
             "build/macos/Build/Products/Release/biumind.app"
           mkdir -p "$RUNNER_TEMP/nightly"
-          mv "$DMG" "$RUNNER_TEMP/nightly/"
+          mv "$ASSET" "$RUNNER_TEMP/nightly/"
 
       - name: Upload artefact (inter-job)
         uses: actions/upload-artifact@v7
         with:
           name: nightly-macos
-          path: ${{ runner.temp }}/nightly/BiuMind-nightly-macos-arm64.dmg
+          path: ${{ runner.temp }}/nightly/${{ steps.ver.outputs.asset }}
           retention-days: 1
 
-  # Owns the single rolling `nightly` pre-release — runs after both
-  # platform builds so there's no create/update race. `always()` lets it
-  # run even if a build failed, but the verify step below blocks publish
-  # unless BOTH artefacts are present (no partial nightly).
+  # Owns the versioned nightly pre-release — runs after both platform
+  # builds so artefacts are ready. `always()` lets it run even if a build
+  # failed, but the verify step blocks publish unless BOTH artefacts are
+  # present (no partial nightly).
   nightly-release:
     name: Publish nightly pre-release
     needs: [android-apk, macos-dmg]
@@ -186,6 +207,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # full history + tags for the commit list
+
+      - name: Read client version
+        id: ver
+        run: |
+          v=$(grep -m1 '^version:' apps/client/pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+          echo "android_asset=BiuMind-${v}-client-nightly.${{ github.run_number }}-android.apk" >> "$GITHUB_OUTPUT"
+          echo "macos_asset=BiuMind-${v}-client-nightly.${{ github.run_number }}-macos-arm64.dmg" >> "$GITHUB_OUTPUT"
 
       - name: Download all artefacts
         uses: actions/download-artifact@v8
@@ -195,31 +227,113 @@ jobs:
           path: nightly
 
       - name: Verify both artefacts present
+        env:
+          ANDROID: ${{ steps.ver.outputs.android_asset }}
+          MACOS: ${{ steps.ver.outputs.macos_asset }}
         run: |
           ls -la nightly/
-          test -f nightly/BiuMind-nightly-android.apk \
+          test -f "nightly/$ANDROID" \
             || { echo "::error::android .apk missing — build failed"; exit 1; }
-          test -f nightly/BiuMind-nightly-macos-arm64.dmg \
+          test -f "nightly/$MACOS" \
             || { echo "::error::macOS .dmg missing — build failed"; exit 1; }
 
-      - name: Publish rolling nightly pre-release
+      - name: Build release notes
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          RUN: ${{ github.run_number }}
+          ANDROID: ${{ steps.ver.outputs.android_asset }}
+          MACOS: ${{ steps.ver.outputs.macos_asset }}
+        run: |
+          set -e
+          # Newest existing nightly tag = the previous published build.
+          prev=$(git tag --list 'v*-nightly.*' --sort=-v:refname | sed -n '1p')
+          if [ -n "$prev" ]; then
+            range="$prev..HEAD"
+            since="Based on changes since \`$prev\`"
+            count=$(git rev-list --count "$range")
+          else
+            range=""
+            since="No previous nightly found; showing the most recent commits."
+            count=$(git rev-list --count HEAD)
+          fi
+
+          {
+            echo "🐤 **Client Nightly Build #${RUN} (v${VERSION})**"
+            echo
+            echo "Automated build from the \`main\` branch."
+            echo
+            echo "## Commit Information"
+            echo
+            echo "$since"
+            echo
+            echo "**Commit count:** ${count}"
+            echo
+            if [ -n "$range" ]; then
+              git log --pretty=format:'- \`%h\` %s' "$range"
+            else
+              git log --pretty=format:'- \`%h\` %s' -20
+            fi
+            echo
+            echo
+            echo "## ⚠️ Important Notes"
+            echo
+            echo "This is an automated nightly build and is **not** intended for production use."
+            echo
+            echo "- **macOS \`.dmg\`** — unsigned. Gatekeeper blocks first launch. Bypass: right-click → *Open*, or \`xattr -dr com.apple.quarantine ${MACOS}\`."
+            echo "- **Android \`.apk\`** — debug-signed; side-load only. Not Play Store compatible."
+            echo "- **iOS** — not built."
+            echo
+            echo "For signed, stable builds see the [latest release](https://github.com/${{ github.repository }}/releases/latest)."
+            echo
+            echo "## 📦 Installation"
+            echo
+            echo "| Platform | File |"
+            echo "| --- | --- |"
+            echo "| Android | \`${ANDROID}\` |"
+            echo "| macOS (Apple Silicon) | \`${MACOS}\` |"
+          } > nightly-body.md
+
+          cat nightly-body.md
+          cat nightly-body.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish versioned nightly pre-release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: nightly
-          name: Nightly (main)
+          tag_name: client-nightly.${{ github.run_number }}
+          name: Client Nightly #${{ github.run_number }} · ${{ steps.ver.outputs.date }}
           prerelease: true
           make_latest: "false"
-          body: |
-            **Automatic nightly build from the `main` branch.**
-
-            ⚠️ **Not a stable release.** Built without code signing:
-            - **macOS `.dmg`** — unsigned. Gatekeeper blocks first launch. Bypass: right-click → *Open*, or `xattr -dr com.apple.quarantine BiuMind-nightly-macos-arm64.dmg`.
-            - **Android `.apk`** — debug-signed; side-load only. Not Play Store compatible.
-            - **iOS** — not built.
-
-            For signed, stable builds see the [latest release](https://github.com/biumind/biumind/releases/latest).
+          body_path: nightly-body.md
           files: |
-            nightly/BiuMind-nightly-android.apk
-            nightly/BiuMind-nightly-macos-arm64.dmg
+            nightly/${{ steps.ver.outputs.android_asset }}
+            nightly/${{ steps.ver.outputs.macos_asset }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Keep the Releases list tidy: delete every nightly pre-release beyond
+  # the most recent 100 (oldest first), tag included. The legacy rolling
+  # `nightly` tag from the old scheme is also removed once it's gone.
+  cleanup:
+    name: Prune old nightlies
+    runs-on: ubuntu-latest
+    needs: nightly-release
+    if: always() && !cancelled()
+    timeout-minutes: 5
+
+    steps:
+      - name: Keep last 100 nightly pre-releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          gh release list --limit 1000 --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease) | .tagName' \
+            | grep -E '^client-nightly\.[0-9]+$' \
+            | sort -V -r \
+            | tail -n +101 \
+            | while read -r tag; do
+                echo "::notice::deleting old nightly $tag"
+                gh release delete "$tag" --yes --cleanup-tag || true
+              done
+          # Legacy single rolling nightly release (pre-accumulating scheme).
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
