@@ -22,6 +22,7 @@ import 'dart:async';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -45,6 +46,7 @@ import '../../application/chat_controller.dart';
 import '../../application/composer_draft_store.dart';
 import '../../application/draft_history_controller.dart';
 import '../../application/web_search_provider.dart';
+import '../../data/chat_image_compressor.dart';
 import '../../domain/chat_models.dart'
     show AttachmentInput, AutoApproveMode, ThreadMode;
 import '../../domain/slash_commands.dart';
@@ -398,9 +400,17 @@ class _ComposerV2State extends ConsumerState<ComposerV2> {
       _toastError(AppLocalizations.of(context)!.chatV2ComposerErrAttachTooLarge);
       return;
     }
+    // 压缩到链路友好尺寸（长边 ≤1568px / ≤1MB）：原图 base64 内联会撞
+    // 网关 body 上限与厂商单图限制，且 Claude 反正会把 >1568px 的图
+    // 降采样，发原图零收益。大图解码放 compute 防 UI 掉帧。
+    final c = await compute(
+      compressChatImageEntry,
+      (bytes: bytes, name: name, mime: mime),
+    );
+    if (!mounted) return;
     ref
         .read(composerAttachmentsProvider(threadId).notifier)
-        .add(Attachment(id: _uuid.v4(), name: name, mime: mime, bytes: bytes));
+        .add(Attachment(id: _uuid.v4(), name: c.name, mime: c.mime, bytes: c.bytes));
   }
 
   void _toastError(Object err) {

@@ -79,7 +79,10 @@ type CreateSessionAPIReq struct {
 	Backend string `json:"backend,omitempty"`
 	// Images 是当前 turn 用户附带的图片附件（chat 模式 vision 模型才有效）。
 	// 客户端 composer 拖拽 / 粘贴 / picker 收的图，base64 编码后透传过来。
-	// 单图按 1MB 软上限，总大小受 server.MaxBytesReader 限制。
+	// 大小约束链：客户端发送前压缩到单图 ≤1MB / 长边 ≤1568px（对齐下游
+	// 厂商限制：Claude 单图 5MB 且 >1568px 会被服务端降采样）；site nginx
+	// client_max_body_size 20m；handler 层 20MB MaxBytesReader 兜底
+	// （见 handleCreateSession）。
 	Images []ChatImageInput `json:"images,omitempty"`
 	// History 是当前 turn **之前**的对话历史（chat 模式多轮上下文，Runtime v3
 	// R4）。客户端按时间升序带最近 N 轮（client 端截断防膨胀）；brain 不持久化
@@ -191,7 +194,18 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	uid := mustUserID(r)
 
 	var req CreateSessionAPIReq
+	// 20MB 兜底上限：正常流量客户端已压缩（单图 ≤1MB base64 ~1.4MB），
+	// 超了说明是异常/恶意大 body。对齐 nginx client_max_body_size 20m，
+	// 超限时返回 413 + JSON 错误（而不是 decode 出一个误导性的 bad_json，
+	// 或让客户端只看得见网关的 HTML 错误页）。
+	r.Body = http.MaxBytesReader(w, r.Body, 20<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var mbErr *http.MaxBytesError
+		if errors.As(err, &mbErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "body_too_large",
+				"request body exceeds 20MB limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
 		return
 	}

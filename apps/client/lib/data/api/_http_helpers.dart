@@ -86,6 +86,16 @@ void _maybeFireBillingError(int status, String body) {
   }
 }
 
+/// 把网关/代理返回的非 JSON 错误体换成用户可读的短文案。413 是最典型
+/// 的场景：nginx 默认错误页是整段 HTML（`<html><head><title>413...`），
+/// 原样怼到 UI 红条上完全不可读。JSON 错误体（brain 自己返回的）不动。
+String _friendlyErrorBody(int status, String body) {
+  if (status == 413 && !body.trimLeft().startsWith('{')) {
+    return 'request entity too large (上传内容超出大小限制)';
+  }
+  return body;
+}
+
 /// One-shot REST. Encodes [body] as JSON when non-null. Returns the
 /// parsed map (empty when [expectNoBody] or the response had no body).
 Future<Map<String, dynamic>> apiRequest({
@@ -143,7 +153,11 @@ Future<Map<String, dynamic>> apiRequest({
 
   if (resp.statusCode >= 400) {
     _maybeFireBillingError(resp.statusCode, resp.body);
-    throw ApiError(path: url.path, status: resp.statusCode, body: resp.body);
+    throw ApiError(
+      path: url.path,
+      status: resp.statusCode,
+      body: _friendlyErrorBody(resp.statusCode, resp.body),
+    );
   }
   if (expectNoBody || resp.body.isEmpty) return const {};
   final decoded = jsonDecode(resp.body);
@@ -209,7 +223,11 @@ Future<Uint8List> binaryRequest({
     // 错误体是 JSON (writeJSONErr); 直接把原文塞进 ApiError.body 供上层展示.
     final errBody = utf8.decode(resp.bodyBytes, allowMalformed: true);
     _maybeFireBillingError(resp.statusCode, errBody);
-    throw ApiError(path: url.path, status: resp.statusCode, body: errBody);
+    throw ApiError(
+      path: url.path,
+      status: resp.statusCode,
+      body: _friendlyErrorBody(resp.statusCode, errBody),
+    );
   }
   return resp.bodyBytes;
 }
@@ -265,7 +283,11 @@ Stream<String> sseStream({
     }
     if (resp.statusCode >= 400) {
       final raw = await resp.stream.bytesToString();
-      throw ApiError(path: url.path, status: resp.statusCode, body: raw);
+      throw ApiError(
+        path: url.path,
+        status: resp.statusCode,
+        body: _friendlyErrorBody(resp.statusCode, raw),
+      );
     }
     yield* resp.stream
         .transform(utf8.decoder)
