@@ -55,7 +55,12 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.ShortCommit}}
-      - -X main.buildDate={{.Date}}
+      # CommitDate (not .Date) for reproducible builds. .Date is the
+      # wall-clock build time, changing every CI run → different binary
+      # → different sha256 → brew formula/asset desync (the v0.1.0
+      # checksum-mismatch bug). CommitDate is fixed per commit, so
+      # re-runs at the same commit are bit-identical.
+      - -X main.buildDate={{.CommitDate}}
 
 archives:
   - id: biu
