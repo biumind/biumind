@@ -31,6 +31,10 @@ RUN pnpm build
 # ─────────── 2. runner (nginx) ───────────
 FROM ${NGINX_IMAGE} AS runner
 
+# 升级基础镜像内 openssl（libcrypto3/libssl3）—— nginx:1.27-alpine 自带 3.3.3-r0
+# 有 CRITICAL CVE-2026-31789，CI Trivy 门禁会拦；fixed in 3.3.7-r0
+RUN apk upgrade --no-cache libcrypto3 libssl3
+
 # 删默认配置 + 静态站
 RUN rm -f /etc/nginx/conf.d/default.conf && \
     rm -rf /usr/share/nginx/html/*

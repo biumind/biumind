@@ -18,6 +18,8 @@ COPY . .
 RUN pnpm build
 
 FROM ${INFRA_REGISTRY}/library/nginx:1.27-alpine
+# 升级 openssl（libcrypto3/libssl3 ≥3.3.7-r0）—— 基础镜像自带 3.3.3-r0 有 CRITICAL CVE-2026-31789
+RUN apk upgrade --no-cache libcrypto3 libssl3
 RUN rm -f /etc/nginx/conf.d/default.conf && \
     rm -rf /usr/share/nginx/html/*
 COPY nginx.conf /etc/nginx/conf.d/biumind-admin.conf
