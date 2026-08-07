@@ -18,7 +18,7 @@ func skillsPolicyPath(t *testing.T) string {
 	}
 	// services/authz/internal/engine → repo root (4 levels up)
 	root := filepath.Join(wd, "..", "..", "..", "..")
-	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "10-skills.cedar")
+	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "policies.cedar")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("policy file %s not found: %v", p, err)
 	}

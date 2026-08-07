@@ -32,7 +32,7 @@ func (a *App) invokeOrgFeedsForceAdd(ctx context.Context, raw json.RawMessage) (
 	if in.FeedURL == "" {
 		return nil, errors.New("rss: org_feeds_force_add requires feed_url")
 	}
-	// Force-add is an org write → org admins only (30-rss.cedar).
+	// Force-add is an org write → org admins only (policies.cedar RSS 节).
 	scope, scopeID, err := a.resolveScope(ctx, "org", true)
 	if err != nil {
 		return nil, err

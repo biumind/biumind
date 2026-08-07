@@ -1,31 +1,27 @@
 # Authz 策略目录
 
-## 加载顺序
+这个目录是 authz 服务的**唯一策略来源**，启动硬依赖：
 
-按文件名字典序合并；后加载的不覆盖前面的（Cedar 是 union 语义：任一 permit 通过即放行，任一 forbid 命中即拒绝）。
+- compose 以只读方式挂载到容器 `/etc/biumind/authz/policies`（见 `docker-compose.yml` 的 `authz` 服务）。
+- authz 启动时读取该目录下所有 `*.cedar` 文件、按文件名字典序拼接后载入（`services/authz/internal/policies/loader.go`）。
+- 目录缺失或没有任何 `.cedar` 文件，authz 直接退出（binary 内没有编译进去的策略副本）。
 
-```
-00-system.cedar       系统级（编译进 binary，但测试环境从这里读方便迭代）
-10-org-*.cedar        组织级（Workspace admin 写）
-20-user-*.cedar       用户级（个人分享配置）
-99-deny-default.cedar 兜底（无显式 permit 即拒）
-```
+## 语义
 
-## 测试
-
-```bash
-make authz-eval PRINCIPAL=user:u1 ACTION=wiki:Page::read RESOURCE=page:p1
-```
-
-会调用 `POST /v1/authz/check` 并显示决策 + 命中策略。
+Cedar 标准语义：默认拒绝（deny-by-default）；任一 permit 命中即放行，但任一 forbid 命中则拒绝（forbid 优先）。不需要"兜底拒绝"文件。
 
 ## 热加载
 
-测试环境：改文件后 `docker compose restart authz` 即生效（启动时载入）。
-生产环境：策略放 Postgres，LISTEN/NOTIFY 推变更，运行时增量编译。
+改文件后无需重建容器，二选一：
 
-## 字段约定
+```bash
+docker compose restart authz
+# 或调用管理端点
+curl -X POST http://localhost:7009/v1/authz/reload
+```
 
-- `principal`：JWT claims 投影到 entity（`User`、`AgentVirtualKey`、`Service`）
-- `resource`：服务调 Authz 时携带 entity 元数据（`Page` 含 `owner`/`project`/`share_mode`）
-- `action`：`<service>:<resource>::<verb>` 三段命名
+## 文件
+
+- `policies.cedar` — 全部授权规则，分四节：System（wiki / graph / hub / agent / sandbox / realtime topic）→ Skills → App Center → RSS org-scope。
+
+授权逻辑只许放这里（I9：业务代码零授权逻辑）。新增规则时在对应小节追加，并在 `services/authz/internal/engine/` 补测试——测试直接读这个文件，保证部署与测试零漂移。

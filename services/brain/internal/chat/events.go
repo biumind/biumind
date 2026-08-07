@@ -8,7 +8,7 @@
 //
 // Scope convention: chat:user:<user_id> — three-part colon form
 // (dot-form topics fail topic parsing → 403, see the aigc precedent).
-// Subscribe-side authz is Cedar self-only (00-system.cedar:
+// Subscribe-side authz is Cedar self-only (policies.cedar system 节:
 // resource.kind == "chat:user" && resource.id == principal.id).
 //
 // Privacy: threads with sync_enabled=false NEVER emit — their content

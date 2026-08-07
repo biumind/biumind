@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// appsPolicyPath resolves deploy/.../policies/20-apps.cedar so test
+// appsPolicyPath resolves deploy/.../policies/policies.cedar so test
 // drift between filesystem and string-literal copies is impossible.
 func appsPolicyPath(t *testing.T) string {
 	t.Helper()
@@ -15,7 +15,7 @@ func appsPolicyPath(t *testing.T) string {
 		t.Fatal(err)
 	}
 	root := filepath.Join(wd, "..", "..", "..", "..")
-	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "20-apps.cedar")
+	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "policies.cedar")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("policy file %s not found: %v", p, err)
 	}
@@ -30,7 +30,7 @@ func appsEngine(t *testing.T) *Engine {
 	}
 	e := New()
 	if err := e.LoadPolicies(raw); err != nil {
-		t.Fatalf("load 20-apps.cedar: %v", err)
+		t.Fatalf("load policies.cedar: %v", err)
 	}
 	return e
 }

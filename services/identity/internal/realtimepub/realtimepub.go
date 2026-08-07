@@ -7,7 +7,7 @@
 //
 // 广播语义:公告对全体用户可见,identity 无法枚举在线用户,所以发到单一全局 topic
 // `announce:all`,由 realtime 扇出。authz 侧 Cedar 放行该 topic kind(沿用 app:catalog
-// 广播先例,见 deploy/.../authz/policies/00-system.cedar)。
+// 广播先例,见 deploy/.../authz/policies/policies.cedar)。
 //
 // payload 只带公告 id(不含正文),客户端收到后重拉 /v1/announcements —— 那里服务端按
 // per-user 读态 + 版本门槛算出真正可见集。

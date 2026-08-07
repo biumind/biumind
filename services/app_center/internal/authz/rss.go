@@ -11,7 +11,7 @@ import (
 // RSS BiuApp depends on. It shapes the Cedar request — principal
 // User{id,org_id,roles}, resource RssOrg{org_id}, action
 // rss:org_read|rss:org_write — and maps the decision back to nil /
-// rss.ErrOrgForbidden. Authorization logic itself lives in 30-rss.cedar
+// rss.ErrOrgForbidden. Authorization logic itself lives in policies.cedar RSS 节
 // (I9); this is pure plumbing.
 //
 // Fail-closed: any transport error or non-ALLOW decision denies.

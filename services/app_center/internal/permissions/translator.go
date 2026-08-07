@@ -207,7 +207,7 @@ func FromManifest(m *biuapp.Manifest, base Installation) Installation {
 //
 // The runtime calls Authz.Decide with one of these action strings.
 // Adding a new action requires:
-//   1. New permit rule in deploy/.../policies/20-apps.cedar
+//   1. New permit rule in deploy/.../policies/policies.cedar App Center 节
 //   2. New constant here
 //   3. Test coverage in app.cedar tests under services/authz
 //

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// systemEngine loads deploy/.../policies/00-system.cedar so the test
+// systemEngine loads deploy/.../policies/policies.cedar so the test
 // always runs against the shipped policy, not a string copy.
 func systemEngine(t *testing.T) *Engine {
 	t.Helper()
@@ -15,14 +15,14 @@ func systemEngine(t *testing.T) *Engine {
 		t.Fatal(err)
 	}
 	root := filepath.Join(wd, "..", "..", "..", "..")
-	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "00-system.cedar")
+	p := filepath.Join(root, "deploy", "docker-compose", "authz", "policies", "policies.cedar")
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		t.Fatalf("read 00-system.cedar: %v", err)
+		t.Fatalf("read policies.cedar: %v", err)
 	}
 	e := New()
 	if err := e.LoadPolicies(raw); err != nil {
-		t.Fatalf("load 00-system.cedar: %v", err)
+		t.Fatalf("load policies.cedar: %v", err)
 	}
 	return e
 }

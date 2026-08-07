@@ -57,7 +57,7 @@ type SkillToolDeps struct {
 	EventSink SkillEventSink
 
 	// Authz gates every high-risk tool against the Cedar policy file
-	// at deploy/docker-compose/authz/policies/10-skills.cedar (PS3.4).
+	// at deploy/docker-compose/authz/policies/policies.cedar (PS3.4).
 	// When nil the runtime falls back to authz.AlwaysAllow — useful
 	// in CLI-only / dev mode where Authz isn't running, and explicitly
 	// flagged on startup. Production daemon main.go wires NewHTTP.
@@ -495,7 +495,7 @@ func skillExportFileTool(d SkillToolDeps) *Tool {
 			// Cedar gate. The export tool is not bound to a specific
 			// skill (the model picks the file by sandbox path), so we
 			// synthesise a minimal Skill resource pinned to the
-			// caller's org. The 10-skills.cedar policy checks
+			// caller's org. The policies.cedar skills section checks
 			// org_id + status="active"; org_id binding gives us the
 			// cross-tenant defense-in-depth, status="active" is a
 			// constant here because export only runs after a successful

@@ -11,7 +11,7 @@
 // RadarStore / WikiSink); app_center provides the HTTP-backed adapter
 // that shapes principal (User{id,org_id,roles}) + resource (RssOrg
 // {org_id}) + action (rss:org_read|rss:org_write) and POSTs to Authz.
-// Authorization logic stays entirely in 30-rss.cedar (I9), not here.
+// Authorization logic stays entirely in policies.cedar RSS 节 (I9), not here.
 
 package rss
 
@@ -51,7 +51,7 @@ var ErrOrgForbidden = errors.New("rss: org operation not permitted")
 
 // AuthzChecker decides whether the caller may read or write org-scoped
 // RSS resources. Implementations call the central Authz service; the
-// decision is governed by 30-rss.cedar.
+// decision is governed by policies.cedar RSS 节.
 type AuthzChecker interface {
 	// AuthorizeOrg returns nil when permitted, ErrOrgForbidden on deny,
 	// or a wrapped transport error (callers treat as fail-closed).
@@ -104,7 +104,7 @@ func (a *App) authorizeOrg(ctx context.Context, write bool) error {
 //     owns their own data).
 //   - "org"       → derive scope_id from claims.OrgID and consult Authz
 //     (write=false for reads, true for mutations). org members read;
-//     only org admins write — enforced entirely in 30-rss.cedar.
+//     only org admins write — enforced entirely in policies.cedar RSS 节.
 //
 // Fails closed: org requested without an org claim, or without a wired
 // authz checker, returns an error rather than silently downgrading to

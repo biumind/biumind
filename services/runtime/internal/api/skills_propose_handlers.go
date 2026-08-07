@@ -11,7 +11,7 @@
 // validateTransition table here pins it.
 //
 // Authorization: every mutation here calls Authz.Check against the
-// 10-skills.cedar policy file. Owner-only / status-gating /
+// policies.cedar policy file. Owner-only / status-gating /
 // state-machine rules live entirely in the .cedar file (I9 — business
 // code carries zero authorization logic). When AUTHZ_URL is unset the
 // runtime falls back to authz.AlwaysAllow with a startup warning;
@@ -235,7 +235,7 @@ func (s *Server) handleShareSkillOrg(w http.ResponseWriter, r *http.Request) {
 // Cross-org reads surface as 404 (not 403) to avoid leaking existence
 // to outsiders; that one rule still lives here because it's an HTTP
 // concern (status code shape), not an authorization rule. Owner /
-// status / state-machine constraints all live in 10-skills.cedar.
+// status / state-machine constraints all live in policies.cedar.
 func (s *Server) lookupAndAuthorize(w http.ResponseWriter, r *http.Request, action string) (string, map[string]any, bool) {
 	orgID, ok := mustOrgID(w, r)
 	if !ok {
