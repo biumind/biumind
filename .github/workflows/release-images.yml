@@ -50,6 +50,16 @@ on:
       # :sha-<short> + :main (rolling). Release tags below still
       # produce :v* + :latest; the two never collide.
       - main
+    # Skip the full 19-image rebuild for doc/metadata-only changes
+    # (README, CHANGELOG, LICENSE, …). A real code push still triggers;
+    # release tags below are tag-scoped and unaffected in practice.
+    # CAVEAT: paths-ignore also gates tag pushes, so never tag a
+    # docs-only commit as service-v* / <name>-v* — it won't build.
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+      - ".gitignore"
+      - ".gitattributes"
     tags:
       # All-images release.
       - "service-v*"
@@ -111,6 +121,13 @@ on:
           - CRITICAL
           - HIGH,CRITICAL
           - MEDIUM,HIGH,CRITICAL
+
+# Cancel a superseded in-flight run when a newer commit lands on the
+# same ref (e.g. rapid main pushes); each tag keeps its own group so a
+# release is never cancelled by another.
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
