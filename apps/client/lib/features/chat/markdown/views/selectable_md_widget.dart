@@ -86,25 +86,26 @@ class _SelectableMdWidgetState extends State<SelectableMdWidget> {
   // 把 generate() 的 span 树拍平成块序列: 文本段 → Text.rich,
   // WidgetSpan → 原样拆出为独立 widget。嵌套 TextSpan 里的文本片段用
   // 祖先链的 style/recognizer 重新包裹, 保持样式与点击行为不变。
+  //
+  // 块边界的换行符按原单富文本流的语义折算 (否则行距翻倍):
+  //   1 个 \n  = 换行 → Column 天然分行, 丢弃;
+  //   ≥2 个 \n = 一个空行 → 换成等高的 SizedBox。
+  // 边界 \n 若原样保留成独立文本块会渲染出两个空行。
   List<Widget> _flattenBlocks(List<InlineSpan> spans) {
-    final blocks = <Widget>[];
+    // item 序列: List<InlineSpan> (文本 run) 与 Widget 交替。
+    final items = <Object>[];
     var pending = <InlineSpan>[];
 
-    void flush() {
+    void flushPending() {
       if (pending.isEmpty) return;
-      blocks.add(
-        Text.rich(
-          TextSpan(children: pending, style: widget.style),
-          textDirection: TextDirection.ltr,
-        ),
-      );
+      items.add(List<InlineSpan>.of(pending));
       pending = [];
     }
 
     void visit(InlineSpan span, List<TextSpan> ancestors) {
       if (span is WidgetSpan) {
-        flush();
-        blocks.add(span.child);
+        flushPending();
+        items.add(span.child);
         return;
       }
       if (span is! TextSpan) {
@@ -134,7 +135,75 @@ class _SelectableMdWidgetState extends State<SelectableMdWidget> {
     for (final span in spans) {
       visit(span, const []);
     }
-    flush();
+    flushPending();
+
+    // 数并修剪 run 首/尾的空白, 返回其中的换行数。
+    int trimEdge(List<InlineSpan> run, {required bool leading}) {
+      var newlines = 0;
+      while (run.isNotEmpty) {
+        final index = leading ? 0 : run.length - 1;
+        final edge = run[index];
+        if (edge is! TextSpan ||
+            (edge.children != null && edge.children!.isNotEmpty)) {
+          break; // 非叶子文本, 保守不动
+        }
+        final text = edge.text ?? '';
+        final trimmed = leading
+            ? text.replaceAll(RegExp(r'^\s+'), '')
+            : text.replaceAll(RegExp(r'\s+$'), '');
+        newlines += '\n'
+            .allMatches(leading
+                ? text.substring(0, text.length - trimmed.length)
+                : text.substring(trimmed.length))
+            .length;
+        if (trimmed.isEmpty) {
+          run.removeAt(index);
+          continue;
+        }
+        if (trimmed.length != text.length) {
+          run[index] = TextSpan(
+            text: trimmed,
+            style: edge.style,
+            recognizer: edge.recognizer,
+            mouseCursor: edge.mouseCursor,
+          );
+        }
+        break;
+      }
+      return newlines;
+    }
+
+    // 空行高度对齐 NewLines 组件的空行 span: fontSize × 1.15。
+    final blankLine = (widget.style?.fontSize ?? 14.0) * 1.15;
+
+    final blocks = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      final item = items[i];
+      if (item is Widget) {
+        blocks.add(item);
+        continue;
+      }
+      final run = item as List<InlineSpan>;
+      final prevIsWidget = i > 0 && items[i - 1] is Widget;
+      final nextIsWidget = i + 1 < items.length && items[i + 1] is Widget;
+      final leading = prevIsWidget ? trimEdge(run, leading: true) : 0;
+      final trailing = nextIsWidget ? trimEdge(run, leading: false) : 0;
+      if (run.isEmpty) {
+        // 夹在两个 widget 之间的纯空白 run。
+        if (leading + trailing >= 2) {
+          blocks.add(SizedBox(height: blankLine));
+        }
+        continue;
+      }
+      if (leading >= 2) blocks.add(SizedBox(height: blankLine));
+      blocks.add(
+        Text.rich(
+          TextSpan(children: run, style: widget.style),
+          textDirection: TextDirection.ltr,
+        ),
+      );
+      if (trailing >= 2) blocks.add(SizedBox(height: blankLine));
+    }
     return blocks;
   }
 
