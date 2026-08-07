@@ -79,10 +79,10 @@ dev 全是 `biumind-dev-*-change-me`，prod 必换。同名变量在多个服务
 
 | 变量 | 作用 | dev | prod / 内网 |
 |------|------|-----|-------------|
-| `INFRA_REGISTRY` | 基础设施镜像前缀（postgres/minio/nats/…） | `docker.io` | `docker.io`（build-host 拉不动 docker.io） |
-| `BIUMIND_REGISTRY` | 业务镜像前缀（9 Go 服务 + worker + 前端） | `biumind`（本地 build tag） | `registry.your-domain.com/biumind`（ACR） |
+| `INFRA_REGISTRY` | 基础设施镜像 host（postgres/minio/nats/…） | `docker.io` | 内网 mirror（build-host 拉不动 docker.io） |
+| `BIUMIND_REGISTRY` | 业务镜像 **host**（namespace 固定 `biumind`） | `registry.cn-beijing.aliyuncs.com`（Aliyun 北京） | `registry.your-domain.com` / `ghcr.io` / `docker.io` |
 
-`BIUMIND_TAG` 控制版本（dev `:dev`，CI `:sha8`）。
+`BIUMIND_TAG` 控制版本（默认 `:main`；本地构建 `:dev`；CI 另推 `:sha8` / release `:v*`）。
 
 ---
 
@@ -253,7 +253,7 @@ design 原锁部分端口，后因冲突调整（客户端 `_appCenterPort` / `a
 4. **app_center 目录 → app-center 镜像**——唯一名不一致，`build-images` 特判。
 5. **presence / billing / channels / sandbox 无 Dockerfile**——deploy-local.sh 跳过，要起需先补。
 6. **compose service 增删必须同步 `deploy-local.sh` 的 INFRA/SERVICES/WEB/WORKERS 数组**——否则 CI 部署漏起。
-7. **podman rootless 坑**：docker.io 不可达 → 设 `INFRA_REGISTRY`；并发 blob copy 死锁 → `image_parallel_copies=1`；裸名 → `BIUMIND_REGISTRY=localhost/biumind`。
+7. **podman rootless 坑**：docker.io 不可达 → 设 `INFRA_REGISTRY`；并发 blob copy 死锁 → `image_parallel_copies=1`；裸名 → `BIUMIND_REGISTRY=localhost`（namespace 固定 biumind，即 localhost/biumind/<name>）。
 8. **3 套 bearer secret 别混**——见 §5。
 9. **macOS file_max 报错**——`ulimit -n 65536` 或 Docker Desktop 调高。
 10. **observability / k3s 已移出 compose**——需要可观测栈或 Sandbox K8s 集群时自行部署（见 §12），别在 compose 里找。

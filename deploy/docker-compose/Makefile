@@ -83,7 +83,7 @@ wait-healthy: ## 等所有 healthcheck 通过（最多 90s）
 
 # ─── 镜像 ────────────────────────────────────────────
 .PHONY: build-images
-build-images: ## 构建所有 BiuMind 服务镜像（dev tag）
+build-images: ## 构建所有 BiuMind 服务镜像（docker.io/biumind/<name>:dev，配合 make up-local）
 	@# build context 一律为**仓库根** ../.. —— 所有服务 Dockerfile 都
 	@# `COPY packages/go-sdk/biu`（brain / runtime 还 COPY apps/cli/biu），
 	@# 窄 context（../../services/<name>）取不到这些路径会 COPY 失败。
@@ -109,6 +109,10 @@ authz-eval: ## 测一条 authz 决策: make authz-eval PRINCIPAL=user:u1 ACTION=
 .PHONY: pull-images
 pull-images: ## 拉外部依赖镜像（infra）
 	$(COMPOSE) pull postgres minio nats
+
+.PHONY: up-local
+up-local: ## 用本地 build-images 的镜像起栈（docker.io/biumind/<name>:dev）
+	$(MAKE) BIUMIND_REGISTRY=docker.io BIUMIND_TAG=dev up
 
 # ─── 数据库 ──────────────────────────────────────────
 .PHONY: psql

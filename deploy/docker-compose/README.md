@@ -121,14 +121,24 @@ docker build -t biumind/model-relay:dev -f services/model-relay/Dockerfile servi
 
 CI（`.github/workflows/release-images.yml`）发布**全部业务镜像**——10 个 Go 服务
 （含 channels/sandbox/deploy）+ 4 个前端（site/web-client/admin-web/miniapp-h5）
-+ 4 个 worker（worker-ingest/worker-wiki-parse/aigc-worker/worker-wiki-llm）——
-到 `ghcr.io/biumind/<name>`（`:sha-<short7>` + `:main`，release tag 时 `:v*` + `:latest`）。
-镜像名与本目录 compose 的 `image:` 字段一一对应。
++ 4 个 worker（worker-ingest/worker-wiki-parse/aigc-worker/worker-wiki-llm）。
+镜像名与本目录 compose 的 `image:` 字段一一对应；namespace 统一 `biumind`。
+CI 推送三套仓库（namespace 均 `biumind`）：GHCR `ghcr.io/biumind/<name>`（必推）、
+Docker Hub `docker.io/biumind/<name>`、Aliyun 北京 `registry.cn-beijing.aliyuncs.com/biumind/<name>`
+（后两者需配 vars/secrets；本仓库已配）。tag：`:sha-<short7>` + `:main`（每次 main push），
+release tag 时额外 `:v*` + `:latest`。
 
-**纯拉取部署（不本地构建）**：`.env` 设 `BIUMIND_REGISTRY=ghcr.io/biumind` +
-`BIUMIND_TAG=main`（或 release 版本号），然后 `docker compose --profile all pull`
-再 `make up` 即可。前提：GHCR package 需设为 public 才能匿名拉取；国内可配
-CI 的 Aliyun ACR vars/secrets 同步推送后改指 ACR。
+**纯拉取部署（不本地构建）**：compose 业务镜像 = `${BIUMIND_REGISTRY}/biumind/<name>:${BIUMIND_TAG}`，
+namespace 固定 `biumind`，只换 host。默认 Aliyun 北京 + `:main`，三选一：
+
+| 来源 | `.env` 设置 |
+|------|------------|
+| Aliyun 北京（默认，国内快） | `BIUMIND_TAG=main`（host 不设即可） |
+| GitHub GHCR | `BIUMIND_REGISTRY=ghcr.io` + `BIUMIND_TAG=main` |
+| Docker Hub | `BIUMIND_REGISTRY=docker.io` + `BIUMIND_TAG=main` |
+
+设好后 `docker compose --profile all pull` 再 `make up`。tag 也可填 release 版本号
+（如 `BIUMIND_TAG=v0.3.0`）或固定 commit（`sha-<short7>`）。GHCR package 需 public 才能匿名拉取。
 
 ---
 

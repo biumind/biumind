@@ -10,6 +10,13 @@
 #   docker compose --profile workers up -d  # + Python workers
 #   docker compose --profile all up -d      # 完整测试栈（infra + services + workers）
 # 便捷入口见 Makefile（make up / up-infra / up-workers / up-all）；设计 rationale 见 DESIGN.md。
+#
+# 镜像源：业务镜像 = ${BIUMIND_REGISTRY}/biumind/<name>:${BIUMIND_TAG}，namespace 固定
+# biumind，只换 host：
+#   Aliyun 北京(默认) → 不设 或 registry.cn-beijing.aliyuncs.com
+#   GitHub GHCR       → ghcr.io
+#   Docker Hub        → docker.io
+# tag 默认 main（CI 每次 main push 推送）；本地构建用 make build-images + make up-local。
 
 name: biumind
 
@@ -222,7 +229,7 @@ services:
   # Authz（Cedar 统一授权）— 所有服务权限判断过它，first start 必装
   authz:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/authz:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/authz:${BIUMIND_TAG:-main}
     container_name: biu-authz
     <<: [*restart, *logging]
     environment:
@@ -245,7 +252,7 @@ services:
   # Realtime（单 SSE 多 topic 实时网关）— 面向客户端实时事件必走它（I8）
   realtime:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/realtime:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/realtime:${BIUMIND_TAG:-main}
     container_name: biu-realtime
     <<: [*restart, *logging]
     environment:
@@ -271,7 +278,7 @@ services:
   # Identity（用户/团队/认证）— 密钥目录由镜像预建并 chown，volume 首建继承属主（DESIGN.md §9）
   identity:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/identity:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/identity:${BIUMIND_TAG:-main}
     container_name: biu-identity
     <<: [*restart, *logging]
     environment:
@@ -326,7 +333,7 @@ services:
   # model-relay（模型网关：BYOK + 平台池 + 计费）
   model-relay:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/model-relay:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/model-relay:${BIUMIND_TAG:-main}
     container_name: biu-model-relay
     <<: [*restart, *logging]
     environment:
@@ -365,7 +372,7 @@ services:
   # Brain（Wiki + Graph + Memory + Search）
   brain:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/brain:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/brain:${BIUMIND_TAG:-main}
     container_name: biu-brain
     <<: [*restart, *logging]
     environment:
@@ -412,7 +419,7 @@ services:
   # Runtime（Go Agent 引擎）
   runtime:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/runtime:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/runtime:${BIUMIND_TAG:-main}
     container_name: biu-runtime
     <<: [*restart, *logging]
     environment:
@@ -452,7 +459,7 @@ services:
   # App Center（应用中心：catalog / install / 钩子 / sidebar / triggers）— 端口 7011（DESIGN.md §19）
   app-center:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/app-center:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/app-center:${BIUMIND_TAG:-main}
     container_name: biu-app-center
     <<: [*restart, *logging]
     environment:
@@ -487,7 +494,7 @@ services:
   # Channels（多渠道 IM 网关；可选）
   channels:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/channels:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/channels:${BIUMIND_TAG:-main}
     container_name: biu-channels
     <<: [*restart, *logging]
     environment:
@@ -517,7 +524,7 @@ services:
   # AIGC（文生图 / 文生视频 / 数字人 / 爆款解析）— 端口 7012（DESIGN.md §19）。设计见 docs/BiuMind-AIGC-*.md
   aigc:
     profiles: [services, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/aigc:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/aigc:${BIUMIND_TAG:-main}
     container_name: biu-aigc
     <<: [*restart, *logging]
     environment:
@@ -559,7 +566,7 @@ services:
   # site 是统一入口（静态官网 + /v1/* 反代后端 + /app /admin /m 反代 SPA，DESIGN.md §7）；
   # client（桌面+web）一律指向 site（本地 http://localhost:8088）。web-client/admin-web/
   # miniapp-h5 不绑 host port，只经 site nginx 暴露。都在 biu-net 内用 docker hostname 互访。
-  # 镜像与后端一致走 ${BIUMIND_REGISTRY}/<name>:${BIUMIND_TAG}。
+  # 镜像与后端一致走 ${BIUMIND_REGISTRY}/biumind/<name>:${BIUMIND_TAG}。
 
   # 官网 site（Astro 静态站 + API 网关 nginx + 内嵌 mkdocs 文档 /docs）
   site:
@@ -569,7 +576,7 @@ services:
       # （其它三个 SPA 各自独立 context，不受影响。）
       context: ../..
       dockerfile: web/site/Dockerfile
-    image: ${BIUMIND_REGISTRY:-biumind}/site:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/site:${BIUMIND_TAG:-main}
     container_name: biu-site
     ports:
       - "${SITE_PORT:-8088}:80"
@@ -595,7 +602,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         BASE_HREF: /app/
-    image: ${BIUMIND_REGISTRY:-biumind}/web-client:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/web-client:${BIUMIND_TAG:-main}
     container_name: biu-web-client
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
@@ -610,7 +617,7 @@ services:
     build:
       context: ../../admin
       dockerfile: Dockerfile
-    image: ${BIUMIND_REGISTRY:-biumind}/admin-web:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/admin-web:${BIUMIND_TAG:-main}
     container_name: biu-admin-web
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
@@ -627,7 +634,7 @@ services:
       dockerfile: Dockerfile.h5
       args:
         BASE: /m/
-    image: ${BIUMIND_REGISTRY:-biumind}/miniapp-h5:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/miniapp-h5:${BIUMIND_TAG:-main}
     container_name: biu-miniapp-h5
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
@@ -643,7 +650,7 @@ services:
   # ingest worker：PDF / Word / Markdown / HTML 解析
   worker-ingest:
     profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/worker-ingest:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-ingest:${BIUMIND_TAG:-main}
     container_name: biu-worker-ingest
     <<: [*restart, *logging]
     environment:
@@ -659,7 +666,7 @@ services:
   # DASHSCOPE/VOLCENGINE env 仅 fallback；payload 凭证优先
   worker-aigc:
     profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/aigc-worker:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/aigc-worker:${BIUMIND_TAG:-main}
     container_name: biu-worker-aigc
     <<: [*restart, *logging]
     environment:
@@ -693,7 +700,7 @@ services:
   # 不连 postgres/minio — blob 经 brain internal presign 端点下载，保持只 NATS + brain HTTP 形态
   worker-wiki-parse:
     profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/worker-wiki-parse:${BIUMIND_TAG:-dev}
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-wiki-parse:${BIUMIND_TAG:-main}
     container_name: biu-worker-wiki-parse
     <<: [*restart, *logging]
     environment:
