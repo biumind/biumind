@@ -1,4 +1,6 @@
-// Markdown 段渲染 — 把 GptMarkdown 用作 markdown 文本块的渲染器。
+// Markdown 段渲染 — 经 SelectableMdWidget 复用 gpt_markdown 的解析管线,
+// 以 Text.rich 输出 (在 SelectionArea 内自动注册为可选中), 支持字符级
+// 划选 (docs/BiuMind-Chat-Text-Selection-Design.md §3)。
 //
 // codeBuilder 不再做特殊分发 (mermaid/html/svg 已经在 split 阶段抽走)
 // — 这里走到的 fenced code 都是普通 code 段, 应当不存在 (split 把它们
@@ -14,6 +16,7 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 
 import '../../../../app/theme.dart';
 import 'code_segment_view.dart';
+import 'selectable_md_widget.dart';
 
 class MarkdownSegmentView extends StatelessWidget {
   const MarkdownSegmentView({super.key, required this.text});
@@ -22,7 +25,7 @@ class MarkdownSegmentView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GptMarkdown(
+    return SelectableMdWidget(
       text,
       style: TextStyle(
         color: BiuTokens.text,

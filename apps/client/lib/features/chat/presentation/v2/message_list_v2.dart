@@ -183,74 +183,80 @@ class _MessageListV2State extends ConsumerState<MessageListV2> {
         // 生效),不再有聊天专属 textScaler 叠加。
         return Stack(
           children: [
-            ListView.builder(
-              controller: _ctrl,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: messages.length,
-              itemBuilder: (ctx, i) {
-                final m = messages[i];
-                // tool_result 隐藏在 assistant block 内（由 BlockRenderer 处理），
-                // 这里只渲染 user / assistant / system。
-                if (m.role == MessageRole.toolResult) {
-                  return const SizedBox.shrink();
-                }
-                final key = _itemKeys.putIfAbsent(i, () => GlobalKey());
-                // FollowUp chips 只在最后一条 assistant + completed 消息下出。
-                final isLastAssistant =
-                    m.role == MessageRole.assistant &&
-                    m.status == MessageStatus.completed &&
-                    !messages
-                        .skip(i + 1)
-                        .any((later) => later.role == MessageRole.assistant);
-                // 可见序号 = 数前面有几条非 toolResult 消息 + 1。
-                // 隐藏 toolResult 不计数让 #N 跟用户看到的一致。
-                final visibleIndex =
-                    messages
-                        .take(i)
-                        .where((p) => p.role != MessageRole.toolResult)
-                        .length +
-                    1;
-                Widget bubble = KeyedSubtree(
-                  key: key,
-                  child: MessageBubbleV2(
-                    message: m,
-                    threadId: widget.threadId,
-                    modelHint: widget.modelHint,
-                    userName: widget.userName,
-                    isLastAssistant: isLastAssistant,
-                    visibleIndex: visibleIndex,
-                  ),
-                );
-                // P0-补：搜索命中高亮。current = 强黄；其他 hit = 浅黄。
-                if (search.hits.isNotEmpty && search.messageHasHit(m.id)) {
-                  final isCurrent = search.currentMessageId == m.id;
-                  final tint = Theme.of(ctx).brightness == Brightness.dark
-                      ? StarredColors.textOnHighlight
-                      : StarredColors.highlight;
-                  bubble = Container(
-                    decoration: BoxDecoration(
-                      color: tint.withValues(alpha: isCurrent ? 0.45 : 0.18),
-                      border: Border(
-                        left: BorderSide(
-                          color: isCurrent
-                              ? Theme.of(ctx).colorScheme.primary
-                              : Colors.transparent,
-                          width: 3,
+            // 自由划选 (docs/BiuMind-Chat-Text-Selection-Design.md §3.3):
+            // SelectionArea 聚合消息正文里所有可选中文本, 支持跨气泡选择;
+            // 桌面拖拽 + 右键复制 + Cmd/Ctrl+C, 移动端长按 + 手柄。
+            // 多选模式 _SelectionWrapper 用 IgnorePointer, 进入后自动禁用。
+            SelectionArea(
+              child: ListView.builder(
+                controller: _ctrl,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                itemCount: messages.length,
+                itemBuilder: (ctx, i) {
+                  final m = messages[i];
+                  // tool_result 隐藏在 assistant block 内（由 BlockRenderer 处理），
+                  // 这里只渲染 user / assistant / system。
+                  if (m.role == MessageRole.toolResult) {
+                    return const SizedBox.shrink();
+                  }
+                  final key = _itemKeys.putIfAbsent(i, () => GlobalKey());
+                  // FollowUp chips 只在最后一条 assistant + completed 消息下出。
+                  final isLastAssistant =
+                      m.role == MessageRole.assistant &&
+                      m.status == MessageStatus.completed &&
+                      !messages
+                          .skip(i + 1)
+                          .any((later) => later.role == MessageRole.assistant);
+                  // 可见序号 = 数前面有几条非 toolResult 消息 + 1。
+                  // 隐藏 toolResult 不计数让 #N 跟用户看到的一致。
+                  final visibleIndex =
+                      messages
+                          .take(i)
+                          .where((p) => p.role != MessageRole.toolResult)
+                          .length +
+                      1;
+                  Widget bubble = KeyedSubtree(
+                    key: key,
+                    child: MessageBubbleV2(
+                      message: m,
+                      threadId: widget.threadId,
+                      modelHint: widget.modelHint,
+                      userName: widget.userName,
+                      isLastAssistant: isLastAssistant,
+                      visibleIndex: visibleIndex,
+                    ),
+                  );
+                  // P0-补：搜索命中高亮。current = 强黄；其他 hit = 浅黄。
+                  if (search.hits.isNotEmpty && search.messageHasHit(m.id)) {
+                    final isCurrent = search.currentMessageId == m.id;
+                    final tint = Theme.of(ctx).brightness == Brightness.dark
+                        ? StarredColors.textOnHighlight
+                        : StarredColors.highlight;
+                    bubble = Container(
+                      decoration: BoxDecoration(
+                        color: tint.withValues(alpha: isCurrent ? 0.45 : 0.18),
+                        border: Border(
+                          left: BorderSide(
+                            color: isCurrent
+                                ? Theme.of(ctx).colorScheme.primary
+                                : Colors.transparent,
+                            width: 3,
+                          ),
                         ),
                       ),
-                    ),
+                      child: bubble,
+                    );
+                  }
+                  if (!selecting) return bubble;
+                  return _SelectionWrapper(
+                    messageId: m.id,
+                    selected: selMode.contains(m.id),
+                    onToggle: () =>
+                        ref.read(selectionModeProvider.notifier).toggle(m.id),
                     child: bubble,
                   );
-                }
-                if (!selecting) return bubble;
-                return _SelectionWrapper(
-                  messageId: m.id,
-                  selected: selMode.contains(m.id),
-                  onToggle: () =>
-                      ref.read(selectionModeProvider.notifier).toggle(m.id),
-                  child: bubble,
-                );
-              },
+                },
+              ),
             ),
             // P1-9 ChatMiniMap —— 右侧细导览条，>6 条才出。手机端不渲染
             // (18px 浮条在窄屏价值低且遮挡文字 — 方案 §4.4)。

@@ -2,9 +2,11 @@
 // KaTeX, Mermaid, and Tables.
 //
 // The chat renderer lives in features/chat/markdown/pipeline.dart and is
-// invoked from message_bubble_v2; rather than pulling in its full
-// dependency graph, we re-construct the same `GptMarkdown` config here
-// and assert the three behaviors at the library boundary:
+// invoked from message_bubble_v2; since P0 of the text-selection design it
+// renders via SelectableMdWidget (markdown/views/selectable_md_widget.dart),
+// which reuses this same gpt_markdown parsing pipeline. Rather than pulling
+// in its full dependency graph, we re-construct the same config here and
+// assert the three behaviors at the library boundary:
 //
 //   1. `useDollarSignsForLatex: true` → `$x^2$` produces a `Math` widget
 //      (from flutter_math_fork) instead of plain text.

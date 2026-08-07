@@ -2,7 +2,7 @@
 //
 // 把 [Block] sealed class dispatch 到对应 widget。R5 升级：
 //   - TextBlock：assistant 走 ChatMarkdownView（GptMarkdown 富文本 + 代码 +
-//     mermaid + math + svg + table），user 走 SelectableText
+//     mermaid + math + svg + table），user 走 Text (SelectionArea 内可选中)
 //   - ToolUseBlock：折叠卡，默认折叠；点 header 展开看参数
 //   - ToolResultBlock：折叠卡，默认折叠；展开看 monospace 输出
 //   - ImageBlock：点开看大图
@@ -74,7 +74,7 @@ class _TextBlockView extends StatelessWidget {
     // tool_result 走富文本管线。assistant 还会先扫一遍 `<think>` 标签拆段。
     Widget body;
     if (role == MessageRole.user || role == MessageRole.system) {
-      body = SelectableText(
+      body = Text(
         text,
         style: Theme.of(context).textTheme.bodyMedium,
       );
@@ -240,7 +240,7 @@ class _ReasoningViewState extends State<_ReasoningView>
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               // 推理过程统一灰色 + 略小字号,跟最终回答区分;不走 markdown
               // 避免推理里 `**` `#` 之类碎片标记被误渲染。
-              child: SelectableText(
+              child: Text(
                 widget.text,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
@@ -497,7 +497,7 @@ class _ToolUseBlockView extends StatelessWidget {
       headerIcon: streaming ? Icons.sync : Icons.build_outlined,
       headerLabel: streaming ? '$toolName … 调用中' : '$toolName$summary',
       copyText: pretty,
-      body: SelectableText(
+      body: Text(
         pretty,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontFamily: 'monospace',
@@ -525,7 +525,7 @@ class _ToolResultBlockView extends StatelessWidget {
           : 'tool result · $preview$lineHint',
       tone: isError ? theme.colorScheme.errorContainer : null,
       copyText: content,
-      body: SelectableText(
+      body: Text(
         content,
         style: theme.textTheme.bodySmall?.copyWith(
               fontFamily: 'monospace',

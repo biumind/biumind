@@ -182,7 +182,7 @@ class _InputPreviewState extends State<_InputPreview> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SelectableText(
+            Text(
               shown,
               style: theme.textTheme.bodySmall?.copyWith(
                 fontFamily: 'monospace',

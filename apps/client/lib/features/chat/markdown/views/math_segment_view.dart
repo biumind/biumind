@@ -54,7 +54,7 @@ class _MathSegmentViewState extends State<MathSegmentView> {
             color: BiuTokens.text,
             fontSize: 15,
           ),
-          onErrorFallback: (e) => SelectableText(
+          onErrorFallback: (e) => Text(
             widget.latex,
             style: const TextStyle(
               fontFamily: 'monospace',
