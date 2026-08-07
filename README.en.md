@@ -21,7 +21,7 @@ BiuMind is an all-in-one AI work platform: writing docs, running agents, shippin
 Two deployment tracks:
 
 - **Cloud (sign up and go)**: create an account in seconds, with a free monthly allowance included. Best for individuals and small teams.
-- **Self-hosted**: bring up the full stack with one command; your data never leaves your own servers. Best for enterprises and data-sensitive scenarios.
+- **Self-hosted**: CI publishes prebuilt images for every component — pull and bring up the full stack, no local builds; your data never leaves your own servers. Best for enterprises and data-sensitive scenarios (see [deploy/docker-compose/README.md](./deploy/docker-compose/README.md)).
 
 ## Core Features
 
@@ -111,7 +111,7 @@ task cli:install          # biu → ~/.local/bin/biu
 biu                       # enter the REPL
 ```
 
-Note: `deploy/docker-compose` is a dev/test local stack example, not a production deployment; the `sandbox` and `deploy` services depend on K8s / S3 and are not part of the local stack.
+Note: `deploy/docker-compose` is a dev/test local stack example, not a production deployment; the `sandbox` and `deploy` services depend on K8s / S3 and are not part of the local stack. For private deployments you can pull the CI-prebuilt images directly (set `BIUMIND_REGISTRY=ghcr.io/biumind` + `BIUMIND_TAG=main` or a release version in `.env`) — no local builds needed.
 
 ## Development
 

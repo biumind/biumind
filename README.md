@@ -21,7 +21,7 @@ BiuMind 是一个一体化 AI 工作平台：写文档、跑 Agent、写代码�
 部署双轨：
 
 - **云端（注册即用）**：几秒开账号，自带每月免费额度，适合个人和小团队。
-- **自托管**：一行命令拉起全栈，数据全程留在自己的服务器，适合企业和数据敏感场景。
+- **自托管**：CI 预构建全部镜像，纯拉取即可拉起全栈，数据全程留在自己的服务器，适合企业和数据敏感场景（见 [deploy/docker-compose/README.md](./deploy/docker-compose/README.md)）。
 
 ## 核心功能
 
@@ -111,7 +111,7 @@ task cli:install          # biu → ~/.local/bin/biu
 biu                       # 进入 REPL
 ```
 
-说明：`deploy/docker-compose` 是 dev/test 本地栈示例，非生产部署方案；`sandbox` 与 `deploy` 服务依赖 K8s / S3，不在本地栈内。
+说明：`deploy/docker-compose` 是 dev/test 本地栈示例，非生产部署方案；`sandbox` 与 `deploy` 服务依赖 K8s / S3，不在本地栈内。私有化部署可直接拉取 CI 预构建镜像（`.env` 设 `BIUMIND_REGISTRY=ghcr.io/biumind` + `BIUMIND_TAG=main` 或 release 版本号），无需本地构建。
 
 ## 开发
 

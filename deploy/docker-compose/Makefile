@@ -88,10 +88,10 @@ build-images: ## 构建所有 BiuMind 服务镜像（dev tag）
 	@# `COPY packages/go-sdk/biu`（brain / runtime 还 COPY apps/cli/biu），
 	@# 窄 context（../../services/<name>）取不到这些路径会 COPY 失败。
 	@# 每项格式 image:dir —— 仅 app_center 目录名与镜像名(app-center)不一致；
-	@# 只列**已有 Dockerfile** 的服务（presence/billing/channels 尚未实现，
-	@# 有了 Dockerfile 再加进来）。
+	@# 只列**compose 里用到且有 Dockerfile** 的服务（sandbox/deploy 有
+	@# Dockerfile 但不在 compose；presence/billing 尚未实现）。
 	@set -e; for pair in \
-	  aigc:aigc app-center:app_center authz:authz brain:brain identity:identity \
+	  aigc:aigc app-center:app_center authz:authz brain:brain channels:channels identity:identity \
 	  model-relay:model-relay realtime:realtime runtime:runtime; do \
 	  img=$${pair%%:*}; dir=$${pair##*:}; \
 	  echo "→ building $$img (services/$$dir)"; \

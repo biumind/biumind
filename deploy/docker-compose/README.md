@@ -43,7 +43,7 @@ make clean         # 停容器 + 删 volume（⚠️ 数据全清）
 |---------|------|------|
 | `infra` (默认) | postgres / redis / minio / nats | 本地开发：服务在宿主机跑，依赖在容器 |
 | `services` | model-relay / runtime / brain / identity / presence / billing / channels | 服务也在容器跑（CI / demo） |
-| `workers` | python ingest / embed / vision | 文档摄入流水线 |
+| `workers` | python ingest / wiki-parse / aigc | 文档摄入 / AIGC 任务（向量化、视觉描述、图抽取已内建于 brain） |
 | `all` | 上面全部 | 完整测试栈 |
 
 例：
@@ -120,7 +120,16 @@ make build-images
 docker build -t biumind/model-relay:dev -f services/model-relay/Dockerfile services/model-relay
 ```
 
-CI 自动推到 `ghcr.io/biumind/<svc>:<sha>`。
+CI（`.github/workflows/release-images.yml`）发布**全部业务镜像**——10 个 Go 服务
+（含 channels/sandbox/deploy）+ 4 个前端（site/web-client/admin-web/miniapp-h5）
++ 4 个 worker（worker-ingest/worker-wiki-parse/aigc-worker/worker-wiki-llm）——
+到 `ghcr.io/biumind/<name>`（`:sha-<short7>` + `:main`，release tag 时 `:v*` + `:latest`）。
+镜像名与本目录 compose 的 `image:` 字段一一对应。
+
+**纯拉取部署（不本地构建）**：`.env` 设 `BIUMIND_REGISTRY=ghcr.io/biumind` +
+`BIUMIND_TAG=main`（或 release 版本号），然后 `docker compose --profile all pull`
+再 `make up` 即可。前提：GHCR package 需设为 public 才能匿名拉取；国内可配
+CI 的 Aliyun ACR vars/secrets 同步推送后改指 ACR。
 
 ---
 

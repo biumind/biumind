@@ -1,31 +1,40 @@
 # Release images — push container images to multiple registries.
 #
 # Registries (all optional except GHCR; presence-gated by vars/secrets):
-#   * GHCR (always)      → ghcr.io/biumind/<service>
-#   * Docker Hub         → docker.io/<DOCKERHUB_NAMESPACE>/<service>
+#   * GHCR (always)      → ghcr.io/biumind/<name>
+#   * Docker Hub         → docker.io/<DOCKERHUB_NAMESPACE>/<name>
 #                          needs vars.DOCKERHUB_NAMESPACE
 #                               + secrets.DOCKERHUB_USERNAME / _TOKEN
-#   * Aliyun ACR (个人版) → <ALIYUN_REGISTRY>/<ALIYUN_NAMESPACE>/<service>
-#                          e.g. registry.cn-hangzhou.aliyuncs.com/biumind/<service>
+#   * Aliyun ACR (个人版) → <ALIYUN_REGISTRY>/<ALIYUN_NAMESPACE>/<name>
+#                          e.g. registry.cn-hangzhou.aliyuncs.com/biumind/<name>
 #                          needs vars.ALIYUN_REGISTRY / _NAMESPACE
 #                               + secrets.ALIYUN_USERNAME / _PASSWORD
 # A missing namespace/secret silently skips that registry, so GHCR
 # always works and the others are clean opt-in.
 #
+# 镜像清单（19 个，与 deploy/docker-compose/docker-compose.yml 的 image 名一致，
+# 私有化部署设 BIUMIND_REGISTRY=ghcr.io/biumind 即可纯拉取）:
+#   * 11 Go 服务: identity / model-relay / brain / runtime / realtime /
+#     app-center / aigc / authz / channels / sandbox / deploy
+#   * 4 前端:     site / web-client / admin-web / miniapp-h5
+#   * 4 worker:   worker-ingest / worker-wiki-parse / aigc-worker /
+#     worker-wiki-llm（wiki-llm 不在 compose，按需取用）
+#
 # Triggered by:
-#   * Push to `main` — CI build of all 10 service images, tagged
+#   * Push to `main` — CI build of ALL images above, tagged
 #     `:sha-<short>` (immutable, per-commit) + `:main` (rolling).
 #     Trivy-gated; NOT signed (release-only).
 #   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
-#     all 10 service images so they share a version tag and digest
-#     table.
-#   * `<svc>-v*` tag (e.g. `model-relay-v0.3.1`, `brain-v0.4.0`) — single-
-#     service hotfix release; only the matching image is built.
+#     all images so they share a version tag and digest table.
+#   * `<name>-v*` tag (e.g. `model-relay-v0.3.1`, `web-client-v0.4.0`) —
+#     single-image hotfix release; only the matching image is built.
+#     The tag prefix MUST equal the matrix row `name`.
 #   * Manual workflow_dispatch with a `service` input — push just one.
 #
-# Each image is built FROM SCRATCH using the per-service Dockerfile
-# (services/<name>/Dockerfile). Multi-arch (linux/amd64 + linux/arm64)
-# via buildx; one build pushes every configured registry's tags.
+# Each image is built FROM SCRATCH using its own Dockerfile (see the
+# matrix `dockerfile`/`context` fields). Multi-arch (linux/amd64 +
+# linux/arm64) via buildx unless a row overrides `platforms`;
+# one build pushes every configured registry's tags.
 #
 # Trivy scan runs after each image is built and BLOCKS the push when a
 # CRITICAL vulnerability is found. (Configurable via `severity` input
@@ -37,26 +46,39 @@ name: Release images
 on:
   push:
     branches:
-      # Every commit to main rebuilds all service images tagged
+      # Every commit to main rebuilds all images tagged
       # :sha-<short> + :main (rolling). Release tags below still
       # produce :v* + :latest; the two never collide.
       - main
     tags:
-      # All-services release.
+      # All-images release.
       - "service-v*"
-      # Per-service hotfix tags. Each prefix MUST match a matrix row
-      # below; the filter step extracts the service name from the tag.
+      # Per-image hotfix tags. Each prefix MUST match a matrix row `name`
+      # below; the filter step extracts the image name from the tag
+      # (`${tag%-v*}`, so hyphenated names like `web-client-v1.0.0` work).
       - "identity-v*"
       - "model-relay-v*"
       - "brain-v*"
       - "runtime-v*"
       - "realtime-v*"
-      - "app_center-v*"
+      - "app-center-v*"
+      - "aigc-v*"
       - "authz-v*"
+      - "channels-v*"
+      - "sandbox-v*"
+      - "deploy-v*"
+      - "site-v*"
+      - "web-client-v*"
+      - "admin-web-v*"
+      - "miniapp-h5-v*"
+      - "worker-ingest-v*"
+      - "worker-wiki-parse-v*"
+      - "aigc-worker-v*"
+      - "worker-wiki-llm-v*"
   workflow_dispatch:
     inputs:
       service:
-        description: "Single service to build (empty → all)"
+        description: "Single image to build (empty → all)"
         required: false
         type: choice
         options:
@@ -66,8 +88,20 @@ on:
           - brain
           - runtime
           - realtime
-          - app_center
+          - app-center
+          - aigc
           - authz
+          - channels
+          - sandbox
+          - deploy
+          - site
+          - web-client
+          - admin-web
+          - miniapp-h5
+          - worker-ingest
+          - worker-wiki-parse
+          - aigc-worker
+          - worker-wiki-llm
       severity:
         description: "Trivy fail threshold"
         required: false
@@ -86,7 +120,8 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 行级覆盖：大镜像（Flutter web-client）放宽，其余默认 25min。
+    timeout-minutes: ${{ matrix.timeout || 25 }}
     env:
       # secrets 不能直接出现在 if: 里 — 先在 job env 里折算成布尔字符串。
       HAVE_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
@@ -94,17 +129,68 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service:
-          # 只列仓库里实际有 Dockerfile 的服务（hub/sandbox/channels/
-          # deploy 在公开仓库不存在或无 Dockerfile；hub 的公开名是
-          # model-relay）。
-          - identity
-          - model-relay
-          - brain
-          - runtime
-          - realtime
-          - app_center
-          - authz
+        # 每行字段：
+        #   name       — 镜像名 ghcr.io/biumind/<name>，也是 <name>-v* tag 前缀，
+        #                与 deploy/docker-compose 的 image 名一致
+        #   dockerfile — Dockerfile 路径（相对仓库根）
+        #   context    — build context（默认仓库根 "."；前端/worker 用各自目录，
+        #                与 compose build.context 对齐）
+        #   platforms  — 默认 linux/amd64,linux/arm64
+        #   timeout    — 默认 25min
+        include:
+          # ── Go 服务（context = 仓库根：Dockerfile 要 COPY packages/go-sdk/biu）
+          - name: identity
+            dockerfile: services/identity/Dockerfile
+          - name: model-relay
+            dockerfile: services/model-relay/Dockerfile
+          - name: brain
+            dockerfile: services/brain/Dockerfile
+          - name: runtime
+            dockerfile: services/runtime/Dockerfile
+          - name: realtime
+            dockerfile: services/realtime/Dockerfile
+          - name: app-center          # 目录名 app_center，镜像名与 compose 对齐
+            dockerfile: services/app_center/Dockerfile
+          - name: aigc
+            dockerfile: services/aigc/Dockerfile
+          - name: authz
+            dockerfile: services/authz/Dockerfile
+          - name: channels
+            dockerfile: services/channels/Dockerfile
+          - name: sandbox
+            dockerfile: services/sandbox/Dockerfile
+          - name: deploy
+            dockerfile: services/deploy/Dockerfile
+          # ── 前端（context = 各自目录，与 compose build 段一致；site 例外 = 仓库根）
+          - name: site
+            dockerfile: web/site/Dockerfile
+          - name: web-client
+            dockerfile: apps/client/Dockerfile.web
+            context: apps/client
+            # Flutter Web 构建：SDK tar ~1.5GB + dart 编译，QEMU arm64 会慢到
+            # 不现实（且可能失败）。产物是纯静态文件，amd64 镜像在 arm64 机器
+            # 上可经 QEMU 运行 nginx，不值得为它付出双架构构建成本。
+            platforms: linux/amd64
+            timeout: 60
+          - name: admin-web
+            dockerfile: admin/Dockerfile
+            context: admin
+          - name: miniapp-h5
+            dockerfile: apps/miniapp/Dockerfile.h5
+            context: apps/miniapp
+          # ── Python workers（context = 各自目录）
+          - name: worker-ingest
+            dockerfile: workers/ingest/Dockerfile
+            context: workers/ingest
+          - name: worker-wiki-parse
+            dockerfile: workers/wiki-parse/Dockerfile
+            context: workers/wiki-parse
+          - name: aigc-worker         # compose 里 image 名是 aigc-worker（非 worker-aigc）
+            dockerfile: workers/aigc/Dockerfile
+            context: workers/aigc
+          - name: worker-wiki-llm     # 不在 compose，按 worker-* 约定命名
+            dockerfile: workers/wiki-llm/Dockerfile
+            context: workers/wiki-llm
 
     steps:
       - uses: actions/checkout@v4
@@ -112,9 +198,9 @@ jobs:
       # Skip rules:
       #   1. workflow_dispatch with a `service` input that doesn't match
       #      this matrix row.
-      #   2. Per-service tag (e.g. `hub-v0.3.0`) that doesn't match this
-      #      matrix row. The `service-v*` tag and a `main` branch push
-      #      are both "all services", so they never skip.
+      #   2. Per-image tag (e.g. `web-client-v0.3.0`) that doesn't match
+      #      this matrix row. The `service-v*` tag and a `main` branch push
+      #      are both "all images", so they never skip.
       - name: Filter
         id: filt
         run: |
@@ -122,16 +208,16 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             want_service="${{ inputs.service }}"
           elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
-            # Branch push (e.g. main) — build ALL services, like the
+            # Branch push (e.g. main) — build ALL images, like the
             # `service-v*` tag. want_service stays empty.
             :
           elif [[ "$GITHUB_REF_NAME" != service-v* ]]; then
-            # Tag format is "<service>-v<version>" — extract before the
-            # last "-v". Use parameter expansion so we don't fork awk.
+            # Tag format is "<name>-v<version>" — strip the last "-v*" so
+            # hyphenated names (web-client, worker-wiki-parse, …) survive.
             tag="$GITHUB_REF_NAME"
             want_service="${tag%-v*}"
           fi
-          if [ -n "$want_service" ] && [ "$want_service" != "${{ matrix.service }}" ]; then
+          if [ -n "$want_service" ] && [ "$want_service" != "${{ matrix.name }}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -175,15 +261,15 @@ jobs:
         if: steps.filt.outputs.skip == 'false'
         id: ver
         env:
-          SVC: ${{ matrix.service }}
+          SVC: ${{ matrix.name }}
           DOCKERHUB_NS: ${{ vars.DOCKERHUB_NAMESPACE }}
           ALIYUN_REG: ${{ vars.ALIYUN_REGISTRY }}
           ALIYUN_NS: ${{ vars.ALIYUN_NAMESPACE }}
         run: |
           # 1. version suffix(es) for this trigger
           if [[ "$GITHUB_REF_NAME" == *-v* ]]; then
-            #   service-v0.3.0 → v0.3.0 (all services, same version)
-            #   hub-v0.3.1     → v0.3.1 (hub-only hotfix)
+            #   service-v0.3.0    → v0.3.0 (all images, same version)
+            #   web-client-v0.3.1 → v0.3.1 (web-client-only hotfix)
             v="v${GITHUB_REF_NAME##*-v}"
             vers=("$v" "latest")
           elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
@@ -215,12 +301,13 @@ jobs:
         if: steps.filt.outputs.skip == 'false'
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: services/${{ matrix.service }}/Dockerfile
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
           # AMD64 only for the scan stage — Trivy scans the same layers
           # whether they're amd64 or arm64; doing both wastes 5 minutes.
+          # (web-client is amd64-only anyway, see its matrix row.)
           platforms: linux/amd64
-          tags: ghcr.io/biumind/${{ matrix.service }}:scan-${{ github.run_id }}
+          tags: ghcr.io/biumind/${{ matrix.name }}:scan-${{ github.run_id }}
           load: true       # load into local docker for trivy to read
           push: false
 
@@ -228,23 +315,23 @@ jobs:
         if: steps.filt.outputs.skip == 'false'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/biumind/${{ matrix.service }}:scan-${{ github.run_id }}
+          image-ref: ghcr.io/biumind/${{ matrix.name }}:scan-${{ github.run_id }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
           severity: ${{ inputs.severity || 'CRITICAL' }}
           vuln-type: "os,library"
 
-      # Once Trivy has cleared the scan, build for both arches and push
-      # to every configured registry (one build, multi-registry push).
+      # Once Trivy has cleared the scan, build for the row's platforms and
+      # push to every configured registry (one build, multi-registry push).
       - name: Build + push (multi-arch)
         if: steps.filt.outputs.skip == 'false'
         id: pushed
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: services/${{ matrix.service }}/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
           tags: ${{ steps.ver.outputs.tags }}
           push: true
           provenance: true
@@ -265,4 +352,4 @@ jobs:
           DIGEST: ${{ steps.pushed.outputs.digest }}
         run: |
           cosign sign --yes \
-            ghcr.io/biumind/${{ matrix.service }}@${DIGEST}
+            ghcr.io/biumind/${{ matrix.name }}@${DIGEST}

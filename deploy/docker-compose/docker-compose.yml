@@ -688,7 +688,7 @@ services:
       start_period: 10s
 
   # ═══ Python workers（workers profile）══════════════════════════════
-  # 文档摄入 / 向量化 / 视觉描述 / 代码 AST 抽取 / AIGC / wiki-parse
+  # 文档摄入 / AIGC / wiki-parse（向量化、视觉描述、图抽取已内建于 brain）
   # NATS JetStream 收任务，写回 Postgres + MinIO。设计见 DESIGN.md。
 
   # ingest worker：PDF / Word / Markdown / HTML 解析
@@ -703,54 +703,6 @@ services:
       WORKER_CONCURRENCY: 2
       NATS_SUBJECT: biumind.test.brain.ingest.requested
       NATS_DURABLE: ingest-worker
-    networks: [biu-net]
-    depends_on: *worker-depends
-
-  # embed worker：文本/代码向量化
-  worker-embed:
-    profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/worker-embed:${BIUMIND_TAG:-dev}
-    container_name: biu-worker-embed
-    <<: [*restart, *logging]
-    environment:
-      <<: *worker-env
-      WORKER_NAME: embed
-      WORKER_CONCURRENCY: 4
-      EMBED_MODEL: ${EMBED_MODEL:-text-embedding-3-small}
-      EMBED_DIM: 1024
-      NATS_SUBJECT: biumind.test.brain.embed.requested
-      NATS_DURABLE: embed-worker
-    networks: [biu-net]
-    depends_on: *worker-depends
-
-  # vision worker：图片 caption / OCR
-  worker-vision:
-    profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/worker-vision:${BIUMIND_TAG:-dev}
-    container_name: biu-worker-vision
-    <<: [*restart, *logging]
-    environment:
-      <<: *worker-env
-      WORKER_NAME: vision
-      WORKER_CONCURRENCY: 2
-      VISION_MODEL: ${VISION_MODEL:-claude-haiku-4-5}
-      NATS_SUBJECT: biumind.test.brain.vision.requested
-      NATS_DURABLE: vision-worker
-    networks: [biu-net]
-    depends_on: *worker-depends
-
-  # extract worker：代码 AST（tree-sitter）+ 知识图谱抽取
-  worker-extract:
-    profiles: [workers, all]
-    image: ${BIUMIND_REGISTRY:-biumind}/worker-extract:${BIUMIND_TAG:-dev}
-    container_name: biu-worker-extract
-    <<: [*restart, *logging]
-    environment:
-      <<: *worker-env
-      WORKER_NAME: extract
-      WORKER_CONCURRENCY: 2
-      NATS_SUBJECT: biumind.test.brain.extract.requested
-      NATS_DURABLE: extract-worker
     networks: [biu-net]
     depends_on: *worker-depends
 

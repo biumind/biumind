@@ -21,7 +21,7 @@
 |---------|------|----------|
 | `infra` | postgres / redis / minio(+bootstrap) / nats | 本地开发：服务在宿主 IDE 跑，依赖在容器 |
 | `services` | 9 Go 服务 + 前端 4 个（site/web-client/admin-web/miniapp-h5） | CI / demo 全栈 |
-| `workers` | 6 Python worker（ingest/embed/vision/extract/aigc/wiki-parse） | 文档摄入流水线 |
+| `workers` | 3 Python worker（ingest/aigc/wiki-parse） | 文档摄入 / AIGC 任务 |
 | `all` | 上面全部 | 完整测试栈 |
 
 Makefile 包了 4 档：`up-infra` / `up` / `up-workers` / `up-all`。
