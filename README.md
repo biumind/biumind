@@ -89,7 +89,7 @@ biumind/
 ├── schema/               # SDK Protocol JSON Schema（sdk/v1）+ 发布 manifest（release/v1）
 ├── sdks/                 # 公共集成 SDK（go / python / node，Apache-2.0）
 ├── extensions/vscode/    # VS Code 扩展
-├── deploy/docker-compose/# 本地全栈：PG / Redis / MinIO / NATS + 服务 + workers
+├── deploy/docker-compose/# 本地全栈：PG / MinIO / NATS + 服务 + workers
 └── tools/                # bootstrap / schema 校验 / 架构不变量检查等脚本
 ```
 
@@ -100,7 +100,7 @@ biumind/
 ```bash
 task bootstrap            # 一次性安装依赖（buf / goimports / dart / uv ...）
 
-# 启动本地全栈（PG / Redis / MinIO / NATS + 各服务）
+# 启动本地全栈（PG / MinIO / NATS + 各服务）
 cd deploy/docker-compose
 cp .env.example .env      # ⚠️ 把 *_change_me 占位符全部换成强随机值
 make up-infra && make health   # 只起基础设施；make up / up-all 起完整栈

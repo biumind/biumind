@@ -19,6 +19,10 @@ COPY --from=builder /workspace/services/identity/migrations /etc/biumind/migrati
 RUN sed -i 's|dl-cdn.alpinelinux.org|mirrors.aliyun.com|g' /etc/apk/repositories && \
     adduser -D -u 65532 nonroot && \
     apk add --no-cache ca-certificates wget
+# JWT 签名密钥目录预建并 chown 给 nonroot — named volume 首建继承镜像内属主（DESIGN.md §9）
+RUN mkdir -p /var/lib/biumind/identity && \
+    chown -R 65532:65532 /var/lib/biumind/identity && \
+    chmod 0700 /var/lib/biumind/identity
 USER nonroot
 EXPOSE 7004
 ENTRYPOINT ["/usr/local/bin/identity"]

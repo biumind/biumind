@@ -89,7 +89,7 @@ biumind/
 ├── schema/               # SDK Protocol JSON Schema (sdk/v1) + release manifests (release/v1)
 ├── sdks/                 # Public integration SDKs (go / python / node, Apache-2.0)
 ├── extensions/vscode/    # VS Code extension
-├── deploy/docker-compose/# Local full stack: PG / Redis / MinIO / NATS + services + workers
+├── deploy/docker-compose/# Local full stack: PG / MinIO / NATS + services + workers
 └── tools/                # Bootstrap / schema validation / architecture invariant scripts
 ```
 
@@ -100,7 +100,7 @@ Prerequisites: Go 1.26+, Flutter (stable), buf, uv (Python), Docker.
 ```bash
 task bootstrap            # one-time dependency install (buf / goimports / dart / uv ...)
 
-# Bring up the local full stack (PG / Redis / MinIO / NATS + services)
+# Bring up the local full stack (PG / MinIO / NATS + services)
 cd deploy/docker-compose
 cp .env.example .env      # ⚠️ replace every *_change_me placeholder with a strong random value
 make up-infra && make health   # infra only; use make up / up-all for the full stack

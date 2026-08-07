@@ -11,7 +11,7 @@
 ```bash
 cd deploy/docker-compose
 cp .env.example .env
-make up-infra      # 只起基础设施（Postgres / Redis / MinIO / NATS）
+make up-infra      # 只起基础设施（Postgres / MinIO / NATS）
 # 或
 make up            # 起基础设施 + 所有 BiuMind 服务（需要镜像已 build）
 # 或
@@ -41,7 +41,7 @@ make clean         # 停容器 + 删 volume（⚠️ 数据全清）
 
 | Profile | 包含 | 用途 |
 |---------|------|------|
-| `infra` (默认) | postgres / redis / minio / nats | 本地开发：服务在宿主机跑，依赖在容器 |
+| `infra` (默认) | postgres / minio(+bootstrap) / nats | 本地开发：服务在宿主机跑，依赖在容器 |
 | `services` | model-relay / runtime / brain / identity / presence / billing / channels | 服务也在容器跑（CI / demo） |
 | `workers` | python ingest / wiki-parse / aigc | 文档摄入 / AIGC 任务（向量化、视觉描述、图抽取已内建于 brain） |
 | `all` | 上面全部 | 完整测试栈 |
@@ -81,7 +81,6 @@ deploy/docker-compose/
 |------|---------|----------|------|
 | site（统一入口 nginx） | 80 | **8088** | 客户端入口；`http://localhost:8088`（`/v1/*` 反代各后端） |
 | Postgres | 5432 | 5432 | `psql -h localhost -U biumind` |
-| Redis | 6379 | 6379 | `redis-cli -p 6379` |
 | MinIO | 9000 / 9001 | 9000 / 9001 | API / Console |
 | NATS | 4222 / 8222 | 4222 / 8222 | client / monitor |
 | model-relay | 7001 | 7001 | 仅 `services` profile |
@@ -106,7 +105,7 @@ cd services/model-relay
 go run ./cmd/model-relay --config=../../deploy/docker-compose/configs/model-relay.dev.yaml
 ```
 
-`.env` 里的 `DATABASE_URL` / `REDIS_URL` 等本机直接可用。
+宿主机跑的服务自行 export 连接串（host 侧用 localhost 端口，如 `DATABASE_URL=postgres://biumind:<密码>@localhost:5432/biu_core?sslmode=disable`；compose 内的服务由 compose 自动注入，不用管）。
 
 ---
 
@@ -160,7 +159,7 @@ A: compose 已不带 SearxNG。自行部署一个实例后，在 `.env` 设 `SEA
 A: `ulimit -n 65536` 或 Docker Desktop 设置里调高。
 
 **Q: 想接入真实 LLM provider 测试**
-A: 在 `.env` 设 `BIUMIND_OPENAI_KEY` / `BIUMIND_ANTHROPIC_KEY`，model-relay 启动时进 platform pool。
+A: 部署后进管理后台「模型配置」填 key（envelope 加密落库 `model_relay.credentials`）；dev 兜底也可在 `.env` 设 `BIUMIND_ANTHROPIC_KEY`（brain/runtime 直连用）。
 
 **Q: 想搞懂某段配置为什么这么写（端口冲突 / init container / 三套 bearer secret / 单 origin 路由）**
 A: 看 `DESIGN.md`，compose 文件里只留 1 行陷阱指针回指它。

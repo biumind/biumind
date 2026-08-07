@@ -10,7 +10,7 @@ Thank you for your interest in contributing to BiuMind!
 
 ```bash
 task bootstrap         # 一次性安装依赖（buf / goimports / dart / uv ...）
-make up-infra          # cd deploy/docker-compose && make up-infra  起本地 PG/Redis/MinIO/NATS
+make up-infra          # cd deploy/docker-compose && make up-infra  起本地 PG/MinIO/NATS
 task proto:generate    # buf 生成 Go / Dart / TS
 task model-relay:run   # 起模型网关
 task cli:install       # biu CLI 装到 ~/.local/bin

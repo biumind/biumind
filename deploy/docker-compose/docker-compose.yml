@@ -29,7 +29,6 @@ x-svc-env: &svc-env
   BIUMIND_ENV: ${BIUMIND_ENV:-test}
   BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
   DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
-  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
   NATS_URL: nats://nats:4222
   S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
@@ -44,8 +43,6 @@ x-svc-env: &svc-env
 
 x-svc-depends: &svc-depends
   postgres:
-    condition: service_healthy
-  redis:
     condition: service_healthy
   nats:
     condition: service_healthy
@@ -105,7 +102,6 @@ networks:
 
 volumes:
   postgres-data:
-  redis-data:
   minio-data:
   nats-data:
   # Identity RSA 签名密钥 — 首启生成 0600，后续复用保 token 有效（DESIGN.md §9）
@@ -140,33 +136,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-
-  # Redis 7（缓存 / 限流 / Presence TTL）
-  redis:
-    profiles: [infra, services, all]
-    image: ${INFRA_REGISTRY:-docker.io}/library/redis:7-alpine
-    container_name: biu-redis
-    <<: [*restart, *logging]
-    command:
-      - redis-server
-      - --requirepass
-      - ${REDIS_PASSWORD:-biumind_redis_dev}
-      - --maxmemory
-      - "256mb"
-      - --maxmemory-policy
-      - allkeys-lru
-      - --appendonly
-      - "yes"
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis-data:/data
-    networks: [biu-net]
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-biumind_redis_dev}", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
 
   # MinIO（对象存储：原始文档 / 媒体 / 构建产物）
   minio:
@@ -299,24 +268,7 @@ services:
       interval: 10s
       retries: 5
 
-  # Identity（用户/团队/认证）— init container 先 chown volume 给 nonroot UID 65532（DESIGN.md §9）
-  identity-init:
-    profiles: [services, all]
-    image: ${INFRA_REGISTRY:-docker.io}/library/alpine:3.20
-    container_name: biu-identity-init
-    user: root
-    volumes:
-      - identity-keys:/var/lib/biumind/identity
-    command:
-      - sh
-      - -c
-      - |
-        mkdir -p /var/lib/biumind/identity
-        chown -R 65532:65532 /var/lib/biumind/identity
-        chmod 0700 /var/lib/biumind/identity
-    restart: "no"
-    networks: [biu-net]
-
+  # Identity（用户/团队/认证）— 密钥目录由镜像预建并 chown，volume 首建继承属主（DESIGN.md §9）
   identity:
     profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-biumind}/identity:${BIUMIND_TAG:-dev}
@@ -366,8 +318,6 @@ services:
     networks: [biu-net]
     depends_on:
       <<: *svc-depends
-      identity-init:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:7004/healthz"]
       interval: 10s
@@ -399,7 +349,7 @@ services:
       # B-1: gating /v1/internal/embeddings（brain embedder 平台池）— 与 brain 同值（DESIGN.md §5）
       MODEL_RELAY_INTERNAL_TOKEN: ${MODEL_RELAY_INTERNAL_TOKEN:-biumind-dev-relay-internal-token-change-me}
     ports:
-      - "${HUB_PORT:-7001}:7001"
+      - "${MODEL_RELAY_PORT:-7001}:7001"
     networks: [biu-net]
     depends_on:
       <<: *svc-depends
@@ -440,8 +390,8 @@ services:
       AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
       # Files / MinIO — artifacts L3 通道。缺任一字段不 mount /v1/files/*（L1+L2 不受影响）
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
-      MINIO_ACCESS_KEY: ${POSTGRES_USER:-biumind}
-      MINIO_SECRET_KEY: ${BIUMIND_MINIO_PASSWORD:-biumind_minio_dev}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
       MINIO_BUCKET: biumind-files
       FILES_MAX_UPLOAD_BYTES: "104857600"  # 100MB
       # Wiki block events → JetStream durable（DESIGN.md §17）
@@ -483,7 +433,6 @@ services:
       AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
       # Skills-stdlib 启动时 upsert 到 runtime.skills（source='bundled'）
       SKILLS_STDLIB_DIR: /etc/biumind/skills-stdlib
-      SANDBOX_URL: http://sandbox:7005
     ports:
       - "${RUNTIME_PORT:-7002}:7002"
     networks: [biu-net]
@@ -701,7 +650,7 @@ services:
       <<: *worker-env
       WORKER_NAME: ingest
       WORKER_CONCURRENCY: 2
-      NATS_SUBJECT: biumind.test.brain.ingest.requested
+      NATS_SUBJECT: biumind.${BIUMIND_ENV:-test}.brain.ingest.requested
       NATS_DURABLE: ingest-worker
     networks: [biu-net]
     depends_on: *worker-depends

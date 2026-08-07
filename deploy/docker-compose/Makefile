@@ -16,7 +16,7 @@ help: ## 显示这份帮助
 
 # ─── 启动 ────────────────────────────────────────────
 .PHONY: up-infra
-up-infra: check-env ## 拉起基础设施（postgres/redis/minio/nats）
+up-infra: check-env ## 拉起基础设施（postgres/minio/nats）
 	$(COMPOSE) --profile infra up -d
 	@$(MAKE) wait-healthy
 
@@ -66,7 +66,7 @@ tail: ## 跟某个服务: make tail SVC=model-relay
 
 .PHONY: health
 health: ## 调每个服务的 /healthz
-	@for port in 7001 7002 7003 7004 7005 7006 7007 7008 7009; do \
+	@for port in 7001 7002 7003 7004 7007 7008 7009; do \
 	  printf "port %s: " $$port; \
 	  curl -sf -m 2 http://localhost:$$port/healthz 2>/dev/null && echo " ok" || echo " unhealthy"; \
 	done
@@ -108,16 +108,12 @@ authz-eval: ## 测一条 authz 决策: make authz-eval PRINCIPAL=user:u1 ACTION=
 
 .PHONY: pull-images
 pull-images: ## 拉外部依赖镜像（infra）
-	$(COMPOSE) pull postgres redis minio nats
+	$(COMPOSE) pull postgres minio nats
 
 # ─── 数据库 ──────────────────────────────────────────
 .PHONY: psql
 psql: ## 进 postgres shell
 	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-biumind} -d $${POSTGRES_DB:-biu_core}
-
-.PHONY: redis-cli
-redis-cli: ## 进 redis shell
-	$(COMPOSE) exec redis redis-cli -a $${REDIS_PASSWORD}
 
 .PHONY: backup-pg
 backup-pg: ## 备份 Postgres 到 ./backups/

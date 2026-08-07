@@ -19,7 +19,7 @@
 
 | Profile | 内容 | 典型用法 |
 |---------|------|----------|
-| `infra` | postgres / redis / minio(+bootstrap) / nats | 本地开发：服务在宿主 IDE 跑，依赖在容器 |
+| `infra` | postgres / minio(+bootstrap) / nats | 本地开发：服务在宿主 IDE 跑，依赖在容器 |
 | `services` | 9 Go 服务 + 前端 4 个（site/web-client/admin-web/miniapp-h5） | CI / demo 全栈 |
 | `workers` | 3 Python worker（ingest/aigc/wiki-parse） | 文档摄入 / AIGC 任务 |
 | `all` | 上面全部 | 完整测试栈 |
@@ -33,10 +33,9 @@ Makefile 包了 4 档：`up-infra` / `up` / `up-workers` / `up-all`。
 `depends_on: condition: service_healthy` 串成链：
 
 ```
-postgres / redis / nats  (healthcheck 过)
+postgres / nats  (healthcheck 过)
     └─→ minio-bootstrap  (one-shot 建 8 bucket, service_completed_successfully)
           └─→ authz / identity / realtime / model-relay / brain / runtime / aigc
-                ├─→ identity-init  (chown volume → identity, 见 §9)
                 ├─→ brain depends_on model-relay
                 │     └─→ runtime depends_on brain
                 │           └─→ app-center depends_on identity+realtime+authz
@@ -54,7 +53,7 @@ postgres / redis / nats  (healthcheck 过)
 
 实际链：
 
-1. **base 内联**（`x-svc-env` / `x-worker-env` anchor 复用）——服务间通信用 docker hostname（`postgres:5432` / `redis:6379` / `nats:4222` / `minio:9000` / `identity:7004` …）。`${VAR:-default}` 形式从 `.env` 插值。
+1. **base 内联**（`x-svc-env` / `x-worker-env` anchor 复用）——服务间通信用 docker hostname（`postgres:5432` / `nats:4222` / `minio:9000` / `identity:7004` …）。`${VAR:-default}` 形式从 `.env` 插值。
 2. **`.env` 文件**（compose 同目录自动读）——密钥 / 端口 / 可调参。
 3. **shell export**（Jenkins `deploy-local.sh`）——`BIUMIND_REGISTRY` / `BIUMIND_TAG` 覆盖镜像源，优先级最高。
 
@@ -80,7 +79,7 @@ dev 全是 `biumind-dev-*-change-me`，prod 必换。同名变量在多个服务
 
 | 变量 | 作用 | dev | prod / 内网 |
 |------|------|-----|-------------|
-| `INFRA_REGISTRY` | 基础设施镜像前缀（postgres/redis/minio/nats/…） | `docker.io` | `docker.io`（build-host 拉不动 docker.io） |
+| `INFRA_REGISTRY` | 基础设施镜像前缀（postgres/minio/nats/…） | `docker.io` | `docker.io`（build-host 拉不动 docker.io） |
 | `BIUMIND_REGISTRY` | 业务镜像前缀（9 Go 服务 + worker + 前端） | `biumind`（本地 build tag） | `registry.your-domain.com/biumind`（ACR） |
 
 `BIUMIND_TAG` 控制版本（dev `:dev`，CI `:sha8`）。
@@ -120,11 +119,11 @@ web-client / admin-web / miniapp-h5 **不绑 host port**，只经 site nginx 暴
 
 ---
 
-## 9. identity-init：为何要 chown volume
+## 9. identity 密钥目录：镜像预建 + volume 首建继承属主
 
 docker daemon 初始化新 named volume 默认 `root:root 0755`。identity 镜像按安全策略跑 **nonroot（UID 65532）**，首启写 RSA 签名密钥（`/var/lib/biumind/identity/jwt-signing-key.pem`）会 `permission denied` → crash-loop（Jenkins build-host runner 实测复现）。
 
-解法：one-shot `identity-init`（alpine, `user: root`）先 `chown -R 65532:65532` + `chmod 0700`，跑完即退（`restart: "no"`）。identity `depends_on identity-init: service_completed_successfully`。后续 boot chown 是 no-op（已 65532），代价可忽略。
+解法：identity 镜像构建时预建 `/var/lib/biumind/identity` 并 `chown 65532:65532` + `chmod 0700`（见 `services/identity/Dockerfile`）。**named volume 首次创建时继承镜像内该路径的内容和属主**，因此无需 init container；后续 boot 直接复用已有 volume。
 
 RSA 密钥首启自动生成（4096-bit，0600），后续 boot 复用——保证签发的 token 跨重启有效。
 
@@ -171,7 +170,7 @@ brain 的 websearch 是**可选**能力：`SEARXNG_URL` 缺省时 brain 照常�
 
 命名 volume（`biumind` project 前缀）：
 
-- `postgres-data` / `redis-data` / `minio-data` / `nats-data`
+- `postgres-data` / `minio-data` / `nats-data`
 - `identity-keys` —— RSA 签名密钥（§9）
 - `app-center-data` —— 内置 tasks App 文件持久化（JSON fsync 单文件，刻意不进 DB）
 
