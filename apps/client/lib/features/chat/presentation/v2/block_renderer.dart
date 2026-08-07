@@ -1,8 +1,8 @@
 // BlockRenderer —— Chat 重构 R5。
 //
 // 把 [Block] sealed class dispatch 到对应 widget。R5 升级：
-//   - TextBlock：assistant 走 ChatMarkdownView（GptMarkdown 富文本 + 代码 +
-//     mermaid + math + svg + table），user 走 Text (SelectionArea 内可选中)
+//   - TextBlock：assistant / user 统一走 ChatMarkdownView（富文本 + 代码 +
+//     mermaid + math + svg + table），system 走纯 Text
 //   - ToolUseBlock：折叠卡，默认折叠；点 header 展开看参数
 //   - ToolResultBlock：折叠卡，默认折叠；展开看 monospace 输出
 //   - ImageBlock：点开看大图
@@ -70,15 +70,15 @@ class _TextBlockView extends StatelessWidget {
         ),
       );
     }
-    // user / system 走纯文本（用户输入不期待 markdown 渲染）；assistant /
-    // tool_result 走富文本管线。assistant 还会先扫一遍 `<think>` 标签拆段。
+    // user / assistant / tool_result 统一走富文本管线 (markdown 渲染一致);
+    // system 仍是纯文本。assistant 还会先扫一遍 `<think>` 标签拆段。
     Widget body;
-    if (role == MessageRole.user || role == MessageRole.system) {
+    if (role == MessageRole.system) {
       body = Text(
         text,
         style: Theme.of(context).textTheme.bodyMedium,
       );
-    } else if (hasReasoningTag(text)) {
+    } else if (role == MessageRole.assistant && hasReasoningTag(text)) {
       // 推理模型 (deepseek-r1 / glm-thinking / qwen-r1 / gpt-oss 等) 用
       // `<think>...</think>` 包裹推理过程。拆段渲染:reasoning 段进折叠面板,
       // text 段走普通 markdown。
