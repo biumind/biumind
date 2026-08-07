@@ -214,8 +214,6 @@ class ChatSyncService {
       if (page.length < messagePageSize) break;
       after = page.last.position;
     }
-    if (remote.isEmpty) return (fetched: 0, written: 0);
-
     final locals = await repo.listMessagesOnce(threadId);
     final byId = {for (final l in locals) l.id: l};
     final matched = <String>{}; // 已被去重消费掉的本地 message id
@@ -282,6 +280,24 @@ class ChatSyncService {
       );
       if (changed) written++;
     }
+
+    // 服务端为准：本地存在、服务端已无、且非本机在途的 message → 删。
+    // 在途（pending/streaming/failed）是本机刚发、服务端尚未 terminal 的
+    // 行，绝不能当孤儿删 —— 与上面 upsert 处的同一守卫一致。
+    const inFlight = {
+      MessageStatus.pending,
+      MessageStatus.streaming,
+      MessageStatus.failed,
+    };
+    final orphans = locals
+        .where((l) => !matched.contains(l.id) && !inFlight.contains(l.status))
+        .map((l) => l.id)
+        .toList(growable: false);
+    if (orphans.isNotEmpty) {
+      await repo.deleteMessages(orphans);
+      _log.fine('_pullMessages: reconciled ${orphans.length} orphan(s) in $threadId');
+    }
+
     return (fetched: remote.length, written: written);
   }
 

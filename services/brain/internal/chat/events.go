@@ -29,6 +29,7 @@ const (
 	EventMessageCreated = "chat.message_created"
 	EventThreadUpdated  = "chat.thread_updated"
 	EventThreadDeleted  = "chat.thread_deleted"
+	EventMessageDeleted = "chat.message_deleted"
 )
 
 // emitEvent inserts a brain.events row inside tx. Mirrors wiki
