@@ -12,8 +12,8 @@ use (
 	./services/brain
 	./services/channels
 	./services/deploy
-	./services/model-relay
 	./services/identity
+	./services/model-relay
 	./services/realtime
 	./services/runtime
 	./services/sandbox

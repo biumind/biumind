@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 storage = [
   "boto3>=1.34,<2",        # MinIO / S3 SDK
-  "Pillow>=10,<12",         # 缩略图派生
+  "Pillow>=12,<13",         # 缩略图派生 (12.x 修多个 HIGH CVE)
   "ffmpeg-python>=0.2,<1",  # 视频探测 + cover 抽取
   "blurhash-python>=1.2,<2",
 ]
@@ -31,7 +31,7 @@ hotparse = [
 ]
 all = [
   "boto3>=1.34,<2",
-  "Pillow>=10,<12",
+  "Pillow>=12,<13",
   "ffmpeg-python>=0.2,<1",
   "blurhash-python>=1.2,<2",
   "yt-dlp>=2024.12",
