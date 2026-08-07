@@ -303,4 +303,84 @@ func TestSyncDisabledThreadEmitsNothing(t *testing.T) {
 	}
 }
 
+func TestMessageDeleteSyncEvents(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := uuid.New()
+
+	thread, err := s.CreateThread(ctx, CreateThreadInput{
+		UserID: uid, Title: "msgdel", SyncEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	defer wipeChatEvents(t, s, uid)
+	defer s.DeleteThread(ctx, uid, thread.ID)
+
+	asst, err := s.CreateMessage(ctx, CreateMessageInput{
+		ThreadID: thread.ID, UserID: uid,
+		Role: RoleAssistant, Content: "hi", Status: StatusSuccess,
+	})
+	if err != nil {
+		t.Fatalf("create msg: %v", err)
+	}
+
+	// 隔离:丢掉 message_created 事件,只断言删除事件。
+	wipeChatEvents(t, s, uid)
+
+	if err := s.DeleteMessage(ctx, uid, asst.ID); err != nil {
+		t.Fatalf("delete msg: %v", err)
+	}
+	evs := chatEvents(t, s, uid)
+	if len(evs) != 1 || evs[0].Type != EventMessageDeleted {
+		t.Fatalf("events after message delete: %+v", evs)
+	}
+	if evs[0].Payload["message_id"] != asst.ID.String() ||
+		evs[0].Payload["thread_id"] != thread.ID.String() {
+		t.Errorf("message_deleted payload: %+v", evs[0].Payload)
+	}
+
+	// 幂等 not-found:二次删返 ErrNotFound 且不再发事件。
+	if err := s.DeleteMessage(ctx, uid, asst.ID); err != ErrNotFound {
+		t.Errorf("second delete want ErrNotFound, got %v", err)
+	}
+	if evs := chatEvents(t, s, uid); len(evs) != 1 {
+		t.Errorf("second delete should not emit, got %+v", evs)
+	}
+}
+
+func TestMessageDeleteSyncDisabled(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := uuid.New()
+
+	thread, err := s.CreateThread(ctx, CreateThreadInput{
+		UserID: uid, Title: "private", SyncEnabled: false,
+	})
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	defer wipeChatEvents(t, s, uid)
+	defer s.DeleteThread(ctx, uid, thread.ID)
+
+	asst, err := s.CreateMessage(ctx, CreateMessageInput{
+		ThreadID: thread.ID, UserID: uid,
+		Role: RoleAssistant, Content: "secret", Status: StatusSuccess,
+	})
+	if err != nil {
+		t.Fatalf("create msg: %v", err)
+	}
+	wipeChatEvents(t, s, uid)
+
+	if err := s.DeleteMessage(ctx, uid, asst.ID); err != nil {
+		t.Fatalf("delete msg: %v", err)
+	}
+	// sync_enabled=false 必须噤声总线 —— 无 message_deleted 事件。
+	if evs := chatEvents(t, s, uid); len(evs) != 0 {
+		t.Fatalf("sync_enabled=false message delete emitted: %+v", evs)
+	}
+}
+
 func pBool(b bool) *bool { return &b }

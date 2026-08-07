@@ -148,6 +148,20 @@ class ChatEventsListener {
         unawaited(repo.deleteThreads([tid]).catchError((Object e) {
           _log.warning('thread_deleted $tid local delete failed: $e');
         }));
+      case 'chat.message_deleted':
+        // 他端删了单条 message —— 直接本地级联删（blocks + reactions），
+        // 与 thread_deleted 同理；服务端为准。desync/漏事件由 syncThread
+        // 对账兜底（_pullMessages 删本地孤儿）。
+        final inner =
+            (frame.payload['data'] as Map?)?.cast<String, dynamic>() ??
+            frame.payload;
+        final mid = inner['message_id']?.toString();
+        if (mid == null || mid.isEmpty) return;
+        final repo =
+            _resolveService()?.repo ?? ChatRepo(_ref.read(appDbProvider));
+        unawaited(repo.deleteMessages([mid]).catchError((Object e) {
+          _log.warning('message_deleted $mid local delete failed: $e');
+        }));
       default:
         // 未知 kind 忽略 —— 前向兼容（服务端后续加新事件类型不崩）。
         break;

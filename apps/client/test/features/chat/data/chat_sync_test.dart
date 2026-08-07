@@ -698,4 +698,38 @@ void main() {
     expect(r3.messagesFetched, 0);
     expect(r3.threadsSkipped, 1);
   });
+
+  test('对账:本地有服务端无的 message 删掉,in-flight 保留', () async {
+    // 服务端为准:服务端已无的本地 message 应被对账删除,但本机在途
+    // (pending/streaming/failed)是刚发、服务端尚未 terminal 的,绝不能删。
+    final t = DateTime.utc(2026, 7, 1, 12);
+    brain.addThread(_threadJson(id: 't1', title: 't1', updatedAt: t));
+    // 注意:brain 不给 t1 任何 message —— 本地这三条全是「服务端没有」的。
+
+    await repo.createThread(id: 't1', mode: ThreadMode.chat, title: 't1');
+    await repo.appendMessage(
+      id: 'orphan',
+      threadId: 't1',
+      role: MessageRole.user,
+      status: MessageStatus.completed, // 非在途 → 孤儿 → 删
+    );
+    await repo.appendMessage(
+      id: 'pending1',
+      threadId: 't1',
+      role: MessageRole.user,
+      status: MessageStatus.pending, // 在途 → 保留
+    );
+    await repo.appendMessage(
+      id: 'streaming1',
+      threadId: 't1',
+      role: MessageRole.assistant,
+      status: MessageStatus.streaming, // 在途 → 保留
+    );
+
+    await makeSvc().syncThread('t1');
+
+    expect(await repo.getMessage('orphan'), isNull, reason: '孤儿 message 应被对账删除');
+    expect(await repo.getMessage('pending1'), isNotNull, reason: 'pending 在途 message 必须保留');
+    expect(await repo.getMessage('streaming1'), isNotNull, reason: 'streaming 在途 message 必须保留');
+  });
 }

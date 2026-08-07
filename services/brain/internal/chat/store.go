@@ -744,16 +744,41 @@ func (s *Store) UpdateMessage(ctx context.Context, in UpdateMessageInput) (*Mess
 }
 
 func (s *Store) DeleteMessage(ctx context.Context, userID, msgID uuid.UUID) error {
-	tag, err := s.pool.Exec(ctx,
-		`DELETE FROM chat.messages WHERE id = $1 AND user_id = $2`,
-		msgID, userID)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	defer tx.Rollback(ctx)
+
+	var threadID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		DELETE FROM chat.messages WHERE id = $1 AND user_id = $2
+		RETURNING thread_id
+	`, msgID, userID).Scan(&threadID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+
+	// thread 仍在（删的是 message）—— 查 sync_enabled 决定是否同 tx 发事件，
+	// 让他端按服务端为准删本地副本（镜像 DeleteThread）。
+	var syncEnabled bool
+	if err := tx.QueryRow(ctx,
+		`SELECT sync_enabled FROM chat.threads WHERE id = $1`,
+		threadID).Scan(&syncEnabled); err != nil {
+		return err
+	}
+	if syncEnabled {
+		if err := emitEvent(ctx, tx, userID, EventMessageDeleted, map[string]any{
+			"thread_id":  threadID.String(),
+			"message_id": msgID.String(),
+		}); err != nil {
+			return fmt.Errorf("message event: %w", err)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // CleanupOrphanStreaming marks any message stuck in `streaming` for

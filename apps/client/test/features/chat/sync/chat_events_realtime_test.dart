@@ -85,6 +85,45 @@ void main() {
     expect(await repo.getThread('t1'), isNotNull);
   });
 
+  test('chat.message_deleted deletes the message locally', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    await repo.appendMessage(
+      id: 'm1',
+      threadId: 't1',
+      role: MessageRole.user,
+      status: MessageStatus.completed,
+    );
+    expect(await repo.getMessage('m1'), isNotNull);
+
+    listener.debugHandleFrame(_frame('chat.message_deleted', {
+      'event_id': 'e1',
+      'event_type': 'chat.message_deleted',
+      'data': {'message_id': 'm1'},
+    }));
+    await flush();
+
+    expect(await repo.getMessage('m1'), isNull);
+  });
+
+  test('chat.message_deleted without message_id is a no-op', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    await repo.appendMessage(
+      id: 'm1',
+      threadId: 't1',
+      role: MessageRole.user,
+      status: MessageStatus.completed,
+    );
+
+    listener.debugHandleFrame(_frame('chat.message_deleted', {
+      'event_id': 'e1',
+      'event_type': 'chat.message_deleted',
+      'data': <String, dynamic>{},
+    }));
+    await flush();
+
+    expect(await repo.getMessage('m1'), isNotNull);
+  });
+
   test('unknown kind is silently ignored', () async {
     await repo.createThread(id: 't1', mode: ThreadMode.chat);
 
