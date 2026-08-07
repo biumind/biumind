@@ -246,7 +246,9 @@ jobs:
         run: |
           set -e
           # Newest existing nightly tag = the previous published build.
-          prev=$(git tag --list 'v*-nightly.*' --sort=-v:refname | sed -n '1p')
+          # Tags are client-nightly.<run_number>; version-sort handles the
+          # numeric run suffix (client-nightly.100 > client-nightly.42).
+          prev=$(git tag --list 'client-nightly.*' --sort=-v:refname | sed -n '1p')
           if [ -n "$prev" ]; then
             range="$prev..HEAD"
             since="Based on changes since \`$prev\`"
@@ -310,6 +312,90 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # ── 镜像到阿里云 OSS (S3 兼容) ──────────────────────────────
+      # GH Release 国内下载慢/不稳; OSS 镜像做中国加速直链。
+      # 布局: <bucket>/nightly/client-nightly.<run>/<asset>
+      #       <bucket>/nightly/index.json   (最新夜版清单, 每次覆盖)
+      # stable 根 + stable releases.json 绝不碰。
+      # presence-gated: 未配 OSS 凭证则 skip, 不 fail
+      # (照搬 release-images.yml 多 registry opt-in 风格)。
+      # mc (S3 兼容) 经 docker 跑 — 与 tools/scripts/upload-release.sh 同模式,
+      # 不引第三方 action (供应链面)。
+      - name: Upload to Aliyun OSS
+        if: vars.OSS_BUCKET != '' && secrets.OSS_ACCESS_KEY_SECRET != ''
+        env:
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          DOWNLOAD_BASE: ${{ vars.RELEASES_DOWNLOAD_BASE }}
+          RUN: ${{ github.run_number }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          ANDROID: ${{ steps.ver.outputs.android_asset }}
+          MACOS: ${{ steps.ver.outputs.macos_asset }}
+        run: |
+          set -eu
+          REL="nightly/client-nightly.${RUN}"
+          # 下载 url 优先 CNAME: 阿里云对 APK 经 OSS endpoint 公网下载返
+          # ApkDownloadForbidden (见 schema/release/v1 manifest.json); CNAME 绕过。
+          # CNAME 未配则退 OSS bucket 域名 + 警告 (dmg 可下, apk 会被拦)。
+          if [ -n "$DOWNLOAD_BASE" ]; then
+            BASE="$DOWNLOAD_BASE"
+          else
+            BASE="https://${OSS_BUCKET}.${OSS_ENDPOINT#https://}"
+            echo "::warning::RELEASES_DOWNLOAD_BASE 未配 — index.json url 用 OSS endpoint, APK 经此域名下载会被阿里云拦截 (ApkDownloadForbidden)。配 CNAME 变量修复。"
+          fi
+          # sha256 + size (与 stable releases.json Asset 字段一致)
+          sha_apk=$(sha256sum "nightly/$ANDROID" | awk '{print $1}')
+          sha_dmg=$(sha256sum "nightly/$MACOS" | awk '{print $1}')
+          size_apk=$(stat -c%s "nightly/$ANDROID")
+          size_dmg=$(stat -c%s "nightly/$MACOS")
+          # nightly/index.json — 夜版 canary 清单。非 v1 releases.json:
+          # envelope 不同 (channel=nightly + run); Asset 对象沿用 v1 Asset
+          # 形状 (platform enum/url/filename/size/sha256/signed/arch),
+          # 客户端 asset 解析代码可复用。客户端开"每日构建"开关后才读。
+          jq -n \
+            --arg version "$VERSION" \
+            --argjson run "$RUN" \
+            --arg releasedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg apk "$ANDROID" --arg dmg "$MACOS" \
+            --arg base "$BASE" --arg rel "$REL" \
+            --arg sha_apk "$sha_apk" --arg sha_dmg "$sha_dmg" \
+            --argjson size_apk "$size_apk" --argjson size_dmg "$size_dmg" \
+            '{
+              manifest: "nightly-canary-v1",
+              channel: "nightly",
+              version: $version,
+              run: $run,
+              releasedAt: $releasedAt,
+              notes: "Automated nightly build — not for production. Unsigned.",
+              assets: [
+                {platform:"android-apk", arch:"universal", signed:false,
+                 url:($base+"/"+$rel+"/"+$apk), filename:$apk, sha256:$sha_apk, size:$size_apk},
+                {platform:"macos-arm64", arch:"arm64", signed:false,
+                 url:($base+"/"+$rel+"/"+$dmg), filename:$dmg, sha256:$sha_dmg, size:$size_dmg}
+              ]
+            }' > index.json
+          echo "--- nightly/index.json ---"
+          cat index.json
+          # 两挂载: nightly/ (二进制) + index.json (清单); 容器内 mc alias + cp。
+          docker run --rm \
+            -v "$PWD/nightly:/artefacts:ro" \
+            -v "$PWD/index.json:/index.json:ro" \
+            -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
+            -e BUCKET="$OSS_BUCKET" -e REL="$REL" \
+            --entrypoint /bin/sh \
+            docker.io/minio/mc:latest -c '
+              set -eu
+              mc alias set oss "$EP" "$AK" "$SK"
+              for f in /artefacts/*; do
+                [ -f "$f" ] || continue
+                mc cp "$f" "oss/$BUCKET/$REL/"
+              done
+              mc cp /index.json "oss/$BUCKET/nightly/index.json"
+              echo "✓ nightly artefacts + index.json → oss/$BUCKET/$REL (+ nightly/index.json)"
+            '
+
   # Keep the Releases list tidy: delete every nightly pre-release beyond
   # the most recent 100 (oldest first), tag included. The legacy rolling
   # `nightly` tag from the old scheme is also removed once it's gone.
@@ -321,19 +407,44 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Keep last 100 nightly pre-releases
+      - name: Keep last 100 nightly pre-releases (+ OSS mirror)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
         run: |
-          set -e
-          gh release list --limit 1000 --json tagName,isPrerelease \
+          set -euo pipefail
+          # 1. 收集 >100 最新之外的旧 nightly tag
+          mapfile -t OLD < <(gh release list --limit 1000 --json tagName,isPrerelease \
             --jq '.[] | select(.isPrerelease) | .tagName' \
             | grep -E '^client-nightly\.[0-9]+$' \
             | sort -V -r \
-            | tail -n +101 \
-            | while read -r tag; do
-                echo "::notice::deleting old nightly $tag"
-                gh release delete "$tag" --yes --cleanup-tag || true
-              done
+            | tail -n +101)
+          echo "old nightlies to prune (${#OLD[@]}): ${OLD[*]:-<none>}"
+
+          # 2. 删 GH release (即使 OSS 未配也跑)
+          for tag in "${OLD[@]}"; do
+            echo "::notice::deleting old nightly $tag"
+            gh release delete "$tag" --yes --cleanup-tag || true
+          done
           # Legacy single rolling nightly release (pre-accumulating scheme).
           gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+
+          # 3. 镜像删 OSS: 跟 GH 同步, 保持恰好 100 (与 nightly-release 上传布局对称)。
+          #    tag 名 client-nightly.<digits> 无 shell 元字符, $TAGS 词分割展开安全。
+          if [ "${#OLD[@]}" -gt 0 ] && [ -n "$OSS_BUCKET" ] && [ -n "$OSS_SK" ]; then
+            docker run --rm \
+              -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
+              -e BUCKET="$OSS_BUCKET" -e TAGS="${OLD[*]}" \
+              --entrypoint /bin/sh \
+              docker.io/minio/mc:latest -c '
+                set -eu
+                mc alias set oss "$EP" "$AK" "$SK"
+                for tag in $TAGS; do
+                  mc rm --recursive --force "oss/$BUCKET/nightly/$tag" || true
+                done
+                echo "✓ OSS nightly dirs pruned"
+              '
+          fi
