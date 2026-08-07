@@ -1,96 +1,123 @@
 <div align="center">
 
-# BiuMind Agentics
+# BiuMind — 你的 AI 工作台
 
-**An all-in-one, highly-extensible AI work platform — Knowledge Base + Agent Runtime + Coding Collaboration + App Center + Cloud Sandbox.**
+**写文档 · 跑 Agent · 写代码 · 做笔记 —— 把分散的 AI 工具收进同一个工作台，数据通在一起。**
 
-一体化 AI 工作平台 SaaS：知识库 + Agent 运行时 + 编码协作 + 应用中心 + 云沙箱。
+**简体中文** · [English](./README.en.md)
 
-Self-hostable + cloud SaaS · Flutter multi-platform · Go-first backend
+云端注册即用 · 一行命令自托管 · 桌面 / 手机 / 浏览器 / 命令行一个账号随时切换
 
-<!-- 截图 / Screenshots —— TODO: 补产品截图或 demo GIF -->
-<!-- <img src="docs/assets/screenshot.png" width="800" alt="BiuMind screenshot"> -->
-
-[License](#license) · [Quick Start](#快速开始-quick-start) · [Docs](#文档地图-docs-map) · [Contributing](./CONTRIBUTING.md)
+[快速开始](#快速开始) · [架构](#架构概览) · [官网](https://biumind.ai) · [贡献指南](./CONTRIBUTING.md)
 
 </div>
 
 ---
 
-## 这是什么 / What it is
+## BiuMind 是什么？
 
-BiuMind 把"知识库 / Agent 运行时 / 编码协作 / 应用中心 / 云沙箱"做成一个一体化平台，可**自托管**也可跑**云端 SaaS**。核心能力：
+BiuMind 是一个一体化 AI 工作平台：写文档、跑 Agent、写代码、做笔记这些原本分散在多个工具里的工作，被收进同一个工作台，并且**数据互通**——对话、剪藏、文档、创作产物都沉淀进同一个知识库，由 AI 连成知识图谱，供所有场景复用。
 
-- **🧠 Brain（知识层）**：Wiki 文档 + Graph 图谱 + Memory 记忆 + Search 检索（Postgres + pgvector + ltree 邻接表，不用 Neo4j）
-- **🤖 Runtime（Agent 引擎）**：WebSocket **SDK Protocol**（proto3 over WS，28 message variant）双向流；本地 / 云端 CLI backend（Claude Code / Codex）
-- **🔌 model-relay（模型网关）**：单一 egress，BYOK + 平台池，计费单一 SoT（`model_relay.pricing`）
-- **💻 编码协作**：`biu` CLI（与服务端共享内核 `biumindkit`），VS Code 扩展
-- **📦 App Center**：应用中心（Skills + Apps 一等公民并行）
-- **🎨 AIGC / Channels**：文生图/视频/语音产物 + 多渠道分发（IM / 邮件 / Webhook）
-- **🏝️ Cloud Sandbox**：K8s Pod-per-sandbox（gVisor 可选）
-- **🌐 多端**：Flutter（macOS/Windows/Linux/iOS/Android/Web）+ uni-app 跨平台小程序（9 端）+ 浏览器扩展
+部署双轨：
 
-## Tech stack
+- **云端（注册即用）**：几秒开账号，自带每月免费额度，适合个人和小团队。
+- **自托管**：一行命令拉起全栈，数据全程留在自己的服务器，适合企业和数据敏感场景。
 
-| 层 | 技术 |
-|----|------|
-| 客户端（多端单代码） | Flutter + Riverpod |
-| CLI（与服务端共享内核） | Go（`apps/cli/biu`） |
-| 浏览器扩展 | TypeScript |
-| 跨端小程序（9 端） | uni-app + Vue 3 + TS |
-| 后端服务（11 个） | Go（HTTP + JWT 通信，非 gRPC） |
-| 异步 worker | Python（ingest / embed / vision / AST） |
-| Proto schema | buf 管理（`packages/proto`） |
-| 数据层 | Postgres + pgvector + ltree（每服务独立 schema + goose migration） |
-| 消息 | NATS JetStream |
+## 核心功能
 
-完整技术架构见 [`docs/BiuMind-Technical-Architecture.md`](./docs/BiuMind-Technical-Architecture.md)。
+六大模块，覆盖一天的全部 AI 工作：
 
-## 仓库结构 / Repo layout
+| 模块 | 能力 |
+|------|------|
+| 🧠 **知识中枢** | 块编辑器 + 知识图谱 + AI 记忆；文档、对话、网页剪藏沉淀到同一个地方，语义搜索随时找回 |
+| 💻 **编码工作台** | 多个 AI 工程师并行写代码、跑测试、提 PR；改文件 / 跑命令前先征求你的确认；桌面 / 手机 / CLI 切换，任务云端续跑 |
+| 🎨 **创作** | 文生图、文生视频、爆款拆解；产物自动沉淀进知识库，可复用、二次创作 |
+| ☁️ **云端工位** | 会话和记忆存云端，换设备上下文不丢 |
+| 📮 **消息接入** | AI 接入飞书 / Telegram / Slack / Discord / 邮件，自动回复 + 知识库召回 |
+| 📦 **应用中心** | RSS 订阅、邮件总结、股票动态、论文追踪等开箱即用的专业 AI 助手 |
+
+## 多端覆盖
+
+一个账号，四端随时切换，**CLI 与 GUI 共享同一内核、会话互通**：
+
+- **桌面端（主力工作端）**：Flutter 单代码库，覆盖 macOS / Windows / Linux
+- **移动端（伴随端）**：iOS / Android，随时随地审批 Agent 工作、看会话、查知识库；另有 uni-app 小程序（微信 / 支付宝 / 抖音 / 百度 / QQ / 快手 / 京东 / 飞书 / H5 共 9 端）
+- **浏览器**：网页剪藏扩展（Chrome / Edge），看到的一切一键沉淀进知识库
+- **命令行**：`biu` CLI，终端内对话、跑 Agent、操作知识库
+
+## 架构概览
+
+BiuMind 是一个 monorepo，前后端与共享组件全部在一个仓库内：
+
+- **后端**：11 个 Go 微服务，HTTP + JWT 服务间通信，NATS JetStream 做异步消息，Postgres（pgvector + ltree）做统一数据层，每服务独立 schema + goose migration。
+- **Agent 协议**：客户端 / CLI 与 Runtime 之间走 WebSocket 双向流的 **SDK Protocol**——JSON wire format + JSON Schema（`schema/sdk/v1/`），Go 手写 struct / Dart json_serializable / TS Zod 三端实现。服务端业务 API 另由 buf 管理的 proto3 定义（`packages/proto/`）。
+- **模型网关**：`model-relay` 是所有模型调用的唯一出口，支持 BYOK（自带 Key）与平台池，计费口径统一。
+- **异步任务**：Python workers 从 NATS 拉任务（文档解析、AIGC 生成、wiki 摄入、风控）。
+
+### 后端服务（`services/`）
+
+| 服务 | 职责 |
+|------|------|
+| `identity` | 账号与认证：注册 / 登录 / 多端 token、额度与 BYOK 管理 |
+| `authz` | 鉴权策略引擎（policy + cache） |
+| `realtime` | 实时推送：WebSocket hub + NATS fanout |
+| `model-relay` | 模型网关：唯一出口、BYOK + 平台池、统一计费 |
+| `runtime` | Agent 运行时引擎（与 `biu` CLI 共享内核） |
+| `brain` | 知识层：Wiki / Graph / Memory / Search |
+| `app_center` | 应用中心：BiuApp 注册与运行（内置 RSS / 翻译 / 任务等参考应用） |
+| `aigc` | AIGC 接入层：文生图 / 视频 / 数字人（执行委托给 worker） |
+| `channels` | 多渠道分发：Telegram 等 driver，按环境开关 |
+| `sandbox` | 云沙箱：K8s Pod-per-sandbox，driver 可插拔 |
+| `deploy` | 一键部署：JWT-gated deploy API + 静态托管 |
+
+> `billing` 与 `presence` 服务在路线图中，尚未创建（见 `go.work` 注释）。
+
+## 仓库结构
 
 ```
 biumind/
-├── apps/                # 前端产品
-│   ├── client/          #   Flutter 多端主端
-│   ├── cli/biu/         #   biu Go CLI
-│   ├── webclip/         #   浏览器扩展
-│   └── miniapp/         #   uni-app 跨平台小程序（9 端）
-├── admin/               # 实例管理后台（Vue 3 + Element Plus：用户/RBAC/模型/系统配置/用量/审计）
-├── services/            # 后端 Go 服务（identity/authz/realtime/model-relay/runtime/brain/sandbox/deploy/channels/billing/presence）
-├── workers/             # Python 工作进程（ingest/embed/vision/extract，NATS 拉任务）
-├── packages/            # 跨产品共享（proto / go-sdk / dart sdk）
-├── sdks/                # 公共集成 SDK（go / python / node）
-├── extensions/vscode/   # VS Code 扩展
-├── deploy/docker-compose/  # 自托管 / 本地全栈（postgres/redis/minio/nats + 11 服务）
-├── tools/               # bootstrap / migration / lint 脚本
-└── docs/                # 全部权威设计文档（70+ 篇）
+├── apps/                 # 前端产品
+│   ├── client/           #   Flutter 多端主端（桌面 / 移动 / Web）
+│   ├── cli/biu/          #   biu Go CLI（与服务端共享内核）
+│   ├── webclip/          #   浏览器剪藏扩展（Chrome / Edge MV3）
+│   └── miniapp/          #   uni-app 跨端小程序（9 端）
+├── web/site/             # 官网 biumind.ai（Astro + Tailwind，中英双语）
+├── admin/                # 实例管理后台（Vue 3 + Element Plus）
+├── services/             # 后端 Go 服务（见上表，11 个）
+├── workers/              # Python workers：ingest / aigc / wiki-llm / wiki-parse / risk-control
+├── packages/             # 跨产品共享：proto（buf）/ go-sdk / skills-stdlib
+├── schema/               # SDK Protocol JSON Schema（sdk/v1）+ 发布 manifest（release/v1）
+├── sdks/                 # 公共集成 SDK（go / python / node，Apache-2.0）
+├── extensions/vscode/    # VS Code 扩展
+├── deploy/docker-compose/# 本地全栈：PG / Redis / MinIO / NATS + 服务 + workers
+└── tools/                # bootstrap / schema 校验 / 架构不变量检查等脚本
 ```
 
-## 快速开始 / Quick start
+## 快速开始
 
 需要：Go 1.26+、Flutter (stable)、buf、uv (Python)、Docker。
 
 ```bash
-task bootstrap            # 一次性装依赖（buf / goimports / dart / uv ...）
+task bootstrap            # 一次性安装依赖（buf / goimports / dart / uv ...）
 
-# 起本地全栈（PG / Redis / MinIO / NATS + 11 服务）
+# 启动本地全栈（PG / Redis / MinIO / NATS + 各服务）
 cd deploy/docker-compose
-cp .env.example .env      # ⚠️ 把 *_change_me 占位符全换成强随机值
-make up-infra && make health
+cp .env.example .env      # ⚠️ 把 *_change_me 占位符全部换成强随机值
+make up-infra && make health   # 只起基础设施；make up / up-all 起完整栈
 
 # 跑模型网关 + CLI
 task model-relay:run
 task cli:install          # biu → ~/.local/bin/biu
-biu                       # REPL
+biu                       # 进入 REPL
 ```
 
-自托管部署详见 [`docs/BiuMind-Self-Hosted-Deployment.md`](./docs/BiuMind-Self-Hosted-Deployment.md)。
+说明：`deploy/docker-compose` 是 dev/test 本地栈示例，非生产部署方案；`sandbox` 与 `deploy` 服务依赖 K8s / S3，不在本地栈内。
 
-## 开发 / Development
+## 开发
 
 ```bash
 task proto:generate       # buf 生成 Go / Dart / TS
-task test                 # 全量（Go + Dart + Python）
+task test                 # 全量测试（Go + Dart + Python）
 task lint                 # lint:go + lint:dart + lint:proto
 task lint:invariants      # 架构不变量校验（CI 强制）
 task --list               # 完整任务列表
@@ -98,17 +125,7 @@ task --list               # 完整任务列表
 
 贡献指引见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-## 文档地图 / Docs map
-
-| 文档 | 作用 | 何时读 |
-|------|------|--------|
-| [`docs/BiuMind-Product-Plan.md`](./docs/BiuMind-Product-Plan.md) | 做什么 / 模块边界 / 路线图 | 新人第一份 |
-| [`docs/BiuMind-Technical-Architecture.md`](./docs/BiuMind-Technical-Architecture.md) | 后端怎么做 / 协议 / DB schema | 后端工程师 |
-| [`docs/BiuMind-Client-Architecture.md`](./docs/BiuMind-Client-Architecture.md) | 端怎么做 / 跨平台 / 离线 | 前端 / 移动工程师 |
-| [`docs/BiuMind-Development-Plan.md`](./docs/BiuMind-Development-Plan.md) §11 | 实时执行进度 | 想知道"现在该做什么" |
-| [`docs/research/`](./docs/research/) | 参考开源项目调研（We Take / We Skip） | 决策时回查 |
-
-## 安全 / Security
+## 安全
 
 发现漏洞请按 [SECURITY.md](./SECURITY.md) 私下上报，**勿开公开 issue**。
 自托管前务必轮换 `deploy/docker-compose/.env.example` 里的占位密钥。
