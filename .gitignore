@@ -101,9 +101,6 @@ Thumbs.db
 # do not vendor — git-ignored to keep the repo size sane).
 /reference/
 
-# k3s kubeconfig produced by docker-compose profile=k8s
-/k3s/
-
 # Flutter Web build artefacts that don't belong in git
 /apps/client/web/sql-wasm.wasm
 /apps/client/web/drift_worker.dart.js

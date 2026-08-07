@@ -5,7 +5,7 @@
 # 注: 文档站 (/docs) 暂未随公开仓发布 —— docs/ 不进公开仓 (后续选择性提交)。
 #     届时恢复 docs-builder stage (python + mkdocs) + nginx /docs location 即可。
 #
-# build context = 仓库根（web/site 源在 web/site/，见 docker-compose.web.yml）。
+# build context = 仓库根（web/site 源在 web/site/，见 deploy/docker-compose/docker-compose.yml）。
 # 镜像源前缀 docker.io 与项目其他 service Dockerfile 保持一致。
 # 本机不在该 mirror 后用 build args 覆盖：
 #   docker build --build-arg NODE_IMAGE=node:22-alpine --build-arg NGINX_IMAGE=nginx:alpine .

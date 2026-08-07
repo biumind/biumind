@@ -1,9 +1,7 @@
-# BiuMind Docker Compose 测试环境
+# BiuMind Docker Compose 测试环境（dev/test 启动示例，非生产部署方案）
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 COMPOSE := docker compose
-# observability 已移出 base include（DESIGN.md §12）— 用可观测栈的 target 走 COMPOSE_OBS
-COMPOSE_OBS := docker compose -f docker-compose.yml -f docker-compose.observability.yml
 ENV_FILE := .env
 
 # 自动加载 .env，方便单独跑命令
@@ -18,7 +16,7 @@ help: ## 显示这份帮助
 
 # ─── 启动 ────────────────────────────────────────────
 .PHONY: up-infra
-up-infra: check-env ## 拉起基础设施（postgres/redis/minio/nats/searxng）
+up-infra: check-env ## 拉起基础设施（postgres/redis/minio/nats）
 	$(COMPOSE) --profile infra up -d
 	@$(MAKE) wait-healthy
 
@@ -32,28 +30,22 @@ up-workers: check-env ## 拉起 infra + workers（不含 biumind 服务）
 	$(COMPOSE) --profile infra --profile workers up -d
 	@$(MAKE) wait-healthy
 
-.PHONY: up-obs
-up-obs: check-env ## 拉起 observability 栈
-	$(COMPOSE_OBS) --profile observability up -d
-	@echo "Grafana: http://localhost:$${GRAFANA_PORT:-3000} (admin / $${GRAFANA_ADMIN_PASSWORD:-biumind})"
-
 .PHONY: up-all
-up-all: check-env ## 拉起完整栈（infra + services + workers + observability）
-	$(COMPOSE_OBS) --profile all up -d
+up-all: check-env ## 拉起完整栈（infra + services + workers）
+	$(COMPOSE) --profile all up -d
 	@$(MAKE) wait-healthy
-	@echo "Grafana: http://localhost:$${GRAFANA_PORT:-3000}"
-	@echo "Gateway: http://localhost:$${GATEWAY_PORT:-8080}"
+	@echo "Site (统一入口): http://localhost:$${SITE_PORT:-8088}"
 
 # ─── 停止 ────────────────────────────────────────────
 .PHONY: down
-down: ## 停容器（保留数据 volume；含 observability）
-	$(COMPOSE_OBS) --profile all down
+down: ## 停容器（保留数据 volume）
+	$(COMPOSE) --profile all down
 
 .PHONY: clean
 clean: ## ⚠️  停容器并删除所有 volume（数据全清）
 	@echo "WARNING: This will delete all volumes (postgres data, minio buckets, etc)"
 	@read -p "Type 'yes' to continue: " ans && [ "$$ans" = "yes" ]
-	$(COMPOSE_OBS) --profile all down -v --remove-orphans
+	$(COMPOSE) --profile all down -v --remove-orphans
 
 .PHONY: restart
 restart: down up ## down + up
@@ -78,7 +70,6 @@ health: ## 调每个服务的 /healthz
 	  printf "port %s: " $$port; \
 	  curl -sf -m 2 http://localhost:$$port/healthz 2>/dev/null && echo " ok" || echo " unhealthy"; \
 	done
-	@printf "envoy: "; curl -sf -m 2 http://localhost:$${GATEWAY_PORT:-8080}/healthz 2>/dev/null && echo " ok" || echo " unhealthy"
 
 .PHONY: wait-healthy
 wait-healthy: ## 等所有 healthcheck 通过（最多 90s）
@@ -116,8 +107,8 @@ authz-eval: ## 测一条 authz 决策: make authz-eval PRINCIPAL=user:u1 ACTION=
 	  -d '{"principal":"$(PRINCIPAL)","action":"$(ACTION)","resource":"$(RESOURCE)"}' | jq
 
 .PHONY: pull-images
-pull-images: ## 拉外部依赖镜像（infra + observability）
-	$(COMPOSE_OBS) pull postgres redis minio nats searxng envoy otel-collector tempo loki prometheus grafana
+pull-images: ## 拉外部依赖镜像（infra）
+	$(COMPOSE) pull postgres redis minio nats
 
 # ─── 数据库 ──────────────────────────────────────────
 .PHONY: psql
@@ -151,10 +142,6 @@ minio-console: ## 打开 MinIO 控制台
 	@open http://localhost:$${MINIO_CONSOLE_PORT:-9001} 2>/dev/null || \
 	 xdg-open http://localhost:$${MINIO_CONSOLE_PORT:-9001} 2>/dev/null || \
 	 echo "MinIO Console: http://localhost:$${MINIO_CONSOLE_PORT:-9001}"
-
-.PHONY: search-test
-search-test: ## 测一下 SearxNG
-	curl -s "http://localhost:$${SEARXNG_PORT:-8888}/search?q=biumind&format=json" | jq '.results[0:3]'
 
 # ─── 守门员 ──────────────────────────────────────────
 .PHONY: check-env

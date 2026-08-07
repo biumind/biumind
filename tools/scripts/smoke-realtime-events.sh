@@ -13,11 +13,11 @@
 #
 # 用法：
 #   bash tools/scripts/smoke-realtime-events.sh
-#   BASE_URL=http://localhost:8080 bash tools/scripts/smoke-realtime-events.sh
+#   BASE_URL=http://localhost:8088 bash tools/scripts/smoke-realtime-events.sh
 
 set -uo pipefail
 
-BASE_URL="${BASE_URL:-http://localhost:8080}"
+BASE_URL="${BASE_URL:-http://localhost:8088}"
 EMAIL="${EMAIL:-smoke-realtime@biumind.test}"
 PASSWORD="${PASSWORD:-SmokeTest123!}"
 

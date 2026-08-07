@@ -61,7 +61,7 @@ biumind/
 ├── packages/            # 跨产品共享（proto / go-sdk / dart sdk）
 ├── sdks/                # 公共集成 SDK（go / python / node）
 ├── extensions/vscode/   # VS Code 扩展
-├── deploy/docker-compose/  # 自托管 / 本地全栈（postgres/redis/minio/nats/searxng + 11 服务）
+├── deploy/docker-compose/  # 自托管 / 本地全栈（postgres/redis/minio/nats + 11 服务）
 ├── tools/               # bootstrap / migration / lint 脚本
 └── docs/                # 全部权威设计文档（70+ 篇）
 ```
@@ -73,7 +73,7 @@ biumind/
 ```bash
 task bootstrap            # 一次性装依赖（buf / goimports / dart / uv ...）
 
-# 起本地全栈（PG / Redis / MinIO / NATS / SearXNG + 11 服务）
+# 起本地全栈（PG / Redis / MinIO / NATS + 11 服务）
 cd deploy/docker-compose
 cp .env.example .env      # ⚠️ 把 *_change_me 占位符全换成强随机值
 make up-infra && make health

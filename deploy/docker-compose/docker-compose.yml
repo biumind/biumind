@@ -1,9 +1,19 @@
-# BiuMind 测试环境基础设施（infra profile）
-# 默认 `docker compose up -d` 起 infra；完整组合见 Makefile。
-# observability 已移出 include — 用 `make up-obs` / `up-all`（DESIGN.md §12）
+# BiuMind Docker Compose — 单文件全栈（dev/test only）
+#
+# ⚠️ 定位：本文件仅为开发 / 测试环境的启动示例（dev/test only）。
+#    生产环境的部署方式、安全加固（端口收敛 / HTTPS / 密钥轮换等）与日常运维
+#    由使用者自行负责，仓库不提供也不维护生产部署方案。
+#
+# 用法：profile 控制启停范围 ——
+#   docker compose --profile infra up -d    # 基础设施（默认 `docker compose up -d` 同）
+#   docker compose --profile services up -d # + Go 业务服务 + 前端
+#   docker compose --profile workers up -d  # + Python workers
+#   docker compose --profile all up -d      # 完整测试栈（infra + services + workers）
+# 便捷入口见 Makefile（make up / up-infra / up-workers / up-all）；设计 rationale 见 DESIGN.md。
 
 name: biumind
 
+# ─── 公共 YAML 锚点（原分散在各子文件，合并后统一收在顶部）─────────
 x-restart: &restart
   restart: unless-stopped
 
@@ -14,6 +24,81 @@ x-logging: &logging
       max-size: "10m"
       max-file: "3"
 
+# Go 业务服务公共 env（服务间通信用 docker hostname）
+x-svc-env: &svc-env
+  BIUMIND_ENV: ${BIUMIND_ENV:-test}
+  BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
+  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  NATS_URL: nats://nats:4222
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  S3_BUCKET: ${MINIO_BUCKET:-biumind}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_ISSUER: ${JWT_ISSUER:-https://identity.biumind.local}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-biumind-api}
+  # JWKS 验签 + HS256 fallback 见 DESIGN.md §10
+  IDENTITY_JWKS_URL: ${IDENTITY_JWKS_URL:-http://identity:7004/.well-known/jwks.json}
+  TZ: ${TZ:-UTC}
+
+x-svc-depends: &svc-depends
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  nats:
+    condition: service_healthy
+
+x-svc-env-extra: &svc-env-extra
+  AUTHZ_URL: http://authz:7009
+  REALTIME_INTERNAL_URL: http://realtime:7008
+
+# 4 个前端容器共用最小权限 hardening（DESIGN.md §18）
+x-frontend: &frontend
+  restart: unless-stopped
+  profiles: [services, all]
+  networks: [biu-net]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  read_only: true
+  tmpfs:
+    - /var/cache/nginx:size=64M
+    - /var/run:size=8M
+    - /tmp:size=16M
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - NET_BIND_SERVICE
+
+# Python worker 公共 env / 依赖
+x-worker-env: &worker-env
+  BIUMIND_ENV: ${BIUMIND_ENV:-test}
+  BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
+  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+  NATS_URL: nats://nats:4222
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
+  S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+  S3_BUCKET: ${MINIO_BUCKET:-biumind}
+  MODEL_RELAY_URL: http://model-relay:7001
+
+x-worker-depends: &worker-depends
+  postgres:
+    condition: service_healthy
+  nats:
+    condition: service_healthy
+  minio-bootstrap:
+    condition: service_completed_successfully
+
 networks:
   biu-net:
     driver: bridge
@@ -23,14 +108,14 @@ volumes:
   redis-data:
   minio-data:
   nats-data:
-  searxng-data:
-  k3s-data:
   # Identity RSA 签名密钥 — 首启生成 0600，后续复用保 token 有效（DESIGN.md §9）
   identity-keys:
   # App Center 内置 tasks App 文件持久化 — 刻意不进 DB（JSON fsync 单文件，DESIGN.md §14）
   app-center-data:
 
 services:
+  # ═══ 基础设施（infra profile）═══════════════════════════════════
+
   # Postgres 16 + pgvector（中文分词 zhparser fallback 见 DESIGN.md §15）
   postgres:
     profiles: [infra, services, workers, all]
@@ -162,96 +247,567 @@ services:
       timeout: 5s
       retries: 5
 
-  # SearxNG（自托管 Web 搜索）
-  searxng:
-    profiles: [infra, services, all]
-    image: ${INFRA_REGISTRY:-docker.io}/searxng/searxng:latest
-    container_name: biu-searxng
+  # ═══ 业务服务（services profile）══════════════════════════════════
+  # 镜像 tag 默认 :dev，make build-images 构建。设计 rationale / 依赖链 / env / secret 见 DESIGN.md。
+
+  # Authz（Cedar 统一授权）— 所有服务权限判断过它，first start 必装
+  authz:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/authz:${BIUMIND_TAG:-dev}
+    container_name: biu-authz
     <<: [*restart, *logging]
     environment:
-      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8888}/
-      SEARXNG_SECRET: ${SEARXNG_SECRET:-biumind_searxng_dev_secret_change_me}
+      <<: *svc-env
+      SERVICE_NAME: authz
+      LISTEN_ADDR: ":7009"
+      POLICIES_PATH: /etc/biumind/authz/policies
+      DECISION_CACHE_TTL_SEC: "30s"
     ports:
-      - "${SEARXNG_PORT:-8888}:8080"
+      - "${AUTHZ_PORT:-7009}:7009"
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
-      - searxng-data:/var/cache/searxng
+      - ./authz/policies:/etc/biumind/authz/policies:ro
     networks: [biu-net]
-    cap_drop: [ALL]
-    cap_add: [CHOWN, SETGID, SETUID, DAC_OVERRIDE]
+    depends_on: *svc-depends
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7009/healthz"]
+      interval: 10s
+      retries: 5
 
-  # Envoy（API 网关：JWT / ratelimit / SSE / mTLS）— 跳默认 ENTRYPOINT 见 DESIGN.md §18
-  envoy:
+  # Realtime（单 SSE 多 topic 实时网关）— 面向客户端实时事件必走它（I8）
+  realtime:
     profiles: [services, all]
-    image: ${INFRA_REGISTRY:-docker.io}/envoyproxy/envoy:v1.31-latest
-    container_name: biu-envoy
+    image: ${BIUMIND_REGISTRY:-biumind}/realtime:${BIUMIND_TAG:-dev}
+    container_name: biu-realtime
     <<: [*restart, *logging]
-    entrypoint: ["envoy"]
-    command:
-      - "-c"
-      - "/etc/envoy/envoy.yaml"
-      - "--service-cluster"
-      - "biumind-gateway"
-      - "--log-level"
-      - "info"
+    environment:
+      <<: *svc-env
+      SERVICE_NAME: realtime
+      LISTEN_ADDR: ":7008"
+      AUTHZ_URL: http://authz:7009
+      LEDGER_RETENTION_HOURS: "1"
+      MAX_CONN_BUFFER: "1024"
+      HEARTBEAT_SEC: "15s"
     ports:
-      - "${GATEWAY_PORT:-8080}:10000"
-      - "${ENVOY_ADMIN_PORT:-9901}:9901"
-    volumes:
-      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - "${REALTIME_PORT:-7008}:7008"
     networks: [biu-net]
     depends_on:
-      - identity
-      - authz
-      - realtime
-      - model-relay
-      - runtime
-      - brain
-
-  # k3s — single-node K8s for Sandbox K8s driver。profile=k8s 默认不起（heavyweight）
-  # 用法: docker compose --profile k8s up -d k3s
-  # kubeconfig 写到 ./k3s/kubeconfig.yaml；Sandbox 用 KUBECONFIG= 指过去
-  # macOS Docker Desktop 内核在 Linux VM 内，gVisor(runsc) 装不了 RuntimeClass — 留空用默认 containerd
-  k3s:
-    profiles: [k8s, all]
-    image: ${INFRA_REGISTRY:-docker.io}/rancher/k3s:v1.31.4-k3s1
-    container_name: biu-k3s
-    <<: [*restart, *logging]
-    privileged: true
-    command:
-      - server
-      - --disable=traefik
-      - --disable=servicelb
-      - --disable=metrics-server
-      - --tls-san=k3s
-      - --tls-san=localhost
-      - --tls-san=127.0.0.1
-      - --kube-apiserver-arg=feature-gates=ProcMountType=true
-      - --write-kubeconfig=/output/kubeconfig.yaml
-      - --write-kubeconfig-mode=666
-    environment:
-      K3S_KUBECONFIG_OUTPUT: /output/kubeconfig.yaml
-      K3S_KUBECONFIG_MODE: "666"
-    ports:
-      - "${K3S_API_PORT:-6443}:6443"
-    volumes:
-      - k3s-data:/var/lib/rancher/k3s
-      - ./k3s:/output
-    networks: [biu-net]
+      <<: *svc-depends
+      authz:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "kubectl get nodes >/dev/null 2>&1"]
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7008/healthz"]
       interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
+      retries: 5
 
-# 业务服务 / 工作进程 / 前端层 在独立 compose 文件，经 include 合并
-include:
-  - docker-compose.services.yml
-  - docker-compose.web.yml
-  - docker-compose.workers.yml
+  # Identity（用户/团队/认证）— init container 先 chown volume 给 nonroot UID 65532（DESIGN.md §9）
+  identity-init:
+    profiles: [services, all]
+    image: ${INFRA_REGISTRY:-docker.io}/library/alpine:3.20
+    container_name: biu-identity-init
+    user: root
+    volumes:
+      - identity-keys:/var/lib/biumind/identity
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /var/lib/biumind/identity
+        chown -R 65532:65532 /var/lib/biumind/identity
+        chmod 0700 /var/lib/biumind/identity
+    restart: "no"
+    networks: [biu-net]
+
+  identity:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/identity:${BIUMIND_TAG:-dev}
+    container_name: biu-identity
+    <<: [*restart, *logging]
+    environment:
+      <<: *svc-env
+      SERVICE_NAME: identity
+      LISTEN_ADDR: ":7004"
+      # RS256 签名密钥路径，首启自动生成（4096-bit, 0600），后续复用（DESIGN.md §10）
+      JWT_SIGNING_KEY_FILE: /var/lib/biumind/identity/jwt-signing-key.pem
+      # 会话 TTL — 详见 docs/BiuMind-Identity-Session-Design.md §五
+      IDENTITY_ACCESS_TTL: ${IDENTITY_ACCESS_TTL:-24h}
+      IDENTITY_REFRESH_TTL: ${IDENTITY_REFRESH_TTL:-2160h}
+      IDENTITY_REFRESH_ABSOLUTE_TTL: ${IDENTITY_REFRESH_ABSOLUTE_TTL:-8760h}
+      IDENTITY_REFRESH_REUSE_GRACE: ${IDENTITY_REFRESH_REUSE_GRACE:-10s}
+      # MiniApp 9 端 + H5 OAuth — APPID 公开走 .env.test；*_APPSECRET / *_PRIVATE_KEY 走 Jenkins Credentials（DESIGN.md §8）
+      WECHAT_MP_APPID: ${WECHAT_MP_APPID:-}
+      WECHAT_MP_APPSECRET: ${WECHAT_MP_APPSECRET:-}
+      WECHAT_WEB_APPID: ${WECHAT_WEB_APPID:-}
+      WECHAT_WEB_APPSECRET: ${WECHAT_WEB_APPSECRET:-}
+      H5_FRONTEND_BASE_URL: ${H5_FRONTEND_BASE_URL:-}
+      ALIPAY_MP_APPID: ${ALIPAY_MP_APPID:-}
+      ALIPAY_MP_APPSECRET: ${ALIPAY_MP_APPSECRET:-}
+      ALIPAY_MP_PRIVATE_KEY: ${ALIPAY_MP_PRIVATE_KEY:-}
+      ALIPAY_MP_PUBLIC_KEY: ${ALIPAY_MP_PUBLIC_KEY:-}
+      TOUTIAO_MP_APPID: ${TOUTIAO_MP_APPID:-}
+      TOUTIAO_MP_APPSECRET: ${TOUTIAO_MP_APPSECRET:-}
+      BAIDU_MP_APPID: ${BAIDU_MP_APPID:-}
+      BAIDU_MP_APPSECRET: ${BAIDU_MP_APPSECRET:-}
+      QQ_MP_APPID: ${QQ_MP_APPID:-}
+      QQ_MP_APPSECRET: ${QQ_MP_APPSECRET:-}
+      KUAISHOU_MP_APPID: ${KUAISHOU_MP_APPID:-}
+      KUAISHOU_MP_APPSECRET: ${KUAISHOU_MP_APPSECRET:-}
+      JD_MP_APPID: ${JD_MP_APPID:-}
+      JD_MP_APPSECRET: ${JD_MP_APPSECRET:-}
+      LARK_MP_APPID: ${LARK_MP_APPID:-}
+      LARK_MP_APPSECRET: ${LARK_MP_APPSECRET:-}
+      # W1: 服务间共享 bearer（model-relay / aigc 调 /v1/internal/*）— 多服务同值（DESIGN.md §5）
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      # W1: BYOK AES-256 主密钥（base64 32B，openssl rand -base64 32）。留空禁用 BYOK。严禁进 git（DESIGN.md §5）
+      BYOK_MASTER_KEY: ${BYOK_MASTER_KEY:-}
+    volumes:
+      - identity-keys:/var/lib/biumind/identity
+    ports:
+      - "${IDENTITY_PORT:-7004}:7004"
+    networks: [biu-net]
+    depends_on:
+      <<: *svc-depends
+      identity-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7004/healthz"]
+      interval: 10s
+      retries: 5
+
+  # model-relay（模型网关：BYOK + 平台池 + 计费）
+  model-relay:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/model-relay:${BIUMIND_TAG:-dev}
+    container_name: biu-model-relay
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: model-relay
+      LISTEN_ADDR: ":7001"
+      BIUMIND_MASTER_KEY: ${BIUMIND_MASTER_KEY}
+      MODEL_RELAY_BRAIN_URL: http://brain:7003
+      # 上游 key 已移到 admin 后台 model_relay.credentials（envelope 加密落库），不再走 *_API_KEY env（DESIGN.md §11）
+      # Admin stack：设 MODEL_RELAY_ADMIN_DATABASE_URL 后自动跑 migration + 起 cache/supervisor + mount /v1/admin/*
+      MODEL_RELAY_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+      MODEL_RELAY_ADMIN_MIGRATIONS_DIR: /etc/biumind/migrations/model-relay
+      MODEL_RELAY_SYNC_UPSTREAM_URL: ${MODEL_RELAY_SYNC_UPSTREAM_URL:-}
+      # Daily fx-rate sync（USD↔CNY）。离线设 MODEL_RELAY_FX_SYNC_DISABLED=1
+      MODEL_RELAY_FX_SYNC_URL: ${MODEL_RELAY_FX_SYNC_URL:-}
+      MODEL_RELAY_FX_SYNC_DISABLED: ${MODEL_RELAY_FX_SYNC_DISABLED:-false}
+      # W1: chat 计费 + BYOK 路由走 identity internalapi（DESIGN.md §5）
+      MODEL_RELAY_IDENTITY_URL: http://identity:7004
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      # B-1: gating /v1/internal/embeddings（brain embedder 平台池）— 与 brain 同值（DESIGN.md §5）
+      MODEL_RELAY_INTERNAL_TOKEN: ${MODEL_RELAY_INTERNAL_TOKEN:-biumind-dev-relay-internal-token-change-me}
+    ports:
+      - "${HUB_PORT:-7001}:7001"
+    networks: [biu-net]
+    depends_on:
+      <<: *svc-depends
+      identity:
+        condition: service_healthy
+      authz:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7001/healthz"]
+      interval: 10s
+      retries: 5
+
+  # Brain（Wiki + Graph + Memory + Search）
+  brain:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/brain:${BIUMIND_TAG:-dev}
+    container_name: biu-brain
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: brain
+      LISTEN_ADDR: ":7003"
+      MODEL_RELAY_URL: http://model-relay:7001
+      # B-1: embedding 走 relay internal lane（bge-m3, 1024-dim），绝不直连 openai（I6 / DESIGN.md §11）
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-openai}
+      EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
+      EMBED_DIMS: ${EMBED_DIMS:-1024}
+      MODEL_RELAY_INTERNAL_TOKEN: ${MODEL_RELAY_INTERNAL_TOKEN:-biumind-dev-relay-internal-token-change-me}
+      # websearch（可选）：compose 不带 SearxNG；自行部署后在 .env 设 SEARXNG_URL 注入即启用
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      # BYOK P3: brain 按需从 identity /v1/internal/byok/* 取 user key（DESIGN.md §5）
+      IDENTITY_URL: ${IDENTITY_URL:-http://identity:7004}
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-}
+      # Phase 3: gating brain /v1/internal/wiki/*（wiki-parse worker 用）— 与 worker 同值（DESIGN.md §5）
+      BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      # Chat 凭证优先级：BYOK provider > RelayURL+UserBearer 透传 JWT > 下面 legacy 直连。生产走 #2（DESIGN.md §11）
+      AGENT_PLANE_ANTHROPIC_API_KEY: ${BIUMIND_ANTHROPIC_KEY:-}
+      AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
+      # Files / MinIO — artifacts L3 通道。缺任一字段不 mount /v1/files/*（L1+L2 不受影响）
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${POSTGRES_USER:-biumind}
+      MINIO_SECRET_KEY: ${BIUMIND_MINIO_PASSWORD:-biumind_minio_dev}
+      MINIO_BUCKET: biumind-files
+      FILES_MAX_UPLOAD_BYTES: "104857600"  # 100MB
+      # Wiki block events → JetStream durable（DESIGN.md §17）
+      BUS_USE_JETSTREAM: "true"
+      GRAPH_AUTO_EXTRACT: "true"
+    ports:
+      - "${BRAIN_PORT:-7003}:7003"
+    networks: [biu-net]
+    depends_on:
+      <<: *svc-depends
+      model-relay:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7003/healthz"]
+      interval: 10s
+      retries: 5
+
+  # Runtime（Go Agent 引擎）
+  runtime:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/runtime:${BIUMIND_TAG:-dev}
+    container_name: biu-runtime
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: runtime
+      LISTEN_ADDR: ":7002"
+      MODEL_RELAY_URL: http://model-relay:7001
+      BRAIN_URL: http://brain:7003
+      # 测试环境 sandbox 走 local（K8s 不可用）
+      SANDBOX_MODE: local
+      # JetStream durable consumer 让重启不丢 channel 消息（DESIGN.md §17）
+      BUS_USE_JETSTREAM: "true"
+      RUNTIME_CHANNELS_DEFAULT_USER_ID: ${RUNTIME_CHANNELS_DEFAULT_USER_ID:-}
+      RUNTIME_CHANNELS_DEFAULT_PROJECT_ID: ${RUNTIME_CHANNELS_DEFAULT_PROJECT_ID:-}
+      # Agent Plane 自注册成 environment（worker_kind=runtime），缺则 agent_environments 空
+      AGENT_PLANE_ADMIN_USER_ID: ${AGENT_PLANE_ADMIN_USER_ID:-}
+      AGENT_PLANE_ANTHROPIC_API_KEY: ${BIUMIND_ANTHROPIC_KEY:-}
+      AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
+      # Skills-stdlib 启动时 upsert 到 runtime.skills（source='bundled'）
+      SKILLS_STDLIB_DIR: /etc/biumind/skills-stdlib
+      SANDBOX_URL: http://sandbox:7005
+    ports:
+      - "${RUNTIME_PORT:-7002}:7002"
+    networks: [biu-net]
+    volumes:
+      - ../../packages/skills-stdlib:/etc/biumind/skills-stdlib:ro
+    depends_on:
+      <<: *svc-depends
+      model-relay:
+        condition: service_healthy
+      brain:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7002/healthz"]
+      interval: 10s
+      retries: 5
+
+  # App Center（应用中心：catalog / install / 钩子 / sidebar / triggers）— 端口 7011（DESIGN.md §19）
+  app-center:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/app-center:${BIUMIND_TAG:-dev}
+    container_name: biu-app-center
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: app_center
+      LISTEN_ADDR: ":7011"
+      BIUMIND_MIGRATIONS_DIR: /etc/biumind/migrations/app_center
+      REALTIME_URL: http://realtime:7008
+      MODEL_RELAY_URL: http://model-relay:7001
+      # RSS AI worker chat 模型 — 指向 active channel 的 deepseek/claude，换模型只改这里
+      RSS_DIGEST_MODEL: anthropic.claude-opus-4-8
+      BRAIN_URL: http://brain:7003
+      TASKS_STORE_PATH: /var/lib/biumind/app_center/tasks.json
+    ports:
+      - "${APP_CENTER_PORT:-7011}:7011"
+    networks: [biu-net]
+    volumes:
+      - app-center-data:/var/lib/biumind/app_center
+    depends_on:
+      <<: *svc-depends
+      identity:
+        condition: service_healthy
+      realtime:
+        condition: service_healthy
+      authz:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7011/healthz"]
+      interval: 10s
+      retries: 5
+
+  # Channels（多渠道 IM 网关；可选）
+  channels:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/channels:${BIUMIND_TAG:-dev}
+    container_name: biu-channels
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: channels
+      LISTEN_ADDR: ":7007"
+      RUNTIME_URL: http://runtime:7002
+      # inbound envelopes → JetStream，Runtime 重启不丢（DESIGN.md §17）
+      BUS_USE_JETSTREAM: "true"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+    ports:
+      - "${CHANNELS_PORT:-7007}:7007"
+    networks: [biu-net]
+    depends_on:
+      <<: *svc-depends
+      runtime:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7007/healthz"]
+      interval: 10s
+      retries: 5
+
+  # AIGC（文生图 / 文生视频 / 数字人 / 爆款解析）— 端口 7012（DESIGN.md §19）。设计见 docs/BiuMind-AIGC-*.md
+  aigc:
+    profiles: [services, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/aigc:${BIUMIND_TAG:-dev}
+    container_name: biu-aigc
+    <<: [*restart, *logging]
+    environment:
+      <<: [*svc-env, *svc-env-extra]
+      SERVICE_NAME: aigc
+      LISTEN_ADDR: ":7012"
+      AIGC_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+      AIGC_MIGRATIONS_DIR: /etc/biumind/migrations/aigc
+      AIGC_IDENTITY_URL: http://identity:7004
+      # 服务间共享 bearer — 缺则 POST /v1/generations 全返 503 billing_not_wired（DESIGN.md §5）
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      # P4.S1.3: aigc → model-relay 取 envelope 解密凭证注入 NATS payload（DESIGN.md §11）
+      AIGC_MODEL_RELAY_URL: http://model-relay:7001
+      NATS_URL: nats://nats:4222
+      # MinIO / S3（5 bucket 由 minio-bootstrap 建，DESIGN.md §16）
+      AIGC_S3_ENDPOINT: ${AIGC_S3_ENDPOINT:-http://minio:9000}
+      AIGC_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
+      AIGC_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
+      AIGC_S3_REGION: us-east-1
+      AIGC_S3_USE_SSL: "false"
+      # 上游 provider keys（P3 才用；空则 worker 拒收 submit）
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      VOLCENGINE_ARK_API_KEY: ${VOLCENGINE_ARK_API_KEY:-}
+    ports:
+      - "${AIGC_PORT:-7012}:7012"
+    networks: [biu-net]
+    depends_on:
+      <<: *svc-depends
+      identity:
+        condition: service_healthy
+      authz:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:7012/healthz"]
+      interval: 10s
+      retries: 5
+
+  # ═══ 前端层（services profile）═══════════════════════════════════
+  # site 是统一入口（静态官网 + /v1/* 反代后端 + /app /admin /m 反代 SPA，DESIGN.md §7）；
+  # client（桌面+web）一律指向 site（本地 http://localhost:8088）。web-client/admin-web/
+  # miniapp-h5 不绑 host port，只经 site nginx 暴露。都在 biu-net 内用 docker hostname 互访。
+  # 镜像与后端一致走 ${BIUMIND_REGISTRY}/<name>:${BIUMIND_TAG}。
+
+  # 官网 site（Astro 静态站 + API 网关 nginx + 内嵌 mkdocs 文档 /docs）
+  site:
+    <<: *frontend
+    build:
+      # context = 仓库根：mkdocs.yml + docs/ 在根，Dockerfile docs-builder stage 要 COPY 它们。
+      # （其它三个 SPA 各自独立 context，不受影响。）
+      context: ../..
+      dockerfile: web/site/Dockerfile
+    image: ${BIUMIND_REGISTRY:-biumind}/site:${BIUMIND_TAG:-dev}
+    container_name: biu-site
+    ports:
+      - "${SITE_PORT:-8088}:80"
+    environment:
+      # releases.json 反代上游：dev 本地 MinIO /releases，prod CNAME OSS（避 ApkDownloadForbidden，DESIGN.md §7）
+      - RELEASES_UPSTREAM=${RELEASES_UPSTREAM:-http://minio:9000/releases}
+    depends_on:
+      - web-client
+      - admin-web
+      - miniapp-h5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Flutter Web 客户端（site nginx /app/ 入口）
+  web-client:
+    <<: *frontend
+    build:
+      context: ../../apps/client
+      dockerfile: Dockerfile.web
+      args:
+        BASE_HREF: /app/
+    image: ${BIUMIND_REGISTRY:-biumind}/web-client:${BIUMIND_TAG:-dev}
+    container_name: biu-web-client
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # 后台管理 Vue（site nginx /admin/ 入口）
+  admin-web:
+    <<: *frontend
+    build:
+      context: ../../admin
+      dockerfile: Dockerfile
+    image: ${BIUMIND_REGISTRY:-biumind}/admin-web:${BIUMIND_TAG:-dev}
+    container_name: biu-admin-web
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # MiniApp H5 uni-app（site nginx /m/ 入口）
+  miniapp-h5:
+    <<: *frontend
+    build:
+      context: ../../apps/miniapp
+      dockerfile: Dockerfile.h5
+      args:
+        BASE: /m/
+    image: ${BIUMIND_REGISTRY:-biumind}/miniapp-h5:${BIUMIND_TAG:-dev}
+    container_name: biu-miniapp-h5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # ═══ Python workers（workers profile）══════════════════════════════
+  # 文档摄入 / 向量化 / 视觉描述 / 代码 AST 抽取 / AIGC / wiki-parse
+  # NATS JetStream 收任务，写回 Postgres + MinIO。设计见 DESIGN.md。
+
+  # ingest worker：PDF / Word / Markdown / HTML 解析
+  worker-ingest:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/worker-ingest:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-ingest
+    <<: [*restart, *logging]
+    environment:
+      <<: *worker-env
+      WORKER_NAME: ingest
+      WORKER_CONCURRENCY: 2
+      NATS_SUBJECT: biumind.test.brain.ingest.requested
+      NATS_DURABLE: ingest-worker
+    networks: [biu-net]
+    depends_on: *worker-depends
+
+  # embed worker：文本/代码向量化
+  worker-embed:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/worker-embed:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-embed
+    <<: [*restart, *logging]
+    environment:
+      <<: *worker-env
+      WORKER_NAME: embed
+      WORKER_CONCURRENCY: 4
+      EMBED_MODEL: ${EMBED_MODEL:-text-embedding-3-small}
+      EMBED_DIM: 1024
+      NATS_SUBJECT: biumind.test.brain.embed.requested
+      NATS_DURABLE: embed-worker
+    networks: [biu-net]
+    depends_on: *worker-depends
+
+  # vision worker：图片 caption / OCR
+  worker-vision:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/worker-vision:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-vision
+    <<: [*restart, *logging]
+    environment:
+      <<: *worker-env
+      WORKER_NAME: vision
+      WORKER_CONCURRENCY: 2
+      VISION_MODEL: ${VISION_MODEL:-claude-haiku-4-5}
+      NATS_SUBJECT: biumind.test.brain.vision.requested
+      NATS_DURABLE: vision-worker
+    networks: [biu-net]
+    depends_on: *worker-depends
+
+  # extract worker：代码 AST（tree-sitter）+ 知识图谱抽取
+  worker-extract:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/worker-extract:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-extract
+    <<: [*restart, *logging]
+    environment:
+      <<: *worker-env
+      WORKER_NAME: extract
+      WORKER_CONCURRENCY: 2
+      NATS_SUBJECT: biumind.test.brain.extract.requested
+      NATS_DURABLE: extract-worker
+    networks: [biu-net]
+    depends_on: *worker-depends
+
+  # aigc worker — 订阅 aigc.task.submit，走 P4.S1.3 注入的 NATS payload 凭证调上游（DESIGN.md §11）
+  # DASHSCOPE/VOLCENGINE env 仅 fallback；payload 凭证优先
+  worker-aigc:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/aigc-worker:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-aigc
+    <<: [*restart, *logging]
+    environment:
+      BIUMIND_ENV: ${BIUMIND_ENV:-test}
+      BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
+      NATS_URL: nats://nats:4222
+      BIUMIND_AIGC_QUEUE: aigc-py
+      BIUMIND_AIGC_TIMEOUT_S: "600"
+      BIUMIND_AIGC_POLL_INTERVAL_S: "3.0"
+      AIGC_S3_ENDPOINT: http://minio:9000
+      AIGC_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
+      AIGC_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
+      AIGC_S3_REGION: us-east-1
+      AIGC_BUCKET_OUTPUTS: biumind-aigc-outputs
+      AIGC_BUCKET_PUBLIC: biumind-aigc-public
+      # 上游 provider key — payload 缺时 fallback
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      VOLCENGINE_ARK_API_KEY: ${VOLCENGINE_ARK_API_KEY:-}
+      # 生成经 model-relay 单一 egress（I6，DESIGN.md §11）
+      AIGC_GENERATE_VIA_RELAY: ${AIGC_GENERATE_VIA_RELAY:-true}
+      AIGC_MODEL_RELAY_URL: http://model-relay:7001
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+    networks: [biu-net]
+    depends_on:
+      nats:
+        condition: service_healthy
+      minio-bootstrap:
+        condition: service_completed_successfully
+
+  # wiki-parse worker — 订阅 wiki.parse.requested + 60s tick rescan，解析 upload 文件回写 wiki_sources
+  # 不连 postgres/minio — blob 经 brain internal presign 端点下载，保持只 NATS + brain HTTP 形态
+  worker-wiki-parse:
+    profiles: [workers, all]
+    image: ${BIUMIND_REGISTRY:-biumind}/worker-wiki-parse:${BIUMIND_TAG:-dev}
+    container_name: biu-worker-wiki-parse
+    <<: [*restart, *logging]
+    environment:
+      BIUMIND_ENV: ${BIUMIND_ENV:-test}
+      BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
+      NATS_URL: nats://nats:4222
+      BIUMIND_BRAIN_URL: http://brain:7003
+      BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      BIUMIND_WIKI_PARSE_QUEUE: brain-wiki-parse
+      BIUMIND_WIKI_PARSE_INTERVAL_S: "60"
+      BIUMIND_WIKI_PARSE_MAX_BYTES: "209715200"
+    networks: [biu-net]
+    depends_on:
+      nats:
+        condition: service_healthy
+      brain:
+        condition: service_healthy
+

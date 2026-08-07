@@ -9,7 +9,7 @@
 #
 # 用法：
 #   bash tools/scripts/smoke-test-app-center.sh
-#   BASE_URL=http://localhost:8080 bash tools/scripts/smoke-test-app-center.sh
+#   BASE_URL=http://localhost:8088 bash tools/scripts/smoke-test-app-center.sh
 #
 # 退出码：0 全过，1 任一步失败。
 

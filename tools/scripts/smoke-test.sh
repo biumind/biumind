@@ -6,7 +6,7 @@
 #
 # 切其他环境:
 #   BASE_URL=https://biumind.com bash tools/scripts/smoke-test.sh
-#   BASE_URL=http://localhost:8080 bash tools/scripts/smoke-test.sh
+#   BASE_URL=http://localhost:8088 bash tools/scripts/smoke-test.sh
 #
 # 不会改服务状态: 用固定测试账号 smoke@biumind.test (SmokeTest123!),
 # 第一次 register, 之后 fallback 到 login.

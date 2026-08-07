@@ -45,7 +45,7 @@ pnpm preview         # 预览 build 产物
 ## 部署 —— Docker Compose（折叠进主栈，统一入口）
 
 site 是**客户端统一入口**（静态官网 + `/v1/*` 反代各后端 + `/app` `/admin` `/m`
-反代 SPA），已折叠进主 compose 栈：`deploy/docker-compose/docker-compose.web.yml`
+反代 SPA），已折叠进主 compose 栈：`deploy/docker-compose/docker-compose.yml`
 （连同 web-client / admin-web / miniapp-h5）。**不再单独维护 `web/site/docker-compose.yml`**
 （避免与主栈定义漂移）。
 
@@ -68,7 +68,7 @@ docker compose --profile services up -d --build site web-client admin-web miniap
 
 - `Dockerfile` — 多阶段：node 22 alpine 构建 → nginx 1.27 alpine serving `dist/`
 - `nginx.conf` — 统一入口 nginx 配置（静态站 + `/v1/*` 反代 + `/app` `/admin` `/m` + `/healthz`）
-- 服务定义 → `deploy/docker-compose/docker-compose.web.yml`（端口 `SITE_PORT`，默认 `8088`）
+- 服务定义 → `deploy/docker-compose/docker-compose.yml`（services profile；端口 `SITE_PORT`，默认 `8088`）
 - `.dockerignore` — 排除 `node_modules` `dist` 等
 
 镜像源：默认拉 `docker.io/library/{node,nginx}` 与项目其他 service Dockerfile 一致；

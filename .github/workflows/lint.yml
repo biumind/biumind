@@ -48,8 +48,8 @@ jobs:
               try:
                   with open(path) as f:
                       # compose_all parses syntax without constructing tags —
-                      # docker-compose 'ports: !reset []' (Compose Spec 2.20+)
-                      # is valid for Compose but unknown to safe_load_all.
+                      # Compose-Spec-only tags (e.g. 'ports: !reset []') are
+                      # valid for Compose but unknown to safe_load_all.
                       list(yaml.compose_all(f))
               except Exception as e:
                   print(f'::error file={path}::{e}')
