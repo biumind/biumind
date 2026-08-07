@@ -60,6 +60,7 @@ on:
       - "LICENSE"
       - ".gitignore"
       - ".gitattributes"
+      - "deploy/docker-compose/**"   # compose / Makefile / .env 不影响镜像构建
     tags:
       # All-images release.
       - "service-v*"
