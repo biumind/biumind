@@ -50,6 +50,25 @@ class SettingsController extends AsyncNotifier<AppSettings> {
     await _save(cur.copyWith(searchIncludeNotes: v));
   }
 
+  /// 设置 → 关于「获取开发版」开关 — 开启后 update_check 额外查 nightly canary
+  /// 通道 (`<origin>/downloads/nightly/index.json`)。开发版未签名/不稳定。
+  Future<void> updateFetchNightly(bool v) async {
+    final cur = await future;
+    await _save(cur.copyWith(fetchNightly: v));
+  }
+
+  /// 用户 dismiss 了某 nightly run 的更新提示 — 记下 run 号, 跨重启不再重复弹,
+  /// 直到出现更新的 run。由 UpdateBanner dismiss 处理器调用。
+  Future<void> markNightlyNotified(int run) async {
+    final cur = await future;
+    // 只单调递增 (用户可能 dismiss 旧 run 后又开开关, 避免回退覆盖)。
+    if (cur.lastNotifiedNightlyRun != null &&
+        run <= cur.lastNotifiedNightlyRun!) {
+      return;
+    }
+    await _save(cur.copyWith(lastNotifiedNightlyRun: run));
+  }
+
   Future<void> updateTheme(ThemePreference t) async {
     final cur = await future;
     await _save(cur.copyWith(theme: t));
@@ -92,6 +111,8 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         userEmail: cur.userEmail,
         defaultChatModel: cur.defaultChatModel,
         searchIncludeNotes: cur.searchIncludeNotes,
+        fetchNightly: cur.fetchNightly,
+        lastNotifiedNightlyRun: cur.lastNotifiedNightlyRun,
         theme: cur.theme,
         palette: cur.palette,
         fontSize: cur.fontSize,

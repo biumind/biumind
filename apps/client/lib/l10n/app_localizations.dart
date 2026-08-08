@@ -1561,6 +1561,42 @@ abstract class AppLocalizations {
   /// **'Your AI workspace — chats, knowledge, and memory in one place.'**
   String get aboutTagline;
 
+  /// No description provided for @settingsCheckUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get settingsCheckUpdate;
+
+  /// No description provided for @settingsCheckUpdateLatest.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get settingsCheckUpdateLatest;
+
+  /// No description provided for @settingsCheckUpdateChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get settingsCheckUpdateChecking;
+
+  /// No description provided for @settingsCheckUpdateAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Update available'**
+  String get settingsCheckUpdateAvailable;
+
+  /// No description provided for @settingsFetchNightly.
+  ///
+  /// In en, this message translates to:
+  /// **'Get nightly builds'**
+  String get settingsFetchNightly;
+
+  /// No description provided for @settingsFetchNightlySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsigned · may be unstable · back up your data first'**
+  String get settingsFetchNightlySubtitle;
+
   /// No description provided for @settingsAppearanceSection.
   ///
   /// In en, this message translates to:

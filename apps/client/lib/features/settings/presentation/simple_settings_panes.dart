@@ -16,6 +16,7 @@ import '../../../data/api/identity_client.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/default_endpoints.dart';
 import '../../../services/settings_repo.dart';
+import '../../../features/update/application/update_check_controller.dart';
 import '../application/settings_controller.dart';
 
 class _PaneShell extends StatelessWidget {
@@ -265,6 +266,22 @@ class AboutPane extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = AppLocalizations.of(context)!;
+    final settings = ref.watch(settingsControllerProvider).valueOrNull;
+    final asyncUpdate = ref.watch(updateAvailableProvider);
+    final update = asyncUpdate.valueOrNull;
+
+    // 检查更新 状态: 有更新 (banner 已在顶部提示, 这里只显状态) > 检查中 > 已最新。
+    final String checkStatus;
+    if (update != null) {
+      checkStatus = update.isNightly
+          ? '${t.settingsCheckUpdateAvailable} #${update.nightlyRun}'
+          : t.settingsCheckUpdateAvailable;
+    } else if (asyncUpdate.isLoading) {
+      checkStatus = t.settingsCheckUpdateChecking;
+    } else {
+      checkStatus = t.settingsCheckUpdateLatest;
+    }
+
     return _PaneShell(
       title: t.settingsNavAbout,
       subtitle: t.aboutSubtitle,
@@ -273,6 +290,27 @@ class AboutPane extends ConsumerWidget {
         children: [
           _kv('BiuMind', t.aboutVersion),
           _kv(t.aboutBuild, '0.1.0+1'),
+          const SizedBox(height: BiuTokens.space4),
+          // ── 更新 ──────────────────────────────────────────
+          _kv(t.settingsCheckUpdate, checkStatus),
+          const SizedBox(height: BiuTokens.space3),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            title: Text(t.settingsFetchNightly,
+                style:
+                    TextStyle(fontSize: 13, color: BiuTokens.text)),
+            subtitle: Text(t.settingsFetchNightlySubtitle,
+                style: TextStyle(
+                    fontSize: 11, color: BiuTokens.textSecondary)),
+            value: settings?.fetchNightly ?? false,
+            // settings 未加载完时禁用, 避免写默认值。
+            onChanged: settings == null
+                ? null
+                : (v) => ref
+                    .read(settingsControllerProvider.notifier)
+                    .updateFetchNightly(v),
+          ),
           const SizedBox(height: BiuTokens.space4),
           Text(t.aboutTagline,
               style: TextStyle(

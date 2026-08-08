@@ -95,4 +95,45 @@ void main() {
       expect(target.compareTo(current) > 0, isTrue);
     });
   });
+
+  group('NightlyManifest.fromJson', () {
+    test('解析完整 canary 清单 (run + releaseUrl + assets)', () {
+      const j = {
+        'manifest': 'nightly-canary-v1',
+        'channel': 'nightly',
+        'version': '0.1.13',
+        'run': 42,
+        'releasedAt': '2026-08-08T00:00:00Z',
+        'releaseUrl':
+            'https://github.com/biumind/biumind/releases/tag/client-nightly.42',
+        'notes': 'Automated nightly build',
+        'assets': [
+          {
+            'platform': 'android-apk',
+            'url': 'https://rel.example.com/nightly/client-nightly.42/a.apk',
+            'filename': 'a.apk',
+            'size': 2048,
+            'sha256': 'def',
+            'signed': false,
+            'arch': 'universal',
+          },
+        ],
+      };
+      final m = NightlyManifest.fromJson(j);
+      expect(m.version, Version(0, 1, 13));
+      expect(m.run, 42);
+      expect(m.releaseUrl, startsWith('https://github.com'));
+      expect(m.assets, hasLength(1));
+      expect(m.assets.first.platform, 'android-apk');
+      expect(m.assets.first.url, contains('client-nightly.42'));
+    });
+
+    test('缺字段用防御性默认值 (run=0 / releaseUrl="" / assets=[])', () {
+      final m = NightlyManifest.fromJson({'version': '0.1.0', 'channel': 'nightly'});
+      expect(m.run, 0);
+      expect(m.releaseUrl, '');
+      expect(m.assets, isEmpty);
+      expect(m.version, Version(0, 1, 0));
+    });
+  });
 }

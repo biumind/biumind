@@ -771,6 +771,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutTagline => '你的 AI 工作台 — 聊天、知识库、记忆,一站式。';
 
   @override
+  String get settingsCheckUpdate => '检查更新';
+
+  @override
+  String get settingsCheckUpdateLatest => '已是最新版本';
+
+  @override
+  String get settingsCheckUpdateChecking => '检查中…';
+
+  @override
+  String get settingsCheckUpdateAvailable => '发现新版本';
+
+  @override
+  String get settingsFetchNightly => '获取开发版';
+
+  @override
+  String get settingsFetchNightlySubtitle => '未签名·可能不稳定·数据请先备份';
+
+  @override
   String get settingsAppearanceSection => '外观';
 
   @override

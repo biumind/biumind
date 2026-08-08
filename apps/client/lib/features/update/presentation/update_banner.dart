@@ -13,6 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
+import '../../../features/settings/application/settings_controller.dart';
 import '../../../features/update/application/update_check_controller.dart';
 
 /// 用户点 dismiss 后的内存 flag — 仅当前会话有效, 重启 app 重新评估。
@@ -50,7 +51,9 @@ class UpdateBanner extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '发现新版本 v${update.targetVersion}',
+                    update.isNightly
+                        ? '🌙 发现新开发版 #${update.nightlyRun}'
+                        : '发现新版本 v${update.targetVersion}',
                     style: theme.textTheme.titleSmall?.copyWith(
                       color: BiuTokens.purple,
                       fontWeight: FontWeight.w700,
@@ -82,8 +85,16 @@ class UpdateBanner extends ConsumerWidget {
               tooltip: '本次会话内不再提醒',
               icon: const Icon(Icons.close, size: 18),
               color: BiuTokens.textSecondary,
-              onPressed: () =>
-                  ref.read(_dismissedProvider.notifier).state = true,
+              onPressed: () {
+                ref.read(_dismissedProvider.notifier).state = true;
+                // nightly: dismiss 时回写 lastNotifiedNightlyRun, 跨重启不再
+                // 重复弹此 run, 直到更新的 run (stable 无此机制, 仍每次重启评估)。
+                if (update.isNightly) {
+                  ref
+                      .read(settingsControllerProvider.notifier)
+                      .markNightlyNotified(update.nightlyRun);
+                }
+              },
             ),
           ],
         ),

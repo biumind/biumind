@@ -1,21 +1,27 @@
 #!/bin/sh
-# 生成 nginx location 片段, 反代 releases.json 到对象存储 (dev MinIO / prod 阿里云 OSS)。
+# 生成 nginx location 片段, 反代 releases.json + nightly/index.json 到对象存储
+# (dev MinIO / prod 阿里云 OSS)。
 #
-# 为什么: releases.json 经 site nginx 提供 (客户端/官网单 origin 拉 <origin>/downloads/
-# releases.json, 不碰 OSS 域名)。但来源因环境而异:
+# 为什么: 这两个清单经 site nginx 提供 (客户端/官网单 origin 拉
+# <origin>/downloads/releases.json 与 <origin>/downloads/nightly/index.json,
+# 不碰 OSS 域名)。但来源因环境而异:
 #   - dev:  本地 MinIO http://minio:9000/releases (bucket=releases)
 #   - prod: CNAME 自定义域名 https://releases.your-biumind.example.com (DNS CNAME 到
 #     biumind-releases.oss-cn-beijing.aliyuncs.com, 公共读)。必须用 CNAME: 阿里云对
 #     APK 经 OSS 默认 endpoint 公网下载返 ApkDownloadForbidden, CNAME 绕过。
 # 同一份 nginx.conf 无法写死, 由 env RELEASES_UPSTREAM 注入, 这里展开成 location 片段。
 #
-# 产物大文件 (dmg/apk/...) 不经 nginx, releases.json 里 url 已是 OSS 直链。
-# 这里只反代 releases.json 这一个几 KB 的小文件。
+# 产物大文件 (dmg/apk/...) 不经 nginx, 清单里 url 已是 OSS 直链。
+# 这里只反代 releases.json + nightly/index.json 这两个几 KB 的小文件。
+#
+# nightly/index.json 是 canary 通道清单 (.github/workflows/release-client-nightly.yml
+# 每次 nightly 构建上传到 <bucket>/nightly/index.json)。客户端在 设置→关于 开启
+# "获取开发版"时才拉; 不开则永不请求, 不影响普通用户。
 #
 # RELEASES_UPSTREAM 值:
 #   - 不含 bucket path (dev MinIO) → http://minio:9000/releases (bucket=releases 在 path)
 #   - CNAME 自定义域名 → https://releases.your-biumind.example.com (prod, https 分支)
-# 两种 + /releases.json 都拼出正确的 object url。
+# 两种 + /releases.json (或 /nightly/index.json) 都拼出正确的 object url。
 #
 # 由 nginx:alpine 官方 entrypoint 在启动 nginx 前自动执行。
 set -eu
@@ -43,6 +49,19 @@ location = /downloads/releases.json {
     proxy_buffering off;
     proxy_read_timeout 30s;
 }
+# nightly/index.json ← 阿里云 OSS (canary 通道清单)。客户端开"获取开发版"时才拉。
+location = /downloads/nightly/index.json {
+    include /tmp/biumind-resolver.conf;
+    proxy_ssl_server_name on;
+    proxy_ssl_protocols TLSv1.2 TLSv1.3;
+    proxy_pass ${RU}/nightly/index.json;
+    proxy_set_header Host \$proxy_host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_buffering off;
+    proxy_read_timeout 30s;
+}
 EOF
     ;;
   *)
@@ -59,8 +78,19 @@ location = /downloads/releases.json {
     proxy_buffering off;
     proxy_read_timeout 30s;
 }
+# nightly/index.json ← 本地 MinIO (canary 通道清单)。
+location = /downloads/nightly/index.json {
+    set \$upstream "${RU}";
+    proxy_pass \$upstream/nightly/index.json;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_buffering off;
+    proxy_read_timeout 30s;
+}
 EOF
     ;;
 esac
 
-echo "06-releases-upstream.sh: releases.json source -> ${RU}"
+echo "06-releases-upstream.sh: releases.json + nightly/index.json source -> ${RU}"

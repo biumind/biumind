@@ -46,6 +46,51 @@ class ReleaseManifest {
   }
 }
 
+/// nightly/index.json 顶层清单 (canary 通道)。
+///
+/// 与 [ReleaseManifest] (v1 releases.json) 不同 envelope:channel 固定 nightly,
+/// 多一个 [run] (CI run number, 单调递增, 用于跨重启去重)。Asset 对象沿用
+/// [ReleaseAsset] (与 v1 同形状), 客户端 asset 解析代码可复用。
+/// 额外 [releaseUrl] 指向 GH release 页, 作为"当前平台无对应 asset"(intel mac /
+/// web / iOS)时的下载 fallback。
+///
+/// 由 .github/workflows/release-client-nightly.yml 在每次 nightly 构建时生成,
+/// 上传到 `<bucket>/nightly/index.json` (根, 每次覆盖 = 最新夜版)。
+class NightlyManifest {
+  final Version version;
+  final int run; // CI run number, 单调递增
+  final DateTime releasedAt;
+  final String notes;
+  final String releaseUrl; // GH release 页 (无平台 asset 时的 fallback)
+  final List<ReleaseAsset> assets;
+
+  const NightlyManifest({
+    required this.version,
+    required this.run,
+    required this.releasedAt,
+    required this.notes,
+    required this.releaseUrl,
+    required this.assets,
+  });
+
+  factory NightlyManifest.fromJson(Map<String, dynamic> j) {
+    final list = (j['assets'] as List?) ?? const [];
+    return NightlyManifest(
+      version: _parseVersion(j['version']),
+      run: (j['run'] as num?)?.toInt() ?? 0,
+      releasedAt:
+          DateTime.tryParse(j['releasedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      notes: j['notes'] as String? ?? '',
+      releaseUrl: j['releaseUrl'] as String? ?? '',
+      assets: list
+          .whereType<Map<String, dynamic>>()
+          .map(ReleaseAsset.fromJson)
+          .toList(growable: false),
+    );
+  }
+}
+
 /// 单平台产物。platform 枚举见 schema/release/v1/manifest.json。
 class ReleaseAsset {
   final String platform; // macos-arm64 | windows-x64 | linux-appimage | ...

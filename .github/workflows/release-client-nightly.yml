@@ -354,14 +354,18 @@ jobs:
           sha_dmg=$(sha256sum "nightly/$MACOS" | awk '{print $1}')
           size_apk=$(stat -c%s "nightly/$ANDROID")
           size_dmg=$(stat -c%s "nightly/$MACOS")
+          # GH release 页 — client 在"当前平台无对应 asset"(intel mac / web / iOS)
+          # 时作下载 fallback。GITHUB_SERVER_URL/GITHUB_REPOSITORY 是 Actions 自动 env。
+          REL_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/releases/tag/client-nightly.${RUN}"
           # nightly/index.json — 夜版 canary 清单。非 v1 releases.json:
-          # envelope 不同 (channel=nightly + run); Asset 对象沿用 v1 Asset
+          # envelope 不同 (channel=nightly + run + releaseUrl); Asset 对象沿用 v1 Asset
           # 形状 (platform enum/url/filename/size/sha256/signed/arch),
           # 客户端 asset 解析代码可复用。客户端开"每日构建"开关后才读。
           jq -n \
             --arg version "$VERSION" \
             --argjson run "$RUN" \
             --arg releasedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg releaseUrl "$REL_URL" \
             --arg apk "$ANDROID" --arg dmg "$MACOS" \
             --arg base "$BASE" --arg rel "$REL" \
             --arg sha_apk "$sha_apk" --arg sha_dmg "$sha_dmg" \
@@ -372,6 +376,7 @@ jobs:
               version: $version,
               run: $run,
               releasedAt: $releasedAt,
+              releaseUrl: $releaseUrl,
               notes: "Automated nightly build — not for production. Unsigned.",
               assets: [
                 {platform:"android-apk", arch:"universal", signed:false,

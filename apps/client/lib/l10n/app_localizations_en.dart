@@ -787,6 +787,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your AI workspace — chats, knowledge, and memory in one place.';
 
   @override
+  String get settingsCheckUpdate => 'Check for updates';
+
+  @override
+  String get settingsCheckUpdateLatest => 'Up to date';
+
+  @override
+  String get settingsCheckUpdateChecking => 'Checking…';
+
+  @override
+  String get settingsCheckUpdateAvailable => 'Update available';
+
+  @override
+  String get settingsFetchNightly => 'Get nightly builds';
+
+  @override
+  String get settingsFetchNightlySubtitle =>
+      'Unsigned · may be unstable · back up your data first';
+
+  @override
   String get settingsAppearanceSection => 'Appearance';
 
   @override

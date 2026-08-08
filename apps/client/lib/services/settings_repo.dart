@@ -88,6 +88,17 @@ class AppSettings {
   /// 分组）。默认关。与笔记内的中栏搜索（/v1/notes/search）无关。
   final bool searchIncludeNotes;
 
+  // ── Update preferences ─────────────────────────────────────
+  /// 是否检查 nightly canary 通道 (`<origin>/downloads/nightly/index.json`)。
+  /// 默认关 — 普通用户只看 stable releases.json。开启后 update_check 额外拉
+  /// nightly 清单, 有新 run 弹"新开发版"banner。开发版未签名/不稳定, 故 UI
+  /// 常驻警示副标题。详见 features/update/ + .github/workflows/release-client-nightly.yml。
+  final bool fetchNightly;
+
+  /// 上次已向用户提示过的 nightly run number。用于跨重启去重:dismiss 过某 run
+  /// 后不再重复弹, 直到出现更新的 run。null = 从未提示过 nightly。
+  final int? lastNotifiedNightlyRun;
+
   // ── UI ───────────────────────────────────────────────────────
   final ThemePreference theme;
 
@@ -139,6 +150,8 @@ class AppSettings {
     this.userEmail,
     this.defaultChatModel,
     this.searchIncludeNotes = false,
+    this.fetchNightly = false,
+    this.lastNotifiedNightlyRun,
     this.theme = ThemePreference.system,
     // 默认色板:跟 prototype v3 默认一致(墨蓝 + 信号橙)— Vercel 风极简
     // 商务感,优于早期紫橘"少女粉"基调。已登录用户保留原选,只影响新用户。
@@ -165,6 +178,8 @@ class AppSettings {
     String? userEmail,
     String? defaultChatModel,
     bool? searchIncludeNotes,
+    bool? fetchNightly,
+    int? lastNotifiedNightlyRun,
     ThemePreference? theme,
     PaletteId? palette,
     FontSize? fontSize,
@@ -187,6 +202,9 @@ class AppSettings {
     userEmail: userEmail ?? this.userEmail,
     defaultChatModel: defaultChatModel ?? this.defaultChatModel,
     searchIncludeNotes: searchIncludeNotes ?? this.searchIncludeNotes,
+    fetchNightly: fetchNightly ?? this.fetchNightly,
+    lastNotifiedNightlyRun:
+        lastNotifiedNightlyRun ?? this.lastNotifiedNightlyRun,
     theme: theme ?? this.theme,
     palette: palette ?? this.palette,
     fontSize: fontSize ?? this.fontSize,
@@ -205,6 +223,8 @@ class AppSettings {
     userEmail: userEmail,
     defaultChatModel: defaultChatModel,
     searchIncludeNotes: searchIncludeNotes,
+    fetchNightly: fetchNightly,
+    lastNotifiedNightlyRun: lastNotifiedNightlyRun,
     theme: theme,
     palette: palette,
     fontSize: fontSize,
@@ -231,6 +251,9 @@ class AppSettings {
     if (userEmail != null) 'user_email': userEmail,
     if (defaultChatModel != null) 'default_chat_model': defaultChatModel,
     'search_include_notes': searchIncludeNotes,
+    'fetch_nightly': fetchNightly,
+    if (lastNotifiedNightlyRun != null)
+      'last_notified_nightly_run': lastNotifiedNightlyRun,
     'theme': theme.name,
     'palette': palette.wireId,
     'font_size': fontSize.wireId,
@@ -266,6 +289,8 @@ class AppSettings {
       userEmail: j['user_email'] as String?,
       defaultChatModel: j['default_chat_model'] as String?,
       searchIncludeNotes: (j['search_include_notes'] as bool?) ?? false,
+      fetchNightly: (j['fetch_nightly'] as bool?) ?? false,
+      lastNotifiedNightlyRun: (j['last_notified_nightly_run'] as num?)?.toInt(),
       theme: _themeFromName(j['theme'] as String?),
       palette: PaletteId.byWireId(j['palette'] as String?),
       fontSize: FontSize.byWireId(j['font_size'] as String?),
