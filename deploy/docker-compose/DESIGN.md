@@ -5,26 +5,25 @@
 
 ---
 
-## 1. 单文件结构与 profile 机制
+## 1. 单文件结构与启动范围
 
-全部服务（infra / Go 服务 / 前端 / workers）合并在一个 `docker-compose.yml`，`--profile` 控制启停范围。公共 env / 加固配置用文件顶部的 `x-` YAML 锚点复用（锚点不能跨文件，合并后统一收在顶部一份）。
+全部服务（infra / Go 服务 / 前端 / workers）合并在一个 `docker-compose.yml`，**无 `profiles:`**——裸 `docker compose up -d` 默认起完整栈；要子集就点名服务（`docker compose up -d postgres minio nats`）。公共 env / 加固配置用文件顶部的 `x-` YAML 锚点复用（锚点不能跨文件，合并后统一收在顶部一份）。
 
 > 定位：本 compose 文件仅为开发 / 测试环境的启动示例（dev/test only）。生产环境的部署、加固（端口收敛 / HTTPS / 密钥轮换等）与运维由使用者自行负责，仓库不提供生产部署方案。
 
 ---
 
-## 2. Profile 三轴
+## 2. 启动范围：默认全栈，子集点名
 
-每个 service 标 `profiles:`：
+不用 `profiles`。服务按逻辑分三组（仅文档概念，非 compose 字段）：
 
-| Profile | 内容 | 典型用法 |
-|---------|------|----------|
-| `infra` | postgres / minio(+bootstrap) / nats | 本地开发：服务在宿主 IDE 跑，依赖在容器 |
-| `services` | 9 Go 服务 + 前端 4 个（site/web-client/admin-web/miniapp-h5） | CI / demo 全栈 |
-| `workers` | 3 Python worker（ingest/aigc/wiki-parse） | 文档摄入 / AIGC 任务 |
-| `all` | 上面全部 | 完整测试栈 |
+| 分组 | 服务 | 点名子集启动 |
+|------|------|--------------|
+| **infra** | postgres / minio(+bootstrap) / nats | `docker compose up -d postgres minio nats minio-bootstrap` |
+| **services** | 9 Go 服务 + 前端 4 个（site/web-client/admin-web/miniapp-h5） | 裸 `docker compose up -d` 即含 |
+| **workers** | 3 Python worker（ingest/aigc/wiki-parse） | `docker compose up -d worker-ingest worker-aigc worker-wiki-parse` |
 
-Makefile 包了 4 档：`up-infra` / `up` / `up-workers` / `up-all`。
+Makefile 包了便捷入口：`make up`（完整栈）/ `make up-infra`（只 infra，本地开发用）/ `make up-workers`（只 workers，依赖 infra 由 `depends_on` 自动带起）/ `make up-all`（= `up`）。
 
 ---
 
@@ -110,10 +109,10 @@ web-client / admin-web / miniapp-h5 **不绑 host port**，只经 site nginx 暴
 
 ## 8. 部署模式
 
-| 模式 | 入口 | compose 组合 | 镜像源 |
-|------|------|--------------|--------|
-| **本地开发** | `make up-infra` | infra profile | docker.io + 本地 build |
-| **CI / 内部测试** | `make up` / `make up-all` | services / all profile | docker.io 或内网源 + sha8 tag |
+| 模式 | 入口 | 启动范围 | 镜像源 |
+|------|------|----------|--------|
+| **本地开发** | `make up-infra` | 只 infra（点名 postgres/minio/nats） | docker.io + 本地 build |
+| **CI / 内部测试** | `make up`（= 裸 `docker compose up -d`） | 完整栈 | docker.io 或内网源 + sha8 tag |
 
 仓库不提交生产环境内容——本 compose 栈只是 dev/test 启动示例，生产部署、端口收敛、HTTPS 等由使用者自行负责（见 §1）。
 

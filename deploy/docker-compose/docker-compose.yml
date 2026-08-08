@@ -4,12 +4,9 @@
 #    生产环境的部署方式、安全加固（端口收敛 / HTTPS / 密钥轮换等）与日常运维
 #    由使用者自行负责，仓库不提供也不维护生产部署方案。
 #
-# 用法：profile 控制启停范围 ——
-#   docker compose --profile infra up -d    # 基础设施（默认 `docker compose up -d` 同）
-#   docker compose --profile services up -d # + Go 业务服务 + 前端
-#   docker compose --profile workers up -d  # + Python workers
-#   docker compose --profile all up -d      # 完整测试栈（infra + services + workers）
-# 便捷入口见 Makefile（make up / up-infra / up-workers / up-all）；设计 rationale 见 DESIGN.md。
+# 用法：裸 `docker compose up -d` 默认起完整栈（infra + 全部 Go 服务 + 前端 + workers）。
+#   要子集就点名服务：docker compose up -d postgres minio nats   # 只起基础设施
+# 便捷入口见 Makefile（make up / up-infra）；设计 rationale 见 DESIGN.md。
 #
 # 镜像源：业务镜像 = ${BIUMIND_REGISTRY}/biumind/<name>:${BIUMIND_TAG}，namespace 固定
 # biumind，只换 host：
@@ -61,7 +58,6 @@ x-svc-env-extra: &svc-env-extra
 # 4 个前端容器共用最小权限 hardening（DESIGN.md §18）
 x-frontend: &frontend
   restart: unless-stopped
-  profiles: [services, all]
   networks: [biu-net]
   logging:
     driver: json-file
@@ -120,9 +116,7 @@ services:
   # ═══ 基础设施（infra profile）═══════════════════════════════════
 
   # Postgres 16 + pgvector（中文分词 zhparser fallback 见 DESIGN.md §15）
-  postgres:
-    profiles: [infra, services, workers, all]
-    # QUICKSTART 用 stock pgvector 镜像（无 zhparser）。中文 FTS 用 ./postgres/Dockerfile（当前 Debian Trixie 编译坏，待修）
+  postgres:    # QUICKSTART 用 stock pgvector 镜像（无 zhparser）。中文 FTS 用 ./postgres/Dockerfile（当前 Debian Trixie 编译坏，待修）
     image: ${INFRA_REGISTRY:-docker.io}/pgvector/pgvector:pg16
     container_name: biu-postgres
     <<: [*restart, *logging]
@@ -146,7 +140,6 @@ services:
 
   # MinIO（对象存储：原始文档 / 媒体 / 构建产物）
   minio:
-    profiles: [infra, services, workers, all]
     image: ${INFRA_REGISTRY:-docker.io}/minio/minio:latest
     container_name: biu-minio
     <<: [*restart, *logging]
@@ -168,7 +161,6 @@ services:
 
   # MinIO 启动后建 bucket + ILM（one-shot，DESIGN.md §16）
   minio-bootstrap:
-    profiles: [infra, services, workers, all]
     image: ${INFRA_REGISTRY:-docker.io}/minio/mc:latest
     container_name: biu-minio-bootstrap
     depends_on:
@@ -203,7 +195,6 @@ services:
 
   # NATS JetStream（跨语言队列 / 事件总线，DESIGN.md §17）
   nats:
-    profiles: [infra, services, workers, all]
     image: ${INFRA_REGISTRY:-docker.io}/library/nats:2.10-alpine
     container_name: biu-nats
     <<: [*restart, *logging]
@@ -228,7 +219,6 @@ services:
 
   # Authz（Cedar 统一授权）— 所有服务权限判断过它，first start 必装
   authz:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/authz:${BIUMIND_TAG:-main}
     container_name: biu-authz
     <<: [*restart, *logging]
@@ -251,7 +241,6 @@ services:
 
   # Realtime（单 SSE 多 topic 实时网关）— 面向客户端实时事件必走它（I8）
   realtime:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/realtime:${BIUMIND_TAG:-main}
     container_name: biu-realtime
     <<: [*restart, *logging]
@@ -277,7 +266,6 @@ services:
 
   # Identity（用户/团队/认证）— 密钥目录由镜像预建并 chown，volume 首建继承属主（DESIGN.md §9）
   identity:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/identity:${BIUMIND_TAG:-main}
     container_name: biu-identity
     <<: [*restart, *logging]
@@ -332,7 +320,6 @@ services:
 
   # model-relay（模型网关：BYOK + 平台池 + 计费）
   model-relay:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/model-relay:${BIUMIND_TAG:-main}
     container_name: biu-model-relay
     <<: [*restart, *logging]
@@ -371,7 +358,6 @@ services:
 
   # Brain（Wiki + Graph + Memory + Search）
   brain:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/brain:${BIUMIND_TAG:-main}
     container_name: biu-brain
     <<: [*restart, *logging]
@@ -418,7 +404,6 @@ services:
 
   # Runtime（Go Agent 引擎）
   runtime:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/runtime:${BIUMIND_TAG:-main}
     container_name: biu-runtime
     <<: [*restart, *logging]
@@ -458,7 +443,6 @@ services:
 
   # App Center（应用中心：catalog / install / 钩子 / sidebar / triggers）— 端口 7011（DESIGN.md §19）
   app-center:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/app-center:${BIUMIND_TAG:-main}
     container_name: biu-app-center
     <<: [*restart, *logging]
@@ -493,7 +477,6 @@ services:
 
   # Channels（多渠道 IM 网关；可选）
   channels:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/channels:${BIUMIND_TAG:-main}
     container_name: biu-channels
     <<: [*restart, *logging]
@@ -523,7 +506,6 @@ services:
 
   # AIGC（文生图 / 文生视频 / 数字人 / 爆款解析）— 端口 7012（DESIGN.md §19）。设计见 docs/BiuMind-AIGC-*.md
   aigc:
-    profiles: [services, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/aigc:${BIUMIND_TAG:-main}
     container_name: biu-aigc
     <<: [*restart, *logging]
@@ -649,7 +631,6 @@ services:
 
   # ingest worker：PDF / Word / Markdown / HTML 解析
   worker-ingest:
-    profiles: [workers, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-ingest:${BIUMIND_TAG:-main}
     container_name: biu-worker-ingest
     <<: [*restart, *logging]
@@ -665,7 +646,6 @@ services:
   # aigc worker — 订阅 aigc.task.submit，走 P4.S1.3 注入的 NATS payload 凭证调上游（DESIGN.md §11）
   # DASHSCOPE/VOLCENGINE env 仅 fallback；payload 凭证优先
   worker-aigc:
-    profiles: [workers, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/aigc-worker:${BIUMIND_TAG:-main}
     container_name: biu-worker-aigc
     <<: [*restart, *logging]
@@ -699,7 +679,6 @@ services:
   # wiki-parse worker — 订阅 wiki.parse.requested + 60s tick rescan，解析 upload 文件回写 wiki_sources
   # 不连 postgres/minio — blob 经 brain internal presign 端点下载，保持只 NATS + brain HTTP 形态
   worker-wiki-parse:
-    profiles: [workers, all]
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-wiki-parse:${BIUMIND_TAG:-main}
     container_name: biu-worker-wiki-parse
     <<: [*restart, *logging]

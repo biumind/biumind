@@ -16,36 +16,34 @@ help: ## 显示这份帮助
 
 # ─── 启动 ────────────────────────────────────────────
 .PHONY: up-infra
-up-infra: check-env ## 拉起基础设施（postgres/minio/nats）
-	$(COMPOSE) --profile infra up -d
+up-infra: check-env ## 只拉基础设施（postgres/minio/nats）—— 本地开发：服务在宿主跑
+	$(COMPOSE) up -d postgres minio nats minio-bootstrap
 	@$(MAKE) wait-healthy
 
 .PHONY: up
-up: check-env ## 拉起 infra + biumind 服务（不含可观测性）
-	$(COMPOSE) --profile infra --profile services up -d
+up: check-env ## 拉起完整栈（infra + 全部 Go 服务 + 前端 + workers）
+	$(COMPOSE) up -d
 	@$(MAKE) wait-healthy
+	@echo "Site (统一入口): http://localhost:$${SITE_PORT:-8088}"
 
 .PHONY: up-workers
-up-workers: check-env ## 拉起 infra + workers（不含 biumind 服务）
-	$(COMPOSE) --profile infra --profile workers up -d
+up-workers: check-env ## 只拉 workers（依赖的 infra 由 depends_on 自动带起）
+	$(COMPOSE) up -d worker-ingest worker-aigc worker-wiki-parse
 	@$(MAKE) wait-healthy
 
 .PHONY: up-all
-up-all: check-env ## 拉起完整栈（infra + services + workers）
-	$(COMPOSE) --profile all up -d
-	@$(MAKE) wait-healthy
-	@echo "Site (统一入口): http://localhost:$${SITE_PORT:-8088}"
+up-all: up ## 别名：完整栈（= up）
 
 # ─── 停止 ────────────────────────────────────────────
 .PHONY: down
 down: ## 停容器（保留数据 volume）
-	$(COMPOSE) --profile all down
+	$(COMPOSE) down
 
 .PHONY: clean
 clean: ## ⚠️  停容器并删除所有 volume（数据全清）
 	@echo "WARNING: This will delete all volumes (postgres data, minio buckets, etc)"
 	@read -p "Type 'yes' to continue: " ans && [ "$$ans" = "yes" ]
-	$(COMPOSE) --profile all down -v --remove-orphans
+	$(COMPOSE) down -v --remove-orphans
 
 .PHONY: restart
 restart: down up ## down + up
