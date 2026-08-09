@@ -306,6 +306,9 @@ services:
       IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       # W1: BYOK AES-256 主密钥（base64 32B，openssl rand -base64 32）。留空禁用 BYOK。严禁进 git（DESIGN.md §5）
       BYOK_MASTER_KEY: ${BYOK_MASTER_KEY:-}
+      # 启动时把逗号分隔的邮箱列表自动提升为 superadmin（main.go:547 bootstrapAdmins）。
+      # 邮箱必须已注册且通过验证；已是 superadmin 跳过（幂等）。留空不提升。
+      BIUMIND_BOOTSTRAP_SUPERADMINS: ${BIUMIND_BOOTSTRAP_SUPERADMINS:-}
     volumes:
       - identity-keys:/var/lib/biumind/identity
     ports:
