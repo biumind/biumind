@@ -256,13 +256,15 @@ func (s *Store) CountUsersByRole(ctx context.Context, role string) (int, error) 
 
 // PromoteByEmail 启动时给 BIUMIND_BOOTSTRAP_SUPERADMINS 列表提升用. 邮箱
 // 不存在直接跳过 (用户尚未注册), 等用户注册后下次重启再提升.
-// 已是该 role 直接 noop. 写 system actor (00000000-...) 标记为 bootstrap.
+// 已是该 role 直接 noop. role_assigned_by 置 NULL — 该列 FK 到
+// identity.users(id), 库里没有 system actor 用户, 写零 UUID 会违反外键;
+// bootstrap 来源由 role_assigned_reason 标记.
 func (s *Store) PromoteByEmail(ctx context.Context, email, role string) (promoted bool, err error) {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE identity.users
 		SET role = $2,
 		    role_assigned_at = now(),
-		    role_assigned_by = '00000000-0000-0000-0000-000000000000'::uuid,
+		    role_assigned_by = NULL,
 		    role_assigned_reason = 'bootstrap from BIUMIND_BOOTSTRAP_SUPERADMINS env',
 		    updated_at = now()
 		WHERE email = $1 AND role <> $2
