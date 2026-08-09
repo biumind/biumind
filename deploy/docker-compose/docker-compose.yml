@@ -32,7 +32,7 @@ x-logging: &logging
 x-svc-env: &svc-env
   BIUMIND_ENV: ${BIUMIND_ENV:-test}
   BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
-  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-biu_core}?sslmode=${POSTGRES_SSLMODE:-disable}
   NATS_URL: nats://nats:4222
   S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
@@ -83,9 +83,9 @@ x-frontend: &frontend
 x-worker-env: &worker-env
   BIUMIND_ENV: ${BIUMIND_ENV:-test}
   BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
-  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+  DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-biu_core}?sslmode=${POSTGRES_SSLMODE:-disable}
   NATS_URL: nats://nats:4222
-  S3_ENDPOINT: http://minio:9000
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
   S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   S3_BUCKET: ${MINIO_BUCKET:-biumind}
@@ -331,7 +331,7 @@ services:
       MODEL_RELAY_BRAIN_URL: http://brain:7003
       # 上游 key 已移到 admin 后台 model_relay.credentials（envelope 加密落库），不再走 *_API_KEY env（DESIGN.md §11）
       # Admin stack：设 MODEL_RELAY_ADMIN_DATABASE_URL 后自动跑 migration + 起 cache/supervisor + mount /v1/admin/*
-      MODEL_RELAY_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+      MODEL_RELAY_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-biu_core}?sslmode=${POSTGRES_SSLMODE:-disable}
       MODEL_RELAY_ADMIN_MIGRATIONS_DIR: /etc/biumind/migrations/model-relay
       MODEL_RELAY_SYNC_UPSTREAM_URL: ${MODEL_RELAY_SYNC_UPSTREAM_URL:-}
       # Daily fx-rate sync（USD↔CNY）。离线设 MODEL_RELAY_FX_SYNC_DISABLED=1
@@ -385,6 +385,7 @@ services:
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
       MINIO_BUCKET: biumind-files
       FILES_MAX_UPLOAD_BYTES: "104857600"  # 100MB
       # Wiki block events → JetStream durable（DESIGN.md §17）
@@ -513,7 +514,7 @@ services:
       <<: [*svc-env, *svc-env-extra]
       SERVICE_NAME: aigc
       LISTEN_ADDR: ":7012"
-      AIGC_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-biu_core}?sslmode=disable
+      AIGC_DATABASE_URL: postgres://${POSTGRES_USER:-biumind}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-biu_core}?sslmode=${POSTGRES_SSLMODE:-disable}
       AIGC_MIGRATIONS_DIR: /etc/biumind/migrations/aigc
       AIGC_IDENTITY_URL: http://identity:7004
       # 服务间共享 bearer — 缺则 POST /v1/generations 全返 503 billing_not_wired（DESIGN.md §5）
@@ -525,8 +526,8 @@ services:
       AIGC_S3_ENDPOINT: ${AIGC_S3_ENDPOINT:-http://minio:9000}
       AIGC_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
       AIGC_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
-      AIGC_S3_REGION: us-east-1
-      AIGC_S3_USE_SSL: "false"
+      AIGC_S3_REGION: ${AIGC_S3_REGION:-us-east-1}
+      AIGC_S3_USE_SSL: ${AIGC_S3_USE_SSL:-false}
       # 上游 provider keys（P3 才用；空则 worker 拒收 submit）
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       VOLCENGINE_ARK_API_KEY: ${VOLCENGINE_ARK_API_KEY:-}
@@ -656,10 +657,10 @@ services:
       BIUMIND_AIGC_QUEUE: aigc-py
       BIUMIND_AIGC_TIMEOUT_S: "600"
       BIUMIND_AIGC_POLL_INTERVAL_S: "3.0"
-      AIGC_S3_ENDPOINT: http://minio:9000
+      AIGC_S3_ENDPOINT: ${AIGC_S3_ENDPOINT:-http://minio:9000}
       AIGC_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}
       AIGC_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-biumind_minio_dev}
-      AIGC_S3_REGION: us-east-1
+      AIGC_S3_REGION: ${AIGC_S3_REGION:-us-east-1}
       AIGC_BUCKET_OUTPUTS: biumind-aigc-outputs
       AIGC_BUCKET_PUBLIC: biumind-aigc-public
       # 上游 provider key — payload 缺时 fallback
