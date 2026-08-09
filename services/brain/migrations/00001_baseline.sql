@@ -53,13 +53,20 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;      -- 与 deploy init 对齐
 -- 保持 to_tsvector('biumind_zhcn', …) 不破坏。
 -- 与 deploy/docker-compose/postgres/init/00-extensions.sql 相同。
 DO $ext$
+DECLARE
+  tok text;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'zhparser') THEN
     CREATE EXTENSION IF NOT EXISTS zhparser;
     IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = 'biumind_zhcn') THEN
       CREATE TEXT SEARCH CONFIGURATION biumind_zhcn (PARSER = zhparser);
-      ALTER TEXT SEARCH CONFIGURATION biumind_zhcn
-        ADD MAPPING FOR n,v,a,i,e,l,j,nz WITH simple;
+      -- 动态映射：不同发行版（阿里云 RDS / 自建 / 旧 SCWS）的 zhparser
+      -- 暴露的 token 词性表被裁剪程度不一，硬编码列表（如 n,v,a,...,nz）
+      -- 会在缺词性的版本上报 SQLSTATE 22023 "token type X does not exist"。
+      -- 逐个仅映射 ts_token_type 实际返回的 token，任意版本自适应。
+      FOR tok IN SELECT alias FROM ts_token_type('zhparser') LOOP
+        EXECUTE format('ALTER TEXT SEARCH CONFIGURATION biumind_zhcn ADD MAPPING FOR %I WITH simple', tok);
+      END LOOP;
     END IF;
   ELSE
     -- Fallback: alias biumind_zhcn to the built-in 'simple' config so
