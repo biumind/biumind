@@ -21,9 +21,14 @@
 #     worker-wiki-llm（wiki-llm 不在 compose，按需取用）
 #
 # Triggered by:
-#   * Push to `main` — CI build of ALL images above, tagged
+#   * Push to `main` — CI build of the CHANGED images only, tagged
 #     `:sha-<short>` (immutable, per-commit) + `:main` (rolling).
-#     Trivy-gated; NOT signed (release-only).
+#     The detect-changes job maps changed paths → images (each image's
+#     inputs are exactly its Dockerfile COPY set: the service dir plus
+#     shared deps like packages/go-sdk/biu). Unmapped/shared changes
+#     (go-sdk, apps/cli/biu, this workflow file) fan out to every image
+#     that COPYs them. Detection failure falls back to building ALL —
+#     never the reverse. Trivy-gated; NOT signed (release-only).
 #   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
 #     all images so they share a version tag and digest table.
 #   * `<name>-v*` tag (e.g. `model-relay-v0.3.1`, `web-client-v0.4.0`) —
@@ -136,7 +141,109 @@ permissions:
   id-token: write       # cosign keyless signing
 
 jobs:
+  # Map changed paths → images for branch pushes. Each image's inputs are
+  # exactly what its Dockerfile COPYs (verified against the matrix below):
+  # every Go service takes its own dir + packages/go-sdk/biu; brain and
+  # runtime additionally take apps/cli/biu (go.mod replace); frontends and
+  # workers are self-contained in their own dirs. Any detection failure,
+  # an unknown force-push range, or an edit to THIS workflow → all=true
+  # (build everything). Skipping is only ever the safe direction.
+  detect-changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      all: ${{ steps.detect.outputs.all }}
+      identity: ${{ steps.detect.outputs.identity }}
+      model-relay: ${{ steps.detect.outputs.model-relay }}
+      brain: ${{ steps.detect.outputs.brain }}
+      runtime: ${{ steps.detect.outputs.runtime }}
+      realtime: ${{ steps.detect.outputs.realtime }}
+      app-center: ${{ steps.detect.outputs.app-center }}
+      aigc: ${{ steps.detect.outputs.aigc }}
+      authz: ${{ steps.detect.outputs.authz }}
+      channels: ${{ steps.detect.outputs.channels }}
+      sandbox: ${{ steps.detect.outputs.sandbox }}
+      deploy: ${{ steps.detect.outputs.deploy }}
+      site: ${{ steps.detect.outputs.site }}
+      web-client: ${{ steps.detect.outputs.web-client }}
+      admin-web: ${{ steps.detect.outputs.admin-web }}
+      miniapp-h5: ${{ steps.detect.outputs.miniapp-h5 }}
+      worker-ingest: ${{ steps.detect.outputs.worker-ingest }}
+      worker-wiki-parse: ${{ steps.detect.outputs.worker-wiki-parse }}
+      aigc-worker: ${{ steps.detect.outputs.aigc-worker }}
+      worker-wiki-llm: ${{ steps.detect.outputs.worker-wiki-llm }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need github.event.before in the local history
+
+      - name: Detect changed images
+        id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # image name → space-separated path prefixes (build inputs).
+          declare -A paths=(
+            [identity]="services/identity packages/go-sdk/biu"
+            [model-relay]="services/model-relay packages/go-sdk/biu"
+            [brain]="services/brain packages/go-sdk/biu apps/cli/biu"
+            [runtime]="services/runtime packages/go-sdk/biu apps/cli/biu"
+            [realtime]="services/realtime packages/go-sdk/biu"
+            [app-center]="services/app_center packages/go-sdk/biu"
+            [aigc]="services/aigc packages/go-sdk/biu"
+            [authz]="services/authz packages/go-sdk/biu"
+            [channels]="services/channels packages/go-sdk/biu"
+            [sandbox]="services/sandbox packages/go-sdk/biu"
+            [deploy]="services/deploy packages/go-sdk/biu"
+            [site]="web/site"
+            [web-client]="apps/client"
+            [admin-web]="admin"
+            [miniapp-h5]="apps/miniapp"
+            [worker-ingest]="workers/ingest"
+            [worker-wiki-parse]="workers/wiki-parse"
+            [aigc-worker]="workers/aigc"
+            [worker-wiki-llm]="workers/wiki-llm"
+          )
+
+          all=true
+          declare -A hits=()
+          # Only branch pushes get selective builds; tags and
+          # workflow_dispatch keep their existing all/single semantics.
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "${GITHUB_REF_TYPE:-}" = "branch" ] \
+             && [ -n "$BEFORE" ] \
+             && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            if changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA"); then
+              all=false
+              # Editing this workflow invalidates the mapping itself.
+              if grep -qxF ".github/workflows/release-images.yml" <<<"$changed"; then
+                all=true
+              fi
+              for name in "${!paths[@]}"; do
+                hits[$name]=false
+                for p in ${paths[$name]}; do
+                  if grep -q "^${p}/" <<<"$changed"; then
+                    hits[$name]=true
+                    break
+                  fi
+                done
+              done
+              echo "changed files:"; echo "$changed"
+            else
+              echo "git diff failed — falling back to build ALL"
+            fi
+          fi
+
+          for name in "${!paths[@]}"; do
+            v="${hits[$name]:-true}"
+            [ "$all" = "true" ] && v=true
+            echo "$name=$v" >> "$GITHUB_OUTPUT"
+          done
+          echo "all=$all" >> "$GITHUB_OUTPUT"
+
   build-and-push:
+    needs: detect-changes
     runs-on: ubuntu-latest
     # 行级覆盖：大镜像（Flutter web-client）放宽，其余默认 25min。
     timeout-minutes: ${{ matrix.timeout || 25 }}
@@ -217,8 +324,9 @@ jobs:
       #   1. workflow_dispatch with a `service` input that doesn't match
       #      this matrix row.
       #   2. Per-image tag (e.g. `web-client-v0.3.0`) that doesn't match
-      #      this matrix row. The `service-v*` tag and a `main` branch push
-      #      are both "all images", so they never skip.
+      #      this matrix row. The `service-v*` tag is always "all images".
+      #   3. Branch push (main) whose changed paths don't touch this
+      #      image's build inputs (detect-changes job).
       - name: Filter
         id: filt
         run: |
@@ -226,9 +334,13 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             want_service="${{ inputs.service }}"
           elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "branch" ]; then
-            # Branch push (e.g. main) — build ALL images, like the
-            # `service-v*` tag. want_service stays empty.
-            :
+            # Branch push (main) — build only images whose build inputs
+            # changed (detect-changes job). all=true forces a full rebuild.
+            if [ "${{ needs.detect-changes.outputs.all }}" != "true" ] && \
+               [ "${{ needs.detect-changes.outputs[matrix.name] }}" != "true" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           elif [[ "$GITHUB_REF_NAME" != service-v* ]]; then
             # Tag format is "<name>-v<version>" — strip the last "-v*" so
             # hyphenated names (web-client, worker-wiki-parse, …) survive.
