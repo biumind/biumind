@@ -25,7 +25,7 @@ import '../core/ui/popup_position.dart';
 import 'sidebar_mode.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/chat/presentation/v2/threads_shell_page.dart';
-import '../features/code/presentation/project_page.dart';
+import '../features/code/code_module.dart';
 import '../features/creation/presentation/creation_shell.dart';
 import '../features/creation/presentation/widgets/credit_indicator.dart';
 import '../features/creation/presentation/pages/gallery_page.dart' as creation;
@@ -142,6 +142,9 @@ GoRouter buildRouter(ProviderContainer container) {
       final loc = state.matchedLocation;
       // Splash 不 redirect — 等动画完成后自己 pushReplacement
       if (loc == '/splash') return null;
+      // Web 无编码模块(code UI/daemon 树已条件编译剔除) — /code 深链兜底到
+      // /chat, 避免 web 上命中不存在的路由掉进错误页。
+      if (!codeModuleEnabled && loc.startsWith('/code')) return '/chat';
       final creds = container.read(hubCredentialsProvider);
       final loggingIn = loc == '/login';
       if (creds == null && !loggingIn && !isPublicRoute(loc)) return '/login';
@@ -367,7 +370,9 @@ GoRouter buildRouter(ProviderContainer container) {
               ));
             },
           ),
-          GoRoute(path: '/code', pageBuilder: (_, _) => tabPage(const CodeProjectPage())),
+          ...codeRouteSpecs.map(
+            (r) => GoRoute(path: r.path, pageBuilder: (_, _) => tabPage(r.child)),
+          ),
           // /profile — 移动端底部 tab 5「我的」落地 (R1.3): 账户卡 + 功能入口
           // 列表, 设置降为子项。桌面 sidebar 无此入口; ProfilePage build 内
           // fallback 到 SettingsPage 防御 Web 手动深链。
@@ -558,9 +563,10 @@ class _AppShell extends ConsumerWidget {
       if (hiddenSystem.contains(s.systemId)) continue;
       systemItems.add(s);
     }
-    // 手机形态隐藏「编码」入口 — code workbench 功能层桌面限定 (daemon 仅
-    // 桌面, tasks 走 DummyAdapter), 手机上不可用 (方案 §4.7)。
-    if (phone) {
+    // 隐藏「编码」入口 — code workbench 功能层桌面限定 (daemon 仅桌面,
+    // tasks 走 DummyAdapter)。手机形态不可用 (方案 §4.7);Web 上整个 code 树
+    // 已条件编译剔除 (codeModuleEnabled=false)。
+    if (phone || !codeModuleEnabled) {
       systemItems.removeWhere((i) => i.systemId == 'code');
     }
 

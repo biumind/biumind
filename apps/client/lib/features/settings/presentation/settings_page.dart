@@ -30,7 +30,7 @@ import 'activity_pane.dart';
 import 'api_keys_page.dart';
 import 'appearance_pane.dart';
 import 'chat_settings_pane.dart';
-import 'coding_workbench_pane.dart';
+import '../../code/code_module.dart';
 import 'data_statistics_pane.dart';
 import 'search_settings_pane.dart';
 import 'security_pane.dart';
@@ -101,7 +101,7 @@ class _Body extends StatelessWidget {
       case SettingsTab.activity:
         return const ActivityPane();
       case SettingsTab.codingWorkbench:
-        return const CodingWorkbenchPane();
+        return buildCodingWorkbenchPane();
       case SettingsTab.search:
         return const SearchSettingsPane();
       case SettingsTab.about:
@@ -205,12 +205,13 @@ class _NavColumn extends ConsumerWidget {
             selected: active == SettingsTab.activity,
             onTap: () => go(SettingsTab.activity),
           ),
-          _NavItem(
-            label: t.settingsNavCodingWorkbench,
-            icon: Icons.terminal_rounded,
-            selected: active == SettingsTab.codingWorkbench,
-            onTap: () => go(SettingsTab.codingWorkbench),
-          ),
+          if (codeModuleEnabled)
+            _NavItem(
+              label: t.settingsNavCodingWorkbench,
+              icon: Icons.terminal_rounded,
+              selected: active == SettingsTab.codingWorkbench,
+              onTap: () => go(SettingsTab.codingWorkbench),
+            ),
           _NavItem(
             label: t.settingsNavChat,
             icon: Icons.chat_bubble_outline,
