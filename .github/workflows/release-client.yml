@@ -765,7 +765,8 @@ jobs:
           set -eu
           mkdir -p artefacts && cd artefacts
           # releases.json + 该版本全部产物 (dmg/apk/ipa)。draft release 也能下 (GITHUB_TOKEN 有 contents)。
-          gh release download "$GITHUB_REF_NAME" \
+          # --repo 显式给: 本 job 无 checkout, gh 默认靠 git 发现仓库会 fatal "not a git repository"。
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             -p "releases.json" -p "biumind-${VERSION}*" \
             -p "*.dmg" -p "*.apk" -p "*.ipa" || true
           echo "--- downloaded ---"
