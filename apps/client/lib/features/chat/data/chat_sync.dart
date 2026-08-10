@@ -6,9 +6,11 @@
 // watch Drift，UI 自动更新，无需改 UI。
 //
 // 对接的服务端 API（现成，不依赖新参数）：
-//   GET /v1/threads                 cursor 分页（before + next_cursor）
+//   GET /v1/threads                 cursor 分页（before + next_cursor）；
+//                                   updated_after=RFC3339Nano 增量过滤
 //   GET /v1/threads/{id}            单条（realtime 增量 / 新 thread 用）
 //   GET /v1/threads/{id}/messages   position 游标分页（after，升序）
+//   GET /v1/chat/tombstones         墓碑（since + next_since 翻页，P1.2）
 //
 // 冲突不变量：
 //   - 服务端是权威，但只覆盖「已在服务端存在」的数据；
@@ -25,6 +27,28 @@
 //      或 multi-turn 时自己也带 sessionId；
 //   3. 内容兜底 —— 同 role + 同文本的第一条未匹配本地消息（按 seq 序，
 //      重复发同文也能逐条对上）。
+//
+// 增量 hydrate + 墓碑收敛（P1.2，设计 §4）：
+//   - ChatSyncState（per-scope 单行）持久化两个游标，值都是服务端
+//     RFC3339Nano 字符串原样透传（服务端是时钟权威，本地不解析比较）：
+//       threadsCursor  —— GET /v1/threads?updated_after= 的下界，
+//                        本轮见到的最大 updated_at；
+//       tombstoneSince —— GET /v1/chat/tombstones?since= 的下界，
+//                        服务端回包的 next_since。
+//   - 无 threadsCursor（首跑 / desync 清游标后）→ 全量 hydrate + **全量
+//     reconcile**：曾同步（remoteUpdatedAtUs != null）但不在服务端全量
+//     列表里的 thread = 他端已删，本地级联删；remoteUpdatedAtUs == null
+//     的本机新建保留（既有不变量）。
+//   - 有 threadsCursor → 增量：updated_after=cursor 翻页（服务端 store.go
+//     ListThreads 把 updated_after 与 before 都作为 AND 条件，可同用），
+//     随后拉墓碑（since=tombstoneSince ?? epoch0）级联删命中的
+//     thread / message。
+//   - 墓碑只有 30 天保留，不能替代全量 reconcile —— 两者都要；desync 清
+//     游标（chat_events_realtime._handleDesync）保证定期回到全量对账。
+//   - 失败语义：任何网络失败整体抛、游标不推进（下次重试不丢数据）；
+//     单 thread 失败收进 errors —— 此时 threadsCursor 也不推进（失败
+//     thread 的 updated_at 可能 ≤ cursor，推进后增量再也拉不到它；
+//     不推进顶多下轮多拉，幂等）。
 //
 // 幂等：重复执行结果一致 —— 已 hydrated 的行内容没变就不写（repo 层
 // 比较后跳过），已匹配的行永远跳过。
@@ -57,6 +81,8 @@ class ChatSyncResult {
   int threadsFetched = 0; // 服务端看到的 thread 数
   int threadsUpserted = 0; // 本地新建或元数据被服务端覆盖的 thread 数
   int threadsSkipped = 0; // 已是最新、未拉消息的 thread 数
+  int threadsReconciled = 0; // 全量 reconcile 删掉的「曾同步但服务端已无」thread 数
+  int tombstonesApplied = 0; // 墓碑命中删掉的 thread + message 数
   int messagesFetched = 0; // 服务端看到的 message 数
   int messagesWritten = 0; // 实际写入本地的 message 数（去重/无变化不计）
   final List<String> errors = []; // 单 thread 级失败（不阻塞整体）
@@ -67,7 +93,8 @@ class ChatSyncResult {
   String toString() =>
       'ChatSyncResult('
       'threads=$threadsFetched fetched/$threadsUpserted upserted/'
-      '$threadsSkipped skipped, '
+      '$threadsSkipped skipped/$threadsReconciled reconciled, '
+      'tombstones=$tombstonesApplied, '
       'messages=$messagesFetched fetched/$messagesWritten written, '
       'errors=${errors.length})';
 }
@@ -92,11 +119,20 @@ class ChatSyncService {
   final int threadPageSize;
   final int messagePageSize;
 
-  // ── 全量 hydrate ──────────────────────────────────────────
+  // ── hydrate（全量 / 增量）─────────────────────────────────
 
-  /// 拉全量 threads 合并进 Drift。未登录（无 token）退化为 noop。
-  /// threads 列表本身的网络错误会 rethrow —— 调用方（manager）记录后
-  /// 等下个触发点整体重试。
+  /// 墓碑翻页大小（服务端默认 200 / clamp 500 —— 直接顶到 500 少翻页）。
+  static const tombstonePageSize = 500;
+
+  /// tombstoneSince 首跑起点：epoch0。服务端墓碑只保留 30 天，天然有界。
+  static const tombstoneEpoch = '1970-01-01T00:00:00Z';
+
+  /// 拉 threads 合并进 Drift。未登录（无 token）退化为 noop。
+  ///
+  /// 有 threadsCursor → 增量（updated_after 翻页 + 墓碑收敛）；无 → 全量
+  /// hydrate + 全量 reconcile（见文件头「增量 hydrate + 墓碑收敛」）。
+  /// threads 列表 / 墓碑拉取的网络错误整体 rethrow 且**不推进任何游标**
+  /// —— 调用方（manager）记录后等下个触发点重试，重试不丢数据。
   Future<ChatSyncResult> syncThreads() async {
     final result = ChatSyncResult();
     final tok = await tokenProvider();
@@ -104,9 +140,130 @@ class ChatSyncService {
       _log.fine('syncThreads: no token, skip');
       return result;
     }
-    final remote = await _fetchAllThreads();
-    result.threadsFetched = remote.length;
 
+    final state = await repo.chatSyncState();
+    var threadsCursor = state?.threadsCursor;
+    var tombstoneSince = state?.tombstoneSince;
+
+    if (threadsCursor == null) {
+      // ── 全量 hydrate + reconcile（首跑 / desync 后）──
+      final remote = await _fetchAllThreads();
+      result.threadsFetched = remote.length;
+      await _mergeThreads(remote, result);
+      await _reconcileFull(remote, result);
+      // 有单 thread 失败时不推进 cursor（见文件头失败语义）。
+      if (!result.hasErrors) {
+        threadsCursor = _maxUpdatedAt(remote); // remote 为空则维持 null
+      }
+    } else {
+      // ── 增量 hydrate + 墓碑收敛 ──
+      final remote = await _fetchAllThreads(updatedAfter: threadsCursor);
+      result.threadsFetched = remote.length;
+      await _mergeThreads(remote, result);
+      // 墓碑：他端删除的 thread / message 在本 scope 内级联删。
+      tombstoneSince = await _pullTombstones(tombstoneSince, result);
+      if (!result.hasErrors) {
+        // 本轮没看到更新的 thread → 维持旧 cursor（不能丢）。
+        threadsCursor = _maxUpdatedAt(remote) ?? threadsCursor;
+      }
+    }
+    await repo.saveChatSyncState(
+      threadsCursor: threadsCursor,
+      tombstoneSince: tombstoneSince,
+    );
+    _log.info('syncThreads done: $result');
+    return result;
+  }
+
+  /// 本轮见到的最大 updated_at（RFC3339Nano 字符串，服务端原样透传语义）。
+  /// DateTime 精度到微秒，服务端是纳秒 —— 截断只会让 cursor 略早、下轮
+  /// 多拉边界行（marker 精确比较后幂等跳过），是安全的偏差方向。
+  String? _maxUpdatedAt(List<ChatThread> remote) {
+    DateTime? max;
+    for (final t in remote) {
+      if (max == null || t.updatedAt.isAfter(max)) max = t.updatedAt;
+    }
+    return max?.toUtc().toIso8601String();
+  }
+
+  /// 全量 reconcile：曾同步（remoteUpdatedAtUs != null）但不在服务端
+  /// 全量列表里的 thread = 他端已删 → 本 scope 内级联删（messages /
+  /// blocks / reactions / sessions 一起）。本机新建从未同步的 thread
+  /// （marker null）不在对照集内，天然保留（既有不变量）。
+  ///
+  /// 只在全量路径跑：增量列表是子集，无法区分「没更新」与「已删除」；
+  /// 增量路径的删除收敛靠墓碑。
+  Future<void> _reconcileFull(
+    List<ChatThread> remote,
+    ChatSyncResult result,
+  ) async {
+    final remoteIds = {for (final t in remote) t.id};
+    final synced = await repo.syncedThreadIds();
+    final stale = synced.difference(remoteIds);
+    if (stale.isEmpty) return;
+    await repo.deleteThreads(stale);
+    result.threadsReconciled = stale.length;
+    _log.info('full reconcile: deleted ${stale.length} stale thread(s)');
+  }
+
+  /// 墓碑收敛：翻页拉 `deleted_at > since` 的墓碑，命中的 thread / message
+  /// 在本 scope 内级联删（repo 强制 scope 过滤，跨 scope 不删）。返回新的
+  /// tombstoneSince（末页 next_since）；404（老服务端无端点）/ 保持不变
+  /// 时返回入参原值（含 null）。其他网络错误整体抛 —— 调用方不推进游标。
+  Future<String?> _pullTombstones(String? since, ChatSyncResult result) async {
+    var cursor = since ?? tombstoneEpoch;
+    while (true) {
+      final Map<String, dynamic> raw;
+      try {
+        raw = await _get('/v1/chat/tombstones', {
+          'since': cursor,
+          'limit': '$tombstonePageSize',
+        });
+      } on ApiError catch (e) {
+        if (e.status == 404) {
+          // 老服务端还没部署墓碑端点（P1.1 灰度期）—— 本轮跳过、游标不
+          // 推进（原样返回入参，含 null）；其他错误照常上抛。
+          _log.fine('tombstones endpoint 404 (pre-P1.1 server), skip');
+          return since;
+        }
+        rethrow;
+      }
+      final page = (raw['tombstones'] as List? ?? const [])
+          .cast<Map<String, dynamic>>();
+      final threadIds = <String>[];
+      final messageIds = <String>[];
+      for (final t in page) {
+        final id = t['id']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        switch (t['kind']?.toString()) {
+          case 'thread':
+            threadIds.add(id);
+          case 'message':
+            messageIds.add(id);
+          default: // 未知 kind 忽略 —— 前向兼容
+        }
+      }
+      // deleteThreads / deleteMessages 对不存在的 id 是 noop —— 墓碑命中
+      // 「本地从没同步过」的行时安全跳过；命中本机在途数据则按服务端权威
+      // 删除（删除事件的语义就是他端已删）。
+      if (threadIds.isNotEmpty) await repo.deleteThreads(threadIds);
+      if (messageIds.isNotEmpty) await repo.deleteMessages(messageIds);
+      result.tombstonesApplied += threadIds.length + messageIds.length;
+
+      // 契约：空页 next_since 回显入参 since；非空页是继续游标。
+      final next = raw['next_since'] as String? ?? '';
+      if (page.length < tombstonePageSize || next.isEmpty) {
+        return next.isEmpty ? cursor : next;
+      }
+      cursor = next;
+    }
+  }
+
+  /// threads 合并主循环（全量 / 增量共用）。
+  Future<void> _mergeThreads(
+    List<ChatThread> remote,
+    ChatSyncResult result,
+  ) async {
     final locals = {for (final t in await repo.listAllThreads()) t.id: t};
     final counts = await repo.messageCountsByThread();
     final markers = await repo.remoteUpdatedMarkers();
@@ -133,8 +290,6 @@ class ChatSyncService {
         _log.warning('sync thread ${rt.id} failed: $e');
       }
     }
-    _log.info('syncThreads done: $result');
-    return result;
   }
 
   /// 单 thread 增量入口 —— realtime 事件（chat.message_created /
@@ -427,12 +582,16 @@ class ChatSyncService {
     );
   }
 
-  Future<List<ChatThread>> _fetchAllThreads() async {
+  /// 翻页拉 threads。[updatedAfter] 非空时带增量过滤 —— 服务端把
+  /// updated_after 与 before 都作为 AND 条件（store.go ListThreads），
+  /// 可与 before 翻页同用。
+  Future<List<ChatThread>> _fetchAllThreads({String? updatedAfter}) async {
     final out = <ChatThread>[];
     String? before;
     while (true) {
       final qp = <String, String>{'limit': '$threadPageSize'};
       if (before != null) qp['before'] = before;
+      if (updatedAfter != null) qp['updated_after'] = updatedAfter;
       final raw = await _get('/v1/threads', qp);
       final page = (raw['threads'] as List? ?? const [])
           .cast<Map<String, dynamic>>()

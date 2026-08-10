@@ -185,7 +185,9 @@ class ChatEventsListener {
   }
 
   /// desync 4009 兜底 —— 服务端判定 last-event-id 超出 ledger retention。
-  /// hub 已清内存 cursor；这里清持久化 cursor + 全量 hydrate 对齐。
+  /// hub 已清内存 cursor；这里清持久化 SSE cursor + ChatSyncState 下行游标
+  /// （P1.2：清了 threadsCursor 下轮 syncThreads 自动退回全量 hydrate +
+  /// 全量 reconcile，把 ledger 空洞期间漏掉的删除也对账掉）+ 全量 hydrate。
   Future<void> _handleDesync(int code, String reason) async {
     _log.warning(
       'chat events desync code=$code reason=$reason — '
@@ -195,6 +197,11 @@ class ChatEventsListener {
       await _cursors?.clear(sseScope);
     } catch (e) {
       _log.warning('clear chat sse cursor on desync: $e');
+    }
+    try {
+      await _resolveService()?.repo.clearChatSyncState();
+    } catch (e) {
+      _log.warning('clear chat sync state on desync: $e');
     }
     try {
       await _resolveService()?.syncThreads();

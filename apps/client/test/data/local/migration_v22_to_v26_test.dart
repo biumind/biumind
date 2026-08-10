@@ -221,8 +221,9 @@ void main() {
       // ── 3. 断言 ──
       // 迁移真的跑到了当前最新版本（v30：v28 建笔记域 5 表；v29 加
       // note_notes.archived_at/promoted_page_id —— from<28 时 createTable
-      // 已含新列，v29 步骤跳过；v30 chat 五表加 owner_key 并清空存量）。
-      expect(raw.userVersion, 30, reason: '迁移后 schema 版本应为 30');
+      // 已含新列，v29 步骤跳过；v30 chat 五表加 owner_key 并清空存量；
+      // v31/v32 加 chat_sync_state / chat_outbox）。
+      expect(raw.userVersion, 32, reason: '迁移后 schema 版本应为 32');
 
       // v28:笔记域 5 张表已建（note_notebooks/note_notes/note_tags/
       // note_note_tags/note_outbox）。

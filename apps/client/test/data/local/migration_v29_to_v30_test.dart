@@ -138,7 +138,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 30, reason: '迁移后 schema 版本应为 30');
+    expect(raw.userVersion, 32, reason: '迁移后 schema 版本应为 32（v31/v32 加了 chat_sync_state / chat_outbox）');
 
     // 五表 owner_key 列已加。
     for (final t in [

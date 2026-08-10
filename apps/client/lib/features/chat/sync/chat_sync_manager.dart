@@ -9,9 +9,15 @@
 //   * 进入会话列表（ThreadsShellPage initState）：syncIfStale(30s)。
 //   * app resume（main.dart didChangeAppLifecycleState）：onAppResumed —
 //     SSE kick + syncIfStale(5s)。
-//   * realtime desync：listener 内部清 cursor + 全量 syncThreads()。
-//   * logout：creds 变 null → 停监听；SseCursors 由
+//   * realtime desync：listener 内部清 cursor + ChatSyncState 游标 + 全量
+//     syncThreads()。
+//   * logout：creds 变 null → 停监听 + 停 outbox flusher；SseCursors 由
 //     auth_logout.purgeUserData → clearAll 统一清（含 'chat.sync' scope）。
+//     ChatOutbox 表不清（scope 隔离，切回账号续传）。
+//
+// P1.3 上行 outbox：manager 按登录态持有一个 ChatOutboxFlusher（scope 由
+// chatSyncServiceProvider 的 repo 绑定），登录即建 + 补 flush，登出即停。
+// ChatThreadOps 上行失败入队后经 outboxFlusher kick 立即首试。
 //
 // token 轮换（后台 refresher 每小时）：只 kick SSE 重连，不重复全量
 // hydrate —— 增量由 realtime 事件覆盖，hydrate 由各 30s 节流触发点覆盖。
@@ -21,6 +27,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
 
+import '../../../data/outbox/chat_outbox_flusher.dart';
 import '../../../data/wiki_providers.dart' show appDbProvider;
 import '../../../services/auth_service.dart';
 import '../data/chat_repo.dart';
@@ -38,20 +45,29 @@ class ChatSyncManager {
   static const staleThreshold = Duration(seconds: 30);
 
   ChatEventsListener? _listener;
+  ChatOutboxFlusher? _outboxFlusher;
   String? _lastUserId;
   DateTime? _lastSyncAt;
   Future<ChatSyncResult>? _inFlight;
+
+  /// 当前登录态的 chat 上行 outbox flusher（P1.3）；未登录 null。
+  /// ChatThreadOps 入队后经它 kick 立即首试。
+  ChatOutboxFlusher? get outboxFlusher => _outboxFlusher;
 
   /// 由 provider 在构建时 + creds 变化时调用。未登录 noop。
   void onCredentialsChanged() {
     final creds = _ref.read(hubCredentialsProvider);
     if (creds == null) {
-      // logout —— 停监听；本地 chat 数据保留但已按 ownerKey scope 隔离
-      // （P0 数据隔离：下个账号的 ChatRepo 查询强制 ownerKey 过滤，旧数据
-      // 天然不可见，无需清库），cursor 由 purgeUserData 统一清。
+      // logout —— 停监听 + 停 outbox flusher（表不清：scope 隔离，切回
+      // 账号续传；flusher 无 token 也会整轮跳过，双保险）；本地 chat 数据
+      // 保留但已按 ownerKey scope 隔离（P0 数据隔离：下个账号的 ChatRepo
+      // 查询强制 ownerKey 过滤，旧数据天然不可见，无需清库），cursor 由
+      // purgeUserData 统一清。
       final l = _listener;
       _listener = null;
       if (l != null) unawaited(l.stop());
+      _outboxFlusher?.dispose();
+      _outboxFlusher = null;
       _lastUserId = null;
       _lastSyncAt = null;
       return;
@@ -67,16 +83,33 @@ class ChatSyncManager {
       final l = _listener;
       _listener = null;
       if (l != null) unawaited(l.stop());
+      _outboxFlusher?.dispose();
+      _outboxFlusher = null;
     } else if (!isNewLogin) {
       // 同账号 token 轮换：SSE 长连接还挂着旧 token，主动 kick 让它用新
       // token 重连（auth 闭包每次 connect 读最新 creds）。不重复全量
       // hydrate —— 增量由 realtime 覆盖，兜底由各节流触发点覆盖。
+      // flusher 的 tokenProvider 现读最新 creds，无需重建。
       _listener?.kick();
     }
     _listener ??= ChatEventsListener(
       _ref,
       resolveService: () => _ref.read(chatSyncServiceProvider),
     )..start();
+    // P1.3 outbox flusher：跟 credentials/scope 走 —— chatSyncServiceProvider
+    // 为 null（无 scope / 非 JWT token）时不建，flush 无从隔离。
+    if (_outboxFlusher == null) {
+      final svc = _ref.read(chatSyncServiceProvider);
+      if (svc != null) {
+        _outboxFlusher = ChatOutboxFlusher(
+          repo: svc.repo, // scope 绑定 —— 只 flush 当前账号的 op
+          baseUrl: svc.baseUrl,
+          tokenProvider: svc.tokenProvider, // 现读最新 token
+        )..start();
+        // 登录即补 flush 一次：上轮登出前 / 上次进程留下的待传 op。
+        unawaited(_outboxFlusher!.kick());
+      }
+    }
     if (isNewLogin || userChanged) unawaited(syncNow());
   }
 
@@ -121,6 +154,8 @@ class ChatSyncManager {
   Future<void> dispose() async {
     await _listener?.stop();
     _listener = null;
+    _outboxFlusher?.dispose();
+    _outboxFlusher = null;
   }
 }
 

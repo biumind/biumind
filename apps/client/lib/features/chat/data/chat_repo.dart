@@ -14,6 +14,7 @@
 // 测试：chat_repo_test.dart 用 AppDb.memory()。
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
@@ -400,8 +401,9 @@ class ChatRepo {
     await deleteThreads([id]);
   }
 
-  /// 批量删除线程 —— 单事务级联清掉 blocks / messages / sessions / thread。
-  /// 单条 deleteThread 走这里（[id] 列表长度 1），逻辑单一不漂移。空集合 noop。
+  /// 批量删除线程 —— 单事务级联清掉 blocks / messages / sessions /
+  /// reactions / thread。单条 deleteThread 走这里（[id] 列表长度 1），逻辑
+  /// 单一不漂移。空集合 noop。
   Future<void> deleteThreads(Iterable<String> ids) async {
     final list = ids.toList(growable: false);
     if (list.isEmpty) return;
@@ -424,11 +426,16 @@ class ChatRepo {
       await (db.delete(db.chatMessagesV2)
             ..where((m) => m.threadId.isIn(list) & m.ownerKey.equals(scope)))
           .go();
-      // 4. 删 sessions
+      // 4. 删 reactions（按 thread_id 批量 —— message 已删，reaction 不留孤儿）
+      await (db.delete(db.messageReactionsV2)
+            ..where(
+                (r) => r.threadId.isIn(list) & r.ownerKey.equals(scope)))
+          .go();
+      // 5. 删 sessions
       await (db.delete(db.chatSessions)
             ..where((s) => s.threadId.isIn(list) & s.ownerKey.equals(scope)))
           .go();
-      // 5. 删 thread
+      // 6. 删 thread
       await (db.delete(db.chatThreadsV2)
             ..where((t) => t.id.isIn(list) & t.ownerKey.equals(scope)))
           .go();
@@ -1011,6 +1018,122 @@ class ChatRepo {
     return {
       for (final r in rows) r.read<String>('id'): r.read<int>('us'),
     };
+  }
+
+  /// 曾同步过的 thread id 集合（remoteUpdatedAtUs != null）—— 全量
+  /// reconcile 的对照集：在集合内但不在服务端全量列表里 = 他端已删，
+  /// 本地级联删。本机新建从未同步（marker null）的不在集合内，天然保留。
+  Future<Set<String>> syncedThreadIds() async {
+    final rows = await db.customSelect(
+      'SELECT id FROM chat_threads_v2 '
+      'WHERE remote_updated_at_us IS NOT NULL AND owner_key = ?',
+      variables: [Variable.withString(scope)],
+      readsFrom: {db.chatThreadsV2},
+    ).get();
+    return {for (final r in rows) r.read<String>('id')};
+  }
+
+  // ── 下行同步游标（ChatSyncState, P1.2）────────────────────
+  //
+  // per-scope 单行（PK = scope）。游标值是服务端 RFC3339Nano 字符串原样
+  // 透传；本类不做解析比较。
+
+  /// 读本 scope 的同步游标；从未同步过返回 null。
+  Future<LocalChatSyncState?> chatSyncState() {
+    return (db.select(db.chatSyncState)
+          ..where((s) => s.scope.equals(scope)))
+        .getSingleOrNull();
+  }
+
+  /// 整行 upsert 同步游标 —— 两个字段都显式给值（调用方先 load 再合并），
+  /// 不存在「只更新一个字段」的半状态写法。
+  Future<void> saveChatSyncState({
+    required String? threadsCursor,
+    required String? tombstoneSince,
+  }) {
+    return db.into(db.chatSyncState).insertOnConflictUpdate(
+          ChatSyncStateCompanion.insert(
+            scope: scope,
+            threadsCursor: Value(threadsCursor),
+            tombstoneSince: Value(tombstoneSince),
+          ),
+        );
+  }
+
+  /// 清本 scope 的游标 —— desync（SSE ledger 超出保留期）时下轮退回全量
+  /// hydrate。scope 隔离：只删自己这行。
+  Future<void> clearChatSyncState() {
+    return (db.delete(db.chatSyncState)
+          ..where((s) => s.scope.equals(scope)))
+        .go();
+  }
+
+  // ── 上行写盒（ChatOutbox, P1.3）───────────────────────────
+  //
+  // 删除 / 归档 / 重命名上行失败（非 404）时入队，ChatOutboxFlusher 指数
+  // 退避重试。scope 随 repo 绑定：enqueue 落当前 scope，查询只看当前
+  // scope —— 登出不清表，切回账号后续传。
+
+  /// chat outbox op 常量。
+  static const outboxOpDeleteThread = 'delete_thread';
+  static const outboxOpArchiveThread = 'archive_thread';
+  static const outboxOpRenameThread = 'rename_thread';
+
+  /// 入队一条上行 op。payload：archive → {"archived": true}；rename →
+  /// {"title": ...}；delete → 空 {}。立即到期（nextAttemptAt = now），
+  /// 由 flusher kick() 触发首次尝试。
+  Future<void> enqueueOutbox({
+    required String op,
+    required String threadId,
+    Map<String, dynamic> payload = const {},
+  }) {
+    final now = DateTime.now().toUtc();
+    return db.into(db.chatOutbox).insert(
+          ChatOutboxCompanion.insert(
+            scope: scope,
+            op: op,
+            threadId: threadId,
+            payloadJson: Value(jsonEncode(payload)),
+            createdAt: now,
+            nextAttemptAt: now,
+          ),
+        );
+  }
+
+  /// 到期 op（nextAttemptAt <= now），id 升序 = FIFO。仅当前 scope。
+  Future<List<ChatOutboxEntry>> dueChatOutbox({required DateTime now}) {
+    return (db.select(db.chatOutbox)
+          ..where((o) =>
+              o.scope.equals(scope) &
+              o.nextAttemptAt.isSmallerOrEqualValue(now))
+          ..orderBy([(o) => OrderingTerm(expression: o.id)]))
+        .get();
+  }
+
+  Future<void> deleteChatOutboxEntry(int id) {
+    return (db.delete(db.chatOutbox)
+          ..where((o) => o.id.equals(id) & o.scope.equals(scope)))
+        .go();
+  }
+
+  /// 失败后重排：attempts+1 + 记录错误 + 指数退避的下次尝试时间。
+  /// （attempts 自增走 raw update，同 WikiDao.bumpOutboxFailure —— 避免
+  /// 先读后写丢掉并发增量。）
+  Future<void> bumpChatOutboxFailure(
+    int id,
+    String error,
+    DateTime nextAttemptAt,
+  ) async {
+    await (db.update(db.chatOutbox)
+          ..where((o) => o.id.equals(id) & o.scope.equals(scope)))
+        .write(ChatOutboxCompanion(
+      lastError: Value(error),
+      nextAttemptAt: Value(nextAttemptAt),
+    ));
+    await db.customStatement(
+      'UPDATE chat_outbox SET attempts = attempts + 1 WHERE id = ? AND scope = ?',
+      [id, scope],
+    );
   }
 
   /// 下行同步 upsert thread 元数据。返回是否真的写了（无变化时跳过，

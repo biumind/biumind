@@ -8,6 +8,8 @@
 //   * ChatThreadsV2/ChatMessagesV2/      — Chat 重构 v2，brain Agent
 //     ChatContentBlocks/ChatSessions       Plane 驱动；ContentBlock 对齐
 //                                          SDK Protocol v1
+//   * ChatSyncState/ChatOutbox           — P1 同步闭环：下行游标（增量
+//                                          hydrate + 墓碑）+ 上行写盒
 //   * CodeTasks/CodeTaskOutbox/...       — 编码工作台多端同步
 //
 // Storage is platform-conditional:
@@ -187,8 +189,10 @@ class NoteOutbox extends Table {
 }
 
 // ─── Chat tables: ChatThreads / ChatMessages / MessageReactions /
-// ChatOutbox 删除于 2026-05-31（Chat 重构 R7）。Drift v2 表迁移到
+// ChatOutbox(v1) 删除于 2026-05-31（Chat 重构 R7）。Drift v2 表迁移到
 // ChatThreadsV2 / ChatMessagesV2 / ChatContentBlocks / ChatSessions。
+// v32 重建的 ChatOutbox 是 P1.3 上行写盒（scope 隔离），与 v1 老表无 schema
+// 延续关系。
 
 // CodeTaskOutbox / CodeSyncCursors 已随 codeSync 废弃移除(D4/Code-I6,schema v24
 // DROP)。编码任务 100% 本地,Drift 即唯一真相源,无 outbox / 无云同步。
@@ -495,6 +499,50 @@ class MessageReactionsV2 extends Table {
   TextColumn get ownerKey => text().withDefault(const Constant(''))();
 }
 
+/// ChatSyncState —— per-scope 下行同步游标（P1.2 增量 hydrate + 墓碑收敛，
+/// 设计 docs/BiuMind-Local-Data-Isolation-Design.md §4）。
+/// scope = ChatRepo 同款 ownerKey（sha256(环境)+":"+userId），主键即隔离键。
+/// 两个游标都存服务端时间戳的 RFC3339Nano 字符串原样回传，不做本地解析
+/// 比较（服务端是时钟权威，本地只透传）。
+@DataClassName('LocalChatSyncState')
+class ChatSyncState extends Table {
+  TextColumn get scope => text()();
+  /// GET /v1/threads?updated_after= 的游标（本轮见到的最大 updated_at）。
+  /// null = 下次全量 hydrate（首跑 / desync 清游标后）。
+  TextColumn get threadsCursor => text().nullable()();
+  /// GET /v1/chat/tombstones?since= 的游标（服务端回包的 next_since）。
+  /// null = 从 epoch0 首跑（服务端墓碑只保留 30 天，天然有界）。
+  TextColumn get tombstoneSince => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {scope};
+}
+
+/// ChatOutbox —— chat 上行写盒（P1.3，照搬 WikiOutbox 范式）：删除 / 归档 /
+/// 重命名的上行失败时入队，由 ChatOutboxFlusher 指数退避重试，404 丢 op
+/// （目标已不存在 = 幂等收敛）。
+///
+/// `op` is one of:
+///   delete_thread | archive_thread | rename_thread
+///
+/// `threadId` 是目标会话 id（服务端 thread id = 本地 id，同源）。
+/// `payloadJson`：archive_thread 带 {"archived": true}，rename_thread 带
+/// {"title": "..."}，delete_thread 空 `{}`。
+/// scope = ownerKey；flusher 只 flush 当前登录 scope 的 op。登出不清表 ——
+/// 切回账号后续传（P0 scope 隔离保证他账号不可见）。
+@DataClassName('ChatOutboxEntry')
+class ChatOutbox extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get scope => text()();
+  TextColumn get op => text()();
+  TextColumn get threadId => text()();
+  TextColumn get payloadJson => text().withDefault(const Constant('{}'))();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+  TextColumn get lastError => text().nullable()();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get nextAttemptAt => dateTime()();
+}
+
 /// ChatSessions —— 一条 thread 当前 / 历史的 brain session。多 turn 可能
 /// 是多条 session 串起来。lastSeenSeq 给 S9-1 跨设备 resume 用。
 @DataClassName('LocalChatSession')
@@ -561,6 +609,7 @@ class RssEntriesCache extends Table {
     AigcTasks,
     SseCursors,
     RssFeedsCache, RssEntriesCache,
+    ChatSyncState, ChatOutbox,
   ],
 )
 class AppDb extends _$AppDb {
@@ -573,7 +622,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 30;
+  int get schemaVersion => 32;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -766,6 +815,18 @@ class AppDb extends _$AppDb {
             await m.database.customStatement('DELETE FROM chat_content_blocks');
             await m.database.customStatement('DELETE FROM chat_sessions');
             await m.database.customStatement('DELETE FROM message_reactions_v2');
+          }
+          if (from < 31) {
+            // Phase 31: P1.2 增量 hydrate + 墓碑收敛（设计文档 §4）——
+            // per-scope 下行同步游标表（threadsCursor / tombstoneSince）。
+            // 纯新表，无存量数据迁移。
+            await m.createTable(chatSyncState);
+          }
+          if (from < 32) {
+            // Phase 32: P1.3 chat 上行 outbox（删除/归档/重命名失败重试）。
+            // 纯新表；注意这是重建的 chat_outbox（v12 DROP 过 v1 老表，
+            // 表名相同但 schema 无关，IF EXISTS 已保证老表不在）。
+            await m.createTable(chatOutbox);
           }
         },
       );

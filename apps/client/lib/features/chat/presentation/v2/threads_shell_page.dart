@@ -1296,7 +1296,7 @@ class _ThreadTileState extends ConsumerState<_ThreadTile> {
         await repo.setPinned(widget.thread.id, !widget.thread.pinned);
         break;
       case 'rename':
-        await _renameDialog(dialogContext, repo);
+        await _renameDialog(dialogContext);
         break;
       case 'archive':
         await ref.read(chatThreadOpsProvider).archiveThread(widget.thread.id);
@@ -1405,7 +1405,7 @@ class _ThreadTileState extends ConsumerState<_ThreadTile> {
     }
   }
 
-  Future<void> _renameDialog(BuildContext context, dynamic repo) async {
+  Future<void> _renameDialog(BuildContext context) async {
     final l = AppLocalizations.of(context)!;
     final ctrl = TextEditingController(text: widget.thread.title);
     final next = await showDialog<String>(
@@ -1432,7 +1432,9 @@ class _ThreadTileState extends ConsumerState<_ThreadTile> {
     );
     ctrl.dispose();
     if (next == null || next.isEmpty || next == widget.thread.title) return;
-    await repo.renameThread(widget.thread.id, next);
+    // P1.3：rename 走 ChatThreadOps —— 上行 brain + 失败入队重试，
+    // 不再只写本地（他端不感知）。
+    await ref.read(chatThreadOpsProvider).renameThread(widget.thread.id, next);
   }
 
   Future<void> _deleteDialog(BuildContext context) async {

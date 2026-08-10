@@ -31,6 +31,7 @@ import '../../../data/api/_http_helpers.dart' show ApiError;
 import '../../../data/api/biu_client.dart' show BiuTransport;
 import '../../../data/api/chat_client.dart';
 import '../../../data/api/identity_client.dart' show IdentityApiError;
+import '../../../data/outbox/chat_outbox_flusher.dart';
 import '../../settings/application/api_keys_providers.dart';
 import '../../../data/agent_plane/biu_daemon_manager.dart';
 import 'client_side_resolver.dart';
@@ -43,6 +44,7 @@ import '../../creation/application/credits_controller.dart';
 import '../data/biu_session_connection.dart';
 import '../data/chat_repo.dart';
 import '../data/chat_scope.dart';
+import '../sync/chat_sync_manager.dart';
 import '../domain/chat_models.dart';
 import '../domain/thread_title.dart';
 import 'chat_preferences.dart';
@@ -168,23 +170,25 @@ final chatControllerDepsProvider = Provider<ChatControllerDeps>((ref) {
   );
 });
 
-/// ChatThreadOps —— 会话级写操作（删除 / 归档）入口。
+/// ChatThreadOps —— 会话级写操作（删除 / 归档 / 重命名）入口。
 ///
 /// 不挂 per-thread 的 ChatController family：那个 build() 会尝试 resume
 /// session（拉历史 + 接实时），为「删一个没打开的会话」实例化它既浪费
-/// 又有副作用。这里只持 [ChatControllerDeps] 做 best-effort 上行 + 本地写。
+/// 又有副作用。这里只持 [ChatControllerDeps] 做上行 + 本地写。
+///
+/// 上行失败语义（P1.3）：404（他端已删 / direct 会话服务端无此行）静默；
+/// 其他失败入队 ChatOutbox 由 flusher 退避重试，不再 debugPrint 一发即丢。
+/// 本地写永远执行 —— 本地优先，上行是收敛保证。
 class ChatThreadOps {
-  const ChatThreadOps(this._deps);
+  const ChatThreadOps(this._deps, [this._outboxFlusher]);
 
   final ChatControllerDeps _deps;
+  final ChatOutboxFlusher? _outboxFlusher;
 
-  /// 删除单个会话：先 best-effort 上行 brain（DELETE /v1/threads/{id}），
-  /// 再本地级联删。上行 404（他端已删 / direct 会话服务端无此行）静默；
-  /// 其他异常仅告警不阻塞本地删 —— 跟 [ChatController.deleteMessage] 同款
-  /// best-effort 策略。
+  /// 删除单个会话：先上行 brain（DELETE /v1/threads/{id}），再本地级联删。
   Future<void> deleteThread(String threadId) => deleteThreads([threadId]);
 
-  /// 批量删除：逐个上行（全部上行完）再一次性 [ChatRepo.deleteThreads]。
+  /// 批量删除：逐个上行（全部上行完 / 入队完）再一次性 [ChatRepo.deleteThreads]。
   Future<void> deleteThreads(List<String> ids) async {
     for (final id in ids) {
       try {
@@ -193,14 +197,14 @@ class ChatThreadOps {
         if (e is IdentityApiError && e.status == 404) {
           // 他端已删 / direct 会话服务端无此行 —— 静默。
         } else {
-          debugPrint('[chat] deleteThread 上行失败（本地仍删）: $e');
+          await _enqueue(ChatRepo.outboxOpDeleteThread, id, const {}, '$e');
         }
       }
     }
     await _deps.repo.deleteThreads(ids);
   }
 
-  /// 归档：先 best-effort 上行（PATCH archived=true）再写本地 —— 修原
+  /// 归档：先上行（PATCH archived=true）再写本地 —— 修原
   /// ChatRepo.archiveThread 只写本地、他端不感知的同款 bug。失败处理
   /// 同删除。
   Future<void> archiveThread(String threadId) async {
@@ -210,16 +214,63 @@ class ChatThreadOps {
       if (e is IdentityApiError && e.status == 404) {
         // direct 会话服务端无此行 —— 静默。
       } else {
-        debugPrint('[chat] archiveThread 上行失败（本地仍归档）: $e');
+        await _enqueue(
+          ChatRepo.outboxOpArchiveThread,
+          threadId,
+          const {'archived': true},
+          '$e',
+        );
       }
     }
     await _deps.repo.archiveThread(threadId);
   }
+
+  /// 重命名：先上行（PATCH title）再写本地。失败处理同删除。
+  Future<void> renameThread(String threadId, String title) async {
+    try {
+      await _deps.chatClient.patchThread(threadId, title: title);
+    } catch (e) {
+      if (e is IdentityApiError && e.status == 404) {
+        // direct 会话服务端无此行 —— 静默。
+      } else {
+        await _enqueue(
+          ChatRepo.outboxOpRenameThread,
+          threadId,
+          {'title': title},
+          '$e',
+        );
+      }
+    }
+    await _deps.repo.renameThread(threadId, title);
+  }
+
+  /// 上行失败（非 404）入队 + kick flusher 立即首试。入队本身失败只告警
+  /// 不阻塞本地写 —— 本地优先语义不变。
+  Future<void> _enqueue(
+    String op,
+    String threadId,
+    Map<String, dynamic> payload,
+    String error,
+  ) async {
+    try {
+      await _deps.repo
+          .enqueueOutbox(op: op, threadId: threadId, payload: payload);
+      unawaited(_outboxFlusher?.kick());
+      debugPrint('[chat] $op 上行失败已入队重试: $error');
+    } catch (e) {
+      debugPrint('[chat] $op 上行失败且入队失败（本地仍生效）: $error / $e');
+    }
+  }
 }
 
-/// chatThreadOpsProvider —— UI 删除 / 归档会话的统一入口（带上行同步）。
+/// chatThreadOpsProvider —— UI 删除 / 归档 / 重命名会话的统一入口
+/// （带上行同步 + outbox 重试）。flusher 由 ChatSyncManager 按登录态持有；
+/// 未登录（无 scope）时 deps provider 已 throw，走不到这里。
 final chatThreadOpsProvider = Provider<ChatThreadOps>((ref) {
-  return ChatThreadOps(ref.watch(chatControllerDepsProvider));
+  return ChatThreadOps(
+    ref.watch(chatControllerDepsProvider),
+    ref.watch(chatSyncManagerProvider).outboxFlusher,
+  );
 });
 
 class ChatController extends FamilyAsyncNotifier<ChatState, String> {

@@ -12606,6 +12606,847 @@ class RssEntriesCacheCompanion extends UpdateCompanion<LocalRssEntry> {
   }
 }
 
+class $ChatSyncStateTable extends ChatSyncState
+    with TableInfo<$ChatSyncStateTable, LocalChatSyncState> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChatSyncStateTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _threadsCursorMeta = const VerificationMeta(
+    'threadsCursor',
+  );
+  @override
+  late final GeneratedColumn<String> threadsCursor = GeneratedColumn<String>(
+    'threads_cursor',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _tombstoneSinceMeta = const VerificationMeta(
+    'tombstoneSince',
+  );
+  @override
+  late final GeneratedColumn<String> tombstoneSince = GeneratedColumn<String>(
+    'tombstone_since',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [scope, threadsCursor, tombstoneSince];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'chat_sync_state';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LocalChatSyncState> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('threads_cursor')) {
+      context.handle(
+        _threadsCursorMeta,
+        threadsCursor.isAcceptableOrUnknown(
+          data['threads_cursor']!,
+          _threadsCursorMeta,
+        ),
+      );
+    }
+    if (data.containsKey('tombstone_since')) {
+      context.handle(
+        _tombstoneSinceMeta,
+        tombstoneSince.isAcceptableOrUnknown(
+          data['tombstone_since']!,
+          _tombstoneSinceMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope};
+  @override
+  LocalChatSyncState map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LocalChatSyncState(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      threadsCursor: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}threads_cursor'],
+      ),
+      tombstoneSince: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}tombstone_since'],
+      ),
+    );
+  }
+
+  @override
+  $ChatSyncStateTable createAlias(String alias) {
+    return $ChatSyncStateTable(attachedDatabase, alias);
+  }
+}
+
+class LocalChatSyncState extends DataClass
+    implements Insertable<LocalChatSyncState> {
+  final String scope;
+
+  /// GET /v1/threads?updated_after= 的游标（本轮见到的最大 updated_at）。
+  /// null = 下次全量 hydrate（首跑 / desync 清游标后）。
+  final String? threadsCursor;
+
+  /// GET /v1/chat/tombstones?since= 的游标（服务端回包的 next_since）。
+  /// null = 从 epoch0 首跑（服务端墓碑只保留 30 天，天然有界）。
+  final String? tombstoneSince;
+  const LocalChatSyncState({
+    required this.scope,
+    this.threadsCursor,
+    this.tombstoneSince,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    if (!nullToAbsent || threadsCursor != null) {
+      map['threads_cursor'] = Variable<String>(threadsCursor);
+    }
+    if (!nullToAbsent || tombstoneSince != null) {
+      map['tombstone_since'] = Variable<String>(tombstoneSince);
+    }
+    return map;
+  }
+
+  ChatSyncStateCompanion toCompanion(bool nullToAbsent) {
+    return ChatSyncStateCompanion(
+      scope: Value(scope),
+      threadsCursor: threadsCursor == null && nullToAbsent
+          ? const Value.absent()
+          : Value(threadsCursor),
+      tombstoneSince: tombstoneSince == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tombstoneSince),
+    );
+  }
+
+  factory LocalChatSyncState.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LocalChatSyncState(
+      scope: serializer.fromJson<String>(json['scope']),
+      threadsCursor: serializer.fromJson<String?>(json['threadsCursor']),
+      tombstoneSince: serializer.fromJson<String?>(json['tombstoneSince']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'threadsCursor': serializer.toJson<String?>(threadsCursor),
+      'tombstoneSince': serializer.toJson<String?>(tombstoneSince),
+    };
+  }
+
+  LocalChatSyncState copyWith({
+    String? scope,
+    Value<String?> threadsCursor = const Value.absent(),
+    Value<String?> tombstoneSince = const Value.absent(),
+  }) => LocalChatSyncState(
+    scope: scope ?? this.scope,
+    threadsCursor: threadsCursor.present
+        ? threadsCursor.value
+        : this.threadsCursor,
+    tombstoneSince: tombstoneSince.present
+        ? tombstoneSince.value
+        : this.tombstoneSince,
+  );
+  LocalChatSyncState copyWithCompanion(ChatSyncStateCompanion data) {
+    return LocalChatSyncState(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      threadsCursor: data.threadsCursor.present
+          ? data.threadsCursor.value
+          : this.threadsCursor,
+      tombstoneSince: data.tombstoneSince.present
+          ? data.tombstoneSince.value
+          : this.tombstoneSince,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalChatSyncState(')
+          ..write('scope: $scope, ')
+          ..write('threadsCursor: $threadsCursor, ')
+          ..write('tombstoneSince: $tombstoneSince')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, threadsCursor, tombstoneSince);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LocalChatSyncState &&
+          other.scope == this.scope &&
+          other.threadsCursor == this.threadsCursor &&
+          other.tombstoneSince == this.tombstoneSince);
+}
+
+class ChatSyncStateCompanion extends UpdateCompanion<LocalChatSyncState> {
+  final Value<String> scope;
+  final Value<String?> threadsCursor;
+  final Value<String?> tombstoneSince;
+  final Value<int> rowid;
+  const ChatSyncStateCompanion({
+    this.scope = const Value.absent(),
+    this.threadsCursor = const Value.absent(),
+    this.tombstoneSince = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ChatSyncStateCompanion.insert({
+    required String scope,
+    this.threadsCursor = const Value.absent(),
+    this.tombstoneSince = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope);
+  static Insertable<LocalChatSyncState> custom({
+    Expression<String>? scope,
+    Expression<String>? threadsCursor,
+    Expression<String>? tombstoneSince,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (threadsCursor != null) 'threads_cursor': threadsCursor,
+      if (tombstoneSince != null) 'tombstone_since': tombstoneSince,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ChatSyncStateCompanion copyWith({
+    Value<String>? scope,
+    Value<String?>? threadsCursor,
+    Value<String?>? tombstoneSince,
+    Value<int>? rowid,
+  }) {
+    return ChatSyncStateCompanion(
+      scope: scope ?? this.scope,
+      threadsCursor: threadsCursor ?? this.threadsCursor,
+      tombstoneSince: tombstoneSince ?? this.tombstoneSince,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (threadsCursor.present) {
+      map['threads_cursor'] = Variable<String>(threadsCursor.value);
+    }
+    if (tombstoneSince.present) {
+      map['tombstone_since'] = Variable<String>(tombstoneSince.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatSyncStateCompanion(')
+          ..write('scope: $scope, ')
+          ..write('threadsCursor: $threadsCursor, ')
+          ..write('tombstoneSince: $tombstoneSince, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ChatOutboxTable extends ChatOutbox
+    with TableInfo<$ChatOutboxTable, ChatOutboxEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChatOutboxTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _opMeta = const VerificationMeta('op');
+  @override
+  late final GeneratedColumn<String> op = GeneratedColumn<String>(
+    'op',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _threadIdMeta = const VerificationMeta(
+    'threadId',
+  );
+  @override
+  late final GeneratedColumn<String> threadId = GeneratedColumn<String>(
+    'thread_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> nextAttemptAt =
+      GeneratedColumn<DateTime>(
+        'next_attempt_at',
+        aliasedName,
+        false,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: true,
+      );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    scope,
+    op,
+    threadId,
+    payloadJson,
+    attempts,
+    lastError,
+    createdAt,
+    nextAttemptAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'chat_outbox';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ChatOutboxEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('op')) {
+      context.handle(_opMeta, op.isAcceptableOrUnknown(data['op']!, _opMeta));
+    } else if (isInserting) {
+      context.missing(_opMeta);
+    }
+    if (data.containsKey('thread_id')) {
+      context.handle(
+        _threadIdMeta,
+        threadId.isAcceptableOrUnknown(data['thread_id']!, _threadIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_threadIdMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_nextAttemptAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ChatOutboxEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ChatOutboxEntry(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      op: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}op'],
+      )!,
+      threadId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}thread_id'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}next_attempt_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ChatOutboxTable createAlias(String alias) {
+    return $ChatOutboxTable(attachedDatabase, alias);
+  }
+}
+
+class ChatOutboxEntry extends DataClass implements Insertable<ChatOutboxEntry> {
+  final int id;
+  final String scope;
+  final String op;
+  final String threadId;
+  final String payloadJson;
+  final int attempts;
+  final String? lastError;
+  final DateTime createdAt;
+  final DateTime nextAttemptAt;
+  const ChatOutboxEntry({
+    required this.id,
+    required this.scope,
+    required this.op,
+    required this.threadId,
+    required this.payloadJson,
+    required this.attempts,
+    this.lastError,
+    required this.createdAt,
+    required this.nextAttemptAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['scope'] = Variable<String>(scope);
+    map['op'] = Variable<String>(op);
+    map['thread_id'] = Variable<String>(threadId);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt);
+    return map;
+  }
+
+  ChatOutboxCompanion toCompanion(bool nullToAbsent) {
+    return ChatOutboxCompanion(
+      id: Value(id),
+      scope: Value(scope),
+      op: Value(op),
+      threadId: Value(threadId),
+      payloadJson: Value(payloadJson),
+      attempts: Value(attempts),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      createdAt: Value(createdAt),
+      nextAttemptAt: Value(nextAttemptAt),
+    );
+  }
+
+  factory ChatOutboxEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ChatOutboxEntry(
+      id: serializer.fromJson<int>(json['id']),
+      scope: serializer.fromJson<String>(json['scope']),
+      op: serializer.fromJson<String>(json['op']),
+      threadId: serializer.fromJson<String>(json['threadId']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      nextAttemptAt: serializer.fromJson<DateTime>(json['nextAttemptAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'scope': serializer.toJson<String>(scope),
+      'op': serializer.toJson<String>(op),
+      'threadId': serializer.toJson<String>(threadId),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'attempts': serializer.toJson<int>(attempts),
+      'lastError': serializer.toJson<String?>(lastError),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'nextAttemptAt': serializer.toJson<DateTime>(nextAttemptAt),
+    };
+  }
+
+  ChatOutboxEntry copyWith({
+    int? id,
+    String? scope,
+    String? op,
+    String? threadId,
+    String? payloadJson,
+    int? attempts,
+    Value<String?> lastError = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? nextAttemptAt,
+  }) => ChatOutboxEntry(
+    id: id ?? this.id,
+    scope: scope ?? this.scope,
+    op: op ?? this.op,
+    threadId: threadId ?? this.threadId,
+    payloadJson: payloadJson ?? this.payloadJson,
+    attempts: attempts ?? this.attempts,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    createdAt: createdAt ?? this.createdAt,
+    nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+  );
+  ChatOutboxEntry copyWithCompanion(ChatOutboxCompanion data) {
+    return ChatOutboxEntry(
+      id: data.id.present ? data.id.value : this.id,
+      scope: data.scope.present ? data.scope.value : this.scope,
+      op: data.op.present ? data.op.value : this.op,
+      threadId: data.threadId.present ? data.threadId.value : this.threadId,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatOutboxEntry(')
+          ..write('id: $id, ')
+          ..write('scope: $scope, ')
+          ..write('op: $op, ')
+          ..write('threadId: $threadId, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('nextAttemptAt: $nextAttemptAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    scope,
+    op,
+    threadId,
+    payloadJson,
+    attempts,
+    lastError,
+    createdAt,
+    nextAttemptAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChatOutboxEntry &&
+          other.id == this.id &&
+          other.scope == this.scope &&
+          other.op == this.op &&
+          other.threadId == this.threadId &&
+          other.payloadJson == this.payloadJson &&
+          other.attempts == this.attempts &&
+          other.lastError == this.lastError &&
+          other.createdAt == this.createdAt &&
+          other.nextAttemptAt == this.nextAttemptAt);
+}
+
+class ChatOutboxCompanion extends UpdateCompanion<ChatOutboxEntry> {
+  final Value<int> id;
+  final Value<String> scope;
+  final Value<String> op;
+  final Value<String> threadId;
+  final Value<String> payloadJson;
+  final Value<int> attempts;
+  final Value<String?> lastError;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> nextAttemptAt;
+  const ChatOutboxCompanion({
+    this.id = const Value.absent(),
+    this.scope = const Value.absent(),
+    this.op = const Value.absent(),
+    this.threadId = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+  });
+  ChatOutboxCompanion.insert({
+    this.id = const Value.absent(),
+    required String scope,
+    required String op,
+    required String threadId,
+    this.payloadJson = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime nextAttemptAt,
+  }) : scope = Value(scope),
+       op = Value(op),
+       threadId = Value(threadId),
+       createdAt = Value(createdAt),
+       nextAttemptAt = Value(nextAttemptAt);
+  static Insertable<ChatOutboxEntry> custom({
+    Expression<int>? id,
+    Expression<String>? scope,
+    Expression<String>? op,
+    Expression<String>? threadId,
+    Expression<String>? payloadJson,
+    Expression<int>? attempts,
+    Expression<String>? lastError,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? nextAttemptAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (scope != null) 'scope': scope,
+      if (op != null) 'op': op,
+      if (threadId != null) 'thread_id': threadId,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (attempts != null) 'attempts': attempts,
+      if (lastError != null) 'last_error': lastError,
+      if (createdAt != null) 'created_at': createdAt,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+    });
+  }
+
+  ChatOutboxCompanion copyWith({
+    Value<int>? id,
+    Value<String>? scope,
+    Value<String>? op,
+    Value<String>? threadId,
+    Value<String>? payloadJson,
+    Value<int>? attempts,
+    Value<String?>? lastError,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? nextAttemptAt,
+  }) {
+    return ChatOutboxCompanion(
+      id: id ?? this.id,
+      scope: scope ?? this.scope,
+      op: op ?? this.op,
+      threadId: threadId ?? this.threadId,
+      payloadJson: payloadJson ?? this.payloadJson,
+      attempts: attempts ?? this.attempts,
+      lastError: lastError ?? this.lastError,
+      createdAt: createdAt ?? this.createdAt,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (op.present) {
+      map['op'] = Variable<String>(op.value);
+    }
+    if (threadId.present) {
+      map['thread_id'] = Variable<String>(threadId.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChatOutboxCompanion(')
+          ..write('id: $id, ')
+          ..write('scope: $scope, ')
+          ..write('op: $op, ')
+          ..write('threadId: $threadId, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('nextAttemptAt: $nextAttemptAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDb extends GeneratedDatabase {
   _$AppDb(QueryExecutor e) : super(e);
   $AppDbManager get managers => $AppDbManager(this);
@@ -12635,6 +13476,8 @@ abstract class _$AppDb extends GeneratedDatabase {
   late final $RssEntriesCacheTable rssEntriesCache = $RssEntriesCacheTable(
     this,
   );
+  late final $ChatSyncStateTable chatSyncState = $ChatSyncStateTable(this);
+  late final $ChatOutboxTable chatOutbox = $ChatOutboxTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -12661,6 +13504,8 @@ abstract class _$AppDb extends GeneratedDatabase {
     sseCursors,
     rssFeedsCache,
     rssEntriesCache,
+    chatSyncState,
+    chatOutbox,
   ];
 }
 
@@ -18784,6 +19629,446 @@ typedef $$RssEntriesCacheTableProcessedTableManager =
       LocalRssEntry,
       PrefetchHooks Function()
     >;
+typedef $$ChatSyncStateTableCreateCompanionBuilder =
+    ChatSyncStateCompanion Function({
+      required String scope,
+      Value<String?> threadsCursor,
+      Value<String?> tombstoneSince,
+      Value<int> rowid,
+    });
+typedef $$ChatSyncStateTableUpdateCompanionBuilder =
+    ChatSyncStateCompanion Function({
+      Value<String> scope,
+      Value<String?> threadsCursor,
+      Value<String?> tombstoneSince,
+      Value<int> rowid,
+    });
+
+class $$ChatSyncStateTableFilterComposer
+    extends Composer<_$AppDb, $ChatSyncStateTable> {
+  $$ChatSyncStateTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get threadsCursor => $composableBuilder(
+    column: $table.threadsCursor,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tombstoneSince => $composableBuilder(
+    column: $table.tombstoneSince,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ChatSyncStateTableOrderingComposer
+    extends Composer<_$AppDb, $ChatSyncStateTable> {
+  $$ChatSyncStateTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get threadsCursor => $composableBuilder(
+    column: $table.threadsCursor,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tombstoneSince => $composableBuilder(
+    column: $table.tombstoneSince,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ChatSyncStateTableAnnotationComposer
+    extends Composer<_$AppDb, $ChatSyncStateTable> {
+  $$ChatSyncStateTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get threadsCursor => $composableBuilder(
+    column: $table.threadsCursor,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get tombstoneSince => $composableBuilder(
+    column: $table.tombstoneSince,
+    builder: (column) => column,
+  );
+}
+
+class $$ChatSyncStateTableTableManager
+    extends
+        RootTableManager<
+          _$AppDb,
+          $ChatSyncStateTable,
+          LocalChatSyncState,
+          $$ChatSyncStateTableFilterComposer,
+          $$ChatSyncStateTableOrderingComposer,
+          $$ChatSyncStateTableAnnotationComposer,
+          $$ChatSyncStateTableCreateCompanionBuilder,
+          $$ChatSyncStateTableUpdateCompanionBuilder,
+          (
+            LocalChatSyncState,
+            BaseReferences<_$AppDb, $ChatSyncStateTable, LocalChatSyncState>,
+          ),
+          LocalChatSyncState,
+          PrefetchHooks Function()
+        > {
+  $$ChatSyncStateTableTableManager(_$AppDb db, $ChatSyncStateTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChatSyncStateTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ChatSyncStateTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ChatSyncStateTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String?> threadsCursor = const Value.absent(),
+                Value<String?> tombstoneSince = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChatSyncStateCompanion(
+                scope: scope,
+                threadsCursor: threadsCursor,
+                tombstoneSince: tombstoneSince,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                Value<String?> threadsCursor = const Value.absent(),
+                Value<String?> tombstoneSince = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChatSyncStateCompanion.insert(
+                scope: scope,
+                threadsCursor: threadsCursor,
+                tombstoneSince: tombstoneSince,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ChatSyncStateTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDb,
+      $ChatSyncStateTable,
+      LocalChatSyncState,
+      $$ChatSyncStateTableFilterComposer,
+      $$ChatSyncStateTableOrderingComposer,
+      $$ChatSyncStateTableAnnotationComposer,
+      $$ChatSyncStateTableCreateCompanionBuilder,
+      $$ChatSyncStateTableUpdateCompanionBuilder,
+      (
+        LocalChatSyncState,
+        BaseReferences<_$AppDb, $ChatSyncStateTable, LocalChatSyncState>,
+      ),
+      LocalChatSyncState,
+      PrefetchHooks Function()
+    >;
+typedef $$ChatOutboxTableCreateCompanionBuilder =
+    ChatOutboxCompanion Function({
+      Value<int> id,
+      required String scope,
+      required String op,
+      required String threadId,
+      Value<String> payloadJson,
+      Value<int> attempts,
+      Value<String?> lastError,
+      required DateTime createdAt,
+      required DateTime nextAttemptAt,
+    });
+typedef $$ChatOutboxTableUpdateCompanionBuilder =
+    ChatOutboxCompanion Function({
+      Value<int> id,
+      Value<String> scope,
+      Value<String> op,
+      Value<String> threadId,
+      Value<String> payloadJson,
+      Value<int> attempts,
+      Value<String?> lastError,
+      Value<DateTime> createdAt,
+      Value<DateTime> nextAttemptAt,
+    });
+
+class $$ChatOutboxTableFilterComposer
+    extends Composer<_$AppDb, $ChatOutboxTable> {
+  $$ChatOutboxTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get threadId => $composableBuilder(
+    column: $table.threadId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ChatOutboxTableOrderingComposer
+    extends Composer<_$AppDb, $ChatOutboxTable> {
+  $$ChatOutboxTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get op => $composableBuilder(
+    column: $table.op,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get threadId => $composableBuilder(
+    column: $table.threadId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ChatOutboxTableAnnotationComposer
+    extends Composer<_$AppDb, $ChatOutboxTable> {
+  $$ChatOutboxTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get op =>
+      $composableBuilder(column: $table.op, builder: (column) => column);
+
+  GeneratedColumn<String> get threadId =>
+      $composableBuilder(column: $table.threadId, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+}
+
+class $$ChatOutboxTableTableManager
+    extends
+        RootTableManager<
+          _$AppDb,
+          $ChatOutboxTable,
+          ChatOutboxEntry,
+          $$ChatOutboxTableFilterComposer,
+          $$ChatOutboxTableOrderingComposer,
+          $$ChatOutboxTableAnnotationComposer,
+          $$ChatOutboxTableCreateCompanionBuilder,
+          $$ChatOutboxTableUpdateCompanionBuilder,
+          (
+            ChatOutboxEntry,
+            BaseReferences<_$AppDb, $ChatOutboxTable, ChatOutboxEntry>,
+          ),
+          ChatOutboxEntry,
+          PrefetchHooks Function()
+        > {
+  $$ChatOutboxTableTableManager(_$AppDb db, $ChatOutboxTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChatOutboxTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ChatOutboxTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ChatOutboxTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> scope = const Value.absent(),
+                Value<String> op = const Value.absent(),
+                Value<String> threadId = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> nextAttemptAt = const Value.absent(),
+              }) => ChatOutboxCompanion(
+                id: id,
+                scope: scope,
+                op: op,
+                threadId: threadId,
+                payloadJson: payloadJson,
+                attempts: attempts,
+                lastError: lastError,
+                createdAt: createdAt,
+                nextAttemptAt: nextAttemptAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String scope,
+                required String op,
+                required String threadId,
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime nextAttemptAt,
+              }) => ChatOutboxCompanion.insert(
+                id: id,
+                scope: scope,
+                op: op,
+                threadId: threadId,
+                payloadJson: payloadJson,
+                attempts: attempts,
+                lastError: lastError,
+                createdAt: createdAt,
+                nextAttemptAt: nextAttemptAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ChatOutboxTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDb,
+      $ChatOutboxTable,
+      ChatOutboxEntry,
+      $$ChatOutboxTableFilterComposer,
+      $$ChatOutboxTableOrderingComposer,
+      $$ChatOutboxTableAnnotationComposer,
+      $$ChatOutboxTableCreateCompanionBuilder,
+      $$ChatOutboxTableUpdateCompanionBuilder,
+      (
+        ChatOutboxEntry,
+        BaseReferences<_$AppDb, $ChatOutboxTable, ChatOutboxEntry>,
+      ),
+      ChatOutboxEntry,
+      PrefetchHooks Function()
+    >;
 
 class $AppDbManager {
   final _$AppDb _db;
@@ -18830,4 +20115,8 @@ class $AppDbManager {
       $$RssFeedsCacheTableTableManager(_db, _db.rssFeedsCache);
   $$RssEntriesCacheTableTableManager get rssEntriesCache =>
       $$RssEntriesCacheTableTableManager(_db, _db.rssEntriesCache);
+  $$ChatSyncStateTableTableManager get chatSyncState =>
+      $$ChatSyncStateTableTableManager(_db, _db.chatSyncState);
+  $$ChatOutboxTableTableManager get chatOutbox =>
+      $$ChatOutboxTableTableManager(_db, _db.chatOutbox);
 }
