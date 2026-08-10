@@ -189,6 +189,26 @@ func (c *Cache) GetModel(ctx context.Context, id uuid.UUID) (*Model, error) {
 	return m, nil
 }
 
+// DefaultChatModel returns the admin-designated default chat model
+// (models.is_default_chat = true), or ErrNotFound when none is set.
+// A deactivated default (status != active) is treated as "no default" —
+// callers (internalapi → brain ChatRunner) fall back accordingly.
+// Reuses the models sub-cache; is_default_chat changes ride the same
+// models NOTIFY trigger, so invalidation needs nothing extra.
+func (c *Cache) DefaultChatModel(ctx context.Context) (*Model, error) {
+	if err := c.ensureModels(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, m := range c.models {
+		if m.IsDefaultChat && m.Status == StatusActive {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("cache.default_chat_model: %w", ErrNotFound)
+}
+
 // ChannelsForModel returns the active channel set for a model, already
 // sorted (priority DESC, weight DESC). Strategy.Pick consumes this
 // directly. Empty slice when no active channels — caller decides whether

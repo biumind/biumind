@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -64,7 +65,7 @@ func (r *ModelRepo) List(ctx context.Context, f ModelFilter) ([]Model, error) {
 		       capabilities, min_plan, status, sort_order,
 		       upstream_ref, manual_override, routing_strategy,
 		       mode, pricing_strategy, dispatch_mode,
-		       fallback_models,
+		       fallback_models, is_default_chat,
 		       created_at, updated_at
 		FROM model_relay.models
 		WHERE ($1 = '' OR status   = $1)
@@ -118,7 +119,7 @@ func (r *ModelRepo) Get(ctx context.Context, id uuid.UUID) (*Model, error) {
 		       capabilities, min_plan, status, sort_order,
 		       upstream_ref, manual_override, routing_strategy,
 		       mode, pricing_strategy, dispatch_mode,
-		       fallback_models,
+		       fallback_models, is_default_chat,
 		       created_at, updated_at
 		FROM model_relay.models WHERE id = $1
 	`
@@ -143,7 +144,7 @@ func (r *ModelRepo) GetByCode(ctx context.Context, code string) (*Model, error) 
 		       capabilities, min_plan, status, sort_order,
 		       upstream_ref, manual_override, routing_strategy,
 		       mode, pricing_strategy, dispatch_mode,
-		       fallback_models,
+		       fallback_models, is_default_chat,
 		       created_at, updated_at
 		FROM model_relay.models WHERE code = $1
 	`
@@ -183,7 +184,7 @@ func (r *ModelRepo) ListVisibleTo(ctx context.Context, userPlan Plan, accessible
 		       m.capabilities, m.min_plan, m.status, m.sort_order,
 		       m.upstream_ref, m.manual_override, m.routing_strategy,
 		       m.mode, m.pricing_strategy, m.dispatch_mode,
-		       m.fallback_models,
+		       m.fallback_models, m.is_default_chat,
 		       m.created_at, m.updated_at
 		FROM model_relay.models m
 		WHERE m.status = 'active'
@@ -224,6 +225,11 @@ type ModelInput struct {
 	// FallbackModels v0.3 — 主渠道全部失败时按数组顺序尝试的备用 model code.
 	// 不设 = 空数组, 不影响现有行为.
 	FallbackModels []string
+	// IsDefaultChat marks this model as the platform default chat model
+	// (migration 00002). Setting true clears the flag on every other
+	// model inside the same transaction. Only mode='chat' models may be
+	// marked — enforced at the adminapi layer (400).
+	IsDefaultChat bool
 }
 
 func (in ModelInput) validate() error {
@@ -268,32 +274,37 @@ func (r *ModelRepo) Insert(ctx context.Context, in ModelInput) (*Model, error) {
 		INSERT INTO model_relay.models
 			(code, display_name, family, context_window, max_output,
 			 capabilities, min_plan, status, sort_order,
-			 manual_override, routing_strategy, mode, fallback_models)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			 manual_override, routing_strategy, mode, fallback_models,
+			 is_default_chat)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		RETURNING id, code, display_name, family, context_window, max_output,
 		          capabilities, min_plan, status, sort_order,
 		          upstream_ref, manual_override, routing_strategy,
 		          mode, pricing_strategy, dispatch_mode,
-		          fallback_models,
+		          fallback_models, is_default_chat,
 		          created_at, updated_at
 	`
-	rows, err := r.pool.Query(ctx, q,
-		in.Code, in.DisplayName, in.Family, in.ContextWindow, in.MaxOutput,
-		caps, in.MinPlan, in.Status, in.SortOrder,
-		in.ManualOverride, in.RoutingStrategy, in.Mode, in.FallbackModels,
-	)
-	if err != nil {
-		return nil, translateErr("models.insert", err)
-	}
-	defer rows.Close()
-	out, err := scanModels(rows)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("models.insert: no row returned")
-	}
-	return &out[0], nil
+	return r.withDefaultChatTx(ctx, uuid.Nil, in.IsDefaultChat,
+		func(ctx context.Context, qx queryer) (*Model, error) {
+			rows, err := qx.Query(ctx, q,
+				in.Code, in.DisplayName, in.Family, in.ContextWindow, in.MaxOutput,
+				caps, in.MinPlan, in.Status, in.SortOrder,
+				in.ManualOverride, in.RoutingStrategy, in.Mode, in.FallbackModels,
+				in.IsDefaultChat,
+			)
+			if err != nil {
+				return nil, translateErr("models.insert", err)
+			}
+			defer rows.Close()
+			out, err := scanModels(rows)
+			if err != nil {
+				return nil, err
+			}
+			if len(out) == 0 {
+				return nil, fmt.Errorf("models.insert: no row returned")
+			}
+			return &out[0], nil
+		})
 }
 
 func (r *ModelRepo) Update(ctx context.Context, id uuid.UUID, in ModelInput) (*Model, error) {
@@ -322,34 +333,74 @@ func (r *ModelRepo) Update(ctx context.Context, id uuid.UUID, in ModelInput) (*M
 		       context_window = $4, max_output = $5,
 		       capabilities = $6, min_plan = $7, status = $8,
 		       sort_order = $9, manual_override = $10, routing_strategy = $11,
-		       mode = $12, fallback_models = $13,
+		       mode = $12, fallback_models = $13, is_default_chat = $14,
 		       updated_at = now()
-		 WHERE id = $14
+		 WHERE id = $15
 		RETURNING id, code, display_name, family, context_window, max_output,
 		          capabilities, min_plan, status, sort_order,
 		          upstream_ref, manual_override, routing_strategy,
 		          mode, pricing_strategy, dispatch_mode,
-		          fallback_models,
+		          fallback_models, is_default_chat,
 		          created_at, updated_at
 	`
-	rows, err := r.pool.Query(ctx, q,
-		in.Code, in.DisplayName, in.Family,
-		in.ContextWindow, in.MaxOutput,
-		caps, in.MinPlan, in.Status,
-		in.SortOrder, in.ManualOverride, in.RoutingStrategy, in.Mode, in.FallbackModels, id,
-	)
-	if err != nil {
-		return nil, translateErr("models.update", err)
+	return r.withDefaultChatTx(ctx, id, in.IsDefaultChat,
+		func(ctx context.Context, qx queryer) (*Model, error) {
+			rows, err := qx.Query(ctx, q,
+				in.Code, in.DisplayName, in.Family,
+				in.ContextWindow, in.MaxOutput,
+				caps, in.MinPlan, in.Status,
+				in.SortOrder, in.ManualOverride, in.RoutingStrategy, in.Mode,
+				in.FallbackModels, in.IsDefaultChat, id,
+			)
+			if err != nil {
+				return nil, translateErr("models.update", err)
+			}
+			defer rows.Close()
+			out, err := scanModels(rows)
+			if err != nil {
+				return nil, err
+			}
+			if len(out) == 0 {
+				return nil, fmt.Errorf("models.update: %w", ErrNotFound)
+			}
+			return &out[0], nil
+		})
+}
+
+// queryer is satisfied by both *pgxpool.Pool and pgx.Tx so Insert/Update
+// can run standalone or inside the clear-default transaction.
+type queryer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// withDefaultChatTx runs fn directly on the pool when setDefault is
+// false. When true it wraps fn in a transaction that first clears
+// is_default_chat on every other model (excluding excludeID), so the
+// "at most one default" invariant holds even without the partial unique
+// index models_default_chat_unique_idx — the index is the race backstop.
+func (r *ModelRepo) withDefaultChatTx(ctx context.Context, excludeID uuid.UUID, setDefault bool,
+	fn func(ctx context.Context, qx queryer) (*Model, error)) (*Model, error) {
+	if !setDefault {
+		return fn(ctx, r.pool)
 	}
-	defer rows.Close()
-	out, err := scanModels(rows)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("models.begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err := tx.Exec(ctx,
+		`UPDATE model_relay.models SET is_default_chat = false, updated_at = now()
+		 WHERE is_default_chat AND id <> $1`, excludeID); err != nil {
+		return nil, translateErr("models.clear_default_chat", err)
+	}
+	m, err := fn(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("models.update: %w", ErrNotFound)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, translateErr("models.commit", err)
 	}
-	return &out[0], nil
+	return m, nil
 }
 
 // SetStatus is the lightweight toggle used by the admin "enable/disable"
@@ -421,7 +472,7 @@ func scanModels(rows interface {
 			&caps, &m.MinPlan, &m.Status, &m.SortOrder,
 			&ref, &m.ManualOverride, &m.RoutingStrategy,
 			&m.Mode, &m.PricingStrategy, &m.DispatchMode,
-			&m.FallbackModels,
+			&m.FallbackModels, &m.IsDefaultChat,
 			&m.CreatedAt, &m.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("models.scan: %w", err)

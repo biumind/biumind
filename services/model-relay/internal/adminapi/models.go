@@ -156,6 +156,7 @@ type modelRequest struct {
 	RoutingStrategy registry.RoutingStrategy `json:"routing_strategy"`
 	ManualOverride  bool                     `json:"manual_override"`
 	Mode            string                   `json:"mode"`
+	IsDefaultChat   bool                     `json:"is_default_chat"`
 }
 
 func (req modelRequest) toInput() registry.ModelInput {
@@ -165,13 +166,28 @@ func (req modelRequest) toInput() registry.ModelInput {
 		Capabilities: req.Capabilities,
 		MinPlan:      req.MinPlan, Status: req.Status, SortOrder: req.SortOrder,
 		RoutingStrategy: req.RoutingStrategy, ManualOverride: req.ManualOverride,
-		Mode: req.Mode,
+		Mode: req.Mode, IsDefaultChat: req.IsDefaultChat,
 	}
+}
+
+// checkDefaultChatMode rejects marking a non-chat model as the default
+// chat model. An empty req.Mode means the repo default ('chat') takes
+// over, which is allowed.
+func checkDefaultChatMode(w http.ResponseWriter, req modelRequest) bool {
+	if req.IsDefaultChat && req.Mode != "" && req.Mode != registry.ModeChat {
+		writeErrorField(w, http.StatusBadRequest, "invalid_default_chat",
+			"only mode=chat models can be the default chat model", "is_default_chat")
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleCreateModel(w http.ResponseWriter, r *http.Request) {
 	var req modelRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !checkDefaultChatMode(w, req) {
 		return
 	}
 	// New models are manual_override=true by default — admin-created
@@ -203,6 +219,9 @@ func (s *Server) handleUpdateModel(w http.ResponseWriter, r *http.Request) {
 	}
 	var req modelRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if !checkDefaultChatMode(w, req) {
 		return
 	}
 	got, err := s.Store.Models.Update(r.Context(), id, req.toInput())

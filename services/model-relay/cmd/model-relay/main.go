@@ -562,11 +562,14 @@ func run() error {
 		Images:   imagesHandler,
 		Videos:   videosHandler,
 		Messages: relayHandler, // 爆款解析 /v1/internal/chat 复用 /v1/messages handler
+		Cache:    adminStack.Cache,
 	}
 	internalGenSrv.MountGenerations(mux)
 	slog.Default().Info("model-relay /v1/internal/generations mounted (段3.6 单一 egress)")
 	internalGenSrv.MountChat(mux)
 	slog.Default().Info("model-relay /v1/internal/chat mounted (爆款解析 LLM 拆解)")
+	internalGenSrv.MountModels(mux)
+	slog.Default().Info("model-relay /v1/internal/models/default-chat mounted (Phase B brain 默认 chat 模型)")
 
 	// v0.3 M6: POST /v1/audio/transcriptions (OpenAI 兼容 ASR).
 	// model.mode=='audio_transcription', adaptor 实现 TranscribeAdaptor

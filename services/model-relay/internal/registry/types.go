@@ -214,6 +214,11 @@ type Model struct {
 	ManualOverride  bool            `json:"manual_override"`
 	RoutingStrategy RoutingStrategy `json:"routing_strategy"`
 
+	// IsDefaultChat — admin-designated platform default chat model
+	// (migration 00002). At most one row is true (partial unique index
+	// backstop); brain's ChatRunner resolves it via internalapi.
+	IsDefaultChat bool `json:"is_default_chat"`
+
 	// P4.S2.1 多模态扩展 — 8 mode 枚举 / 3 strategy / 3 dispatch.
 	// 默认值 (chat/token/streaming) 由 schema CHECK + DEFAULT 兜底.
 	Mode            string `json:"mode"`

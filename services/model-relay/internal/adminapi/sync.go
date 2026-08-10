@@ -260,6 +260,9 @@ func (s *Server) reconcile(
 				// 透传 existing.Mode — 历史脏数据由 backfill migration 修正,
 				// sync 不主动覆盖以免冲掉管理员手工设置.
 				Mode: updated.Mode,
+				// Preserve the admin-set default-chat flag; sync must
+				// never clear it (zero value would).
+				IsDefaultChat: updated.IsDefaultChat,
 			})
 			if err != nil {
 				return res, fmt.Errorf("update %s: %w", item.ModelName, err)

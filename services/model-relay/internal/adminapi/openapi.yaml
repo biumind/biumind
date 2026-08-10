@@ -498,6 +498,7 @@ components:
         upstream_ref:     { $ref: "#/components/schemas/UpstreamRef" }
         manual_override:  { type: boolean }
         routing_strategy: { type: string, enum: [weighted, lowest_latency, least_busy, lowest_tpm_rpm, cost_aware] }
+        is_default_chat:  { type: boolean, description: "admin-designated platform default chat model; at most one model has true" }
         created_at:       { type: string, format: date-time }
         updated_at:       { type: string, format: date-time }
     ModelInput:
@@ -515,6 +516,7 @@ components:
         sort_order:       { type: integer }
         routing_strategy: { type: string, enum: [weighted, lowest_latency, least_busy, lowest_tpm_rpm, cost_aware] }
         manual_override:  { type: boolean }
+        is_default_chat:  { type: boolean, description: "set true to make this the default chat model (mode must be chat); clears the flag on all other models" }
     ModelList:
       type: object
       properties:
