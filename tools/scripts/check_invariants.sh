@@ -237,6 +237,53 @@ else
   ok "C-ROT: router refreshListenable 桥未直听 hubCredentialsProvider 原值"
 fi
 
+bold "C-ISO: 本地 per-user 表必须有 ownerKey/scope 隔离列"
+# 防本地数据跨账号泄露（docs/BiuMind-Local-Data-Isolation-Design.md §1/§3）。
+# 笔记域曾在 Phase 30 做 chat 隔离时被整体漏掉，重新部署 + 相同邮箱重新注册后
+# 桌面端直接展示上一账号笔记 —— 本条把「per-user 本地表必须隔离」沉淀为 CI 护栏。
+#
+# 两道检查：
+#  (1) 登记为「需隔离」的 per-user 表（云端 SoT 本地镜像）必须在 db.dart 声明
+#      ownerKey 或 scope 列 —— 防有人删列导致某表退回无隔离。
+#  (2) db.dart 每张 Drift 表都必须显式归入 SCOPED_REQUIRED 或 EXEMPT —— 新增表
+#      若漏登记，全量表数 ≠ SCOPED+EXEMPT 即 FAIL，逼开发者定夺「新表是否
+#      per-user、要不要加隔离」。这正是防「笔记式遗漏」的核心机制。
+#
+# SCOPED：chat 五表 + chatSyncState/chatOutbox（scope 列）+ notes 五表。
+# EXEMPT：wiki/aigc（登出 wipe 兜底）/ code（本地 SoT 零云同步）/ sse（登出
+#         clearAll）/ rss（用 scopeId=JWT sub 等价隔离，列名不同故不进 SCOPED）。
+SCOPED_REQUIRED="ChatThreadsV2 ChatMessagesV2 ChatContentBlocks MessageReactionsV2 ChatSessions ChatSyncState ChatOutbox NoteNotebooks NoteNotes NoteTags NoteNoteTags NoteOutbox"
+EXEMPT="WikiProjects WikiPages WikiBlocks WikiOutbox CodeTasks CodeProjects CodeTaskArtifacts SseCursors AigcTasks RssFeedsCache RssEntriesCache"
+# db.dart 中声明了隔离列（ownerKey/scope）的表名 —— 用 awk 按最近一个
+# `class X extends Table` 归属列定义（表块连续，归属可靠）。awk 自带关联数组，
+# 不依赖 bash4（macOS 默认 bash3 兼容）。scopeId 不算（后跟字母 I，正则排除）。
+SCOPED_DECLARED=$(awk '
+  /^class [A-Za-z0-9_]+ extends Table/ { cur=$2 }
+  /TextColumn get (ownerKey|scope)[^A-Za-z]/ { if (cur) seen[cur]=1 }
+  END { for (t in seen) print t }
+' apps/client/lib/data/local/db.dart)
+ALL_TABLES=$(awk '/^class [A-Za-z0-9_]+ extends Table/ { print $2 }' apps/client/lib/data/local/db.dart)
+iso_fail=0
+# (1) 需隔离表确实声明了隔离列
+for t in $SCOPED_REQUIRED; do
+  if ! echo "$SCOPED_DECLARED" | grep -qxF "$t"; then
+    fail "C-ISO: per-user 表 $t 缺 ownerKey/scope 隔离列（db.dart）—— 见 docs/BiuMind-Local-Data-Isolation-Design.md §3"
+    iso_fail=1
+  fi
+done
+# (2) 每张表必须显式分类（SCOPED 或 EXEMPT），新增表漏登记即 FAIL
+for t in $ALL_TABLES; do
+  if ! echo "$SCOPED_REQUIRED $EXEMPT" | grep -qw "$t"; then
+    fail "C-ISO: 新表 $t 未分类 —— per-user 表请加 ownerKey 并入 SCOPED_REQUIRED；全局/本地SoT/已wipe兜底表并入 EXEMPT"
+    iso_fail=1
+  fi
+done
+if [[ $iso_fail -eq 0 ]]; then
+  scoped_n=$(echo $SCOPED_REQUIRED | wc -w | tr -d ' ')
+  exempt_n=$(echo $EXEMPT | wc -w | tr -d ' ')
+  ok "C-ISO: per-user 表隔离列齐全（SCOPED $scoped_n 张 + EXEMPT $exempt_n 张）"
+fi
+
 echo
 if [[ $FAILED -eq 0 ]]; then
   bold "✓ 不变量检查全部通过"
