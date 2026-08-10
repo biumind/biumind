@@ -42,6 +42,7 @@ import '../../../services/auth_service.dart';
 import '../../creation/application/credits_controller.dart';
 import '../data/biu_session_connection.dart';
 import '../data/chat_repo.dart';
+import '../data/chat_scope.dart';
 import '../domain/chat_models.dart';
 import '../domain/thread_title.dart';
 import 'chat_preferences.dart';
@@ -136,6 +137,12 @@ final chatControllerDepsProvider = Provider<ChatControllerDeps>((ref) {
   if (creds == null) {
     throw StateError('chatControllerDepsProvider: 未登录');
   }
+  // P0 数据隔离：owner scope 派生不出来（token 非 JWT / 无 sub）视同未登录，
+  // 交给 router gate —— ChatRepo 构造必填 scope，不存在「不过滤」的路径。
+  final scope = ref.watch(chatOwnerScopeProvider);
+  if (scope == null) {
+    throw StateError('chatControllerDepsProvider: 无法派生 chat owner scope');
+  }
   final db = ref.watch(appDbProvider);
   final brainUri = creds.endpoint;
   // brain HTTP base — agent_plane REST。WS base 把 https→wss / http→ws。
@@ -145,7 +152,7 @@ final chatControllerDepsProvider = Provider<ChatControllerDeps>((ref) {
   // 末尾去掉 / 让上层拼路径不重斜杠。
   String stripSlash(String s) => s.endsWith('/') ? s.substring(0, s.length - 1) : s;
   return ChatControllerDeps(
-    repo: ChatRepo(db),
+    repo: ChatRepo(db, scope: scope),
     agentPlane: AgentPlaneClient(
       baseUrl: stripSlash(brainHttpBase),
       // 现读 token (不捕获 build-time creds): chatController 用 ref.read 持本

@@ -409,6 +409,10 @@ class ChatThreadsV2 extends Table {
   /// 无法区分同一秒内的多次服务端更新(user/assistant 同秒落库),故另存
   /// 此列。null = 本机产生、从未从服务端同步过的会话。
   IntColumn get remoteUpdatedAtUs => integer().nullable()();
+  /// P0 数据隔离（docs/BiuMind-Local-Data-Isolation-Design.md §2）：scope 列 =
+  /// sha256(normalize(identityUrl)) + ":" + JWT sub，「环境 × 账号」复合键。
+  /// 所有查询强制按此列过滤；'' 为非法值（查询永不匹配，写入必填当前 scope）。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -435,6 +439,8 @@ class ChatMessagesV2 extends Table {
   TextColumn get errorMessage => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get completedAt => dateTime().nullable()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -467,6 +473,8 @@ class ChatContentBlocks extends Table {
   TextColumn get state => text().withDefault(const Constant('closed'))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -483,6 +491,8 @@ class MessageReactionsV2 extends Table {
   /// 'like' | 'dislike' | 'star'
   TextColumn get kind => text()();
   DateTimeColumn get createdAt => dateTime()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 }
 
 /// ChatSessions —— 一条 thread 当前 / 历史的 brain session。多 turn 可能
@@ -503,6 +513,8 @@ class ChatSessions extends Table {
   TextColumn get status => text()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get closedAt => dateTime().nullable()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
   @override
   Set<Column> get primaryKey => {sessionId};
 }
@@ -561,7 +573,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 29;
+  int get schemaVersion => 30;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -729,6 +741,31 @@ class AppDb extends _$AppDb {
             // 当前表结构（含这两列）建表，再 addColumn 会 duplicate column。
             await m.addColumn(noteNotes, noteNotes.archivedAt);
             await m.addColumn(noteNotes, noteNotes.promotedPageId);
+          }
+          if (from < 30) {
+            // Phase 30: P0 本地数据隔离（docs/BiuMind-Local-Data-Isolation-Design.md
+            // §3）—— chat 五表加 ownerKey scope 列，并清空全部存量行。
+            //
+            // 清空原因：存量行没有归属信息（本身就是跨账号泄露源），禁止「猜
+            // 归属」；服务端有权威副本，清空后下一次全量 hydrate 无感恢复。
+            //
+            // 下界防 duplicate column：chatThreadsV2/chatMessagesV2/
+            // chatContentBlocks/chatSessions 在 from < 10 时走 createTable 已
+            // 含 ownerKey 列（当前 schema）；messageReactionsV2 同理于 from < 13。
+            if (from >= 10) {
+              await m.addColumn(chatThreadsV2, chatThreadsV2.ownerKey);
+              await m.addColumn(chatMessagesV2, chatMessagesV2.ownerKey);
+              await m.addColumn(chatContentBlocks, chatContentBlocks.ownerKey);
+              await m.addColumn(chatSessions, chatSessions.ownerKey);
+            }
+            if (from >= 13) {
+              await m.addColumn(messageReactionsV2, messageReactionsV2.ownerKey);
+            }
+            await m.database.customStatement('DELETE FROM chat_threads_v2');
+            await m.database.customStatement('DELETE FROM chat_messages_v2');
+            await m.database.customStatement('DELETE FROM chat_content_blocks');
+            await m.database.customStatement('DELETE FROM chat_sessions');
+            await m.database.customStatement('DELETE FROM message_reactions_v2');
           }
         },
       );

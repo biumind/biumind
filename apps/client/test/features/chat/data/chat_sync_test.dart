@@ -200,7 +200,7 @@ void main() {
 
   setUp(() async {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
     brain = _FakeBrain();
     await brain.start();
   });

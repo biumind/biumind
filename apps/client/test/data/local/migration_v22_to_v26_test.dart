@@ -14,6 +14,10 @@
 //   v27: chat_threads_v2 加 remote_updated_at_us 列(多端聊天同步精确比较基准)
 //   v28: 建笔记域 5 表(note_notes 含当前全部列,含 v29 的 archived_at/
 //        promoted_page_id —— v29 的 addColumn 只对 from>=28 的老库执行)
+//   v29: note_notes 加 archived_at / promoted_page_id（仅 from>=28 老库补列）
+//   v30: chat 五表加 owner_key 并**刻意清空存量**（P0 数据隔离 —— 归属不明
+//        的存量行是跨账号泄露源；服务端有权威副本，清空后全量 hydrate 恢复。
+//        详细断言见 migration_v29_to_v30_test.dart）
 //
 // 注:v25 的 DROP COLUMN 需 SQLite ≥3.35。host `flutter test` 用系统
 // libsqlite3(macOS/Ubuntu 均 ≥3.37),真机用 sqlite3_flutter_libs 打包的更新
@@ -26,7 +30,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 void main() {
   test(
-    'v22 旧库迁移到 v27:加 model/starred/remote_updated_at_us 列 / DROP 同步表 / DROP 云字段,数据保留',
+    'v22 旧库迁移到 v30:加 model/starred/remote_updated_at_us/owner_key 列 / DROP 同步表 / DROP 云字段,非 chat 数据保留(chat 存量由 v30 刻意清空)',
     () async {
       // ── 1. 手建 v22 形态的库(drift snake_case 列名,匹配生成的 mapper)──
       final raw = sqlite3.openInMemory();
@@ -119,6 +123,70 @@ void main() {
       );
     ''');
 
+      // v22 真实旧库同样必有：chat_messages_v2 / chat_content_blocks /
+      // chat_sessions（v10 建）、message_reactions_v2（v13 建）。v30 的
+      // owner_key addColumn 对这四张表同样执行，fixture 缺了会
+      // no such table。
+      raw.execute('''
+      CREATE TABLE chat_messages_v2 (
+        id TEXT NOT NULL PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        status TEXT NOT NULL,
+        session_id TEXT,
+        stop_reason TEXT,
+        model TEXT,
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        seq INTEGER NOT NULL,
+        error_message TEXT,
+        created_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+    ''');
+      raw.execute('''
+      CREATE TABLE chat_content_blocks (
+        id TEXT NOT NULL PRIMARY KEY,
+        message_id TEXT NOT NULL,
+        block_index INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        text_content TEXT,
+        tool_use_id TEXT,
+        tool_use_name TEXT,
+        tool_use_input_json TEXT,
+        tool_result_id TEXT,
+        tool_result_is_error INTEGER,
+        tool_result_content_json TEXT,
+        image_mime_type TEXT,
+        image_data TEXT,
+        state TEXT NOT NULL DEFAULT 'closed',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+      raw.execute('''
+      CREATE TABLE chat_sessions (
+        session_id TEXT NOT NULL PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        session_token TEXT NOT NULL,
+        token_expires_at INTEGER NOT NULL,
+        last_seen_seq INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        closed_at INTEGER
+      );
+    ''');
+      raw.execute('''
+      CREATE TABLE message_reactions_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    ''');
+
       // 种数据:1 个历史任务 + 1 个带云字段的产物 + 同步表各 1 行。
       final ts = DateTime.utc(2026, 5, 1).millisecondsSinceEpoch ~/ 1000;
       raw.execute(
@@ -151,10 +219,10 @@ void main() {
       final tasks = await db.select(db.codeTasks).get();
 
       // ── 3. 断言 ──
-      // 迁移真的跑到了当前最新版本（v29：v28 建笔记域 5 表，v29 加
+      // 迁移真的跑到了当前最新版本（v30：v28 建笔记域 5 表；v29 加
       // note_notes.archived_at/promoted_page_id —— from<28 时 createTable
-      // 已含新列，v29 步骤跳过）。
-      expect(raw.userVersion, 29, reason: '迁移后 schema 版本应为 29');
+      // 已含新列，v29 步骤跳过；v30 chat 五表加 owner_key 并清空存量）。
+      expect(raw.userVersion, 30, reason: '迁移后 schema 版本应为 30');
 
       // v28:笔记域 5 张表已建（note_notebooks/note_notes/note_tags/
       // note_note_tags/note_outbox）。
@@ -213,21 +281,20 @@ void main() {
       expect(arts.first.sha256, 'deadbeef');
       expect(arts.first.relPath, 'lib/main.dart');
 
-      // v27:chat_threads_v2 已加 remote_updated_at_us;旧行该列为 null,行本身保留。
+      // v27:chat_threads_v2 已加 remote_updated_at_us。
       final threadCols = raw
           .select('PRAGMA table_info(chat_threads_v2)')
           .map((r) => r['name'] as String)
           .toSet();
       expect(threadCols, contains('remote_updated_at_us'));
 
+      // v30:owner_key 列已加；存量 chat 行被**刻意清空**（P0 数据隔离 ——
+      // 归属不明的存量是泄露源，服务端有权威副本，清空后全量 hydrate 恢复；
+      // 详细断言见 migration_v29_to_v30_test.dart）。这里仅验证老链路
+      // （v22 起）升到 v30 时清空步骤同样生效。
+      expect(threadCols, contains('owner_key'));
       final threads = await db.select(db.chatThreadsV2).get();
-      expect(threads, hasLength(1), reason: '历史会话不应在迁移中丢失');
-      expect(threads.first.id, 'th1');
-      expect(
-        threads.first.remoteUpdatedAtUs,
-        isNull,
-        reason: '旧会话无 remote_updated_at_us,迁移后应为 null',
-      );
+      expect(threads, isEmpty, reason: 'v30 刻意清空存量无归属 chat 行');
     },
   );
 }

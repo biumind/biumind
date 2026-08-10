@@ -6597,6 +6597,18 @@ class $ChatThreadsV2Table extends ChatThreadsV2
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -6617,6 +6629,7 @@ class $ChatThreadsV2Table extends ChatThreadsV2
     createdAt,
     updatedAt,
     remoteUpdatedAtUs,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6758,6 +6771,12 @@ class $ChatThreadsV2Table extends ChatThreadsV2
         ),
       );
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -6839,6 +6858,10 @@ class $ChatThreadsV2Table extends ChatThreadsV2
         DriftSqlType.int,
         data['${effectivePrefix}remote_updated_at_us'],
       ),
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -6905,6 +6928,11 @@ class LocalChatThreadV2 extends DataClass
   /// 无法区分同一秒内的多次服务端更新(user/assistant 同秒落库),故另存
   /// 此列。null = 本机产生、从未从服务端同步过的会话。
   final int? remoteUpdatedAtUs;
+
+  /// P0 数据隔离（docs/BiuMind-Local-Data-Isolation-Design.md §2）：scope 列 =
+  /// sha256(normalize(identityUrl)) + ":" + JWT sub，「环境 × 账号」复合键。
+  /// 所有查询强制按此列过滤；'' 为非法值（查询永不匹配，写入必填当前 scope）。
+  final String ownerKey;
   const LocalChatThreadV2({
     required this.id,
     required this.title,
@@ -6924,6 +6952,7 @@ class LocalChatThreadV2 extends DataClass
     required this.createdAt,
     required this.updatedAt,
     this.remoteUpdatedAtUs,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6962,6 +6991,7 @@ class LocalChatThreadV2 extends DataClass
     if (!nullToAbsent || remoteUpdatedAtUs != null) {
       map['remote_updated_at_us'] = Variable<int>(remoteUpdatedAtUs);
     }
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -7001,6 +7031,7 @@ class LocalChatThreadV2 extends DataClass
       remoteUpdatedAtUs: remoteUpdatedAtUs == null && nullToAbsent
           ? const Value.absent()
           : Value(remoteUpdatedAtUs),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -7028,6 +7059,7 @@ class LocalChatThreadV2 extends DataClass
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       remoteUpdatedAtUs: serializer.fromJson<int?>(json['remoteUpdatedAtUs']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -7052,6 +7084,7 @@ class LocalChatThreadV2 extends DataClass
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'remoteUpdatedAtUs': serializer.toJson<int?>(remoteUpdatedAtUs),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -7074,6 +7107,7 @@ class LocalChatThreadV2 extends DataClass
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<int?> remoteUpdatedAtUs = const Value.absent(),
+    String? ownerKey,
   }) => LocalChatThreadV2(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -7097,6 +7131,7 @@ class LocalChatThreadV2 extends DataClass
     remoteUpdatedAtUs: remoteUpdatedAtUs.present
         ? remoteUpdatedAtUs.value
         : this.remoteUpdatedAtUs,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalChatThreadV2 copyWithCompanion(ChatThreadsV2Companion data) {
     return LocalChatThreadV2(
@@ -7130,6 +7165,7 @@ class LocalChatThreadV2 extends DataClass
       remoteUpdatedAtUs: data.remoteUpdatedAtUs.present
           ? data.remoteUpdatedAtUs.value
           : this.remoteUpdatedAtUs,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -7153,7 +7189,8 @@ class LocalChatThreadV2 extends DataClass
           ..write('archived: $archived, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('remoteUpdatedAtUs: $remoteUpdatedAtUs')
+          ..write('remoteUpdatedAtUs: $remoteUpdatedAtUs, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -7178,6 +7215,7 @@ class LocalChatThreadV2 extends DataClass
     createdAt,
     updatedAt,
     remoteUpdatedAtUs,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -7200,7 +7238,8 @@ class LocalChatThreadV2 extends DataClass
           other.archived == this.archived &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
-          other.remoteUpdatedAtUs == this.remoteUpdatedAtUs);
+          other.remoteUpdatedAtUs == this.remoteUpdatedAtUs &&
+          other.ownerKey == this.ownerKey);
 }
 
 class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
@@ -7222,6 +7261,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<int?> remoteUpdatedAtUs;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const ChatThreadsV2Companion({
     this.id = const Value.absent(),
@@ -7242,6 +7282,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.remoteUpdatedAtUs = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatThreadsV2Companion.insert({
@@ -7263,6 +7304,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
     required DateTime createdAt,
     required DateTime updatedAt,
     this.remoteUpdatedAtUs = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        mode = Value(mode),
@@ -7287,6 +7329,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<int>? remoteUpdatedAtUs,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7308,6 +7351,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (remoteUpdatedAtUs != null) 'remote_updated_at_us': remoteUpdatedAtUs,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7331,6 +7375,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<int?>? remoteUpdatedAtUs,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return ChatThreadsV2Companion(
@@ -7352,6 +7397,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       remoteUpdatedAtUs: remoteUpdatedAtUs ?? this.remoteUpdatedAtUs,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7413,6 +7459,9 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
     if (remoteUpdatedAtUs.present) {
       map['remote_updated_at_us'] = Variable<int>(remoteUpdatedAtUs.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7440,6 +7489,7 @@ class ChatThreadsV2Companion extends UpdateCompanion<LocalChatThreadV2> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('remoteUpdatedAtUs: $remoteUpdatedAtUs, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7585,6 +7635,18 @@ class $ChatMessagesV2Table extends ChatMessagesV2
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -7600,6 +7662,7 @@ class $ChatMessagesV2Table extends ChatMessagesV2
     errorMessage,
     createdAt,
     completedAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -7712,6 +7775,12 @@ class $ChatMessagesV2Table extends ChatMessagesV2
         ),
       );
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -7773,6 +7842,10 @@ class $ChatMessagesV2Table extends ChatMessagesV2
         DriftSqlType.dateTime,
         data['${effectivePrefix}completed_at'],
       ),
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -7808,6 +7881,9 @@ class LocalChatMessageV2 extends DataClass
   final String? errorMessage;
   final DateTime createdAt;
   final DateTime? completedAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  final String ownerKey;
   const LocalChatMessageV2({
     required this.id,
     required this.threadId,
@@ -7822,6 +7898,7 @@ class LocalChatMessageV2 extends DataClass
     this.errorMessage,
     required this.createdAt,
     this.completedAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -7853,6 +7930,7 @@ class LocalChatMessageV2 extends DataClass
     if (!nullToAbsent || completedAt != null) {
       map['completed_at'] = Variable<DateTime>(completedAt);
     }
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -7885,6 +7963,7 @@ class LocalChatMessageV2 extends DataClass
       completedAt: completedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(completedAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -7907,6 +7986,7 @@ class LocalChatMessageV2 extends DataClass
       errorMessage: serializer.fromJson<String?>(json['errorMessage']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       completedAt: serializer.fromJson<DateTime?>(json['completedAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -7926,6 +8006,7 @@ class LocalChatMessageV2 extends DataClass
       'errorMessage': serializer.toJson<String?>(errorMessage),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'completedAt': serializer.toJson<DateTime?>(completedAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -7943,6 +8024,7 @@ class LocalChatMessageV2 extends DataClass
     Value<String?> errorMessage = const Value.absent(),
     DateTime? createdAt,
     Value<DateTime?> completedAt = const Value.absent(),
+    String? ownerKey,
   }) => LocalChatMessageV2(
     id: id ?? this.id,
     threadId: threadId ?? this.threadId,
@@ -7957,6 +8039,7 @@ class LocalChatMessageV2 extends DataClass
     errorMessage: errorMessage.present ? errorMessage.value : this.errorMessage,
     createdAt: createdAt ?? this.createdAt,
     completedAt: completedAt.present ? completedAt.value : this.completedAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalChatMessageV2 copyWithCompanion(ChatMessagesV2Companion data) {
     return LocalChatMessageV2(
@@ -7983,6 +8066,7 @@ class LocalChatMessageV2 extends DataClass
       completedAt: data.completedAt.present
           ? data.completedAt.value
           : this.completedAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -8001,7 +8085,8 @@ class LocalChatMessageV2 extends DataClass
           ..write('seq: $seq, ')
           ..write('errorMessage: $errorMessage, ')
           ..write('createdAt: $createdAt, ')
-          ..write('completedAt: $completedAt')
+          ..write('completedAt: $completedAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -8021,6 +8106,7 @@ class LocalChatMessageV2 extends DataClass
     errorMessage,
     createdAt,
     completedAt,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -8038,7 +8124,8 @@ class LocalChatMessageV2 extends DataClass
           other.seq == this.seq &&
           other.errorMessage == this.errorMessage &&
           other.createdAt == this.createdAt &&
-          other.completedAt == this.completedAt);
+          other.completedAt == this.completedAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
@@ -8055,6 +8142,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
   final Value<String?> errorMessage;
   final Value<DateTime> createdAt;
   final Value<DateTime?> completedAt;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const ChatMessagesV2Companion({
     this.id = const Value.absent(),
@@ -8070,6 +8158,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
     this.errorMessage = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.completedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatMessagesV2Companion.insert({
@@ -8086,6 +8175,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
     this.errorMessage = const Value.absent(),
     required DateTime createdAt,
     this.completedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        threadId = Value(threadId),
@@ -8107,6 +8197,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
     Expression<String>? errorMessage,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? completedAt,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -8123,6 +8214,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
       if (errorMessage != null) 'error_message': errorMessage,
       if (createdAt != null) 'created_at': createdAt,
       if (completedAt != null) 'completed_at': completedAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -8141,6 +8233,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
     Value<String?>? errorMessage,
     Value<DateTime>? createdAt,
     Value<DateTime?>? completedAt,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return ChatMessagesV2Companion(
@@ -8157,6 +8250,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
       errorMessage: errorMessage ?? this.errorMessage,
       createdAt: createdAt ?? this.createdAt,
       completedAt: completedAt ?? this.completedAt,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -8203,6 +8297,9 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
     if (completedAt.present) {
       map['completed_at'] = Variable<DateTime>(completedAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -8225,6 +8322,7 @@ class ChatMessagesV2Companion extends UpdateCompanion<LocalChatMessageV2> {
           ..write('errorMessage: $errorMessage, ')
           ..write('createdAt: $createdAt, ')
           ..write('completedAt: $completedAt, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -8411,6 +8509,18 @@ class $ChatContentBlocksTable extends ChatContentBlocks
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -8429,6 +8539,7 @@ class $ChatContentBlocksTable extends ChatContentBlocks
     state,
     createdAt,
     updatedAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -8568,6 +8679,12 @@ class $ChatContentBlocksTable extends ChatContentBlocks
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -8641,6 +8758,10 @@ class $ChatContentBlocksTable extends ChatContentBlocks
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -8684,6 +8805,9 @@ class LocalChatContentBlock extends DataClass
   final String state;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  final String ownerKey;
   const LocalChatContentBlock({
     required this.id,
     required this.messageId,
@@ -8701,6 +8825,7 @@ class LocalChatContentBlock extends DataClass
     required this.state,
     required this.createdAt,
     required this.updatedAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -8739,6 +8864,7 @@ class LocalChatContentBlock extends DataClass
     map['state'] = Variable<String>(state);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -8778,6 +8904,7 @@ class LocalChatContentBlock extends DataClass
       state: Value(state),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -8805,6 +8932,7 @@ class LocalChatContentBlock extends DataClass
       state: serializer.fromJson<String>(json['state']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -8829,6 +8957,7 @@ class LocalChatContentBlock extends DataClass
       'state': serializer.toJson<String>(state),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -8849,6 +8978,7 @@ class LocalChatContentBlock extends DataClass
     String? state,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? ownerKey,
   }) => LocalChatContentBlock(
     id: id ?? this.id,
     messageId: messageId ?? this.messageId,
@@ -8874,6 +9004,7 @@ class LocalChatContentBlock extends DataClass
     state: state ?? this.state,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalChatContentBlock copyWithCompanion(ChatContentBlocksCompanion data) {
     return LocalChatContentBlock(
@@ -8909,6 +9040,7 @@ class LocalChatContentBlock extends DataClass
       state: data.state.present ? data.state.value : this.state,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -8930,7 +9062,8 @@ class LocalChatContentBlock extends DataClass
           ..write('imageData: $imageData, ')
           ..write('state: $state, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -8953,6 +9086,7 @@ class LocalChatContentBlock extends DataClass
     state,
     createdAt,
     updatedAt,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -8973,7 +9107,8 @@ class LocalChatContentBlock extends DataClass
           other.imageData == this.imageData &&
           other.state == this.state &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class ChatContentBlocksCompanion
@@ -8994,6 +9129,7 @@ class ChatContentBlocksCompanion
   final Value<String> state;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const ChatContentBlocksCompanion({
     this.id = const Value.absent(),
@@ -9012,6 +9148,7 @@ class ChatContentBlocksCompanion
     this.state = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatContentBlocksCompanion.insert({
@@ -9031,6 +9168,7 @@ class ChatContentBlocksCompanion
     this.state = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        messageId = Value(messageId),
@@ -9055,6 +9193,7 @@ class ChatContentBlocksCompanion
     Expression<String>? state,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -9075,6 +9214,7 @@ class ChatContentBlocksCompanion
       if (state != null) 'state': state,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -9096,6 +9236,7 @@ class ChatContentBlocksCompanion
     Value<String>? state,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return ChatContentBlocksCompanion(
@@ -9116,6 +9257,7 @@ class ChatContentBlocksCompanion
       state: state ?? this.state,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -9173,6 +9315,9 @@ class ChatContentBlocksCompanion
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -9198,6 +9343,7 @@ class ChatContentBlocksCompanion
           ..write('state: $state, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9307,6 +9453,18 @@ class $ChatSessionsTable extends ChatSessions
     type: DriftSqlType.dateTime,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     sessionId,
@@ -9318,6 +9476,7 @@ class $ChatSessionsTable extends ChatSessions
     status,
     createdAt,
     closedAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -9408,6 +9567,12 @@ class $ChatSessionsTable extends ChatSessions
         closedAt.isAcceptableOrUnknown(data['closed_at']!, _closedAtMeta),
       );
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -9453,6 +9618,10 @@ class $ChatSessionsTable extends ChatSessions
         DriftSqlType.dateTime,
         data['${effectivePrefix}closed_at'],
       ),
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -9482,6 +9651,9 @@ class LocalChatSession extends DataClass
   final String status;
   final DateTime createdAt;
   final DateTime? closedAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  final String ownerKey;
   const LocalChatSession({
     required this.sessionId,
     required this.threadId,
@@ -9492,6 +9664,7 @@ class LocalChatSession extends DataClass
     required this.status,
     required this.createdAt,
     this.closedAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -9507,6 +9680,7 @@ class LocalChatSession extends DataClass
     if (!nullToAbsent || closedAt != null) {
       map['closed_at'] = Variable<DateTime>(closedAt);
     }
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -9523,6 +9697,7 @@ class LocalChatSession extends DataClass
       closedAt: closedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(closedAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -9541,6 +9716,7 @@ class LocalChatSession extends DataClass
       status: serializer.fromJson<String>(json['status']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       closedAt: serializer.fromJson<DateTime?>(json['closedAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -9556,6 +9732,7 @@ class LocalChatSession extends DataClass
       'status': serializer.toJson<String>(status),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'closedAt': serializer.toJson<DateTime?>(closedAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -9569,6 +9746,7 @@ class LocalChatSession extends DataClass
     String? status,
     DateTime? createdAt,
     Value<DateTime?> closedAt = const Value.absent(),
+    String? ownerKey,
   }) => LocalChatSession(
     sessionId: sessionId ?? this.sessionId,
     threadId: threadId ?? this.threadId,
@@ -9579,6 +9757,7 @@ class LocalChatSession extends DataClass
     status: status ?? this.status,
     createdAt: createdAt ?? this.createdAt,
     closedAt: closedAt.present ? closedAt.value : this.closedAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalChatSession copyWithCompanion(ChatSessionsCompanion data) {
     return LocalChatSession(
@@ -9597,6 +9776,7 @@ class LocalChatSession extends DataClass
       status: data.status.present ? data.status.value : this.status,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       closedAt: data.closedAt.present ? data.closedAt.value : this.closedAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -9611,7 +9791,8 @@ class LocalChatSession extends DataClass
           ..write('lastSeenSeq: $lastSeenSeq, ')
           ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
-          ..write('closedAt: $closedAt')
+          ..write('closedAt: $closedAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -9627,6 +9808,7 @@ class LocalChatSession extends DataClass
     status,
     createdAt,
     closedAt,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -9640,7 +9822,8 @@ class LocalChatSession extends DataClass
           other.lastSeenSeq == this.lastSeenSeq &&
           other.status == this.status &&
           other.createdAt == this.createdAt &&
-          other.closedAt == this.closedAt);
+          other.closedAt == this.closedAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
@@ -9653,6 +9836,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
   final Value<String> status;
   final Value<DateTime> createdAt;
   final Value<DateTime?> closedAt;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const ChatSessionsCompanion({
     this.sessionId = const Value.absent(),
@@ -9664,6 +9848,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
     this.status = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.closedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChatSessionsCompanion.insert({
@@ -9676,6 +9861,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
     required String status,
     required DateTime createdAt,
     this.closedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : sessionId = Value(sessionId),
        threadId = Value(threadId),
@@ -9694,6 +9880,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
     Expression<String>? status,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? closedAt,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -9706,6 +9893,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
       if (status != null) 'status': status,
       if (createdAt != null) 'created_at': createdAt,
       if (closedAt != null) 'closed_at': closedAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -9720,6 +9908,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
     Value<String>? status,
     Value<DateTime>? createdAt,
     Value<DateTime?>? closedAt,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return ChatSessionsCompanion(
@@ -9732,6 +9921,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       closedAt: closedAt ?? this.closedAt,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -9766,6 +9956,9 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
     if (closedAt.present) {
       map['closed_at'] = Variable<DateTime>(closedAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -9784,6 +9977,7 @@ class ChatSessionsCompanion extends UpdateCompanion<LocalChatSession> {
           ..write('status: $status, ')
           ..write('createdAt: $createdAt, ')
           ..write('closedAt: $closedAt, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -9851,6 +10045,18 @@ class $MessageReactionsV2Table extends MessageReactionsV2
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -9858,6 +10064,7 @@ class $MessageReactionsV2Table extends MessageReactionsV2
     threadId,
     kind,
     createdAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -9906,6 +10113,12 @@ class $MessageReactionsV2Table extends MessageReactionsV2
     } else if (isInserting) {
       context.missing(_createdAtMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -9935,6 +10148,10 @@ class $MessageReactionsV2Table extends MessageReactionsV2
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -9953,12 +10170,16 @@ class LocalMessageReactionV2 extends DataClass
   /// 'like' | 'dislike' | 'star'
   final String kind;
   final DateTime createdAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  final String ownerKey;
   const LocalMessageReactionV2({
     required this.id,
     required this.messageId,
     required this.threadId,
     required this.kind,
     required this.createdAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -9968,6 +10189,7 @@ class LocalMessageReactionV2 extends DataClass
     map['thread_id'] = Variable<String>(threadId);
     map['kind'] = Variable<String>(kind);
     map['created_at'] = Variable<DateTime>(createdAt);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -9978,6 +10200,7 @@ class LocalMessageReactionV2 extends DataClass
       threadId: Value(threadId),
       kind: Value(kind),
       createdAt: Value(createdAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -9992,6 +10215,7 @@ class LocalMessageReactionV2 extends DataClass
       threadId: serializer.fromJson<String>(json['threadId']),
       kind: serializer.fromJson<String>(json['kind']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -10003,6 +10227,7 @@ class LocalMessageReactionV2 extends DataClass
       'threadId': serializer.toJson<String>(threadId),
       'kind': serializer.toJson<String>(kind),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -10012,12 +10237,14 @@ class LocalMessageReactionV2 extends DataClass
     String? threadId,
     String? kind,
     DateTime? createdAt,
+    String? ownerKey,
   }) => LocalMessageReactionV2(
     id: id ?? this.id,
     messageId: messageId ?? this.messageId,
     threadId: threadId ?? this.threadId,
     kind: kind ?? this.kind,
     createdAt: createdAt ?? this.createdAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalMessageReactionV2 copyWithCompanion(MessageReactionsV2Companion data) {
     return LocalMessageReactionV2(
@@ -10026,6 +10253,7 @@ class LocalMessageReactionV2 extends DataClass
       threadId: data.threadId.present ? data.threadId.value : this.threadId,
       kind: data.kind.present ? data.kind.value : this.kind,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -10036,13 +10264,15 @@ class LocalMessageReactionV2 extends DataClass
           ..write('messageId: $messageId, ')
           ..write('threadId: $threadId, ')
           ..write('kind: $kind, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, messageId, threadId, kind, createdAt);
+  int get hashCode =>
+      Object.hash(id, messageId, threadId, kind, createdAt, ownerKey);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -10051,7 +10281,8 @@ class LocalMessageReactionV2 extends DataClass
           other.messageId == this.messageId &&
           other.threadId == this.threadId &&
           other.kind == this.kind &&
-          other.createdAt == this.createdAt);
+          other.createdAt == this.createdAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class MessageReactionsV2Companion
@@ -10061,12 +10292,14 @@ class MessageReactionsV2Companion
   final Value<String> threadId;
   final Value<String> kind;
   final Value<DateTime> createdAt;
+  final Value<String> ownerKey;
   const MessageReactionsV2Companion({
     this.id = const Value.absent(),
     this.messageId = const Value.absent(),
     this.threadId = const Value.absent(),
     this.kind = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
   });
   MessageReactionsV2Companion.insert({
     this.id = const Value.absent(),
@@ -10074,6 +10307,7 @@ class MessageReactionsV2Companion
     required String threadId,
     required String kind,
     required DateTime createdAt,
+    this.ownerKey = const Value.absent(),
   }) : messageId = Value(messageId),
        threadId = Value(threadId),
        kind = Value(kind),
@@ -10084,6 +10318,7 @@ class MessageReactionsV2Companion
     Expression<String>? threadId,
     Expression<String>? kind,
     Expression<DateTime>? createdAt,
+    Expression<String>? ownerKey,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -10091,6 +10326,7 @@ class MessageReactionsV2Companion
       if (threadId != null) 'thread_id': threadId,
       if (kind != null) 'kind': kind,
       if (createdAt != null) 'created_at': createdAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
     });
   }
 
@@ -10100,6 +10336,7 @@ class MessageReactionsV2Companion
     Value<String>? threadId,
     Value<String>? kind,
     Value<DateTime>? createdAt,
+    Value<String>? ownerKey,
   }) {
     return MessageReactionsV2Companion(
       id: id ?? this.id,
@@ -10107,6 +10344,7 @@ class MessageReactionsV2Companion
       threadId: threadId ?? this.threadId,
       kind: kind ?? this.kind,
       createdAt: createdAt ?? this.createdAt,
+      ownerKey: ownerKey ?? this.ownerKey,
     );
   }
 
@@ -10128,6 +10366,9 @@ class MessageReactionsV2Companion
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     return map;
   }
 
@@ -10138,7 +10379,8 @@ class MessageReactionsV2Companion
           ..write('messageId: $messageId, ')
           ..write('threadId: $threadId, ')
           ..write('kind: $kind, ')
-          ..write('createdAt: $createdAt')
+          ..write('createdAt: $createdAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -15617,6 +15859,7 @@ typedef $$ChatThreadsV2TableCreateCompanionBuilder =
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<int?> remoteUpdatedAtUs,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$ChatThreadsV2TableUpdateCompanionBuilder =
@@ -15639,6 +15882,7 @@ typedef $$ChatThreadsV2TableUpdateCompanionBuilder =
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<int?> remoteUpdatedAtUs,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -15738,6 +15982,11 @@ class $$ChatThreadsV2TableFilterComposer
 
   ColumnFilters<int> get remoteUpdatedAtUs => $composableBuilder(
     column: $table.remoteUpdatedAtUs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -15840,6 +16089,11 @@ class $$ChatThreadsV2TableOrderingComposer
     column: $table.remoteUpdatedAtUs,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChatThreadsV2TableAnnotationComposer
@@ -15916,6 +16170,9 @@ class $$ChatThreadsV2TableAnnotationComposer
     column: $table.remoteUpdatedAtUs,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$ChatThreadsV2TableTableManager
@@ -15967,6 +16224,7 @@ class $$ChatThreadsV2TableTableManager
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<int?> remoteUpdatedAtUs = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatThreadsV2Companion(
                 id: id,
@@ -15987,6 +16245,7 @@ class $$ChatThreadsV2TableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 remoteUpdatedAtUs: remoteUpdatedAtUs,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -16009,6 +16268,7 @@ class $$ChatThreadsV2TableTableManager
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<int?> remoteUpdatedAtUs = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatThreadsV2Companion.insert(
                 id: id,
@@ -16029,6 +16289,7 @@ class $$ChatThreadsV2TableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 remoteUpdatedAtUs: remoteUpdatedAtUs,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16071,6 +16332,7 @@ typedef $$ChatMessagesV2TableCreateCompanionBuilder =
       Value<String?> errorMessage,
       required DateTime createdAt,
       Value<DateTime?> completedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$ChatMessagesV2TableUpdateCompanionBuilder =
@@ -16088,6 +16350,7 @@ typedef $$ChatMessagesV2TableUpdateCompanionBuilder =
       Value<String?> errorMessage,
       Value<DateTime> createdAt,
       Value<DateTime?> completedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -16162,6 +16425,11 @@ class $$ChatMessagesV2TableFilterComposer
 
   ColumnFilters<DateTime> get completedAt => $composableBuilder(
     column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -16239,6 +16507,11 @@ class $$ChatMessagesV2TableOrderingComposer
     column: $table.completedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChatMessagesV2TableAnnotationComposer
@@ -16298,6 +16571,9 @@ class $$ChatMessagesV2TableAnnotationComposer
     column: $table.completedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$ChatMessagesV2TableTableManager
@@ -16344,6 +16620,7 @@ class $$ChatMessagesV2TableTableManager
                 Value<String?> errorMessage = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime?> completedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatMessagesV2Companion(
                 id: id,
@@ -16359,6 +16636,7 @@ class $$ChatMessagesV2TableTableManager
                 errorMessage: errorMessage,
                 createdAt: createdAt,
                 completedAt: completedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -16376,6 +16654,7 @@ class $$ChatMessagesV2TableTableManager
                 Value<String?> errorMessage = const Value.absent(),
                 required DateTime createdAt,
                 Value<DateTime?> completedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatMessagesV2Companion.insert(
                 id: id,
@@ -16391,6 +16670,7 @@ class $$ChatMessagesV2TableTableManager
                 errorMessage: errorMessage,
                 createdAt: createdAt,
                 completedAt: completedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16436,6 +16716,7 @@ typedef $$ChatContentBlocksTableCreateCompanionBuilder =
       Value<String> state,
       required DateTime createdAt,
       required DateTime updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$ChatContentBlocksTableUpdateCompanionBuilder =
@@ -16456,6 +16737,7 @@ typedef $$ChatContentBlocksTableUpdateCompanionBuilder =
       Value<String> state,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -16545,6 +16827,11 @@ class $$ChatContentBlocksTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -16637,6 +16924,11 @@ class $$ChatContentBlocksTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChatContentBlocksTableAnnotationComposer
@@ -16711,6 +17003,9 @@ class $$ChatContentBlocksTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$ChatContentBlocksTableTableManager
@@ -16769,6 +17064,7 @@ class $$ChatContentBlocksTableTableManager
                 Value<String> state = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatContentBlocksCompanion(
                 id: id,
@@ -16787,6 +17083,7 @@ class $$ChatContentBlocksTableTableManager
                 state: state,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -16807,6 +17104,7 @@ class $$ChatContentBlocksTableTableManager
                 Value<String> state = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatContentBlocksCompanion.insert(
                 id: id,
@@ -16825,6 +17123,7 @@ class $$ChatContentBlocksTableTableManager
                 state: state,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -16863,6 +17162,7 @@ typedef $$ChatSessionsTableCreateCompanionBuilder =
       required String status,
       required DateTime createdAt,
       Value<DateTime?> closedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$ChatSessionsTableUpdateCompanionBuilder =
@@ -16876,6 +17176,7 @@ typedef $$ChatSessionsTableUpdateCompanionBuilder =
       Value<String> status,
       Value<DateTime> createdAt,
       Value<DateTime?> closedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -16930,6 +17231,11 @@ class $$ChatSessionsTableFilterComposer
 
   ColumnFilters<DateTime> get closedAt => $composableBuilder(
     column: $table.closedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -16987,6 +17293,11 @@ class $$ChatSessionsTableOrderingComposer
     column: $table.closedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChatSessionsTableAnnotationComposer
@@ -17030,6 +17341,9 @@ class $$ChatSessionsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get closedAt =>
       $composableBuilder(column: $table.closedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$ChatSessionsTableTableManager
@@ -17072,6 +17386,7 @@ class $$ChatSessionsTableTableManager
                 Value<String> status = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime?> closedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatSessionsCompanion(
                 sessionId: sessionId,
@@ -17083,6 +17398,7 @@ class $$ChatSessionsTableTableManager
                 status: status,
                 createdAt: createdAt,
                 closedAt: closedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -17096,6 +17412,7 @@ class $$ChatSessionsTableTableManager
                 required String status,
                 required DateTime createdAt,
                 Value<DateTime?> closedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChatSessionsCompanion.insert(
                 sessionId: sessionId,
@@ -17107,6 +17424,7 @@ class $$ChatSessionsTableTableManager
                 status: status,
                 createdAt: createdAt,
                 closedAt: closedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -17141,6 +17459,7 @@ typedef $$MessageReactionsV2TableCreateCompanionBuilder =
       required String threadId,
       required String kind,
       required DateTime createdAt,
+      Value<String> ownerKey,
     });
 typedef $$MessageReactionsV2TableUpdateCompanionBuilder =
     MessageReactionsV2Companion Function({
@@ -17149,6 +17468,7 @@ typedef $$MessageReactionsV2TableUpdateCompanionBuilder =
       Value<String> threadId,
       Value<String> kind,
       Value<DateTime> createdAt,
+      Value<String> ownerKey,
     });
 
 class $$MessageReactionsV2TableFilterComposer
@@ -17182,6 +17502,11 @@ class $$MessageReactionsV2TableFilterComposer
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -17219,6 +17544,11 @@ class $$MessageReactionsV2TableOrderingComposer
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MessageReactionsV2TableAnnotationComposer
@@ -17244,6 +17574,9 @@ class $$MessageReactionsV2TableAnnotationComposer
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$MessageReactionsV2TableTableManager
@@ -17291,12 +17624,14 @@ class $$MessageReactionsV2TableTableManager
                 Value<String> threadId = const Value.absent(),
                 Value<String> kind = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
               }) => MessageReactionsV2Companion(
                 id: id,
                 messageId: messageId,
                 threadId: threadId,
                 kind: kind,
                 createdAt: createdAt,
+                ownerKey: ownerKey,
               ),
           createCompanionCallback:
               ({
@@ -17305,12 +17640,14 @@ class $$MessageReactionsV2TableTableManager
                 required String threadId,
                 required String kind,
                 required DateTime createdAt,
+                Value<String> ownerKey = const Value.absent(),
               }) => MessageReactionsV2Companion.insert(
                 id: id,
                 messageId: messageId,
                 threadId: threadId,
                 kind: kind,
                 createdAt: createdAt,
+                ownerKey: ownerKey,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

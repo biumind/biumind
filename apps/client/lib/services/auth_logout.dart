@@ -11,6 +11,10 @@
 //      真相源」, 清了永久丢用户代码. 手动清走设置页「清空本地数据」.
 //   ❌ rss 不清 — rss_cache_dao.dart:6 按 scopeId=JWT sub 隔离, 切账号天然
 //      不串 (where scopeId.equals), 不清也安全.
+//   ❌ chat 五表不清 — P0 数据隔离后每行带 ownerKey (sha256(环境)+":"+userId)
+//      scope 列, ChatRepo 构造绑定 scope、全部读写强制过滤 (chat_repo.dart),
+//      下个账号天然不可见; 保留支持切回账号秒开 (设计文档
+//      docs/BiuMind-Local-Data-Isolation-Design.md §1 公理 3).
 //   🔒 installationId / deviceId / identityUrl / UI prefs 保留 — clearTokens
 //      语义已对 (C3 跨登出持久).
 //

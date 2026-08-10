@@ -12,6 +12,7 @@ import 'package:biumind/data/local/db.dart';
 import 'package:biumind/data/sse/realtime_hub.dart';
 import 'package:biumind/data/wiki_providers.dart' show appDbProvider;
 import 'package:biumind/features/chat/data/chat_repo.dart';
+import 'package:biumind/features/chat/data/chat_sync.dart';
 import 'package:biumind/features/chat/domain/chat_models.dart';
 import 'package:biumind/features/chat/sync/chat_events_realtime.dart';
 
@@ -35,14 +36,20 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
     container = ProviderContainer(overrides: [
       appDbProvider.overrideWithValue(db),
     ]);
-    // resolveService 返 null → thread_deleted 分支走 appDb 兜底 repo。
+    // resolveService 返带 scope 的真 service —— P0 数据隔离后删除必须落在
+    // 某个 owner scope 内（无 scope 的兜底 repo 已不存在）；tokenProvider
+    // 返 null，删除分支不触网。
     listener = ChatEventsListener(
       container.read(_refProbe),
-      resolveService: () => null,
+      resolveService: () => ChatSyncService(
+        repo: repo,
+        baseUrl: 'http://localhost',
+        tokenProvider: () async => null,
+      ),
     );
   });
 

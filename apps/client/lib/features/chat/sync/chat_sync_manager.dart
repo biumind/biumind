@@ -24,6 +24,7 @@ import 'package:logging/logging.dart';
 import '../../../data/wiki_providers.dart' show appDbProvider;
 import '../../../services/auth_service.dart';
 import '../data/chat_repo.dart';
+import '../data/chat_scope.dart';
 import '../data/chat_sync.dart';
 import 'chat_events_realtime.dart';
 
@@ -45,8 +46,9 @@ class ChatSyncManager {
   void onCredentialsChanged() {
     final creds = _ref.read(hubCredentialsProvider);
     if (creds == null) {
-      // logout —— 停监听；本地 chat 数据保留（发送路径还要继续用），
-      // cursor 由 purgeUserData 统一清。
+      // logout —— 停监听；本地 chat 数据保留但已按 ownerKey scope 隔离
+      // （P0 数据隔离：下个账号的 ChatRepo 查询强制 ownerKey 过滤，旧数据
+      // 天然不可见，无需清库），cursor 由 purgeUserData 统一清。
       final l = _listener;
       _listener = null;
       if (l != null) unawaited(l.stop());
@@ -127,10 +129,14 @@ class ChatSyncManager {
 final chatSyncServiceProvider = Provider<ChatSyncService?>((ref) {
   final creds = ref.watch(hubCredentialsProvider);
   if (creds == null) return null;
+  // P0 数据隔离：scope 派生不出来（token 非 JWT）时同步整体退化为 noop ——
+  // 没有隔离键宁可不同步，也不能写无归属行。
+  final scope = ref.watch(chatOwnerScopeProvider);
+  if (scope == null) return null;
   final db = ref.watch(appDbProvider);
   final base = creds.endpoint.toString();
   return ChatSyncService(
-    repo: ChatRepo(db),
+    repo: ChatRepo(db, scope: scope),
     baseUrl: base.endsWith('/') ? base.substring(0, base.length - 1) : base,
     tokenProvider: () async => ref.read(hubCredentialsProvider)?.bearerToken,
   );

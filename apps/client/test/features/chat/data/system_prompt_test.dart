@@ -12,7 +12,7 @@ void main() {
 
   setUp(() async {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
     await repo.createThread(
         id: 't1', mode: ThreadMode.chat, title: 'sample');
   });

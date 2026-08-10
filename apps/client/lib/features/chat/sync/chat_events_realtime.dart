@@ -36,7 +36,6 @@ import '../../../data/sse/realtime_hub.dart';
 import '../../../data/sse/sse_cursors_dao.dart';
 import '../../../data/wiki_providers.dart' show appDbProvider;
 import '../../../services/auth_service.dart';
-import '../data/chat_repo.dart';
 import '../data/chat_sync.dart';
 
 final _log = Logger('biumind.chat.realtime');
@@ -144,8 +143,11 @@ class ChatEventsListener {
             frame.payload;
         final tid = inner['thread_id']?.toString();
         if (tid == null || tid.isEmpty) return;
-        final repo = _resolveService()?.repo ?? ChatRepo(_ref.read(appDbProvider));
-        unawaited(repo.deleteThreads([tid]).catchError((Object e) {
+        // service 为 null = 登出过渡态（无 owner scope）—— 跳过本地删；
+        // 下次登录全量 hydrate 会对账兜底。无 scope 构造不出 ChatRepo。
+        final svc = _resolveService();
+        if (svc == null) return;
+        unawaited(svc.repo.deleteThreads([tid]).catchError((Object e) {
           _log.warning('thread_deleted $tid local delete failed: $e');
         }));
       case 'chat.message_deleted':
@@ -157,9 +159,9 @@ class ChatEventsListener {
             frame.payload;
         final mid = inner['message_id']?.toString();
         if (mid == null || mid.isEmpty) return;
-        final repo =
-            _resolveService()?.repo ?? ChatRepo(_ref.read(appDbProvider));
-        unawaited(repo.deleteMessages([mid]).catchError((Object e) {
+        final svc = _resolveService();
+        if (svc == null) return; // 登出过渡态（无 scope）—— hydrate 兜底
+        unawaited(svc.repo.deleteMessages([mid]).catchError((Object e) {
           _log.warning('message_deleted $mid local delete failed: $e');
         }));
       default:

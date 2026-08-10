@@ -13,7 +13,7 @@ void main() {
 
   setUp(() async {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
     // Seed: 两个 thread 各一条 message + text block
     await repo.createThread(
         id: 't1', mode: ThreadMode.chat, title: 'Wiki design');
@@ -22,6 +22,7 @@ void main() {
     final now = DateTime.utc(2026, 6, 1);
     await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
           id: 'm1',
+          ownerKey: Value('test-scope'),
           threadId: 't1',
           role: 'assistant',
           status: 'completed',
@@ -30,6 +31,7 @@ void main() {
         ));
     await db.into(db.chatContentBlocks).insert(ChatContentBlocksCompanion.insert(
           id: 'b1',
+          ownerKey: Value('test-scope'),
           messageId: 'm1',
           blockIndex: 0,
           type: 'text',
@@ -39,6 +41,7 @@ void main() {
         ));
     await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
           id: 'm2',
+          ownerKey: Value('test-scope'),
           threadId: 't2',
           role: 'user',
           status: 'completed',
@@ -47,6 +50,7 @@ void main() {
         ));
     await db.into(db.chatContentBlocks).insert(ChatContentBlocksCompanion.insert(
           id: 'b2',
+          ownerKey: Value('test-scope'),
           messageId: 'm2',
           blockIndex: 0,
           type: 'text',
@@ -91,6 +95,7 @@ void main() {
     final now = DateTime.utc(2026, 6, 2);
     await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
           id: 'm3',
+          ownerKey: Value('test-scope'),
           threadId: 't1',
           role: 'user',
           status: 'completed',
@@ -99,6 +104,7 @@ void main() {
         ));
     await db.into(db.chatContentBlocks).insert(ChatContentBlocksCompanion.insert(
           id: 'b3',
+          ownerKey: Value('test-scope'),
           messageId: 'm3',
           blockIndex: 0,
           type: 'text',
@@ -119,6 +125,7 @@ void main() {
       final t = base.add(Duration(seconds: i));
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'mx$i',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -128,6 +135,7 @@ void main() {
       await db.into(db.chatContentBlocks).insert(
           ChatContentBlocksCompanion.insert(
             id: 'bx$i',
+            ownerKey: Value('test-scope'),
             messageId: 'mx$i',
             blockIndex: 0,
             type: 'text',

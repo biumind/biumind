@@ -12,7 +12,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
   });
 
   tearDown(() async {

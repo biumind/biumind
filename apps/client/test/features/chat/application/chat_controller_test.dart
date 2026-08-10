@@ -89,7 +89,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
     ap = FakeAgentPlane();
     transports = [];
     container = ProviderContainer(overrides: [

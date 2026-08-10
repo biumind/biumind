@@ -284,6 +284,8 @@ class ChatSyncService {
     // 服务端为准：本地存在、服务端已无、且非本机在途的 message → 删。
     // 在途（pending/streaming/failed）是本机刚发、服务端尚未 terminal 的
     // 行，绝不能当孤儿删 —— 与上面 upsert 处的同一守卫一致。
+    // P0 数据隔离：repo 构造绑定 ownerKey scope，locals / deleteMessages
+    // 都只落在当前 scope 内 —— orphan reconcile 不会碰其他账号的行。
     const inFlight = {
       MessageStatus.pending,
       MessageStatus.streaming,

@@ -13,7 +13,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    repo = ChatRepo(db);
+    repo = ChatRepo(db, scope: 'test-scope');
   });
   tearDown(() async {
     await db.close();
@@ -57,6 +57,7 @@ void main() {
       final recent = DateTime.now().subtract(const Duration(days: 2));
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'mOld',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -65,6 +66,7 @@ void main() {
           ));
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'mRecent',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -74,6 +76,7 @@ void main() {
       // streaming 不算
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'mStreaming',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'assistant',
             status: 'streaming',
@@ -96,6 +99,7 @@ void main() {
         await db.into(db.chatMessagesV2).insert(
               ChatMessagesV2Companion.insert(
                 id: id,
+                ownerKey: Value('test-scope'),
                 threadId: 't1',
                 role: 'assistant',
                 status: 'completed',
@@ -131,6 +135,7 @@ void main() {
       Future<void> insertOn(int id, DateTime when) async {
         await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
               id: 'm$id',
+              ownerKey: Value('test-scope'),
               threadId: 't1',
               role: 'user',
               status: 'completed',
@@ -153,6 +158,7 @@ void main() {
       // 今天有 + 前天有，但昨天没 → streak 断在今天，只算 1
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'm1',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -161,6 +167,7 @@ void main() {
           ));
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'm2',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -178,6 +185,7 @@ void main() {
       final now = DateTime.now();
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'm1',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'user',
             status: 'completed',
@@ -187,6 +195,7 @@ void main() {
           ));
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: 'm2',
+            ownerKey: Value('test-scope'),
             threadId: 't1',
             role: 'assistant',
             status: 'streaming',

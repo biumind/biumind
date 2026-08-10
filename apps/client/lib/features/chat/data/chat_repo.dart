@@ -7,6 +7,10 @@
 // AgentPlaneClient HTTP（apps/client/lib/data/agent_plane/）、SDK Protocol
 // → Block 翻译（R2 BiuSessionConnection 内部）。
 //
+// P0 数据隔离（docs/BiuMind-Local-Data-Isolation-Design.md §2）：ChatRepo
+// 构造时绑定 ownerKey scope（sha256(环境) + ":" + userId），所有读写强制
+// 落在该 scope 内 —— 编译期必填，不存在「不过滤」的调用路径。
+//
 // 测试：chat_repo_test.dart 用 AppDb.memory()。
 
 import 'dart:async';
@@ -20,7 +24,13 @@ import '../domain/thread_export_json.dart';
 
 class ChatRepo {
   final AppDb db;
-  ChatRepo(this.db);
+
+  /// 当前登录态的 owner scope（见 chat_scope.dart）。所有查询/更新/删除
+  /// 一律带 `ownerKey = scope` 条件，写入一律落 scope；'' 为非法值，
+  /// 永不匹配任何行（v30 migration 已清空全部存量无归属行）。
+  final String scope;
+
+  ChatRepo(this.db, {required this.scope}) : assert(scope.isNotEmpty);
 
   // ── Threads ───────────────────────────────────────────────
 
@@ -28,7 +38,8 @@ class ChatRepo {
   /// [projectId] 给 wiki 项目内嵌面板按 project_id 过滤；null 默认列
   /// 全局对话（project_id IS NULL）；'__all' 不过滤（暂不暴露）。
   Stream<List<Thread>> watchThreads({String? projectId}) {
-    final q = db.select(db.chatThreadsV2)..where((t) => t.archived.equals(false));
+    final q = db.select(db.chatThreadsV2)
+      ..where((t) => t.archived.equals(false) & t.ownerKey.equals(scope));
     if (projectId != null) {
       q.where((t) => t.projectId.equals(projectId));
     } else {
@@ -42,12 +53,14 @@ class ChatRepo {
   }
 
   Stream<Thread?> watchThread(String id) {
-    final q = db.select(db.chatThreadsV2)..where((t) => t.id.equals(id));
+    final q = db.select(db.chatThreadsV2)
+      ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope));
     return q.watchSingleOrNull().map((row) => row == null ? null : _threadFromRow(row));
   }
 
   Future<Thread?> getThread(String id) async {
-    final q = db.select(db.chatThreadsV2)..where((t) => t.id.equals(id));
+    final q = db.select(db.chatThreadsV2)
+      ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope));
     final row = await q.getSingleOrNull();
     return row == null ? null : _threadFromRow(row);
   }
@@ -70,6 +83,7 @@ class ChatRepo {
     final now = DateTime.now();
     await db.into(db.chatThreadsV2).insert(ChatThreadsV2Companion.insert(
           id: id,
+          ownerKey: Value(scope),
           mode: mode.name,
           title: Value(title ?? ''),
           environmentId: Value(environmentId),
@@ -105,7 +119,8 @@ class ChatRepo {
   }
 
   Future<void> renameThread(String id, String title) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         title: Value(title),
         updatedAt: Value(DateTime.now()),
@@ -125,7 +140,8 @@ class ChatRepo {
     String? model, {
     String? providerId,
   }) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         model: Value(model),
         providerId: Value(providerId),
@@ -148,7 +164,8 @@ class ChatRepo {
     String? environmentId,
     String? poolTag,
   }) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         mode: Value(mode.name),
         environmentId: Value(environmentId),
@@ -162,7 +179,8 @@ class ChatRepo {
   /// agent 模式可在 local / cloud 间切；chat 恒 none；task 恒 cloud。createSession
   /// 时透传给 brain → agent_sessions.runtime_env_mode。
   Future<void> setThreadRuntimeEnvMode(String id, String runtimeEnvMode) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         runtimeEnvMode: Value(runtimeEnvMode),
         updatedAt: Value(DateTime.now()),
@@ -173,7 +191,8 @@ class ChatRepo {
   /// 设置 agent loop backend（Runtime v3 R3/Q3）：'biumindkit' | 'claude-cli'
   /// | 'codex-cli'。仅 agent 模式有意义。createSession 时透传给 brain。
   Future<void> setThreadBackend(String id, String backend) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         backend: Value(backend),
         updatedAt: Value(DateTime.now()),
@@ -187,7 +206,8 @@ class ChatRepo {
     final normalized = (workdir == null || workdir.trim().isEmpty)
         ? null
         : workdir.trim();
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         workdir: Value(normalized),
         updatedAt: Value(DateTime.now()),
@@ -197,7 +217,8 @@ class ChatRepo {
 
   /// 设置 Agent 工具调用自治程度。
   Future<void> setThreadAutoApprove(String id, AutoApproveMode mode) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         autoApprove: Value(mode.name),
         updatedAt: Value(DateTime.now()),
@@ -208,7 +229,8 @@ class ChatRepo {
   /// 修改 thread 的 system prompt。空字符串会被存为空，让 brain 把它当无系统
   /// prompt 处理（chat 模式默认行为）。
   Future<void> setSystemPrompt(String id, String? prompt) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         systemPrompt: Value(prompt),
         updatedAt: Value(DateTime.now()),
@@ -217,7 +239,8 @@ class ChatRepo {
   }
 
   Future<void> setPinned(String id, bool pinned) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         pinned: Value(pinned),
         updatedAt: Value(DateTime.now()),
@@ -229,7 +252,7 @@ class ChatRepo {
   /// 不按 projectId 过滤；当前归档管理是全局视图。
   Stream<List<Thread>> watchArchivedThreads() {
     final q = db.select(db.chatThreadsV2)
-      ..where((t) => t.archived.equals(true))
+      ..where((t) => t.archived.equals(true) & t.ownerKey.equals(scope))
       ..orderBy([
         (t) => OrderingTerm(expression: t.updatedAt, mode: OrderingMode.desc),
       ]);
@@ -238,7 +261,8 @@ class ChatRepo {
 
   /// 解归档 —— 把 thread 恢复到主列表。
   Future<void> unarchiveThread(String id) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         archived: const Value(false),
         updatedAt: Value(DateTime.now()),
@@ -249,12 +273,14 @@ class ChatRepo {
   /// 简单计数：总 thread / 总 message（仅 completed）。Hero 副标题用。
   Future<({int threadCount, int messageCount})> threadStats() async {
     final tCount = await (db.selectOnly(db.chatThreadsV2)
-          ..addColumns([db.chatThreadsV2.id.count()]))
+          ..addColumns([db.chatThreadsV2.id.count()])
+          ..where(db.chatThreadsV2.ownerKey.equals(scope)))
         .map((row) => row.read(db.chatThreadsV2.id.count()) ?? 0)
         .getSingle();
     final mCount = await (db.selectOnly(db.chatMessagesV2)
           ..addColumns([db.chatMessagesV2.id.count()])
-          ..where(db.chatMessagesV2.status.equals('completed')))
+          ..where(db.chatMessagesV2.status.equals('completed') &
+              db.chatMessagesV2.ownerKey.equals(scope)))
         .map((row) => row.read(db.chatMessagesV2.id.count()) ?? 0)
         .getSingle();
     return (threadCount: tCount, messageCount: mCount);
@@ -270,10 +296,11 @@ class ChatRepo {
       '''
       SELECT DISTINCT strftime('%Y-%m-%d', datetime(created_at, 'unixepoch', 'localtime')) AS d
       FROM chat_messages_v2
-      WHERE status = 'completed' AND created_at > ?
+      WHERE status = 'completed' AND created_at > ? AND owner_key = ?
       ''',
       variables: [
         Variable.withInt(since.toUtc().millisecondsSinceEpoch ~/ 1000),
+        Variable.withString(scope),
       ],
       readsFrom: {db.chatMessagesV2},
     ).get();
@@ -309,12 +336,12 @@ class ChatRepo {
       '''
       SELECT model, MAX(created_at) AS last_used
       FROM chat_messages_v2
-      WHERE model IS NOT NULL AND model != ''
+      WHERE model IS NOT NULL AND model != '' AND owner_key = ?
       GROUP BY model
       ORDER BY last_used DESC
       LIMIT ?
       ''',
-      variables: [Variable.withInt(limit)],
+      variables: [Variable.withString(scope), Variable.withInt(limit)],
       readsFrom: {db.chatMessagesV2},
     ).get();
     return rows.map((r) {
@@ -338,7 +365,8 @@ class ChatRepo {
     final mCount = await (db.selectOnly(db.chatMessagesV2)
           ..addColumns([db.chatMessagesV2.id.count()])
           ..where(db.chatMessagesV2.status.equals('completed') &
-              db.chatMessagesV2.createdAt.isBiggerThanValue(since)))
+              db.chatMessagesV2.createdAt.isBiggerThanValue(since) &
+              db.chatMessagesV2.ownerKey.equals(scope)))
         .map((row) => row.read(db.chatMessagesV2.id.count()) ?? 0)
         .getSingle();
     // 活跃 thread 数：DISTINCT thread_id 在 since 之后有 message 的
@@ -346,10 +374,11 @@ class ChatRepo {
       '''
       SELECT COUNT(DISTINCT thread_id) AS c
       FROM chat_messages_v2
-      WHERE status = 'completed' AND created_at > ?
+      WHERE status = 'completed' AND created_at > ? AND owner_key = ?
       ''',
       variables: [
         Variable.withInt(since.toUtc().millisecondsSinceEpoch ~/ 1000),
+        Variable.withString(scope),
       ],
       readsFrom: {db.chatMessagesV2},
     ).get();
@@ -358,7 +387,8 @@ class ChatRepo {
   }
 
   Future<void> archiveThread(String id) async {
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         archived: const Value(true),
         updatedAt: Value(DateTime.now()),
@@ -379,24 +409,29 @@ class ChatRepo {
       // 1. 找出这些 thread 下所有 message ids
       final msgIds = await (db.selectOnly(db.chatMessagesV2)
             ..addColumns([db.chatMessagesV2.id])
-            ..where(db.chatMessagesV2.threadId.isIn(list)))
+            ..where(db.chatMessagesV2.threadId.isIn(list) &
+                db.chatMessagesV2.ownerKey.equals(scope)))
           .map((r) => r.read(db.chatMessagesV2.id)!)
           .get();
       // 2. 删 blocks（按 message_id 批量）
       if (msgIds.isNotEmpty) {
         await (db.delete(db.chatContentBlocks)
-              ..where((b) => b.messageId.isIn(msgIds)))
+              ..where(
+                  (b) => b.messageId.isIn(msgIds) & b.ownerKey.equals(scope)))
             .go();
       }
       // 3. 删 messages
       await (db.delete(db.chatMessagesV2)
-            ..where((m) => m.threadId.isIn(list)))
+            ..where((m) => m.threadId.isIn(list) & m.ownerKey.equals(scope)))
           .go();
       // 4. 删 sessions
-      await (db.delete(db.chatSessions)..where((s) => s.threadId.isIn(list)))
+      await (db.delete(db.chatSessions)
+            ..where((s) => s.threadId.isIn(list) & s.ownerKey.equals(scope)))
           .go();
       // 5. 删 thread
-      await (db.delete(db.chatThreadsV2)..where((t) => t.id.isIn(list))).go();
+      await (db.delete(db.chatThreadsV2)
+            ..where((t) => t.id.isIn(list) & t.ownerKey.equals(scope)))
+          .go();
     });
   }
 
@@ -412,7 +447,7 @@ class ChatRepo {
 
   Stream<List<Message>> watchMessages(String threadId) {
     final msgQ = db.select(db.chatMessagesV2)
-      ..where((m) => m.threadId.equals(threadId))
+      ..where((m) => m.threadId.equals(threadId) & m.ownerKey.equals(scope))
       ..orderBy([(m) => OrderingTerm(expression: m.seq)]);
     final msgStream = msgQ.watch();
 
@@ -422,7 +457,9 @@ class ChatRepo {
         db.chatMessagesV2.id.equalsExp(db.chatContentBlocks.messageId),
       ),
     ])
-      ..where(db.chatMessagesV2.threadId.equals(threadId));
+      ..where(db.chatMessagesV2.threadId.equals(threadId) &
+          db.chatMessagesV2.ownerKey.equals(scope) &
+          db.chatContentBlocks.ownerKey.equals(scope));
     final blockStream = blockQ.watch().map((rows) {
       final byMsg = <String, List<LocalChatContentBlock>>{};
       for (final r in rows) {
@@ -448,11 +485,12 @@ class ChatRepo {
   }
 
   Future<Message?> getMessage(String id) async {
-    final mq = db.select(db.chatMessagesV2)..where((m) => m.id.equals(id));
+    final mq = db.select(db.chatMessagesV2)
+      ..where((m) => m.id.equals(id) & m.ownerKey.equals(scope));
     final mrow = await mq.getSingleOrNull();
     if (mrow == null) return null;
     final bq = db.select(db.chatContentBlocks)
-      ..where((b) => b.messageId.equals(id))
+      ..where((b) => b.messageId.equals(id) & b.ownerKey.equals(scope))
       ..orderBy([(b) => OrderingTerm(expression: b.blockIndex)]);
     final brows = await bq.get();
     return _messageFromRow(mrow,
@@ -472,13 +510,15 @@ class ChatRepo {
     final now = DateTime.now();
     final maxSeq = await (db.selectOnly(db.chatMessagesV2)
           ..addColumns([db.chatMessagesV2.seq.max()])
-          ..where(db.chatMessagesV2.threadId.equals(threadId)))
+          ..where(db.chatMessagesV2.threadId.equals(threadId) &
+              db.chatMessagesV2.ownerKey.equals(scope)))
         .map((r) => r.read(db.chatMessagesV2.seq.max()) ?? 0)
         .getSingleOrNull();
     final seq = (maxSeq ?? 0) + 1;
     await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
           id: id,
           threadId: threadId,
+          ownerKey: Value(scope),
           role: role.name,
           status: status.name,
           sessionId: Value(sessionId),
@@ -487,7 +527,8 @@ class ChatRepo {
           createdAt: now,
         ));
     // 顺路把 thread.updatedAt 推进
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(threadId)))
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(threadId) & t.ownerKey.equals(scope)))
         .write(ChatThreadsV2Companion(updatedAt: Value(now)));
     return Message(
       id: id,
@@ -504,7 +545,7 @@ class ChatRepo {
   /// 增量追加 / 更新一条 block。R2 streaming 路径每条 SDK frame 调一次。
   /// 同一 (messageId, blockIndex) 已存在就 update，不存在就 insert。
   Future<void> upsertBlock(Block block, {required String messageId}) async {
-    final companion = _blockToCompanion(block, messageId);
+    final companion = _blockToCompanion(block, messageId, scope);
     await db.into(db.chatContentBlocks).insertOnConflictUpdate(companion);
   }
 
@@ -512,10 +553,13 @@ class ChatRepo {
   Future<void> replaceBlocks(String messageId, List<Block> blocks) async {
     await db.transaction(() async {
       await (db.delete(db.chatContentBlocks)
-            ..where((b) => b.messageId.equals(messageId)))
+            ..where((b) =>
+                b.messageId.equals(messageId) & b.ownerKey.equals(scope)))
           .go();
       for (final b in blocks) {
-        await db.into(db.chatContentBlocks).insert(_blockToCompanion(b, messageId));
+        await db
+            .into(db.chatContentBlocks)
+            .insert(_blockToCompanion(b, messageId, scope));
       }
     });
   }
@@ -528,7 +572,8 @@ class ChatRepo {
     int? outputTokens,
     String? errorMessage,
   }) async {
-    await (db.update(db.chatMessagesV2)..where((m) => m.id.equals(id))).write(
+    await (db.update(db.chatMessagesV2)
+          ..where((m) => m.id.equals(id) & m.ownerKey.equals(scope))).write(
       ChatMessagesV2Companion(
         status: Value(status.name),
         stopReason: Value(stopReason),
@@ -570,10 +615,15 @@ class ChatRepo {
       JOIN chat_messages_v2 m ON m.id = b.message_id
       LEFT JOIN chat_threads_v2 t ON t.id = m.thread_id
       WHERE b.type = 'text' AND b.text_content LIKE ? ESCAPE '\\'
+        AND b.owner_key = ?
       ORDER BY m.created_at DESC
       LIMIT ?
       ''',
-      variables: [Variable.withString(pattern), Variable.withInt(limit)],
+      variables: [
+        Variable.withString(pattern),
+        Variable.withString(scope),
+        Variable.withInt(limit),
+      ],
       readsFrom: {db.chatContentBlocks, db.chatMessagesV2, db.chatThreadsV2},
     ).get();
     final lower = q.toLowerCase();
@@ -647,7 +697,9 @@ class ChatRepo {
   /// 批量导出全部（含 archived）—— 备份场景。
   Future<String> exportAllThreadsJson() async {
     // 一次性拿所有 thread；watchThreads 默认过滤 archived，这里直接 select。
-    final rows = await db.select(db.chatThreadsV2).get();
+    final rows = await (db.select(db.chatThreadsV2)
+          ..where((t) => t.ownerKey.equals(scope)))
+        .get();
     final entries = <({Thread thread, List<Message> messages})>[];
     for (final r in rows) {
       final t = _threadFromRow(r);
@@ -674,6 +726,7 @@ class ChatRepo {
       await db.into(db.chatThreadsV2).insert(
             ChatThreadsV2Companion.insert(
               id: newThreadId,
+              ownerKey: Value(scope),
               mode: old.mode.name,
               title: Value(title),
               model: Value(old.model),
@@ -690,6 +743,7 @@ class ChatRepo {
               ChatMessagesV2Companion.insert(
                 id: newMsgId,
                 threadId: newThreadId,
+                ownerKey: Value(scope),
                 role: m.role.name,
                 status: 'completed',
                 seq: seq,
@@ -719,6 +773,7 @@ class ChatRepo {
               ChatContentBlocksCompanion.insert(
                 id: id,
                 messageId: messageId,
+                ownerKey: Value(scope),
                 blockIndex: index,
                 type: 'text',
                 textContent: Value(text),
@@ -731,6 +786,7 @@ class ChatRepo {
               ChatContentBlocksCompanion.insert(
                 id: id,
                 messageId: messageId,
+                ownerKey: Value(scope),
                 blockIndex: index,
                 type: 'image',
                 imageMimeType: Value(mimeType),
@@ -745,6 +801,7 @@ class ChatRepo {
               ChatContentBlocksCompanion.insert(
                 id: id,
                 messageId: messageId,
+                ownerKey: Value(scope),
                 blockIndex: index,
                 type: 'tool_use',
                 toolUseId: Value(toolUseId),
@@ -764,6 +821,7 @@ class ChatRepo {
               ChatContentBlocksCompanion.insert(
                 id: id,
                 messageId: messageId,
+                ownerKey: Value(scope),
                 blockIndex: index,
                 type: 'tool_result',
                 toolResultId: Value(toolResultId),
@@ -783,12 +841,16 @@ class ChatRepo {
     if (ids.isEmpty) return;
     await db.transaction(() async {
       await (db.delete(db.chatContentBlocks)
-            ..where((b) => b.messageId.isIn(ids)))
+            ..where(
+                (b) => b.messageId.isIn(ids) & b.ownerKey.equals(scope)))
           .go();
       await (db.delete(db.messageReactionsV2)
-            ..where((r) => r.messageId.isIn(ids)))
+            ..where(
+                (r) => r.messageId.isIn(ids) & r.ownerKey.equals(scope)))
           .go();
-      await (db.delete(db.chatMessagesV2)..where((m) => m.id.isIn(ids))).go();
+      await (db.delete(db.chatMessagesV2)
+            ..where((m) => m.id.isIn(ids) & m.ownerKey.equals(scope)))
+          .go();
     });
   }
 
@@ -801,13 +863,13 @@ class ChatRepo {
   Stream<List<LocalMessageReactionV2>> watchReactionsForMessage(
       String messageId) {
     final q = db.select(db.messageReactionsV2)
-      ..where((r) => r.messageId.equals(messageId));
+      ..where((r) => r.messageId.equals(messageId) & r.ownerKey.equals(scope));
     return q.watch();
   }
 
   Stream<List<LocalMessageReactionV2>> watchStarredMessages() {
     final q = db.select(db.messageReactionsV2)
-      ..where((r) => r.kind.equals('star'))
+      ..where((r) => r.kind.equals('star') & r.ownerKey.equals(scope))
       ..orderBy([
         (r) => OrderingTerm(expression: r.createdAt, mode: OrderingMode.desc),
       ]);
@@ -832,9 +894,10 @@ class ChatRepo {
       FROM message_reactions_v2 r
       LEFT JOIN chat_messages_v2 m ON m.id = r.message_id
       LEFT JOIN chat_threads_v2 t ON t.id = r.thread_id
-      WHERE r.kind = 'star'
+      WHERE r.kind = 'star' AND r.owner_key = ?
       ORDER BY r.created_at DESC
       ''',
+      variables: [Variable.withString(scope)],
       readsFrom: {
         db.messageReactionsV2,
         db.chatMessagesV2,
@@ -869,11 +932,15 @@ class ChatRepo {
     required String kind,
   }) async {
     final existing = await (db.select(db.messageReactionsV2)
-          ..where((r) => r.messageId.equals(messageId) & r.kind.equals(kind)))
+          ..where((r) =>
+              r.messageId.equals(messageId) &
+              r.kind.equals(kind) &
+              r.ownerKey.equals(scope)))
         .getSingleOrNull();
     if (existing != null) {
       await (db.delete(db.messageReactionsV2)
-            ..where((r) => r.id.equals(existing.id)))
+            ..where(
+                (r) => r.id.equals(existing.id) & r.ownerKey.equals(scope)))
           .go();
       return;
     }
@@ -882,6 +949,7 @@ class ChatRepo {
             messageId: messageId,
             threadId: threadId,
             kind: kind,
+            ownerKey: Value(scope),
             createdAt: DateTime.now(),
           ),
         );
@@ -889,7 +957,8 @@ class ChatRepo {
 
   Future<void> clearReactionsForMessage(String messageId) async {
     await (db.delete(db.messageReactionsV2)
-          ..where((r) => r.messageId.equals(messageId)))
+          ..where(
+              (r) => r.messageId.equals(messageId) & r.ownerKey.equals(scope)))
         .go();
   }
 
@@ -904,7 +973,9 @@ class ChatRepo {
 
   /// 列所有 thread（含 archived），一次性快照 —— 同步合并对照用。
   Future<List<Thread>> listAllThreads() async {
-    final rows = await db.select(db.chatThreadsV2).get();
+    final rows = await (db.select(db.chatThreadsV2)
+          ..where((t) => t.ownerKey.equals(scope)))
+        .get();
     return rows.map(_threadFromRow).toList();
   }
 
@@ -916,7 +987,9 @@ class ChatRepo {
   /// 拉成功过"的 thread（本地 0 条但服务端 last_msg_preview 非空）。
   Future<Map<String, int>> messageCountsByThread() async {
     final rows = await db.customSelect(
-      'SELECT thread_id, COUNT(*) AS c FROM chat_messages_v2 GROUP BY thread_id',
+      'SELECT thread_id, COUNT(*) AS c FROM chat_messages_v2 '
+      'WHERE owner_key = ? GROUP BY thread_id',
+      variables: [Variable.withString(scope)],
       readsFrom: {db.chatMessagesV2},
     ).get();
     return {
@@ -931,7 +1004,8 @@ class ChatRepo {
   Future<Map<String, int>> remoteUpdatedMarkers() async {
     final rows = await db.customSelect(
       'SELECT id, remote_updated_at_us AS us FROM chat_threads_v2 '
-      'WHERE remote_updated_at_us IS NOT NULL',
+      'WHERE remote_updated_at_us IS NOT NULL AND owner_key = ?',
+      variables: [Variable.withString(scope)],
       readsFrom: {db.chatThreadsV2},
     ).get();
     return {
@@ -963,12 +1037,15 @@ class ChatRepo {
     required DateTime updatedAt,
     required int remoteUpdatedAtUs,
   }) async {
+    // scope 内查重：同 id 属于其他 scope 时视为不存在（id 是 uuid v4 /
+    // ULID，跨 scope 碰撞实践中不发生）。
     final existing = await (db.select(db.chatThreadsV2)
-          ..where((t) => t.id.equals(id)))
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
         .getSingleOrNull();
     if (existing == null) {
       await db.into(db.chatThreadsV2).insert(ChatThreadsV2Companion.insert(
             id: id,
+            ownerKey: Value(scope),
             mode: 'chat',
             title: Value(title),
             model: Value(model),
@@ -997,7 +1074,8 @@ class ChatRepo {
         existing.projectId == nextProject &&
         existing.remoteUpdatedAtUs == remoteUpdatedAtUs;
     if (unchanged) return false;
-    await (db.update(db.chatThreadsV2)..where((t) => t.id.equals(id))).write(
+    await (db.update(db.chatThreadsV2)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope))).write(
       ChatThreadsV2Companion(
         title: Value(nextTitle),
         pinned: Value(pinned),
@@ -1036,13 +1114,14 @@ class ChatRepo {
         status == MessageStatus.cancelled;
     final completedAt = isTerminal ? createdAt : null;
     final existing = await (db.select(db.chatMessagesV2)
-          ..where((m) => m.id.equals(id)))
+          ..where((m) => m.id.equals(id) & m.ownerKey.equals(scope)))
         .getSingleOrNull();
     var wrote = false;
     if (existing == null) {
       await db.into(db.chatMessagesV2).insert(ChatMessagesV2Companion.insert(
             id: id,
             threadId: threadId,
+            ownerKey: Value(scope),
             role: role.name,
             status: status.name,
             model: Value(model),
@@ -1060,7 +1139,8 @@ class ChatRepo {
         existing.outputTokens != outputTokens ||
         existing.errorMessage != errorMessage) {
       // 只更新服务端权威字段；seq / sessionId / createdAt 保持首拉时的值。
-      await (db.update(db.chatMessagesV2)..where((m) => m.id.equals(id)))
+      await (db.update(db.chatMessagesV2)
+          ..where((m) => m.id.equals(id) & m.ownerKey.equals(scope)))
           .write(ChatMessagesV2Companion(
         status: Value(status.name),
         model: Value(model),
@@ -1076,7 +1156,7 @@ class ChatRepo {
     const blockIndex = 0;
     final blockId = '${id}_b$blockIndex';
     final existingBlock = await (db.select(db.chatContentBlocks)
-          ..where((b) => b.id.equals(blockId)))
+          ..where((b) => b.id.equals(blockId) & b.ownerKey.equals(scope)))
         .getSingleOrNull();
     if (existingBlock == null ||
         existingBlock.type != 'text' ||
@@ -1100,7 +1180,9 @@ class ChatRepo {
   Future<Session?> activeSession(String threadId) async {
     final q = db.select(db.chatSessions)
       ..where((s) =>
-          s.threadId.equals(threadId) & s.status.equals('active'))
+          s.threadId.equals(threadId) &
+          s.status.equals('active') &
+          s.ownerKey.equals(scope))
       ..orderBy([(s) => OrderingTerm(expression: s.createdAt, mode: OrderingMode.desc)])
       ..limit(1);
     final row = await q.getSingleOrNull();
@@ -1112,6 +1194,7 @@ class ChatRepo {
           ChatSessionsCompanion.insert(
             sessionId: s.sessionId,
             threadId: s.threadId,
+            ownerKey: Value(scope),
             mode: s.mode.name,
             sessionToken: s.sessionToken,
             tokenExpiresAt: s.tokenExpiresAt,
@@ -1125,13 +1208,15 @@ class ChatRepo {
 
   Future<void> updateLastSeenSeq(String sessionId, int seq) async {
     await (db.update(db.chatSessions)
-          ..where((s) => s.sessionId.equals(sessionId)))
+          ..where(
+            (s) => s.sessionId.equals(sessionId) & s.ownerKey.equals(scope)))
         .write(ChatSessionsCompanion(lastSeenSeq: Value(seq)));
   }
 
   Future<void> finalizeSession(String sessionId, {required SessionStatus status}) async {
     await (db.update(db.chatSessions)
-          ..where((s) => s.sessionId.equals(sessionId)))
+          ..where(
+            (s) => s.sessionId.equals(sessionId) & s.ownerKey.equals(scope)))
         .write(ChatSessionsCompanion(
       status: Value(status.name),
       closedAt: Value(DateTime.now()),
@@ -1144,7 +1229,8 @@ class ChatRepo {
     required DateTime expiresAt,
   }) async {
     await (db.update(db.chatSessions)
-          ..where((s) => s.sessionId.equals(sessionId)))
+          ..where(
+            (s) => s.sessionId.equals(sessionId) & s.ownerKey.equals(scope)))
         .write(ChatSessionsCompanion(
       sessionToken: Value(token),
       tokenExpiresAt: Value(expiresAt),
@@ -1235,10 +1321,12 @@ Block _blockFromRow(LocalChatContentBlock r) {
   }
 }
 
-ChatContentBlocksCompanion _blockToCompanion(Block b, String messageId) {
+ChatContentBlocksCompanion _blockToCompanion(
+    Block b, String messageId, String ownerKey) {
   final base = ChatContentBlocksCompanion.insert(
     id: b.id,
     messageId: messageId,
+    ownerKey: Value(ownerKey),
     blockIndex: b.index,
     type: '', // 下面 switch 覆盖
     state: Value(b.state.name),
