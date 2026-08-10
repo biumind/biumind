@@ -728,6 +728,80 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── 镜像 stable releases.json + 产物到阿里云 OSS ──────────────
+  # 官网 /downloads/releases.json (客户端稳定版更新检测 SoT) 来源。
+  # 与 release-client-nightly.yml 的 OSS 上传同模式 (mc 经 docker, presence-gated)。
+  # 布局 (同 tools/scripts/upload-release.sh, 稳定 url):
+  #   <bucket>/<filename>          根 (新版覆盖, url 永远指向最新)
+  #   <bucket>/<version>/<filename> 版本归档 (历史不丢)
+  #   <bucket>/releases.json       根 (nginx RELEASES_UPSTREAM/releases.json 直取)
+  # 未配 OSS 凭证 → skip, 不 fail (与 nightly 一致, GHCR-style opt-in)。
+  # asset url 在 manifest job 里已用 vars.RELEASES_DOWNLOAD_BASE (CNAME) 注入,
+  # 这里只搬文件不改 releases.json。
+  mirror-oss:
+    name: Mirror to OSS
+    if: always() && needs.manifest.result == 'success'
+    needs: manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # presence-gate: 复用 nightly 的 HAVE_OSS_KEY 模式 (secrets 不能直接进 if 比较)
+      HAVE_OSS_KEY: ${{ secrets.OSS_ACCESS_KEY_SECRET != '' }}
+
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#client-}"
+          v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
+          v="${v#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Download release artefacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -eu
+          mkdir -p artefacts && cd artefacts
+          # releases.json + 该版本全部产物 (dmg/apk/ipa)。draft release 也能下 (GITHUB_TOKEN 有 contents)。
+          gh release download "$GITHUB_REF_NAME" \
+            -p "releases.json" -p "biumind-${VERSION}*" \
+            -p "*.dmg" -p "*.apk" -p "*.ipa" || true
+          echo "--- downloaded ---"
+          ls -la
+          test -f releases.json || { echo "::error::releases.json not on release — manifest job failed?"; exit 1; }
+
+      - name: Upload to Aliyun OSS
+        if: vars.OSS_BUCKET != '' && env.HAVE_OSS_KEY == 'true'
+        env:
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -eu
+          docker run --rm \
+            -v "$PWD/artefacts:/artefacts:ro" \
+            -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
+            -e BUCKET="$OSS_BUCKET" -e VER="$VERSION" \
+            --entrypoint /bin/sh \
+            docker.io/minio/mc:latest -c '
+              set -eu
+              mc alias set oss "$EP" "$AK" "$SK"
+              cd /artefacts
+              # 产物放根 (稳定 url) + 版本目录 (归档)
+              for f in biumind-*.apk biumind-*.dmg biumind-*.ipa; do
+                [ -f "$f" ] || continue
+                mc cp "$f" "oss/$BUCKET/"
+                mc cp "$f" "oss/$BUCKET/$VER/"
+              done
+              # releases.json 放根 (nginx RELEASES_UPSTREAM/releases.json 直取)
+              mc cp releases.json "oss/$BUCKET/releases.json"
+              echo "✓ stable artefacts + releases.json → oss/$BUCKET/ (+ $VER/ archive)"
+            '
+
   #
   # ── Linux .AppImage / .deb (TODO) ─────────────────────────
   # Flutter Linux desktop is stable enough for internal builds but
