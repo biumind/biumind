@@ -14,6 +14,8 @@
 //	POST   /v1/threads/{id}/send                cloud-mode streaming send
 //	POST   /v1/threads/{id}/messages/{mid}/cancel  pause stream
 //
+//	GET    /v1/chat/tombstones                deletion tombstones since a cursor (sync)
+//
 // All endpoints require a Bearer JWT and are owner-scoped (mismatched
 // user → 404 not 403, to avoid leaking thread existence).
 
@@ -90,6 +92,10 @@ func (s *Server) Mount(mux *http.ServeMux) {
 
 	// Account-level statistics (数据统计 overview page). Read-only.
 	mux.HandleFunc("GET /v1/chat/stats", s.requireAuth(s.handleStats))
+
+	// Deletion tombstones for offline-device sync convergence
+	// (BiuMind-Local-Data-Isolation-Design.md §4.1). Read-only.
+	mux.HandleFunc("GET /v1/chat/tombstones", s.requireAuth(s.handleListTombstones))
 }
 
 // ─── Stats ───────────────────────────────────────────
@@ -122,6 +128,60 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		"active_days":    active,
 		"current_streak": cur,
 		"max_streak":     max,
+	})
+}
+
+// ─── Tombstones ──────────────────────────────────────
+
+// handleListTombstones serves deletion tombstones for offline-device
+// sync convergence (design doc §4.1): the caller passes the last
+// `deleted_at` it saw as `since` and gets the next page oldest-first.
+// `next_since` echoes the page's max deleted_at (input `since` on an
+// empty page) so the client can persist it as its sync cursor.
+func (s *Server) handleListTombstones(w http.ResponseWriter, r *http.Request) {
+	uid := mustUserID(r)
+	q := r.URL.Query()
+
+	// Missing since = epoch 0 (full tombstone window replay).
+	var since time.Time
+	if v := q.Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_since", "")
+			return
+		}
+		since = t
+	}
+
+	limit := atoiDefault(q.Get("limit"), 200)
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	tombs, err := s.Store.ListTombstones(r.Context(), uid, since, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "list_failed", err.Error())
+		return
+	}
+
+	out := make([]map[string]any, 0, len(tombs))
+	nextSince := since
+	for _, t := range tombs {
+		out = append(out, map[string]any{
+			"id":         t.ID.String(),
+			"kind":       t.Kind,
+			"deleted_at": t.DeletedAt.UTC().Format(time.RFC3339Nano),
+		})
+		if t.DeletedAt.After(nextSince) {
+			nextSince = t.DeletedAt
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tombstones": out,
+		"next_since": nextSince.UTC().Format(time.RFC3339Nano),
 	})
 }
 

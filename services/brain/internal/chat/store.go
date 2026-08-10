@@ -367,6 +367,20 @@ func (s *Store) DeleteThread(ctx context.Context, userID, threadID uuid.UUID) er
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Collect message ids before the CASCADE wipes them — each one gets
+	// its own tombstone so offline devices can converge per-message.
+	msgRows, err := tx.Query(ctx, `
+		SELECT id FROM chat.messages WHERE thread_id = $1 AND user_id = $2
+	`, threadID, userID)
+	if err != nil {
+		return err
+	}
+	msgIDs, err := pgx.CollectRows(msgRows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return err
+	}
+
 	var syncEnabled bool
 	err = tx.QueryRow(ctx, `
 		DELETE FROM chat.threads WHERE id = $1 AND user_id = $2
@@ -378,6 +392,21 @@ func (s *Store) DeleteThread(ctx context.Context, userID, threadID uuid.UUID) er
 	if err != nil {
 		return err
 	}
+
+	// Same-tx tombstones: online devices get the outbox event below,
+	// offline devices learn "deleted" (vs "never uploaded") via
+	// GET /v1/chat/tombstones on their next sync.
+	if err := recordTombstonesTx(ctx, tx, userID, "thread",
+		[]uuid.UUID{threadID}); err != nil {
+		return err
+	}
+	if err := recordTombstonesTx(ctx, tx, userID, "message", msgIDs); err != nil {
+		return err
+	}
+	if err := pruneTombstonesTx(ctx, tx); err != nil {
+		return err
+	}
+
 	// Same-tx outbox event so other devices drop the thread.
 	if syncEnabled {
 		if err := emitEvent(ctx, tx, userID, EventThreadDeleted, map[string]any{
@@ -782,6 +811,15 @@ func (s *Store) DeleteMessage(ctx context.Context, userID, msgID uuid.UUID) erro
 			return fmt.Errorf("message event: %w", err)
 		}
 	}
+	// Same-tx tombstone so offline devices learn this message is gone
+	// (mirror DeleteThread).
+	if err := recordTombstonesTx(ctx, tx, userID, "message",
+		[]uuid.UUID{msgID}); err != nil {
+		return err
+	}
+	if err := pruneTombstonesTx(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -801,6 +839,70 @@ func (s *Store) CleanupOrphanStreaming(ctx context.Context, staleAfter time.Dura
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// ─── Tombstones ───────────────────────────────────────
+
+// Tombstone marks a hard-deleted thread/message so offline devices can
+// tell "deleted elsewhere" apart from "never uploaded" and converge
+// (design doc BiuMind-Local-Data-Isolation-Design.md §4.1). Rows are
+// retained 30 days and pruned lazily on the write path.
+type Tombstone struct {
+	ID        uuid.UUID `db:"id"`
+	Kind      string    `db:"kind"` // "thread" | "message"
+	UserID    uuid.UUID `db:"user_id"`
+	DeletedAt time.Time `db:"deleted_at"`
+}
+
+// ListTombstones returns the user's tombstones with deleted_at > since,
+// oldest first, capped at limit.
+func (s *Store) ListTombstones(ctx context.Context, userID uuid.UUID,
+	since time.Time, limit int,
+) ([]Tombstone, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, kind, user_id, deleted_at
+		  FROM chat.tombstones
+		 WHERE user_id = $1 AND deleted_at > $2
+		 ORDER BY deleted_at ASC, kind ASC, id ASC
+		 LIMIT $3
+	`, userID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByName[Tombstone])
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// recordTombstonesTx writes tombstones for the given ids in the current
+// tx. ON CONFLICT keeps it idempotent if a delete is ever replayed.
+func recordTombstonesTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID,
+	kind string, ids []uuid.UUID,
+) error {
+	for _, id := range ids {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO chat.tombstones (kind, id, user_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (kind, id) DO NOTHING
+		`, kind, id, userID); err != nil {
+			return fmt.Errorf("tombstone: %w", err)
+		}
+	}
+	return nil
+}
+
+// pruneTombstonesTx lazily enforces the 30-day retention window; called
+// on every tombstone-writing delete so no separate janitor is needed.
+func pruneTombstonesTx(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM chat.tombstones
+		 WHERE deleted_at < now() - interval '30 days'
+	`); err != nil {
+		return fmt.Errorf("tombstone gc: %w", err)
+	}
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────
