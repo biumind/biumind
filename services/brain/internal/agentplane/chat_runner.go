@@ -273,11 +273,11 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 			"brain ChatRunner has no chat.AgentLoop wired (chat mode unavailable)")
 		return
 	}
-	if cr.AnthropicAPIKey == "" {
-		cr.publishErrorAndFinalize(ctx, sess, "missing_api_key",
-			"brain ChatRunner has no Anthropic API key configured (chat mode unavailable)")
-		return
-	}
+	// 注意：凭证判空不在这里做。AnthropicAPIKey 只是 legacy 直连 fallback，
+	// BYOK / model-relay PassThrough 都不需要它 —— 提前判空会把生产推荐的
+	// PassThrough 路径误杀（实测：新部署未配 AGENT_PLANE_ANTHROPIC_API_KEY
+	// 时 session 创建后毫秒级 finalize failed，客户端 WS 全部 409）。
+	// 判空在 resolveCreds 之后（见下）。
 
 	// 给客户端打开 WS 留窗口期 —— createChatSession 写完 row 立刻 spawn
 	// 这个 goroutine，但 HTTP response 还没回到 client、client 还没 dial
@@ -309,6 +309,12 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 	apiKey, endpoint, useBearer := cr.resolveCreds(
 		ctx, payload.UserID, payload.ProviderID, payload.UserBearer,
 	)
+	if apiKey == "" {
+		cr.publishErrorAndFinalize(ctx, sess, "missing_api_key",
+			"no LLM credentials resolved (BYOK miss, model-relay passthrough "+
+				"unavailable, AGENT_PLANE_ANTHROPIC_API_KEY unset)")
+		return
+	}
 
 	// 调 chat.AgentLoop.RunSingleTurn —— 真正的 chat 内核（biumindkit
 	// 驱动 + tool catalog + history 转换）在 chat 包里。这里只组 input。
@@ -421,7 +427,11 @@ func (cr *ChatRunner) publishErrorFrame(ctx context.Context, sess *Session, runE
 
 // publishErrorAndFinalize 推一条 SDKResultError 帧 + 写 results 表 +
 // state=failed —— 客户端收到帧后 ingress 自然把 WS 关掉。
+// 必须打 WARN 日志：chat 模式的 ErrorMessage 不落 agent_session_results
+// （FinalizeSessionResult 只 update state），日志是唯一的排障线索。
 func (cr *ChatRunner) publishErrorAndFinalize(ctx context.Context, sess *Session, code, msg string) {
+	cr.Logger.Warn("chat runner: session finalize-failed",
+		"session_id", sess.SessionID, "code", code, "reason", msg)
 	if cr.Queue != nil {
 		errFrame := sdkbridge.ToSDKFrame(biumindkit.Error{
 			Err:         fmt.Errorf("%s: %s", code, msg),

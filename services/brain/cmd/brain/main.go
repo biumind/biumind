@@ -194,11 +194,11 @@ type Config struct {
 	// message is PATCH'd back).
 	RelayURL string `env:"MODEL_RELAY_URL" default:""`
 
-	// AgentPlaneAnthropicAPIKey — chat 模式 ChatRunner 调 Anthropic 用的
-	// 平台共享池 key（绕过 model-relay，直连 api.anthropic.com）。空时
-	// chat 模式 session 仍能创建（写 row + 回 session_token），但 LLM
-	// 不实际跑（runner skip + 客户端等不到 frame）。生产部署应该填上 OR
-	// 等 model-relay verbatim Anthropic SSE 模式落地后切回 model-relay。
+	// AgentPlaneAnthropicAPIKey — chat 模式 ChatRunner 的 legacy 直连
+	// fallback key（绕过 model-relay，直连 api.anthropic.com）。凭证优先级
+	// 实际是 BYOK > model-relay PassThrough > 这个 legacy key，所以生产
+	// 走 PassThrough 时可以不配；三条都空时 session 会在 resolveCreds 后
+	// finalize failed（missing_api_key），客户端 WS 收到 error 帧。
 	AgentPlaneAnthropicAPIKey   string `env:"AGENT_PLANE_ANTHROPIC_API_KEY"   default:""`
 	AgentPlaneAnthropicEndpoint string `env:"AGENT_PLANE_ANTHROPIC_ENDPOINT"  default:""`
 	// AgentPlaneDefaultChatModel — client 没传 thread.model(显示
