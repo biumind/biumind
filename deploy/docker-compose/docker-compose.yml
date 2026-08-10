@@ -378,12 +378,11 @@ services:
       SEARXNG_URL: ${SEARXNG_URL:-}
       # BYOK P3: brain 按需从 identity /v1/internal/byok/* 取 user key（DESIGN.md §5）
       IDENTITY_URL: ${IDENTITY_URL:-http://identity:7004}
-      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-}
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       # Phase 3: gating brain /v1/internal/wiki/*（wiki-parse worker 用）— 与 worker 同值（DESIGN.md §5）
       BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
-      # Chat 凭证优先级：BYOK provider > RelayURL+UserBearer 透传 JWT > 下面 legacy 直连。生产走 #2（DESIGN.md §11）
-      AGENT_PLANE_ANTHROPIC_API_KEY: ${BIUMIND_ANTHROPIC_KEY:-}
-      AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
+      # Chat 走 model-relay PassThrough（透传用户 JWT），模型/凭证全部 admin 后台配置；
+      # legacy AGENT_PLANE_ANTHROPIC_* 直连已移除（runtime 段仍保留，属另一条链）
       # Files / MinIO — artifacts L3 通道。缺任一字段不 mount /v1/files/*（L1+L2 不受影响）
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-biumind}

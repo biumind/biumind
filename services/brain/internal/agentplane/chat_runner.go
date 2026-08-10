@@ -35,7 +35,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
-	providerspkg "github.com/biumind/biumind/services/brain/internal/chat/providers"
 	"github.com/google/uuid"
 )
 
@@ -48,38 +47,23 @@ type ChatRunner struct {
 	Loop   *chatpkg.AgentLoop // chat.AgentLoop with tools.Registry wired
 	Logger *slog.Logger
 
-	// AnthropicAPIKey + AnthropicEndpoint 是 **legacy** 直连 anthropic 兼容
-	// 上游的凭证。早期设计 chat 模式绕过 model-relay 直连,不带 user
-	// 身份。当 RelayURL 设置时这两条**仅作 absolute fallback**(双保险:
-	// RelayURL 空 + UserBearer 空时才用,生产路径不再走这里)。
-	//
-	// 通过 AGENT_PLANE_ANTHROPIC_API_KEY / _ENDPOINT env 配置;生产建议
-	// 留空让 RelayURL+UserBearer 接管。
-	AnthropicAPIKey   string
-	AnthropicEndpoint string
-
-	// RelayURL 是 model-relay HTTP 端点(`http://model-relay:7001`)。设
-	// 置时 chat 模式默认通过它走:用每次请求透传过来的 user JWT
+	// RelayURL 是 model-relay HTTP 端点(`http://model-relay:7001`)。chat
+	// 去 env 化后这是**唯一**凭证路径:用每次请求透传过来的 user JWT
 	// (WorkPayload.UserBearer)做 Authorization,model-relay 按 channel
-	// 路由 + 用户级配额 + admin 管理的凭证 — 跟 picker 选 BiuMind Cloud
-	// 的语义一致。
+	// 路由 + 用户级配额 + admin 管理的凭证;BYOK 由 relay 侧按 identity
+	// 的 protocol 选 adaptor 统一接住(BYOK-Unification INV-5)。空 →
+	// chat session 创建后立即 finalize failed (missing_bearer)。
 	RelayURL string
 
-	// DefaultModel 是 client 没传 thread.model(显示"BiuMind 默认")时的
-	// fallback。空 → 兜底到 "claude-sonnet-4-6" 保持老行为。运维通过
-	// AGENT_PLANE_DEFAULT_CHAT_MODEL 切到当前 model-relay 上 active 的
-	// model id,避免 admin 把 claude-sonnet-4-6 设 disabled 后 chat 全废。
+	// DefaultModel 是 AGENT_PLANE_DEFAULT_CHAT_MODEL 的 env 覆盖值,在
+	// 默认模型兜底链里排第二(见 defaultChatModel)。空 → 落到硬兜底
+	// "claude-sonnet-4-6"。
 	DefaultModel string
 
-	// ProvidersStore 用于按 (userID, providerID slug) 查 chat.providers
-	// 行 → 拿 BYOK 元数据 (enabled/source/base_url)。可空(单测/dev) —
-	// 空时不查表, 全部走平台 fallback。生产 wired 是 *providerspkg.Store;
-	// 接口形态是为了单测能 fake。
-	ProvidersStore ProviderResolver
-	// KeyResolver 现取用户明文 key + endpoint (P3: 来自 identity, brain
-	// 不再存 key)。可空(单测/dev/未配 IDENTITY_URL) — 空时 ResolveBYOKCreds
-	// 不走 BYOK。生产 wired 是 *providerspkg.IdentityBYOKClient。
-	KeyResolver BYOKKeyResolver
+	// DefaultModels 从 relay 解析 admin 配置的默认 chat model
+	// (is_default_chat → GET /v1/internal/models/default-chat),进程内
+	// 缓存。可空(单测/dev) — 空时兜底链跳过 relay 这一级。
+	DefaultModels *DefaultModelResolver
 
 	// inflight 跟踪在跑的 session — sessionID → cancelCauseFunc。
 	// InterruptSession() 据此找到 cancel func 并 fire biumindkit.ErrInterrupted,
@@ -94,98 +78,67 @@ type ChatRunner struct {
 	cancelStartedAt map[uuid.UUID]time.Time
 }
 
-// ProviderResolver 是 ChatRunner 对 providers store 的最小依赖,只要能按
-// (userID, providerID slug) 返回 *Provider 即可。生产实现是
-// *providerspkg.Store(它的 GetByProviderID 已经匹配此签名)。
-type ProviderResolver interface {
-	GetByProviderID(ctx context.Context, userID uuid.UUID, providerID string) (*providerspkg.Provider, error)
-}
-
 // NewChatRunner 构造 ChatRunner。loop 必填(chat.NewAgentLoop(nil, toolReg)
 // 即可,HTTPSender 不需要);queue/store 必填用于 publish + finalize。
 //
-// 凭证选择优先级(resolveCreds 决定):
-//  1. BYOK(provider 命中且 source!=official 且 enabled+server fetch+有 key)
-//     → 用 provider.APIKey + provider.BaseURL
-//  2. RelayURL+UserBearer 都非空 → 透传 user JWT 到 model-relay
-//     (生产推荐:per-user 计费 + admin channel 路由 + BYOK 都走得通)
-//  3. 否则 → AnthropicAPIKey+AnthropicEndpoint(legacy 直连模式)
+// 凭证模型(chat 去 env 化):chat 模式一律走 model-relay PassThrough ——
+// 透传 user JWT (WorkPayload.UserBearer) 做 Authorization,BYOK 由 relay
+// 侧统一接住。RelayURL 空或 UserBearer 空 → session finalize failed
+// (missing_bearer),见 runSessionImpl。
 //
-// defaultModel 空 → 老行为(claude-sonnet-4-6 fallback)。
-// providersStore 可空(测试 / dev),空时所有 turn 都走平台 key,不查 BYOK。
-// relayURL 空 → 关闭 PassThrough 模式,只剩 BYOK + legacy 两条。
-// keyResolver 可空(测试 / dev / 未配 IDENTITY_URL) — P3: BYOK key 从 identity
-// 现取; 空时 ResolveBYOKCreds 不走 BYOK (落平台 fallback)。
+// 默认模型兜底链(defaultChatModel):relay default-chat (DefaultModels)
+// > defaultModel (AGENT_PLANE_DEFAULT_CHAT_MODEL env 覆盖) >
+// claude-sonnet-4-6 硬兜底。defaultModels 可空(单测 / dev)。
 func NewChatRunner(
 	q *Queue,
 	store *Store,
 	loop *chatpkg.AgentLoop,
-	apiKey, endpoint, defaultModel, relayURL string,
-	providersStore ProviderResolver,
-	keyResolver BYOKKeyResolver,
+	defaultModel, relayURL string,
+	defaultModels *DefaultModelResolver,
 	logger *slog.Logger,
 ) *ChatRunner {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &ChatRunner{
-		Queue:             q,
-		Store:             store,
-		Loop:              loop,
-		AnthropicAPIKey:   apiKey,
-		AnthropicEndpoint: endpoint,
-		RelayURL:          relayURL,
-		DefaultModel:      defaultModel,
-		ProvidersStore:    providersStore,
-		KeyResolver:       keyResolver,
-		Logger:            logger,
-		inflight:          map[uuid.UUID]context.CancelCauseFunc{},
-		cancelStartedAt:   map[uuid.UUID]time.Time{},
+		Queue:           q,
+		Store:           store,
+		Loop:            loop,
+		RelayURL:        relayURL,
+		DefaultModel:    defaultModel,
+		DefaultModels:   defaultModels,
+		Logger:          logger,
+		inflight:        map[uuid.UUID]context.CancelCauseFunc{},
+		cancelStartedAt: map[uuid.UUID]time.Time{},
 	}
 }
 
-// resolveCreds 按 payload 决定本次 turn 用哪对 (apiKey, endpoint, useBearer)。
-// 优先级见 NewChatRunner 文档:BYOK > model-relay PassThrough > legacy direct。
+// resolveCreds 决定本次 turn 的 (apiKey, endpoint, useBearer)。chat 去
+// env 化后只剩一条路:model-relay PassThrough —— user JWT 当 Bearer 透传,
+// RelayURL 当 endpoint。useBearer 恒 true,让 biumindkit 用
+// `Authorization: Bearer` header(而不是 x-api-key),relay 的
+// authMiddleware 才认;BYOK 由 relay 侧按 identity protocol 统一接住。
 //
-// useBearer 决定 biumindkit 用哪种 HTTP auth header:
-//   - true  → `Authorization: Bearer <apiKey>` (model-relay PassThrough)
-//   - false → `x-api-key: <apiKey>`            (Anthropic 原生 / BYOK 直连)
-//
-// 这条信号必须从 resolveCreds 出来 — 上层 SingleTurnInput.UseRelayAuth 透传
-// 给 biumindkit 决定 header 形态;不然 PassThrough 用 x-api-key 写到 header
-// 上,model-relay authMiddleware 看不到 Bearer 直接 401 "missing bearer"。
-func (cr *ChatRunner) resolveCreds(
-	ctx context.Context,
-	userID uuid.UUID,
-	providerID, userBearer string,
-) (apiKey, endpoint string, useBearer bool) {
-	// 1. BYOK: provider 命中且配置完整。BYOK key 是 Anthropic 直连风格
-	//    (sk-ant-...),用 x-api-key header 跟原生 Anthropic API 直连。
-	r := ResolveBYOKCreds(ctx, cr.ProvidersStore, cr.KeyResolver, userID, providerID, cr.Logger)
-	if r.UseBYOK {
-		apiKey = r.APIKey
-		endpoint = r.BaseURL
-		if endpoint == "" {
-			endpoint = cr.RelayURL
-			if endpoint == "" {
-				endpoint = cr.AnthropicEndpoint
-			}
+// ok=false(RelayURL 空 / userBearer 空)时调用方 finalize failed
+// (missing_bearer),不发 LLM 请求。
+func (cr *ChatRunner) resolveCreds(userBearer string) (apiKey, endpoint string, useBearer, ok bool) {
+	if cr.RelayURL == "" || userBearer == "" {
+		return "", "", false, false
+	}
+	return userBearer, cr.RelayURL, true, true
+}
+
+// defaultChatModel 解析 client 没传 thread.model(显示 "BiuMind 默认")
+// 时的 fallback model。兜底链:relay default-chat (admin 在 models 表
+// 标 is_default_chat) > DefaultModel (env 覆盖) > claude-sonnet-4-6。
+// relay 不可达 / 未配时 DefaultModels 返 "",自然落到下一级。
+func (cr *ChatRunner) defaultChatModel(ctx context.Context) string {
+	if cr.DefaultModels != nil {
+		if m := cr.DefaultModels.DefaultChatModel(ctx); m != "" {
+			return m
 		}
-		return apiKey, endpoint, false // BYOK = anthropic 原生 x-api-key
 	}
-	// 2. PassThrough: 透传 user JWT 到 model-relay。生产路径,bearer auth。
-	if cr.RelayURL != "" && userBearer != "" {
-		return userBearer, cr.RelayURL, true
-	}
-	// 3. Legacy direct: 老路径,绕过 model-relay 直连内网网关 / api.anthropic.com。
-	//    保留老语义 (x-api-key) — 老 deployments 里 your-llm-gateway.example.com
-	//    那种 LiteLLM gateway 通常 x-api-key + Bearer 都能 — 不主动改 header。
-	if cr.RelayURL != "" && userBearer == "" {
-		cr.Logger.Warn("chat runner: empty user bearer with RelayURL set; "+
-			"falling back to legacy direct creds",
-			"user_id", userID, "provider_id", providerID)
-	}
-	return cr.AnthropicAPIKey, cr.AnthropicEndpoint, false
+	return firstNonEmptyChatStr(cr.DefaultModel, "claude-sonnet-4-6")
 }
 
 // InterruptSession 触发某 sessionID 的 chat-mode session 立即停。
@@ -273,11 +226,9 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 			"brain ChatRunner has no chat.AgentLoop wired (chat mode unavailable)")
 		return
 	}
-	// 注意：凭证判空不在这里做。AnthropicAPIKey 只是 legacy 直连 fallback，
-	// BYOK / model-relay PassThrough 都不需要它 —— 提前判空会把生产推荐的
-	// PassThrough 路径误杀（实测：新部署未配 AGENT_PLANE_ANTHROPIC_API_KEY
-	// 时 session 创建后毫秒级 finalize failed，客户端 WS 全部 409）。
-	// 判空在 resolveCreds 之后（见下）。
+	// 注意：凭证判空不在这里做。RelayURL / UserBearer 的判空在
+	// resolveCreds 里(见下) —— 提前判空曾把生产 PassThrough 路径误杀
+	// (Phase A ea4cd46 修复的 missing_api_key 事故)。
 
 	// 给客户端打开 WS 留窗口期 —— createChatSession 写完 row 立刻 spawn
 	// 这个 goroutine，但 HTTP response 还没回到 client、client 还没 dial
@@ -304,15 +255,14 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 			"session_id", sessionID, "err", err)
 	}
 
-	// 按 payload.ProviderID + UserBearer 解析 (apiKey, endpoint, useBearer):
-	// BYOK > model-relay PassThrough > legacy direct。详见 resolveCreds。
-	apiKey, endpoint, useBearer := cr.resolveCreds(
-		ctx, payload.UserID, payload.ProviderID, payload.UserBearer,
-	)
-	if apiKey == "" {
-		cr.publishErrorAndFinalize(ctx, sess, "missing_api_key",
-			"no LLM credentials resolved (BYOK miss, model-relay passthrough "+
-				"unavailable, AGENT_PLANE_ANTHROPIC_API_KEY unset)")
+	// 凭证解析(chat 去 env 化):一律 model-relay PassThrough —— 透传
+	// user JWT 做 Bearer,BYOK 由 relay 侧接住。RelayURL 空或 bearer 空
+	// → 立即 finalize failed (missing_bearer),客户端 WS 收 error 帧。
+	apiKey, endpoint, useBearer, ok := cr.resolveCreds(payload.UserBearer)
+	if !ok {
+		cr.publishErrorAndFinalize(ctx, sess, "missing_bearer",
+			"chat mode requires model-relay PassThrough "+
+				"(MODEL_RELAY_URL unset or user bearer missing)")
 		return
 	}
 
@@ -345,11 +295,18 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 		}
 	}
 
+	// Model 兜底链:client 传的 thread.model > relay default-chat >
+	// AGENT_PLANE_DEFAULT_CHAT_MODEL env > claude-sonnet-4-6。
+	model := payload.Model
+	if model == "" {
+		model = cr.defaultChatModel(ctx)
+	}
+
 	input := chatpkg.SingleTurnInput{
 		AnthropicAPIKey:   apiKey,
 		AnthropicEndpoint: endpoint,
 		UseRelayAuth:      useBearer,
-		Model:             firstNonEmptyChatStr(payload.Model, cr.DefaultModel, "claude-sonnet-4-6"),
+		Model:             model,
 		System:            payload.SystemPrompt,
 		Prompt:            payload.Prompt,
 		History:           history,

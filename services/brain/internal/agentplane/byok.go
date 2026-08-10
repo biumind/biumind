@@ -1,7 +1,7 @@
-// BYOK provider resolution shared between agent_plane router (agent/task
-// modes — pre-resolve at enqueue time, stuff into WorkPayload for daemon)
-// and chat runner (chat mode — resolve at LLM-call time, override
-// biumindkit creds in-process).
+// BYOK provider resolution — 决策表:给定 (userID, providerID) 判断要不要
+// 走 BYOK,并取回 (APIKey, BaseURL)。历史上由 agent_plane router
+// (agent/task 投递前预解析) 与 chat runner (chat 模式进程内直连) 共用;
+// 两条链都已下线(见下),当前仅测试引用。
 //
 // 单一决策表(避免 chat / agent / task 三处各走各的):
 //
@@ -19,8 +19,10 @@
 //
 // P4: agent/task 投递链 (sealBYOK / EncBYOK / WorkPayload.BYOKKey) 已删 ——
 // daemon 改用 WorkPayload.UserBearer (委托 user JWT) 打 model-relay, relay
-// 按 claims.UserID 原生解析 BYOK。本函数现仅 chat 路径 (chat_runner) 用:
-// brain 进程内解析 BYOK key + endpoint 直连上游。
+// 按 claims.UserID 原生解析 BYOK。chat 路径的进程内 BYOK 直连也在 chat 去
+// env 化时移除(chat 一律 PassThrough, BYOK 由 relay 按 identity protocol
+// 选 adaptor 统一接住)。本函数 + Server.KeyResolver 暂保留,当前无生产
+// 调用方。
 //
 // 任何错误都不抛(只 log warn),让上层用平台兜底。
 
@@ -48,6 +50,13 @@ type BYOKResult struct {
 // (Get 签名一致), 测试用 fake 注入. nil → ResolveBYOKCreds 不走 BYOK.
 type BYOKKeyResolver interface {
 	Get(ctx context.Context, userID uuid.UUID, provider string) (*providerspkg.IdentityBYOKKey, error)
+}
+
+// ProviderResolver 是 BYOK 决策对 providers store 的最小依赖,只要能按
+// (userID, providerID slug) 返回 *Provider 即可。生产实现是
+// *providerspkg.Store(它的 GetByProviderID 已经匹配此签名)。
+type ProviderResolver interface {
+	GetByProviderID(ctx context.Context, userID uuid.UUID, providerID string) (*providerspkg.Provider, error)
 }
 
 // ResolveBYOKCreds 是上面文档说的决策表。logger 可空(测试 / dev)。

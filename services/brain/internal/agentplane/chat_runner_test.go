@@ -35,8 +35,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fakeAnthropicChatUpstream 一个 SSE upstream 假装 Anthropic：assistant
+// fakeAnthropicChatUpstream 一个 SSE upstream 假装 model-relay 的 verbatim
+// Anthropic endpoint(`X-Stream-Format: anthropic` 形态)：assistant
 // 文本 "ok"，end_turn。chat runner 应该收 streaming_text 帧 + result_success。
+// 不校验 auth header —— PassThrough 下收到的是 `Authorization: Bearer
+// <user JWT>`,由 chatRunnerHarness 的真 router 链路保证。
 func fakeAnthropicChatUpstream(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -106,10 +109,9 @@ func chatRunnerHarness(t *testing.T) (
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	loop := chatpkg.NewAgentLoop(nil, tools.New())
 	srv.ChatRunner = NewChatRunner(q, store, loop,
-		"sk-fake", upstream.URL, "",
-		"",  // RelayURL — 单测保留 legacy direct 行为(走 upstream.URL)
-		nil, // providersStore — 测试不查 BYOK,走平台 fallback
-		nil, // keyResolver — P3: identity 未配,走平台 fallback
+		"",           // defaultModel — 单测走硬兜底
+		upstream.URL, // RelayURL — PassThrough:user JWT 当 Bearer 透传到 fake upstream
+		nil,          // defaultModels — 单测不查 relay default-chat
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	mux := http.NewServeMux()
@@ -221,22 +223,22 @@ func signUserToken(t *testing.T, uid uuid.UUID) string {
 	return tok
 }
 
-// TestChatRunner_NoAPIKeyEmitsErrorFrame ：没 API key 时 ChatRunner 应该
-// 推一帧 result_error 让 WS 客户端知道，而不是静默不响应。
-func TestChatRunner_NoAPIKeyEmitsErrorFrame(t *testing.T) {
-	// 简单单元测：直接构造 runner（无 Queue / Store / API key），调
-	// runSessionImpl 走 missing-key 早退分支，断言不 panic。
-	q := NewQueue(nil) // nil JS → 不能 publish
+// TestChatRunner_MissingBearerFinalizesFailed ：RelayURL / user bearer 空
+// 时 ChatRunner 应该走 missing_bearer 早退分支(publishErrorAndFinalize),
+// 而不是静默不响应或 panic。
+func TestChatRunner_MissingBearerFinalizesFailed(t *testing.T) {
+	// Queue 非 nil(nil JS → publish 静默失败) + Store nil(finalize 静默
+	// 跳过) + RelayURL 空 → resolveCreds ok=false → missing_bearer 分支。
+	// Smoke:runner 不 panic + 早退;具体 result_error 帧路径已在 EndToEnd
+	// 覆盖到(走 fake upstream 成功路径)。
+	q := NewQueue(nil)
 	if q.js != nil {
 		t.Fatal("expected nil js")
 	}
-	// 这个分支已经在 ChatRunner.runSessionImpl 顶上：Queue nil → log + return
-	// 没 publish 路径所以也无法验证 frame。Smoke：runner 不 panic + 早退。
-	r := NewChatRunner(nil, nil, nil, "", "", "", "", nil, nil,
+	loop := chatpkg.NewAgentLoop(nil, tools.New())
+	r := NewChatRunner(q, nil, loop, "", "", nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r.runSessionImpl(context.Background(),
 		&Session{SessionID: uuid.New()},
 		WorkPayload{Prompt: "hi"})
-	// 没 panic 就算通过；具体 result_error 帧路径已经在 EndToEnd 覆盖到（
-	// 走 fake upstream 成功路径），missing-key 路径作为防御性 smoke 即可。
 }

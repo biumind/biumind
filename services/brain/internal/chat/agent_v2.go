@@ -8,18 +8,18 @@
 //	2. 把 brain.tools 的 4 个 cloud 工具适配为 biumindkit.Tool[]
 //	3. 把 biumindkit Submit 流出的事件翻译成 BlockEmitter 调用
 //
-// **协议限制**：biumindkit 直接跟 Anthropic Messages API（或任何 verbatim
-// 转发它的代理）说话。当前 model-relay /v1/messages **不**是 verbatim
-// 转发 —— 它把 SSE 翻成 brain 自己的简化 dialect (event: delta /
-// tool_call_start / stop)。所以 RunV2 当前用法：
+// **协议**：biumindkit 直接说 Anthropic Messages SSE 协议。model-relay
+// 已支持 verbatim Anthropic SSE —— 请求带 `X-Stream-Format: anthropic`
+// (biumindkit 的 relay engine 会自动加) 时,relay 把 unified frame 翻成
+// Anthropic 原生 SSE 输出(见 model-relay/internal/api/anthropic_stream.go)。
+// 所以 RunV2 的生产路径:
 //
-//   - **BYOK Anthropic** —— 直接拿用户的 sk-* 打 api.anthropic.com
-//   - **未来的 model-relay verbatim 模式** —— 加一个 `Accept:
-//     application/x-anthropic-stream` content-negotiation 让 model-relay
-//     原样转发 Anthropic SSE。S4-3 不做，留 v2
+//   - **model-relay PassThrough** —— user JWT 做 Bearer 透传
+//     (UseRelayAuth=true),relay 做 channel 路由 + 用户级配额;BYOK 由
+//     relay 侧按 identity 的 protocol 选 adaptor 统一接住
 //
-// S4-5 router 把 BYOK chat thread 走 RunV2；shared-pool chat thread 继续
-// 走 legacy Run 直到 model-relay verbatim 模式落地。
+// chat 去 env 化后,ChatRunner 一律走这条路;进程内 BYOK 直连与 legacy
+// env 直连已删除。
 
 package chat
 
@@ -43,9 +43,9 @@ type AgentRunInputV2 struct {
 	// Anthropic 直连凭证。ApiKey 必填；Endpoint 空时走 api.anthropic.com 默认。
 	AnthropicAPIKey   string
 	AnthropicEndpoint string
-	// UseRelayAuth 让 biumindkit 当 ApiKey 是 model-relay Bearer token，
-	// 走 verbatim 转发的 model-relay endpoint（未来支持）。当前 model-relay
-	// 不支持 verbatim → 设为 true 但 endpoint 还是 model-relay 会失败。
+	// UseRelayAuth 让 biumindkit 把 ApiKey 当 model-relay Bearer token
+	// (`Authorization: Bearer` + `X-Stream-Format: anthropic`),打
+	// verbatim Anthropic SSE 的 model-relay endpoint。
 	UseRelayAuth bool
 
 	Model         string

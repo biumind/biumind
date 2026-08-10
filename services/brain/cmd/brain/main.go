@@ -194,18 +194,11 @@ type Config struct {
 	// message is PATCH'd back).
 	RelayURL string `env:"MODEL_RELAY_URL" default:""`
 
-	// AgentPlaneAnthropicAPIKey — chat 模式 ChatRunner 的 legacy 直连
-	// fallback key（绕过 model-relay，直连 api.anthropic.com）。凭证优先级
-	// 实际是 BYOK > model-relay PassThrough > 这个 legacy key，所以生产
-	// 走 PassThrough 时可以不配；三条都空时 session 会在 resolveCreds 后
-	// finalize failed（missing_api_key），客户端 WS 收到 error 帧。
-	AgentPlaneAnthropicAPIKey   string `env:"AGENT_PLANE_ANTHROPIC_API_KEY"   default:""`
-	AgentPlaneAnthropicEndpoint string `env:"AGENT_PLANE_ANTHROPIC_ENDPOINT"  default:""`
 	// AgentPlaneDefaultChatModel — client 没传 thread.model(显示
-	// "BiuMind 默认")时 chat-mode runner 的 fallback model id。
-	// 空 → 兜底到 claude-sonnet-4-6 保持老行为。运维应该把它改成
-	// model-relay 上 active 的 model id,避免 admin 关掉 claude-sonnet-4-6
-	// 后所有"BiuMind 默认"的 thread 全部 502 credential_resolve_failed。
+	// "BiuMind 默认")时 chat-mode runner 的 env 覆盖。兜底链:
+	// relay default-chat (models.is_default_chat) > 本 env >
+	// claude-sonnet-4-6 硬兜底。运维用它强制切到 model-relay 上
+	// active 的 model id,避免 admin 关掉默认模型后 chat 全废。
 	AgentPlaneDefaultChatModel string `env:"AGENT_PLANE_DEFAULT_CHAT_MODEL" default:""`
 	// Stale window for cleanup of orphan streaming messages (server
 	// crash mid-stream). Default 5 min.
@@ -1126,27 +1119,29 @@ func run() error {
 	agentPlaneSrv.Transcript = agentPlaneTranscript
 	agentPlaneQueue.SetObserver(agentPlaneTranscript)
 
-	// S4-5/6/7: chat-mode in-process runner —— biumindkit 直连 Anthropic
-	// + 推 SDK Protocol 帧到 .out subject。NATS_URL 为空时 runner 不挂
-	// （无 NATS 无法推帧，保持旧 dev 行为）；配上 NATS 时 queue 的 JS 由
-	// reconciler 后补，readiness 就绪前创建的 chat session 推帧会失败 —
-	// 跟 broker 短暂抖动同语义。生产配 AGENT_PLANE_ANTHROPIC_API_KEY 才能
-	// 真跑 LLM。
+	// S4-5/6/7: chat-mode in-process runner —— 经 model-relay PassThrough
+	// 打 LLM + 推 SDK Protocol 帧到 .out subject。NATS_URL 为空时 runner
+	// 不挂（无 NATS 无法推帧，保持旧 dev 行为）；配上 NATS 时 queue 的
+	// JS 由 reconciler 后补，readiness 就绪前创建的 chat session 推帧会
+	// 失败 — 跟 broker 短暂抖动同语义。生产需配 MODEL_RELAY_URL,
+	// 否则 chat session 创建后立即 finalize failed (missing_bearer)。
 	if cfg.NatsURL != "" {
 		// chat.AgentLoop 是 chat 模式的真正内核 —— RunSingleTurn 跑
-		// biumindkit + tool catalog。HTTPSender 传 nil 因为新 WS 路径
-		// 不走 model-relay（直连 Anthropic）。
+		// biumindkit + tool catalog。HTTPSender 传 nil —— 那是 legacy
+		// /v1/threads/:id/send SSE 路径的依赖,WS 路径不用。
 		chatLoop := chatpkg.NewAgentLoop(nil, toolReg)
 		// Q1: chat-mode tool whitelist (default-deny). See tools/chatmode.go.
 		chatLoop.ChatToolAllowlist = toolspkg.DefaultChatToolAllowlist
+		// 默认模型真相源在 relay (models.is_default_chat) —— 启动异步
+		// 预热缓存,不阻塞 boot;relay 不可达时按负缓存退避逐 turn 重试。
+		chatDefaultModels := agentplanepkg.NewDefaultModelResolver(
+			cfg.RelayURL, cfg.IdentityInternalToken, logger)
+		go chatDefaultModels.Warm(ctx)
 		chatRunner := agentplanepkg.NewChatRunner(
 			agentPlaneQueue, agentPlaneStore, chatLoop,
-			cfg.AgentPlaneAnthropicAPIKey,
-			cfg.AgentPlaneAnthropicEndpoint,
 			cfg.AgentPlaneDefaultChatModel,
 			cfg.RelayURL, // PassThrough 目标 — 跟 chat send 同源
-			providersStore,
-			identityBYOK, // P3: BYOK key 从 identity 现取 (brain 不存 key)
+			chatDefaultModels,
 			logger,
 		)
 		agentPlaneSrv.ChatRunner = chatRunner
@@ -1157,32 +1152,15 @@ func run() error {
 		// 让 ingress 在收到 control_cancel_request 时优先尝试进程内 chat
 		// 打断;命中即结束,不再走 environment control 队列。
 		agentPlaneIngress.SetChatInterrupt(chatRunner.InterruptSession)
-		// 凭证选择路径:
-		//   primary    — RelayURL + 透传 user JWT (生产推荐, model-relay
-		//                做 channel 路由 + 用户级配额)
-		//   legacy     — AGENT_PLANE_ANTHROPIC_* env 直连 (旧路径,空时不可用)
-		//   都为空     — chat 模式没法跑 LLM, session 创建后立即 finalize 失败
-		switch {
-		case cfg.RelayURL != "":
+		// 凭证路径(chat 去 env 化):一律 model-relay PassThrough ——
+		// 透传 user JWT,relay 做 channel 路由 + 用户级配额 + BYOK 统一。
+		if cfg.RelayURL != "" {
 			logger.Info("agentplane chat runner: PassThrough enabled",
-				"primary", "model-relay+user-jwt",
 				"relay_url", cfg.RelayURL,
-				"legacy_fallback", cfg.AgentPlaneAnthropicEndpoint != "",
 				"cloud_tools", toolReg.AvailableNames(toolspkg.ExecutionCloud))
-		case cfg.AgentPlaneAnthropicAPIKey != "":
-			logger.Info("agentplane chat runner: legacy direct mode "+
-				"(MODEL_RELAY_URL unset)",
-				"endpoint", func() string {
-					if cfg.AgentPlaneAnthropicEndpoint != "" {
-						return cfg.AgentPlaneAnthropicEndpoint
-					}
-					return "https://api.anthropic.com"
-				}(),
-				"cloud_tools", toolReg.AvailableNames(toolspkg.ExecutionCloud))
-		default:
-			logger.Warn("agentplane chat runner: NO credentials configured " +
-				"(neither MODEL_RELAY_URL nor AGENT_PLANE_ANTHROPIC_API_KEY); " +
-				"chat sessions will fail")
+		} else {
+			logger.Warn("agentplane chat runner: MODEL_RELAY_URL unset; " +
+				"chat sessions will finalize failed (missing_bearer)")
 		}
 	}
 	agentPlaneSrv.Mount(mux)
