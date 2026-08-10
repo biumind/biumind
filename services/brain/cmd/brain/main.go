@@ -394,21 +394,33 @@ func run() error {
 		return fmt.Errorf("nats: %w", err)
 	}
 	defer natsBus.Close()
+
+	// Agent-plane readiness reconciler —— 后台驱动
+	// disconnected → connected → streams_ready 状态机（EnsureWork /
+	// Control / SessionStream 幂等重试，带退避）。路由无条件挂载、惰性
+	// 消费 readiness,根治「启动时刻 NATS 未就绪 → WS / worker poll 路由
+	// 终身不挂载 → daemon 无限重注册 / 客户端无限转圈」的启动竞态（实测
+	// 踩过，见 readiness.go 头注释）。queue 先以 nil JS 建好,reconciler
+	// 就绪后经 SetJS 灌入句柄;消费方经 readiness.Queue()/JetStream()
+	// 取当前句柄。
+	agentPlaneQueue := agentplanepkg.NewQueue(nil)
+	agentPlaneReadiness := agentplanepkg.NewReadiness(natsBus, cfg.NatsURL != "", agentPlaneQueue, logger)
+	go agentPlaneReadiness.Run(ctx)
 	if cfg.NatsURL != "" {
-		// bus.Connect 用 RetryOnFailedConnect(true) —— NATS 尚未就绪时会立即
-		// 返回一个「未连接」的 bus（后台异步重连），不报错。下面 JetStream 扇出
-		// 与 agentplane worker queue 的初始化都以 natsBus.Connected() 为门槛,
-		// 若此刻握手还没完成会被「静默跳过」,且整个进程生命周期都不会再挂载
-		// （worker poll 路由缺失 → daemon poll 撞 404 → 无限重注册 → agent 模式
-		// 无限转圈无报错，实测踩过）。这里给初始连接一个有界等待消除启动竞态。
-		for i := 0; i < 50 && !natsBus.Connected(); i++ {
+		// bus.Connect 用 RetryOnFailedConnect(true) —— NATS 尚未就绪时立即
+		// 返回「未连接」的 bus（后台异步重连），不报错。这里给初始连接一个
+		// 有界等待让正常路径快速就绪、日志好看；5s 后仍未就绪也不阻塞启动
+		// —— reconciler 在后台继续，就绪后无需重启自愈，/readyz 报 pending。
+		for i := 0; i < 50 && !agentPlaneReadiness.Ready(); i++ {
 			time.Sleep(100 * time.Millisecond)
 		}
-		if natsBus.Connected() {
-			logger.Info("nats connected", "url", cfg.NatsURL, "env", cfg.Environment)
+		if agentPlaneReadiness.Ready() {
+			logger.Info("nats connected + agent-plane streams ready",
+				"url", cfg.NatsURL, "env", cfg.Environment)
 		} else {
-			logger.Warn("nats not connected after 5s wait; JetStream fanout + agent-plane worker queue will stay DISABLED until process restart",
-				"url", cfg.NatsURL)
+			logger.Warn("nats/agent-plane streams not ready after 5s wait; "+
+				"WS + worker-poll routes stay mounted (503 until ready) and self-heal in background; see /readyz",
+				"url", cfg.NatsURL, "state", agentPlaneReadiness.State())
 		}
 	}
 	busPub := publisher.NewBus(natsBus, cfg.Environment, logger)
@@ -474,8 +486,9 @@ func run() error {
 			"batch", cfg.OutboxPollerBatch)
 	}
 
-	// Graph auto-extractor — opt-in, requires a real bus.
-	if cfg.GraphAutoExtract && natsBus.Connected() {
+	// Graph auto-extractor — opt-in, requires a real bus. Connectivity 判
+	// 断消费 agent-plane readiness 的同一份快照（不另起 Connected() 逻辑）。
+	if cfg.GraphAutoExtract && agentPlaneReadiness.NATSConnected() {
 		gs := &graphsub.Subscriber{
 			Bus: natsBus, Env: cfg.Environment,
 			Store: graphstore.New(pool), Logger: logger,
@@ -713,10 +726,10 @@ func run() error {
 
 	// Wiki ingest worker → brain update subscriber. Listens on
 	// brain.wiki.ingest.update and applies running/page/done/failed/
-	// cancelled deltas. Only wired when NATS is connected — without a
-	// bus the worker can't reach us anyway, and the subscribe call
-	// would error.
-	if natsBus.Connected() {
+	// cancelled deltas. Only wired when NATS is connected（同 readiness
+	// 快照） —— without a bus the worker can't reach us anyway, and the
+	// subscribe call would error.
+	if agentPlaneReadiness.NATSConnected() {
 		ingestSub := &wikiingest.Subscriber{
 			Bus:    natsBus,
 			Env:    cfg.Environment,
@@ -736,6 +749,11 @@ func run() error {
 
 	mux := http.NewServeMux()
 	hz.Mount(mux)
+	// /readyz —— agent-plane readiness 快照（nats / jetstream_streams /
+	// queue / ingress），未全就绪 503。healthz 包也挂了无方法限定的
+	// /readyz（非 GET 仍走它）；这里用 GET 限定 pattern 覆盖 GET ——
+	// ServeMux 方法限定 pattern 更具体，注册不冲突。
+	mux.HandleFunc("GET /readyz", agentPlaneReadiness.HandleReadyz)
 	mux.Handle("/metrics", metrics.Handler())
 	apiSrv.Mount(mux)
 	// Notes 域（N0 骨架，docs/BiuMind-Notes-Design-Draft.md §6.1）：
@@ -1085,62 +1103,36 @@ func run() error {
 	// 上 Signer 的密钥；不能复用全局 `verifier`（IDENTITY_JWKS_URL 配上后
 	// 它走 RS256/JWKS，对 HS256 直接 "no shared secret configured" 401）。
 	agentPlaneSessionVerifier := bauth.NewVerifier(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience)
-	// queue / ingress 共用 brain 的 NATS bus；JetStream 不可用时各自 nil
-	// （agent/task mode 跳 EnqueueWork、ingress 路由不挂，仍可跑 chat / 单测）。
-	var (
-		agentPlaneQueue   *agentplanepkg.Queue
-		agentPlaneIngress *agentplanepkg.Ingress
-	)
-	if natsBus.Connected() {
-		js, jsErr := natsBus.JetStream()
-		if jsErr != nil {
-			logger.Warn("agentplane: jetstream init failed; worker queue disabled", "err", jsErr)
-		}
-		if jsErr == nil {
-			q := agentplanepkg.NewQueue(js)
-			if err := q.EnsureWorkStream(ctx); err != nil {
-				logger.Warn("agentplane: ensure work stream failed", "err", err)
-			} else {
-				agentPlaneQueue = q
-			}
-			// Control 流(F5/F10/F13 之后的 cancel 通道)。失败仅 log,
-			// cancel 路径退化为 best-effort —— ingress 收到 cancel 仍
-			// 会 publish 到 .in,只是 worker 端拉不到独立的 control。
-			if err := q.EnsureControlStream(ctx); err != nil {
-				logger.Warn("agentplane: ensure control stream failed", "err", err)
-			}
-			if err := q.EnsureSessionStream(ctx); err != nil {
-				logger.Warn("agentplane: ensure session stream failed", "err", err)
-			} else {
-				agentPlaneIngress = agentplanepkg.NewIngress(js, agentPlaneStore, agentPlaneSessionVerifier, logger)
-				// Wire control queue + chat-mode interrupt 回调,让 cancel
-				// 帧能反向投到 daemon 或进程内 chat session。
-				agentPlaneIngress.SetQueue(q)
-			}
-		}
-	}
-	// 配了 NATS 却没拿到 queue —— agent / task 模式会整段失效(worker poll 路由
-	// 不挂、work 不入队)。绝不能再静默:大声报错,让运维一眼看到根因。
-	if cfg.NatsURL != "" && agentPlaneQueue == nil {
-		logger.Error("agentplane worker queue is nil despite NATS_URL set — agent/task mode WILL hang (worker poll routes unmounted, work never enqueued); check NATS readiness at startup")
-	}
+	// queue / ingress 都**无条件**建：queue 在 NATS 段已建好（nil JS），
+	// readiness reconciler 就绪后经 SetJS 灌入句柄；ingress 每次请求经
+	// jsFn 取当前句柄，nil → 503 no_jetstream。NATS_URL 为空时句柄永远
+	// nil → 恒定 503（路由恒挂，语义正确，不再出现 404 无限转圈）。
+	// EnsureWork/Control/SessionStream 已全部下沉到 reconciler（幂等重试）。
+	agentPlaneIngress := agentplanepkg.NewIngress(nil, agentPlaneStore, agentPlaneSessionVerifier, logger)
+	agentPlaneIngress.SetJSFunc(agentPlaneReadiness.JetStream)
+	// Wire control queue + chat-mode interrupt 回调,让 cancel 帧能反向投
+	// 到 daemon 或进程内 chat session。
+	agentPlaneIngress.SetQueue(agentPlaneQueue)
 	agentPlaneSrv := agentplanepkg.NewServer(agentPlaneStore, verifier,
 		agentPlaneSigner, agentPlaneQueue, agentPlaneIngress, logger)
+	agentPlaneSrv.Readiness = agentPlaneReadiness
 	// §8.2 翻案:brain 作为对话真相源 —— WS chat / agent 路径把对话轮落库到
 	// chat.messages 并服务端组装多轮历史。chatStore 复用上面 v1 chat 同一实例
 	// (同一 pool)。TranscriptRecorder 挂到 Queue observer,统一累积 assistant
-	// 轮(chat+agent 帧都过 PublishSessionFrame)。
+	// 轮(chat+agent 帧都过 PublishSessionFrame)。queue 恒非 nil,observer
+	// 在 publish 成功后才触发,JS 未就绪时无副作用。
 	agentPlaneSrv.ChatStore = chatStore
-	if agentPlaneQueue != nil {
-		agentPlaneTranscript := agentplanepkg.NewTranscriptRecorder(chatStore, logger)
-		agentPlaneSrv.Transcript = agentPlaneTranscript
-		agentPlaneQueue.SetObserver(agentPlaneTranscript)
-	}
+	agentPlaneTranscript := agentplanepkg.NewTranscriptRecorder(chatStore, logger)
+	agentPlaneSrv.Transcript = agentPlaneTranscript
+	agentPlaneQueue.SetObserver(agentPlaneTranscript)
 
 	// S4-5/6/7: chat-mode in-process runner —— biumindkit 直连 Anthropic
-	// + 推 SDK Protocol 帧到 .out subject。Queue 不可用时（无 NATS）
-	// runner 不挂。生产配 AGENT_PLANE_ANTHROPIC_API_KEY 才能真跑 LLM。
-	if agentPlaneQueue != nil {
+	// + 推 SDK Protocol 帧到 .out subject。NATS_URL 为空时 runner 不挂
+	// （无 NATS 无法推帧，保持旧 dev 行为）；配上 NATS 时 queue 的 JS 由
+	// reconciler 后补，readiness 就绪前创建的 chat session 推帧会失败 —
+	// 跟 broker 短暂抖动同语义。生产配 AGENT_PLANE_ANTHROPIC_API_KEY 才能
+	// 真跑 LLM。
+	if cfg.NatsURL != "" {
 		// chat.AgentLoop 是 chat 模式的真正内核 —— RunSingleTurn 跑
 		// biumindkit + tool catalog。HTTPSender 传 nil 因为新 WS 路径
 		// 不走 model-relay（直连 Anthropic）。
@@ -1164,9 +1156,7 @@ func run() error {
 		agentPlaneSrv.KeyResolver = identityBYOK
 		// 让 ingress 在收到 control_cancel_request 时优先尝试进程内 chat
 		// 打断;命中即结束,不再走 environment control 队列。
-		if agentPlaneIngress != nil {
-			agentPlaneIngress.SetChatInterrupt(chatRunner.InterruptSession)
-		}
+		agentPlaneIngress.SetChatInterrupt(chatRunner.InterruptSession)
 		// 凭证选择路径:
 		//   primary    — RelayURL + 透传 user JWT (生产推荐, model-relay
 		//                做 channel 路由 + 用户级配额)

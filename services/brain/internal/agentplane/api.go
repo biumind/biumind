@@ -40,7 +40,8 @@ type Server struct {
 	// 路径仍写 session 行 + 回 session_token，但不实际派发任务（dev / 测试）。
 	// 生产部署 queue 必填。
 	Queue *Queue
-	// Ingress 用于 WS session stream（S3-5）；nil 时该路由不挂（dev 友好）。
+	// Ingress 用于 WS session stream（S3-5）。路由无条件挂载 —— 未注入
+	// 或 JetStream 未就绪时该路径返 503 no_jetstream（不再落 404）。
 	Ingress *Ingress
 	// ChatRunner 在 mode=chat 创建 session 时进程内驱动 biumindkit。nil 时
 	// chat 创建仍写 session 行 + 回 token 但不实际跑 LLM（dev 默认）。
@@ -57,7 +58,11 @@ type Server struct {
 	ChatStore *chatpkg.Store
 	// Transcript 累积 assistant 文本并在 turn 终止时落 assistant 轮。可空。
 	Transcript *TranscriptRecorder
-	Logger     *slog.Logger
+	// Readiness 是 agent-plane 的 NATS/JetStream readiness 来源（生产由
+	// main.go 注入）。非 nil 时 queue() 以它为准；nil 时退回 Queue 字段
+	// （无 reconciler 的测试 / dev 直挂）。
+	Readiness *Readiness
+	Logger    *slog.Logger
 
 	// workerAcks 是 S3-8 worker poll 端点的 ack-token → fetched work 索引。
 	// MountWorkerRoutes 时按需 lazy 初始化。
@@ -85,9 +90,9 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST   /v1/agent/sessions/{id}/refresh-token", s.requireAuth(s.handleRefreshSessionToken))
 	// S3-6: CreateSession + mode 分流
 	s.MountSessionRoutes(mux)
-	// S3-5: WS session stream（Ingress nil 时跳过）
+	// S3-5: WS session stream（路由恒挂；JS 未就绪时 503 no_jetstream）
 	s.MountIngressRoutes(mux)
-	// S3-8: worker poll / ack / publish（Queue nil 时跳过）
+	// S3-8: worker poll / ack / publish（路由恒挂；queue 未就绪时 503）
 	s.MountWorkerRoutes(mux)
 	// R6.1: 设备配对 + device token 管理（D5）
 	s.MountDeviceRoutes(mux)
@@ -283,6 +288,17 @@ func (s *Server) handleRefreshSessionToken(w http.ResponseWriter, r *http.Reques
 }
 
 // ─── Auth + helpers ───────────────────────────────────────────
+
+// queue 返回当前可用的 work queue。挂了 Readiness 时以 reconciler 状态为
+// 准（未就绪 → nil）；没挂（测试 / dev 直挂 Queue 字段）退回静态字段。
+// nil 的语义：queue 不可用 —— worker 端点返 503 no_jetstream，session
+// 创建路径跳过 enqueue（dev 兼容行为）。
+func (s *Server) queue() *Queue {
+	if s.Readiness != nil {
+		return s.Readiness.Queue()
+	}
+	return s.Queue
+}
 
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

@@ -500,12 +500,13 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request, uid 
 		return
 	}
 
-	// 在线分支：直接 enqueue 到 environment 的 subject。Queue 可空（dev / 测试
-	// 无 NATS）—— 跳过仍返回 session token，但 worker 不会收到任务。
-	if s.Queue != nil {
+	// 在线分支：直接 enqueue 到 environment 的 subject。queue 可空（dev /
+	// 测试无 NATS，或 readiness 尚未就绪）—— 跳过仍返回 session token，
+	// 但 worker 不会收到任务。
+	if q := s.queue(); q != nil {
 		payload := s.buildAgentWorkPayload(r.Context(), env, spec)
 		// workID 用 session_id —— 一个 session 第一条 work 的天然唯一 ID。
-		if err := s.Queue.EnqueueWork(r.Context(), env.EnvironmentID, sess.SessionID.String(), payload); err != nil {
+		if err := q.EnqueueWork(r.Context(), env.EnvironmentID, sess.SessionID.String(), payload); err != nil {
 			s.serverErr(w, "enqueue agent work", err)
 			return
 		}
@@ -572,7 +573,8 @@ func (s *Server) buildAgentWorkPayload(ctx context.Context, env *Environment, sp
 // environment。handleRegister 在 RegisterEnvironment 成功后调（env 有 device_id）。
 // 单条失败不影响其他；enqueue 成功才翻转 session + 删 pending（失败保留下次重试）。
 func (s *Server) dispatchPendingForDevice(ctx context.Context, env *Environment) {
-	if s.Queue == nil || env.DeviceID == nil {
+	q := s.queue()
+	if q == nil || env.DeviceID == nil {
 		return
 	}
 	pending, err := s.Store.ListPendingWorkByDevice(ctx, *env.DeviceID)
@@ -587,7 +589,7 @@ func (s *Server) dispatchPendingForDevice(ctx context.Context, env *Environment)
 			SystemPrompt: pw.SystemPrompt, ThreadID: pw.ThreadID, Workdir: pw.Workdir,
 			RuntimeEnvMode: pw.RuntimeEnvMode, Backend: pw.Backend,
 		})
-		if err := s.Queue.EnqueueWork(ctx, env.EnvironmentID, pw.SessionID.String(), payload); err != nil {
+		if err := q.EnqueueWork(ctx, env.EnvironmentID, pw.SessionID.String(), payload); err != nil {
 			s.Logger.Error("agentplane: redispatch pending work", "session_id", pw.SessionID, "err", err)
 			continue // 保留 pending 行，下次重连重试
 		}
@@ -635,7 +637,7 @@ func (s *Server) createTaskSession(w http.ResponseWriter, r *http.Request, uid u
 		return
 	}
 
-	if s.Queue != nil {
+	if q := s.queue(); q != nil {
 		payload := WorkPayload{
 			SessionID:      sess.SessionID,
 			UserID:         uid,
@@ -651,7 +653,7 @@ func (s *Server) createTaskSession(w http.ResponseWriter, r *http.Request, uid u
 		}
 		// R6.3：task pool 的 runtime environment 通常无 device → no-op；保持对称。
 		s.stampToolPolicy(r.Context(), env, &payload)
-		if err := s.Queue.EnqueueWork(r.Context(), env.EnvironmentID, sess.SessionID.String(), payload); err != nil {
+		if err := q.EnqueueWork(r.Context(), env.EnvironmentID, sess.SessionID.String(), payload); err != nil {
 			s.serverErr(w, "enqueue task work", err)
 			return
 		}

@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,34 +81,97 @@ func ingressHarness(t *testing.T) (*httptest.Server, *bauth.Signer, *Store, *pgx
 	return ts, signer, store, pool
 }
 
-func TestIngress_NotMountedWhenNil(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL unset")
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	store := NewStore(pool)
-	verifier := bauth.NewVerifier(testJWTSecret, testJWTIssuer, testJWTAudience)
-	srv := NewServer(store, verifier, nil, nil, nil, // ingress nil
+// 路由无条件挂载（启动竞态根治）：JS 未就绪时不再是 404，而是 503
+// no_jetstream —— 客户端能区分「路由不存在」跟「broker 还没就绪」。
+// 无需 DB：js 检查在 store 查询之前。
+func TestIngress_Mounted503WhenJSNil(t *testing.T) {
+	ingress := NewIngress(nil, nil, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := NewServer(nil, nil, nil, nil, ingress,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	mux := http.NewServeMux()
 	srv.Mount(mux)
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	wsURL := strings.Replace(ts.URL, "http://", "ws://", 1) +
-		"/v1/agent/sessions/" + uuid.New().String() + "/stream"
-	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err == nil {
-		t.Fatal("expected dial fail; ingress not mounted")
+	resp, err := http.Get(ts.URL + "/v1/agent/sessions/" + uuid.New().String() + "/stream")
+	if err != nil {
+		t.Fatalf("http: %v", err)
 	}
-	// 路由没注册 → 404
-	if resp == nil || resp.StatusCode != http.StatusNotFound {
-		t.Errorf("unmounted route should be 404, got %v", resp)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want 503", resp.StatusCode)
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	if err := jsonUnmarshal(raw, &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "no_jetstream" {
+		t.Errorf("code=%q want no_jetstream", body.Error.Code)
+	}
+}
+
+// Ingress 本身未注入（main.go 不该这么 wire）也挂固定 503，不留 404。
+func TestIngress_Mounted503WhenIngressNil(t *testing.T) {
+	srv := NewServer(nil, nil, nil, nil, nil, // ingress nil
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mux := http.NewServeMux()
+	srv.Mount(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/v1/agent/sessions/" + uuid.New().String() + "/stream")
+	if err != nil {
+		t.Fatalf("http: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d want 503 (route must stay mounted, never 404)", resp.StatusCode)
+	}
+}
+
+// JS 后补就绪 → 不重启进程即可通过 js 门：第一次请求 503，jsFn 灌入假
+// JS 后同一 ingress 实例直接越过 503（无 token → 401，证明已到 js 门之后）。
+func TestIngress_LateJSReadyNoRestart(t *testing.T) {
+	var jsSlot atomic.Value // bus.JetStream
+	ingress := NewIngress(nil, nil, nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ingress.SetJSFunc(func() bus.JetStream {
+		if v := jsSlot.Load(); v != nil {
+			return v.(bus.JetStream)
+		}
+		return nil
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/agent/sessions/{id}/stream", ingress.handleStream)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	url := ts.URL + "/v1/agent/sessions/" + uuid.New().String() + "/stream"
+
+	// 1) JS 未就绪 → 503 no_jetstream
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("http: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("pre-ready status=%d want 503", resp.StatusCode)
+	}
+
+	// 2) JS 后补就绪 → 同一进程越过 503（缺 session_token → 401）
+	jsSlot.Store(bus.JetStream(fakeIngressJS{}))
+	resp2, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("http: %v", err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("post-ready status=%d want 401 (js gate passed, token gate next)", resp2.StatusCode)
 	}
 }
 

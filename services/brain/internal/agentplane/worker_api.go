@@ -71,12 +71,13 @@ func (r *ackRegistry) take(token string) *FetchedWork {
 	return w
 }
 
-// MountWorkerRoutes 注册 worker 端点。Server.Mount 调它。Queue nil 时
-// 跳过（dev / NATS 不可用时）。
+// MountWorkerRoutes 注册 worker 端点。Server.Mount 调它。
+//
+// **无条件挂载** —— 历史事故：启动时 NATS 未就绪 → Queue 为 nil → poll
+// 路由不挂 → daemon poll 撞 404 → 无限重注册 → agent 模式无限转圈无报错。
+// 现在路由恒在：queue 未就绪时 handler 返 503 no_jetstream（daemon 的
+// long-poll 重试语义对 503 友好），readiness 就绪后不重启自愈。
 func (s *Server) MountWorkerRoutes(mux *http.ServeMux) {
-	if s.Queue == nil {
-		return
-	}
 	if s.workerAcks == nil {
 		s.workerAcks = newAckRegistry()
 	}
@@ -103,6 +104,12 @@ const pollWaitMax = 30 * time.Second
 //  4. 无消息（超时）→ 204 No Content
 func (s *Server) handleWorkPoll(w http.ResponseWriter, r *http.Request) {
 	uid := mustUserID(r)
+	q := s.queue()
+	if q == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_jetstream",
+			"worker queue unavailable; broker offline or not ready yet")
+		return
+	}
 	envID, err := uuid.Parse(r.PathValue("env_id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_env_id", err.Error())
@@ -123,7 +130,7 @@ func (s *Server) handleWorkPoll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	work, err := s.Queue.FetchWork(r.Context(), env.EnvironmentID, wait)
+	work, err := q.FetchWork(r.Context(), env.EnvironmentID, wait)
 	if err != nil {
 		s.serverErr(w, "fetch work", err)
 		return
@@ -161,6 +168,12 @@ func (s *Server) handleWorkNak(w http.ResponseWriter, r *http.Request) {
 // 就立刻 ack(broker 无 redeliver) 然后调 InterruptSession。
 func (s *Server) handleControlPoll(w http.ResponseWriter, r *http.Request) {
 	uid := mustUserID(r)
+	q := s.queue()
+	if q == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_jetstream",
+			"worker queue unavailable; broker offline or not ready yet")
+		return
+	}
 	envID, err := uuid.Parse(r.PathValue("env_id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_env_id", err.Error())
@@ -177,7 +190,7 @@ func (s *Server) handleControlPoll(w http.ResponseWriter, r *http.Request) {
 			wait = d
 		}
 	}
-	ctrl, err := s.Queue.FetchControl(r.Context(), env.EnvironmentID, wait)
+	ctrl, err := q.FetchControl(r.Context(), env.EnvironmentID, wait)
 	if err != nil {
 		s.serverErr(w, "fetch control", err)
 		return
@@ -239,6 +252,12 @@ func (s *Server) handleAckOrNak(w http.ResponseWriter, r *http.Request, isAck bo
 // 的 .out subject，让 ingress 转给客户端。
 func (s *Server) handlePublishFrame(w http.ResponseWriter, r *http.Request) {
 	uid := mustUserID(r)
+	q := s.queue()
+	if q == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_jetstream",
+			"worker queue unavailable; broker offline or not ready yet")
+		return
+	}
 	sessionID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_session_id", err.Error())
@@ -263,7 +282,7 @@ func (s *Server) handlePublishFrame(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "empty_body", "frame body required")
 		return
 	}
-	if err := s.Queue.PublishSessionFrame(r.Context(), sessionID, body); err != nil {
+	if err := q.PublishSessionFrame(r.Context(), sessionID, body); err != nil {
 		s.serverErr(w, "publish frame", err)
 		return
 	}

@@ -91,6 +91,10 @@ type FrameObserver interface {
 
 // Queue 是 brain 这边对 work queue 的入口。零依赖 store —— 它只对 NATS。
 type Queue struct {
+	// jsMu 保护 js —— readiness reconciler 在 broker 连上 + 流 ensured 后
+	// 经 SetJS 灌入句柄(可能是进程启动好几秒之后);灌入前所有方法返回
+	// "nil JetStream handle" 错误。
+	jsMu     sync.RWMutex
 	js       bus.JetStream
 	observer FrameObserver // 可空;SetObserver 注入 TranscriptRecorder
 
@@ -102,10 +106,26 @@ type Queue struct {
 	ctrlCons sync.Map // uuid.UUID -> jetstream.Consumer
 }
 
-// NewQueue 构造一个 Queue。js 通常来自 `bus.NewBus(...).JetStream()`。
-// 调用方负责 EnsureWorkStream 至少一次（推荐启动时）。
+// NewQueue 构造一个 Queue。js 通常来自 `bus.NewBus(...).JetStream()`；
+// 也可传 nil 之后由 readiness reconciler 经 SetJS 后补。EnsureWorkStream
+// 至少调一次（生产由 reconciler 负责，幂等）。
 func NewQueue(js bus.JetStream) *Queue {
 	return &Queue{js: js}
+}
+
+// SetJS 后补 / 替换 JetStream 句柄。readiness reconciler 在 streams_ready
+// 时调；nats.go 的 JetStream 句柄能跨断线重连存活,所以断线期不需要清。
+func (q *Queue) SetJS(js bus.JetStream) {
+	q.jsMu.Lock()
+	q.js = js
+	q.jsMu.Unlock()
+}
+
+// getJS 返回当前 JetStream 句柄（未 SetJS / NewQueue(nil) 时为 nil）。
+func (q *Queue) getJS() bus.JetStream {
+	q.jsMu.RLock()
+	defer q.jsMu.RUnlock()
+	return q.js
 }
 
 // SetObserver 注入帧观察者(TranscriptRecorder)。可空 → 退化为今天行为。
@@ -119,10 +139,11 @@ func (q *Queue) SetObserver(o FrameObserver) { q.observer = o }
 //     fanout / 重复读合法（多 client 看同 session）
 //   - MaxAge=1h —— 短期回放窗口；超过 fallback SessionDesynced
 func (q *Queue) EnsureSessionStream(ctx context.Context) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
-	return q.js.EnsureStream(ctx, bus.StreamSpec{
+	return js.EnsureStream(ctx, bus.StreamSpec{
 		Name:      SessionStreamName,
 		Subjects:  []string{SessionSubjectPrefix + ">"},
 		Retention: bus.RetentionLimits,
@@ -177,7 +198,7 @@ func (w *FetchedWork) Nak() error {
 // 多个 worker 实例（同 env_id）共享 durable —— work-queue 语义，每条消息
 // 投递给恰好一个 fetch 调用。
 func (q *Queue) FetchWork(ctx context.Context, envID uuid.UUID, wait time.Duration) (*FetchedWork, error) {
-	if q.js == nil {
+	if q.getJS() == nil {
 		return nil, errors.New("agentplane: nil JetStream handle")
 	}
 	if envID == uuid.Nil {
@@ -217,7 +238,11 @@ func (q *Queue) ensureWorkConsumer(envID uuid.UUID) (jetstream.Consumer, error) 
 	if v, ok := q.workCons.Load(envID); ok {
 		return v.(jetstream.Consumer), nil
 	}
-	rawJS := q.js.RawJetStream()
+	js := q.getJS()
+	if js == nil {
+		return nil, errors.New("agentplane: nil JetStream handle")
+	}
+	rawJS := js.RawJetStream()
 	if rawJS == nil {
 		return nil, errors.New("agentplane: raw JetStream unavailable")
 	}
@@ -247,7 +272,11 @@ func (q *Queue) ensureControlConsumer(envID uuid.UUID) (jetstream.Consumer, erro
 	if v, ok := q.ctrlCons.Load(envID); ok {
 		return v.(jetstream.Consumer), nil
 	}
-	rawJS := q.js.RawJetStream()
+	js := q.getJS()
+	if js == nil {
+		return nil, errors.New("agentplane: nil JetStream handle")
+	}
+	rawJS := js.RawJetStream()
 	if rawJS == nil {
 		return nil, errors.New("agentplane: raw JetStream unavailable")
 	}
@@ -273,10 +302,11 @@ func (q *Queue) ensureControlConsumer(envID uuid.UUID) (jetstream.Consumer, erro
 // PublishSessionFrame 把一帧 SDK Protocol JSON 发到 biu.session.<sid>.out。
 // worker 处理 work 时调用 —— ingress 那边订 .out 转推给 client。
 func (q *Queue) PublishSessionFrame(ctx context.Context, sessionID uuid.UUID, payload []byte) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
-	if err := q.js.Publish(ctx, SessionSubjectOut(sessionID.String()), json.RawMessage(payload)); err != nil {
+	if err := js.Publish(ctx, SessionSubjectOut(sessionID.String()), json.RawMessage(payload)); err != nil {
 		return err
 	}
 	// publish 成功后旁路通知 observer(累积 assistant 文本 / 终止落库)。
@@ -290,10 +320,11 @@ func (q *Queue) PublishSessionFrame(ctx context.Context, sessionID uuid.UUID, pa
 // EnsureWorkStream 创建/更新流。**必须**在第一次 EnqueueWork 之前调用，
 // 否则 publish 会因 stream 不存在失败。boot 时调一次即可，幂等。
 func (q *Queue) EnsureWorkStream(ctx context.Context) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
-	return q.js.EnsureStream(ctx, bus.StreamSpec{
+	return js.EnsureStream(ctx, bus.StreamSpec{
 		Name:      WorkStreamName,
 		Subjects:  []string{WorkSubjectPrefix + ">"},
 		Retention: bus.RetentionWorkQueue,
@@ -307,10 +338,11 @@ func (q *Queue) EnsureWorkStream(ctx context.Context) error {
 // EnsureControlStream 创建/更新 control 流。MaxAge 短：30s 没拉走的
 // cancel 已经没意义了（用户的耐心比这短）。
 func (q *Queue) EnsureControlStream(ctx context.Context) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
-	return q.js.EnsureStream(ctx, bus.StreamSpec{
+	return js.EnsureStream(ctx, bus.StreamSpec{
 		Name:      ControlStreamName,
 		Subjects:  []string{ControlSubjectPrefix + ">"},
 		Retention: bus.RetentionWorkQueue,
@@ -326,20 +358,21 @@ func (q *Queue) EnsureControlStream(ctx context.Context) error {
 // 不走 dedupe header —— cancel 的语义是「再投一次也没害」，调用方不
 // 需要 retry 协调。
 func (q *Queue) EnqueueControl(ctx context.Context, envID uuid.UUID, payload any) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
 	if envID == uuid.Nil {
 		return errors.New("agentplane: env_id required")
 	}
-	return q.js.Publish(ctx, ControlSubject(envID.String()), payload)
+	return js.Publish(ctx, ControlSubject(envID.String()), payload)
 }
 
 // FetchControl 是 worker control-poller 的拉取入口。跟 FetchWork 同样
 // 形状,但用独立的 durable consumer (`control-<env_id>`),AckWait 5s
 // (control 比 work 时效性更强,不该被慢 ack 占住)。
 func (q *Queue) FetchControl(ctx context.Context, envID uuid.UUID, wait time.Duration) (*FetchedWork, error) {
-	if q.js == nil {
+	if q.getJS() == nil {
 		return nil, errors.New("agentplane: nil JetStream handle")
 	}
 	if envID == uuid.Nil {
@@ -378,7 +411,8 @@ func (q *Queue) EnqueueWork(
 	workID string,
 	payload any,
 ) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
 	if envID == uuid.Nil {
@@ -388,7 +422,7 @@ func (q *Queue) EnqueueWork(
 		return errors.New("agentplane: work_id required")
 	}
 	subject := WorkSubjectPrefix + envID.String()
-	return q.js.Publish(ctx, subject, payload, bus.Header{
+	return js.Publish(ctx, subject, payload, bus.Header{
 		Key:   "Nats-Msg-Id",
 		Value: workID,
 	})
@@ -406,7 +440,8 @@ func (q *Queue) EnqueuePoolWork(
 	workID string,
 	payload any,
 ) error {
-	if q.js == nil {
+	js := q.getJS()
+	if js == nil {
 		return errors.New("agentplane: nil JetStream handle")
 	}
 	if poolTag == "" {
@@ -416,7 +451,7 @@ func (q *Queue) EnqueuePoolWork(
 		return errors.New("agentplane: work_id required")
 	}
 	subject := fmt.Sprintf("%spool.%s", WorkSubjectPrefix, poolTag)
-	return q.js.Publish(ctx, subject, payload, bus.Header{
+	return js.Publish(ctx, subject, payload, bus.Header{
 		Key:   "Nats-Msg-Id",
 		Value: workID,
 	})

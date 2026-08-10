@@ -70,6 +70,11 @@ type Ingress struct {
 	verifier *bauth.Verifier
 	logger   *slog.Logger
 
+	// jsFn 非空时优先于 js —— 每次请求惰性取当前 JetStream 句柄（生产
+	// 接 readiness reconciler：broker 后补就绪 / 断线恢复后无需重启即
+	// 自愈）。NewIngress 的 js 参数是静态等价物,主要给测试用。
+	jsFn func() bus.JetStream
+
 	// queue 用于 EnqueueControl —— 收到 control_cancel_request 时把 cancel
 	// 推到对应 environment 的 control 流。nil = 没注入(dev/不带 NATS),那条
 	// 路径退化为 best-effort log。
@@ -86,13 +91,25 @@ type Ingress struct {
 	activeCount int
 }
 
-// NewIngress 构造一个 WS ingress。js / verifier 必填；nil 时 Mount 后
-// 路径返回 503 / 401。
+// NewIngress 构造一个 WS ingress。js 可空 —— 生产传 nil 并用 SetJSFunc
+// 接 readiness；nil 且未设 jsFn 时 stream 路径恒定 503 no_jetstream。
 func NewIngress(js bus.JetStream, store *Store, v *bauth.Verifier, logger *slog.Logger) *Ingress {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Ingress{js: js, store: store, verifier: v, logger: logger}
+}
+
+// SetJSFunc 让 ingress 每次请求惰性解析 JetStream（接 readiness
+// reconciler 的 JetStream()）。boot 时调一次,之后无需锁。
+func (i *Ingress) SetJSFunc(fn func() bus.JetStream) { i.jsFn = fn }
+
+// currentJS 返回本次请求应使用的 JetStream 句柄。
+func (i *Ingress) currentJS() bus.JetStream {
+	if i.jsFn != nil {
+		return i.jsFn()
+	}
+	return i.js
 }
 
 // SetQueue 注入 control 队列引用。main.go 在 NewIngress 之后调一次,
@@ -108,9 +125,16 @@ func (i *Ingress) SetChatInterrupt(fn func(sessionID uuid.UUID) bool) {
 }
 
 // MountIngressRoutes 注册 WS 路由。Server.Mount 调它。
+//
+// **无条件挂载** —— 历史事故：启动时 NATS 未就绪 → Ingress 为 nil → 路
+// 由不挂 → 请求落默认 mux 404 → 客户端无限转圈。现在路由恒在：JetStream
+// 未就绪时 handleStream 返 503 no_jetstream，readiness 就绪后不重启自愈。
+// Ingress 本身为 nil（main.go 不该这么 wire）也挂固定 503，不留 404。
 func (s *Server) MountIngressRoutes(mux *http.ServeMux) {
 	if s.Ingress == nil {
-		// dev / no-NATS 环境：路由没注册，访问会落到默认 mux 404
+		mux.HandleFunc("GET /v1/agent/sessions/{id}/stream", func(w http.ResponseWriter, _ *http.Request) {
+			writeErr(w, http.StatusServiceUnavailable, "no_jetstream", "ingress not wired")
+		})
 		return
 	}
 	// **不**走 requireAuth middleware —— WS 升级前用 query token 校验
@@ -147,10 +171,13 @@ func (i *Ingress) decActive() {
 //  6. 任一方向断开 → 清理另一方向 + JetStream subscription
 func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 	i.logger.Info("ingress: stream request", "path", r.URL.Path, "remote", r.RemoteAddr)
-	if i.js == nil {
+	// 每次请求取当前 JS —— readiness 后补就绪 / 断线恢复都在这里自然
+	// 生效,不需要重启进程。nil → 503 no_jetstream（路由已恒挂载）。
+	js := i.currentJS()
+	if js == nil {
 		i.logger.Warn("ingress: no_jetstream")
 		writeErr(w, http.StatusServiceUnavailable, "no_jetstream",
-			"ingress requires JetStream; broker offline")
+			"ingress requires JetStream; broker offline or not ready yet")
 		return
 	}
 
@@ -243,7 +270,7 @@ func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 	i.logger.Debug("ingress: stream params",
 		"session_id", sessionID, "user_id", userID, "mode", sess.Mode,
 		"since_seq", sinceSeq, "remote", r.RemoteAddr)
-	cleanup, err := i.startStreamConsumer(subscribeCtx, conn, sessionID, sinceSeq, writeFrame, cancelSubscribe)
+	cleanup, err := i.startStreamConsumer(subscribeCtx, js, conn, sessionID, sinceSeq, writeFrame, cancelSubscribe)
 	if err != nil {
 		// 已经写了 close frame；直接返回。
 		return
@@ -312,7 +339,7 @@ func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 		i.maybeRoutePermissionResponse(r.Context(), sessionID, envID, msg)
 		// publish 到 in subject。失败仅 log，不断 connection —— 客户端可
 		// 重发；publish 失败通常是 broker 短时间不可用。
-		if err := i.js.Publish(r.Context(), inSubject, json.RawMessage(msg)); err != nil {
+		if err := js.Publish(r.Context(), inSubject, json.RawMessage(msg)); err != nil {
 			i.logger.Warn("ingress: publish in failed",
 				"session_id", sessionID, "err", err)
 		}
@@ -464,6 +491,7 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 // 返回 cleanup 函数 + 错误。错误时已经把 close frame 写出去了。
 func (i *Ingress) startStreamConsumer(
 	ctx context.Context,
+	js bus.JetStream,
 	conn *websocket.Conn,
 	sessionID uuid.UUID,
 	sinceSeq uint64,
@@ -482,7 +510,7 @@ func (i *Ingress) startStreamConsumer(
 			AckWait:       30 * time.Second,
 			MaxDeliver:    1, // 不重传 —— frame 顺序优先
 		}
-		sub, subErr := i.js.Subscribe(ctx, spec, func(_ context.Context, m *bus.Message) error {
+		sub, subErr := js.Subscribe(ctx, spec, func(_ context.Context, m *bus.Message) error {
 			if i.logger.Enabled(ctx, slog.LevelDebug) {
 				i.logger.Debug("ingress: frame out",
 					"session_id", sessionID, "subject", m.Subject,
@@ -506,7 +534,7 @@ func (i *Ingress) startStreamConsumer(
 	}
 
 	// Resume 路径 —— 用 raw JetStream 拿 OrderedConsumer with start-sequence。
-	rawJS := i.js.RawJetStream()
+	rawJS := js.RawJetStream()
 	if rawJS == nil {
 		// noop bus 或测试环境 —— resume 无法实现，告知客户端
 		_ = writeSessionDesynced(writeFrame, sessionID, sinceSeq, "resume not available on this broker")
