@@ -2,9 +2,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // 服务端历史组装默认值 —— 与 Server 的 ContextBudgetTokens/MinHistory 默认
@@ -21,9 +23,14 @@ const (
 // thread_id→chat.threads 外键,落 user/assistant 轮前必须先 ensure,否则
 // FK 失败、历史落不了库。
 //
-// ON CONFLICT (id) DO NOTHING:已存在(任意 owner / 含 v1 chat 老 thread)即跳过;
-// id 是客户端生成 uuid,跨用户碰撞概率可忽略。title/model 仅在首次插入生效
-// (后续 DO NOTHING 不覆盖)。title 取截断的首条 prompt 作友好默认。
+// id 是客户端生成 uuid,归属校验是硬安全门(本地数据隔离设计 §3.4):
+//   - id 不存在 → 以当前 userID 插入;
+//   - id 已存在且属当前 user → 幂等 no-op;
+//   - id 已存在但属其他 user(同设备换账号、本地缓存未隔离而残留旧 id)
+//     → 返回 ErrThreadOwnedByOther,绝不把别人的 thread 静默认领过来。
+//
+// INSERT ... RETURNING user_id:命中冲突时无行返回,再 SELECT 现有 owner
+// 比对。title/model 仅在首次插入生效。title 取截断的首条 prompt 作友好默认。
 func (s *Store) EnsureThread(ctx context.Context, threadID, userID uuid.UUID, title, model string) error {
 	if threadID == uuid.Nil || userID == uuid.Nil {
 		return fmt.Errorf("%w: thread_id and user_id required", ErrInvalid)
@@ -31,13 +38,28 @@ func (s *Store) EnsureThread(ctx context.Context, threadID, userID uuid.UUID, ti
 	if len(title) > 80 {
 		title = title[:80]
 	}
-	_, err := s.pool.Exec(ctx, `
+	var owner uuid.UUID
+	err := s.pool.QueryRow(ctx, `
 		INSERT INTO chat.threads (id, user_id, title, model)
 		VALUES ($1, $2, $3, NULLIF($4, ''))
 		ON CONFLICT (id) DO NOTHING
-	`, threadID, userID, title, model)
+		RETURNING user_id
+	`, threadID, userID, title, model).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// id 已被占用 —— 查出现有 owner 比对归属。
+		err = s.pool.QueryRow(ctx, `
+			SELECT user_id FROM chat.threads WHERE id = $1
+		`, threadID).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// 插入与查询之间被并发删除,按未占用处理(调用方重试即插入)。
+			return nil
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("ensure thread: %w", err)
+	}
+	if owner != userID {
+		return fmt.Errorf("%w: thread %s", ErrThreadOwnedByOther, threadID)
 	}
 	return nil
 }

@@ -232,23 +232,32 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 // 两条路径都调它,统一持久化 + 组装。
 //
 // 返回的 []ChatTurn 是当前 Prompt **之前**的历史(AssembleHistory 用刚落库
-// user 轮的 position 做 beforePosition 排除当前轮)。以下情况返回 nil(退化
-// 为单轮,向后兼容):ChatStore 未配(dev)、无 thread、Prompt 为空。
+// user 轮的 position 做 beforePosition 排除当前轮)。以下情况返回 (nil, nil)
+// (退化为单轮,向后兼容):ChatStore 未配(dev)、无 thread、Prompt 为空。
+//
+// error 仅在一种情况非 nil:EnsureThread 发现 thread id 已被其他 user 占用
+// (chat.ErrThreadOwnedByOther —— 同设备换账号本地缓存残留旧 id,见本地数据
+// 隔离设计 §3.4)。这是硬安全门,不能静默降级;调用方须映射 HTTP 409 让
+// 客户端重新生成 thread id。其余持久化/组装失败维持旧语义(log + 单轮降级)。
 func (s *Server) persistUserAndAssemble(
 	ctx context.Context, sessionID, userID uuid.UUID, threadID *uuid.UUID, prompt, model string,
 	userMsgID, assistantMsgID *uuid.UUID,
-) []ChatTurn {
+) ([]ChatTurn, error) {
 	if s.ChatStore == nil || threadID == nil || *threadID == uuid.Nil || prompt == "" {
-		return nil
+		return nil, nil
 	}
 	tid := *threadID
 	// FK 前置:WS/agent thread 此前只在客户端 Drift,未进 brain。落消息前
 	// 幂等 ensure chat.threads 行,否则 chat.messages 外键失败。title 取首条
-	// prompt 作友好默认(仅首次插入生效)。
+	// prompt 作友好默认(仅首次插入生效)。跨账号 id 冲突向上抛,由路由层
+	// 返回 409 —— 绝不能以当前用户身份认领别人的 thread。
 	if err := s.ChatStore.EnsureThread(ctx, tid, userID, prompt, model); err != nil {
+		if errors.Is(err, chatpkg.ErrThreadOwnedByOther) {
+			return nil, err
+		}
 		s.Logger.Warn("agentplane: ensure thread failed",
 			"session_id", sessionID, "thread_id", tid, "err", err)
-		return nil
+		return nil, nil
 	}
 	// client_id 幂等:同一 session 的 user 轮只落一次(createSession 重试安全)。
 	cid := sessionID.String() + ":user"
@@ -259,7 +268,7 @@ func (s *Server) persistUserAndAssemble(
 	if err != nil {
 		s.Logger.Warn("agentplane: persist user turn failed",
 			"session_id", sessionID, "thread_id", tid, "err", err)
-		return nil
+		return nil, nil
 	}
 	if s.Transcript != nil {
 		s.Transcript.Begin(sessionID, tid, userID, model, assistantMsgID)
@@ -268,13 +277,13 @@ func (s *Server) persistUserAndAssemble(
 	if err != nil {
 		s.Logger.Warn("agentplane: assemble history failed",
 			"session_id", sessionID, "thread_id", tid, "err", err)
-		return nil
+		return nil, nil
 	}
 	out := make([]ChatTurn, 0, len(prior))
 	for _, p := range prior {
 		out = append(out, ChatTurn{Role: p.Role, Content: p.Content})
 	}
-	return out
+	return out, nil
 }
 
 // createChatSession：不绑 environment，不 enqueue work。session 行写好后
@@ -302,9 +311,18 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request, uid u
 	if s.ChatRunner != nil && (req.Prompt != "" || len(req.Images) > 0) {
 		// §8.2 翻案:历史由 brain 服务端从 chat.messages 组装,不再用客户端
 		// 带来的 req.History。落当前 user 轮 + 注册 transcript + 取 prior 多轮。
-		history := s.persistUserAndAssemble(
+		history, perr := s.persistUserAndAssemble(
 			r.Context(), sess.SessionID, uid, threadID, req.Prompt, req.Model,
 			parseOptionalUUID(req.UserMessageID), parseOptionalUUID(req.AssistantMessageID))
+		if perr != nil {
+			// thread id 已被其他账号占用(本地数据隔离 §3.4)—— 409 + 明确
+			// code 让客户端重新生成 id;刚插入的 session 标 failed,不留指向
+			// 他人 thread 的活跃 session。
+			_ = s.Store.UpdateSessionState(r.Context(), sess.SessionID, "failed")
+			writeErr(w, http.StatusConflict, "thread_owned_by_other",
+				"thread_id already belongs to another account; generate a new thread id")
+			return
+		}
 		payload := WorkPayload{
 			SessionID:    sess.SessionID,
 			UserID:       uid,
@@ -431,9 +449,17 @@ func (s *Server) createAgentSession(w http.ResponseWriter, r *http.Request, uid 
 	// online 分支把 history 透传给 daemon 作 PriorMessages;offline(pending)
 	// 分支当前不带(重派路径暂不复用,见 plan 风险项),但 user 轮已落库,
 	// 设备上线重派时历史仍在 chat.messages(后续可让重派路径重新组装)。
-	history := s.persistUserAndAssemble(
+	history, perr := s.persistUserAndAssemble(
 		r.Context(), sess.SessionID, uid, threadID, req.Prompt, req.Model,
 		parseOptionalUUID(req.UserMessageID), parseOptionalUUID(req.AssistantMessageID))
+	if perr != nil {
+		// thread id 已被其他账号占用(本地数据隔离 §3.4)—— 同 chat 分支,
+		// 409 + code 让客户端重新生成 id;session 标 failed 不留孤儿。
+		_ = s.Store.UpdateSessionState(r.Context(), sess.SessionID, "failed")
+		writeErr(w, http.StatusConflict, "thread_owned_by_other",
+			"thread_id already belongs to another account; generate a new thread id")
+		return
+	}
 
 	spec := agentWorkSpec{
 		SessionID: sess.SessionID, UserID: uid,

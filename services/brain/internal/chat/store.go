@@ -27,6 +27,10 @@ var (
 	ErrNotFound = errors.New("chat: not found")
 	ErrConflict = errors.New("chat: client_id collision")
 	ErrInvalid  = errors.New("chat: invalid input")
+	// ErrThreadOwnedByOther 是 EnsureThread 在客户端给的 thread id 已被
+	// 另一个 user 占用时返回的哨兵 —— 区别于 ErrNotFound 的防探测语义,
+	// 这里调用方显式复用了冲突 id,路由层映射 409 让客户端重新生成 id。
+	ErrThreadOwnedByOther = errors.New("chat: thread owned by another user")
 )
 
 // 6-state machine aligned with cherry-studio (design doc §14.4).
