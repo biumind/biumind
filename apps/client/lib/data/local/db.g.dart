@@ -1884,8 +1884,26 @@ class $NoteNotebooksTable extends NoteNotebooks
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, name, position, updatedAt];
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    position,
+    updatedAt,
+    ownerKey,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1925,6 +1943,12 @@ class $NoteNotebooksTable extends NoteNotebooks
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -1950,6 +1974,10 @@ class $NoteNotebooksTable extends NoteNotebooks
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -1965,11 +1993,16 @@ class LocalNoteNotebook extends DataClass
   final String name;
   final double position;
   final DateTime updatedAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  final String ownerKey;
   const LocalNoteNotebook({
     required this.id,
     required this.name,
     required this.position,
     required this.updatedAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1978,6 +2011,7 @@ class LocalNoteNotebook extends DataClass
     map['name'] = Variable<String>(name);
     map['position'] = Variable<double>(position);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -1987,6 +2021,7 @@ class LocalNoteNotebook extends DataClass
       name: Value(name),
       position: Value(position),
       updatedAt: Value(updatedAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -2000,6 +2035,7 @@ class LocalNoteNotebook extends DataClass
       name: serializer.fromJson<String>(json['name']),
       position: serializer.fromJson<double>(json['position']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -2010,6 +2046,7 @@ class LocalNoteNotebook extends DataClass
       'name': serializer.toJson<String>(name),
       'position': serializer.toJson<double>(position),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -2018,11 +2055,13 @@ class LocalNoteNotebook extends DataClass
     String? name,
     double? position,
     DateTime? updatedAt,
+    String? ownerKey,
   }) => LocalNoteNotebook(
     id: id ?? this.id,
     name: name ?? this.name,
     position: position ?? this.position,
     updatedAt: updatedAt ?? this.updatedAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalNoteNotebook copyWithCompanion(NoteNotebooksCompanion data) {
     return LocalNoteNotebook(
@@ -2030,6 +2069,7 @@ class LocalNoteNotebook extends DataClass
       name: data.name.present ? data.name.value : this.name,
       position: data.position.present ? data.position.value : this.position,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -2039,13 +2079,14 @@ class LocalNoteNotebook extends DataClass
           ..write('id: $id, ')
           ..write('name: $name, ')
           ..write('position: $position, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name, position, updatedAt);
+  int get hashCode => Object.hash(id, name, position, updatedAt, ownerKey);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2053,7 +2094,8 @@ class LocalNoteNotebook extends DataClass
           other.id == this.id &&
           other.name == this.name &&
           other.position == this.position &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
@@ -2061,12 +2103,14 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   final Value<String> name;
   final Value<double> position;
   final Value<DateTime> updatedAt;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const NoteNotebooksCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
     this.position = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteNotebooksCompanion.insert({
@@ -2074,6 +2118,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     required String name,
     this.position = const Value.absent(),
     required DateTime updatedAt,
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name),
@@ -2083,6 +2128,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     Expression<String>? name,
     Expression<double>? position,
     Expression<DateTime>? updatedAt,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2090,6 +2136,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
       if (name != null) 'name': name,
       if (position != null) 'position': position,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2099,6 +2146,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     Value<String>? name,
     Value<double>? position,
     Value<DateTime>? updatedAt,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return NoteNotebooksCompanion(
@@ -2106,6 +2154,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
       name: name ?? this.name,
       position: position ?? this.position,
       updatedAt: updatedAt ?? this.updatedAt,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2125,6 +2174,9 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2138,6 +2190,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
           ..write('name: $name, ')
           ..write('position: $position, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2300,6 +2353,18 @@ class $NoteNotesTable extends NoteNotes
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -2315,6 +2380,7 @@ class $NoteNotesTable extends NoteNotes
     archivedAt,
     promotedPageId,
     updatedAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2413,6 +2479,12 @@ class $NoteNotesTable extends NoteNotes
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -2474,6 +2546,10 @@ class $NoteNotesTable extends NoteNotes
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -2503,6 +2579,10 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
   /// 「已转入知识库」只读提示条。
   final String? promotedPageId;
   final DateTime updatedAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  final String ownerKey;
   const LocalNote({
     required this.id,
     this.notebookId,
@@ -2517,6 +2597,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     this.archivedAt,
     this.promotedPageId,
     required this.updatedAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2544,6 +2625,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
       map['promoted_page_id'] = Variable<String>(promotedPageId);
     }
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -2572,6 +2654,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           ? const Value.absent()
           : Value(promotedPageId),
       updatedAt: Value(updatedAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -2594,6 +2677,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
       archivedAt: serializer.fromJson<DateTime?>(json['archivedAt']),
       promotedPageId: serializer.fromJson<String?>(json['promotedPageId']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -2613,6 +2697,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
       'promotedPageId': serializer.toJson<String?>(promotedPageId),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -2630,6 +2715,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     Value<DateTime?> archivedAt = const Value.absent(),
     Value<String?> promotedPageId = const Value.absent(),
     DateTime? updatedAt,
+    String? ownerKey,
   }) => LocalNote(
     id: id ?? this.id,
     notebookId: notebookId.present ? notebookId.value : this.notebookId,
@@ -2648,6 +2734,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
         ? promotedPageId.value
         : this.promotedPageId,
     updatedAt: updatedAt ?? this.updatedAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   LocalNote copyWithCompanion(NoteNotesCompanion data) {
     return LocalNote(
@@ -2672,6 +2759,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           ? data.promotedPageId.value
           : this.promotedPageId,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -2690,7 +2778,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           ..write('trashedAt: $trashedAt, ')
           ..write('archivedAt: $archivedAt, ')
           ..write('promotedPageId: $promotedPageId, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -2710,6 +2799,7 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     archivedAt,
     promotedPageId,
     updatedAt,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -2727,7 +2817,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           other.trashedAt == this.trashedAt &&
           other.archivedAt == this.archivedAt &&
           other.promotedPageId == this.promotedPageId &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
@@ -2744,6 +2835,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
   final Value<DateTime?> archivedAt;
   final Value<String?> promotedPageId;
   final Value<DateTime> updatedAt;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const NoteNotesCompanion({
     this.id = const Value.absent(),
@@ -2759,6 +2851,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     this.archivedAt = const Value.absent(),
     this.promotedPageId = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteNotesCompanion.insert({
@@ -2775,6 +2868,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     this.archivedAt = const Value.absent(),
     this.promotedPageId = const Value.absent(),
     required DateTime updatedAt,
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        updatedAt = Value(updatedAt);
@@ -2792,6 +2886,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     Expression<DateTime>? archivedAt,
     Expression<String>? promotedPageId,
     Expression<DateTime>? updatedAt,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2808,6 +2903,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
       if (archivedAt != null) 'archived_at': archivedAt,
       if (promotedPageId != null) 'promoted_page_id': promotedPageId,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2826,6 +2922,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     Value<DateTime?>? archivedAt,
     Value<String?>? promotedPageId,
     Value<DateTime>? updatedAt,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return NoteNotesCompanion(
@@ -2842,6 +2939,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
       archivedAt: archivedAt ?? this.archivedAt,
       promotedPageId: promotedPageId ?? this.promotedPageId,
       updatedAt: updatedAt ?? this.updatedAt,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2888,6 +2986,9 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2910,6 +3011,7 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
           ..write('archivedAt: $archivedAt, ')
           ..write('promotedPageId: $promotedPageId, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2940,8 +3042,20 @@ class $NoteTagsTable extends NoteTags
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
   @override
-  List<GeneratedColumn> get $columns => [id, name];
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, ownerKey];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -2967,6 +3081,12 @@ class $NoteTagsTable extends NoteTags
     } else if (isInserting) {
       context.missing(_nameMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -2984,6 +3104,10 @@ class $NoteTagsTable extends NoteTags
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -2996,17 +3120,30 @@ class $NoteTagsTable extends NoteTags
 class LocalNoteTag extends DataClass implements Insertable<LocalNoteTag> {
   final String id;
   final String name;
-  const LocalNoteTag({required this.id, required this.name});
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  final String ownerKey;
+  const LocalNoteTag({
+    required this.id,
+    required this.name,
+    required this.ownerKey,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['name'] = Variable<String>(name);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
   NoteTagsCompanion toCompanion(bool nullToAbsent) {
-    return NoteTagsCompanion(id: Value(id), name: Value(name));
+    return NoteTagsCompanion(
+      id: Value(id),
+      name: Value(name),
+      ownerKey: Value(ownerKey),
+    );
   }
 
   factory LocalNoteTag.fromJson(
@@ -3017,6 +3154,7 @@ class LocalNoteTag extends DataClass implements Insertable<LocalNoteTag> {
     return LocalNoteTag(
       id: serializer.fromJson<String>(json['id']),
       name: serializer.fromJson<String>(json['name']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -3025,15 +3163,21 @@ class LocalNoteTag extends DataClass implements Insertable<LocalNoteTag> {
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'name': serializer.toJson<String>(name),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
-  LocalNoteTag copyWith({String? id, String? name}) =>
-      LocalNoteTag(id: id ?? this.id, name: name ?? this.name);
+  LocalNoteTag copyWith({String? id, String? name, String? ownerKey}) =>
+      LocalNoteTag(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        ownerKey: ownerKey ?? this.ownerKey,
+      );
   LocalNoteTag copyWithCompanion(NoteTagsCompanion data) {
     return LocalNoteTag(
       id: data.id.present ? data.id.value : this.id,
       name: data.name.present ? data.name.value : this.name,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -3041,42 +3185,51 @@ class LocalNoteTag extends DataClass implements Insertable<LocalNoteTag> {
   String toString() {
     return (StringBuffer('LocalNoteTag(')
           ..write('id: $id, ')
-          ..write('name: $name')
+          ..write('name: $name, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name);
+  int get hashCode => Object.hash(id, name, ownerKey);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is LocalNoteTag && other.id == this.id && other.name == this.name);
+      (other is LocalNoteTag &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.ownerKey == this.ownerKey);
 }
 
 class NoteTagsCompanion extends UpdateCompanion<LocalNoteTag> {
   final Value<String> id;
   final Value<String> name;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const NoteTagsCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteTagsCompanion.insert({
     required String id,
     required String name,
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        name = Value(name);
   static Insertable<LocalNoteTag> custom({
     Expression<String>? id,
     Expression<String>? name,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (name != null) 'name': name,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3084,11 +3237,13 @@ class NoteTagsCompanion extends UpdateCompanion<LocalNoteTag> {
   NoteTagsCompanion copyWith({
     Value<String>? id,
     Value<String>? name,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return NoteTagsCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3102,6 +3257,9 @@ class NoteTagsCompanion extends UpdateCompanion<LocalNoteTag> {
     if (name.present) {
       map['name'] = Variable<String>(name.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3113,6 +3271,7 @@ class NoteTagsCompanion extends UpdateCompanion<LocalNoteTag> {
     return (StringBuffer('NoteTagsCompanion(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3143,8 +3302,20 @@ class $NoteNoteTagsTable extends NoteNoteTags
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
   @override
-  List<GeneratedColumn> get $columns => [noteId, tagId];
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [noteId, tagId, ownerKey];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -3173,6 +3344,12 @@ class $NoteNoteTagsTable extends NoteNoteTags
     } else if (isInserting) {
       context.missing(_tagIdMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -3190,6 +3367,10 @@ class $NoteNoteTagsTable extends NoteNoteTags
         DriftSqlType.string,
         data['${effectivePrefix}tag_id'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -3202,17 +3383,30 @@ class $NoteNoteTagsTable extends NoteNoteTags
 class NoteNoteTag extends DataClass implements Insertable<NoteNoteTag> {
   final String noteId;
   final String tagId;
-  const NoteNoteTag({required this.noteId, required this.tagId});
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  final String ownerKey;
+  const NoteNoteTag({
+    required this.noteId,
+    required this.tagId,
+    required this.ownerKey,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['note_id'] = Variable<String>(noteId);
     map['tag_id'] = Variable<String>(tagId);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
   NoteNoteTagsCompanion toCompanion(bool nullToAbsent) {
-    return NoteNoteTagsCompanion(noteId: Value(noteId), tagId: Value(tagId));
+    return NoteNoteTagsCompanion(
+      noteId: Value(noteId),
+      tagId: Value(tagId),
+      ownerKey: Value(ownerKey),
+    );
   }
 
   factory NoteNoteTag.fromJson(
@@ -3223,6 +3417,7 @@ class NoteNoteTag extends DataClass implements Insertable<NoteNoteTag> {
     return NoteNoteTag(
       noteId: serializer.fromJson<String>(json['noteId']),
       tagId: serializer.fromJson<String>(json['tagId']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -3231,15 +3426,21 @@ class NoteNoteTag extends DataClass implements Insertable<NoteNoteTag> {
     return <String, dynamic>{
       'noteId': serializer.toJson<String>(noteId),
       'tagId': serializer.toJson<String>(tagId),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
-  NoteNoteTag copyWith({String? noteId, String? tagId}) =>
-      NoteNoteTag(noteId: noteId ?? this.noteId, tagId: tagId ?? this.tagId);
+  NoteNoteTag copyWith({String? noteId, String? tagId, String? ownerKey}) =>
+      NoteNoteTag(
+        noteId: noteId ?? this.noteId,
+        tagId: tagId ?? this.tagId,
+        ownerKey: ownerKey ?? this.ownerKey,
+      );
   NoteNoteTag copyWithCompanion(NoteNoteTagsCompanion data) {
     return NoteNoteTag(
       noteId: data.noteId.present ? data.noteId.value : this.noteId,
       tagId: data.tagId.present ? data.tagId.value : this.tagId,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -3247,44 +3448,51 @@ class NoteNoteTag extends DataClass implements Insertable<NoteNoteTag> {
   String toString() {
     return (StringBuffer('NoteNoteTag(')
           ..write('noteId: $noteId, ')
-          ..write('tagId: $tagId')
+          ..write('tagId: $tagId, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(noteId, tagId);
+  int get hashCode => Object.hash(noteId, tagId, ownerKey);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is NoteNoteTag &&
           other.noteId == this.noteId &&
-          other.tagId == this.tagId);
+          other.tagId == this.tagId &&
+          other.ownerKey == this.ownerKey);
 }
 
 class NoteNoteTagsCompanion extends UpdateCompanion<NoteNoteTag> {
   final Value<String> noteId;
   final Value<String> tagId;
+  final Value<String> ownerKey;
   final Value<int> rowid;
   const NoteNoteTagsCompanion({
     this.noteId = const Value.absent(),
     this.tagId = const Value.absent(),
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   NoteNoteTagsCompanion.insert({
     required String noteId,
     required String tagId,
+    this.ownerKey = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : noteId = Value(noteId),
        tagId = Value(tagId);
   static Insertable<NoteNoteTag> custom({
     Expression<String>? noteId,
     Expression<String>? tagId,
+    Expression<String>? ownerKey,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (noteId != null) 'note_id': noteId,
       if (tagId != null) 'tag_id': tagId,
+      if (ownerKey != null) 'owner_key': ownerKey,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3292,11 +3500,13 @@ class NoteNoteTagsCompanion extends UpdateCompanion<NoteNoteTag> {
   NoteNoteTagsCompanion copyWith({
     Value<String>? noteId,
     Value<String>? tagId,
+    Value<String>? ownerKey,
     Value<int>? rowid,
   }) {
     return NoteNoteTagsCompanion(
       noteId: noteId ?? this.noteId,
       tagId: tagId ?? this.tagId,
+      ownerKey: ownerKey ?? this.ownerKey,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3310,6 +3520,9 @@ class NoteNoteTagsCompanion extends UpdateCompanion<NoteNoteTag> {
     if (tagId.present) {
       map['tag_id'] = Variable<String>(tagId.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3321,6 +3534,7 @@ class NoteNoteTagsCompanion extends UpdateCompanion<NoteNoteTag> {
     return (StringBuffer('NoteNoteTagsCompanion(')
           ..write('noteId: $noteId, ')
           ..write('tagId: $tagId, ')
+          ..write('ownerKey: $ownerKey, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3445,6 +3659,18 @@ class $NoteOutboxTable extends NoteOutbox
         type: DriftSqlType.dateTime,
         requiredDuringInsert: true,
       );
+  static const VerificationMeta _ownerKeyMeta = const VerificationMeta(
+    'ownerKey',
+  );
+  @override
+  late final GeneratedColumn<String> ownerKey = GeneratedColumn<String>(
+    'owner_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -3457,6 +3683,7 @@ class $NoteOutboxTable extends NoteOutbox
     lastError,
     createdAt,
     nextAttemptAt,
+    ownerKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3543,6 +3770,12 @@ class $NoteOutboxTable extends NoteOutbox
     } else if (isInserting) {
       context.missing(_nextAttemptAtMeta);
     }
+    if (data.containsKey('owner_key')) {
+      context.handle(
+        _ownerKeyMeta,
+        ownerKey.isAcceptableOrUnknown(data['owner_key']!, _ownerKeyMeta),
+      );
+    }
     return context;
   }
 
@@ -3592,6 +3825,10 @@ class $NoteOutboxTable extends NoteOutbox
         DriftSqlType.dateTime,
         data['${effectivePrefix}next_attempt_at'],
       )!,
+      ownerKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}owner_key'],
+      )!,
     );
   }
 
@@ -3612,6 +3849,11 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
   final String? lastError;
   final DateTime createdAt;
   final DateTime nextAttemptAt;
+
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// flusher 只 flush 当前登录 scope 的 op（v33 Phase 33 加列），杜绝
+  /// 「下个账号登录后把上个账号未冲刷的写盒 flush 进自己账号」的串写。
+  final String ownerKey;
   const NoteOutboxEntry({
     required this.id,
     required this.op,
@@ -3623,6 +3865,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
     this.lastError,
     required this.createdAt,
     required this.nextAttemptAt,
+    required this.ownerKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3643,6 +3886,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
     }
     map['created_at'] = Variable<DateTime>(createdAt);
     map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt);
+    map['owner_key'] = Variable<String>(ownerKey);
     return map;
   }
 
@@ -3664,6 +3908,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
           : Value(lastError),
       createdAt: Value(createdAt),
       nextAttemptAt: Value(nextAttemptAt),
+      ownerKey: Value(ownerKey),
     );
   }
 
@@ -3683,6 +3928,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
       lastError: serializer.fromJson<String?>(json['lastError']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       nextAttemptAt: serializer.fromJson<DateTime>(json['nextAttemptAt']),
+      ownerKey: serializer.fromJson<String>(json['ownerKey']),
     );
   }
   @override
@@ -3699,6 +3945,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
       'lastError': serializer.toJson<String?>(lastError),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'nextAttemptAt': serializer.toJson<DateTime>(nextAttemptAt),
+      'ownerKey': serializer.toJson<String>(ownerKey),
     };
   }
 
@@ -3713,6 +3960,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
     Value<String?> lastError = const Value.absent(),
     DateTime? createdAt,
     DateTime? nextAttemptAt,
+    String? ownerKey,
   }) => NoteOutboxEntry(
     id: id ?? this.id,
     op: op ?? this.op,
@@ -3724,6 +3972,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
     lastError: lastError.present ? lastError.value : this.lastError,
     createdAt: createdAt ?? this.createdAt,
     nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+    ownerKey: ownerKey ?? this.ownerKey,
   );
   NoteOutboxEntry copyWithCompanion(NoteOutboxCompanion data) {
     return NoteOutboxEntry(
@@ -3745,6 +3994,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
       nextAttemptAt: data.nextAttemptAt.present
           ? data.nextAttemptAt.value
           : this.nextAttemptAt,
+      ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
     );
   }
 
@@ -3760,7 +4010,8 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
           ..write('attempts: $attempts, ')
           ..write('lastError: $lastError, ')
           ..write('createdAt: $createdAt, ')
-          ..write('nextAttemptAt: $nextAttemptAt')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -3777,6 +4028,7 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
     lastError,
     createdAt,
     nextAttemptAt,
+    ownerKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -3791,7 +4043,8 @@ class NoteOutboxEntry extends DataClass implements Insertable<NoteOutboxEntry> {
           other.attempts == this.attempts &&
           other.lastError == this.lastError &&
           other.createdAt == this.createdAt &&
-          other.nextAttemptAt == this.nextAttemptAt);
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.ownerKey == this.ownerKey);
 }
 
 class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
@@ -3805,6 +4058,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
   final Value<String?> lastError;
   final Value<DateTime> createdAt;
   final Value<DateTime> nextAttemptAt;
+  final Value<String> ownerKey;
   const NoteOutboxCompanion({
     this.id = const Value.absent(),
     this.op = const Value.absent(),
@@ -3816,6 +4070,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
     this.lastError = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.nextAttemptAt = const Value.absent(),
+    this.ownerKey = const Value.absent(),
   });
   NoteOutboxCompanion.insert({
     this.id = const Value.absent(),
@@ -3828,6 +4083,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
     this.lastError = const Value.absent(),
     required DateTime createdAt,
     required DateTime nextAttemptAt,
+    this.ownerKey = const Value.absent(),
   }) : op = Value(op),
        entityId = Value(entityId),
        payloadJson = Value(payloadJson),
@@ -3844,6 +4100,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
     Expression<String>? lastError,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? nextAttemptAt,
+    Expression<String>? ownerKey,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -3856,6 +4113,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
       if (lastError != null) 'last_error': lastError,
       if (createdAt != null) 'created_at': createdAt,
       if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (ownerKey != null) 'owner_key': ownerKey,
     });
   }
 
@@ -3870,6 +4128,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
     Value<String?>? lastError,
     Value<DateTime>? createdAt,
     Value<DateTime>? nextAttemptAt,
+    Value<String>? ownerKey,
   }) {
     return NoteOutboxCompanion(
       id: id ?? this.id,
@@ -3882,6 +4141,7 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
       lastError: lastError ?? this.lastError,
       createdAt: createdAt ?? this.createdAt,
       nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      ownerKey: ownerKey ?? this.ownerKey,
     );
   }
 
@@ -3918,6 +4178,9 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
     if (nextAttemptAt.present) {
       map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt.value);
     }
+    if (ownerKey.present) {
+      map['owner_key'] = Variable<String>(ownerKey.value);
+    }
     return map;
   }
 
@@ -3933,7 +4196,8 @@ class NoteOutboxCompanion extends UpdateCompanion<NoteOutboxEntry> {
           ..write('attempts: $attempts, ')
           ..write('lastError: $lastError, ')
           ..write('createdAt: $createdAt, ')
-          ..write('nextAttemptAt: $nextAttemptAt')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('ownerKey: $ownerKey')
           ..write(')'))
         .toString();
   }
@@ -14460,6 +14724,7 @@ typedef $$NoteNotebooksTableCreateCompanionBuilder =
       required String name,
       Value<double> position,
       required DateTime updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$NoteNotebooksTableUpdateCompanionBuilder =
@@ -14468,6 +14733,7 @@ typedef $$NoteNotebooksTableUpdateCompanionBuilder =
       Value<String> name,
       Value<double> position,
       Value<DateTime> updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -14497,6 +14763,11 @@ class $$NoteNotebooksTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -14529,6 +14800,11 @@ class $$NoteNotebooksTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteNotebooksTableAnnotationComposer
@@ -14551,6 +14827,9 @@ class $$NoteNotebooksTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$NoteNotebooksTableTableManager
@@ -14588,12 +14867,14 @@ class $$NoteNotebooksTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<double> position = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNotebooksCompanion(
                 id: id,
                 name: name,
                 position: position,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -14602,12 +14883,14 @@ class $$NoteNotebooksTableTableManager
                 required String name,
                 Value<double> position = const Value.absent(),
                 required DateTime updatedAt,
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNotebooksCompanion.insert(
                 id: id,
                 name: name,
                 position: position,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -14650,6 +14933,7 @@ typedef $$NoteNotesTableCreateCompanionBuilder =
       Value<DateTime?> archivedAt,
       Value<String?> promotedPageId,
       required DateTime updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$NoteNotesTableUpdateCompanionBuilder =
@@ -14667,6 +14951,7 @@ typedef $$NoteNotesTableUpdateCompanionBuilder =
       Value<DateTime?> archivedAt,
       Value<String?> promotedPageId,
       Value<DateTime> updatedAt,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -14741,6 +15026,11 @@ class $$NoteNotesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -14818,6 +15108,11 @@ class $$NoteNotesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteNotesTableAnnotationComposer
@@ -14875,6 +15170,9 @@ class $$NoteNotesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$NoteNotesTableTableManager
@@ -14918,6 +15216,7 @@ class $$NoteNotesTableTableManager
                 Value<DateTime?> archivedAt = const Value.absent(),
                 Value<String?> promotedPageId = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNotesCompanion(
                 id: id,
@@ -14933,6 +15232,7 @@ class $$NoteNotesTableTableManager
                 archivedAt: archivedAt,
                 promotedPageId: promotedPageId,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -14950,6 +15250,7 @@ class $$NoteNotesTableTableManager
                 Value<DateTime?> archivedAt = const Value.absent(),
                 Value<String?> promotedPageId = const Value.absent(),
                 required DateTime updatedAt,
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNotesCompanion.insert(
                 id: id,
@@ -14965,6 +15266,7 @@ class $$NoteNotesTableTableManager
                 archivedAt: archivedAt,
                 promotedPageId: promotedPageId,
                 updatedAt: updatedAt,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -14993,12 +15295,14 @@ typedef $$NoteTagsTableCreateCompanionBuilder =
     NoteTagsCompanion Function({
       required String id,
       required String name,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$NoteTagsTableUpdateCompanionBuilder =
     NoteTagsCompanion Function({
       Value<String> id,
       Value<String> name,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -15017,6 +15321,11 @@ class $$NoteTagsTableFilterComposer extends Composer<_$AppDb, $NoteTagsTable> {
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -15039,6 +15348,11 @@ class $$NoteTagsTableOrderingComposer
     column: $table.name,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteTagsTableAnnotationComposer
@@ -15055,6 +15369,9 @@ class $$NoteTagsTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$NoteTagsTableTableManager
@@ -15087,14 +15404,26 @@ class $$NoteTagsTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => NoteTagsCompanion(id: id, name: name, rowid: rowid),
+              }) => NoteTagsCompanion(
+                id: id,
+                name: name,
+                ownerKey: ownerKey,
+                rowid: rowid,
+              ),
           createCompanionCallback:
               ({
                 required String id,
                 required String name,
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => NoteTagsCompanion.insert(id: id, name: name, rowid: rowid),
+              }) => NoteTagsCompanion.insert(
+                id: id,
+                name: name,
+                ownerKey: ownerKey,
+                rowid: rowid,
+              ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
               .toList(),
@@ -15121,12 +15450,14 @@ typedef $$NoteNoteTagsTableCreateCompanionBuilder =
     NoteNoteTagsCompanion Function({
       required String noteId,
       required String tagId,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 typedef $$NoteNoteTagsTableUpdateCompanionBuilder =
     NoteNoteTagsCompanion Function({
       Value<String> noteId,
       Value<String> tagId,
+      Value<String> ownerKey,
       Value<int> rowid,
     });
 
@@ -15146,6 +15477,11 @@ class $$NoteNoteTagsTableFilterComposer
 
   ColumnFilters<String> get tagId => $composableBuilder(
     column: $table.tagId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -15168,6 +15504,11 @@ class $$NoteNoteTagsTableOrderingComposer
     column: $table.tagId,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteNoteTagsTableAnnotationComposer
@@ -15184,6 +15525,9 @@ class $$NoteNoteTagsTableAnnotationComposer
 
   GeneratedColumn<String> get tagId =>
       $composableBuilder(column: $table.tagId, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$NoteNoteTagsTableTableManager
@@ -15219,20 +15563,24 @@ class $$NoteNoteTagsTableTableManager
               ({
                 Value<String> noteId = const Value.absent(),
                 Value<String> tagId = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNoteTagsCompanion(
                 noteId: noteId,
                 tagId: tagId,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String noteId,
                 required String tagId,
+                Value<String> ownerKey = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NoteNoteTagsCompanion.insert(
                 noteId: noteId,
                 tagId: tagId,
+                ownerKey: ownerKey,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -15269,6 +15617,7 @@ typedef $$NoteOutboxTableCreateCompanionBuilder =
       Value<String?> lastError,
       required DateTime createdAt,
       required DateTime nextAttemptAt,
+      Value<String> ownerKey,
     });
 typedef $$NoteOutboxTableUpdateCompanionBuilder =
     NoteOutboxCompanion Function({
@@ -15282,6 +15631,7 @@ typedef $$NoteOutboxTableUpdateCompanionBuilder =
       Value<String?> lastError,
       Value<DateTime> createdAt,
       Value<DateTime> nextAttemptAt,
+      Value<String> ownerKey,
     });
 
 class $$NoteOutboxTableFilterComposer
@@ -15340,6 +15690,11 @@ class $$NoteOutboxTableFilterComposer
 
   ColumnFilters<DateTime> get nextAttemptAt => $composableBuilder(
     column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -15402,6 +15757,11 @@ class $$NoteOutboxTableOrderingComposer
     column: $table.nextAttemptAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get ownerKey => $composableBuilder(
+    column: $table.ownerKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$NoteOutboxTableAnnotationComposer
@@ -15450,6 +15810,9 @@ class $$NoteOutboxTableAnnotationComposer
     column: $table.nextAttemptAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get ownerKey =>
+      $composableBuilder(column: $table.ownerKey, builder: (column) => column);
 }
 
 class $$NoteOutboxTableTableManager
@@ -15493,6 +15856,7 @@ class $$NoteOutboxTableTableManager
                 Value<String?> lastError = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> nextAttemptAt = const Value.absent(),
+                Value<String> ownerKey = const Value.absent(),
               }) => NoteOutboxCompanion(
                 id: id,
                 op: op,
@@ -15504,6 +15868,7 @@ class $$NoteOutboxTableTableManager
                 lastError: lastError,
                 createdAt: createdAt,
                 nextAttemptAt: nextAttemptAt,
+                ownerKey: ownerKey,
               ),
           createCompanionCallback:
               ({
@@ -15517,6 +15882,7 @@ class $$NoteOutboxTableTableManager
                 Value<String?> lastError = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime nextAttemptAt,
+                Value<String> ownerKey = const Value.absent(),
               }) => NoteOutboxCompanion.insert(
                 id: id,
                 op: op,
@@ -15528,6 +15894,7 @@ class $$NoteOutboxTableTableManager
                 lastError: lastError,
                 createdAt: createdAt,
                 nextAttemptAt: nextAttemptAt,
+                ownerKey: ownerKey,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

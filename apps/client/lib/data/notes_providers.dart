@@ -15,6 +15,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../features/chat/data/chat_scope.dart' show chatOwnerScopeProvider;
 import '../services/auth_service.dart';
 import 'api/notes_client.dart' as api;
 import 'local/notes_dao.dart';
@@ -23,17 +24,28 @@ import 'notes_sync.dart';
 import 'outbox/note_outbox_flusher.dart';
 import 'wiki_providers.dart' show appDbProvider;
 
-final notesDaoProvider = Provider<NotesDao>((ref) {
-  return NotesDao(ref.watch(appDbProvider));
+/// 当前登录态的 notes DAO；未登录 / 无法派生 scope 时为 null。
+///
+/// scope 直接复用 chat 的 ownerKey（[chatOwnerScopeProvider]）—— 同一登录
+/// 态下所有本地域共用一把「环境 × 账号」隔离键（sha256(环境)+":"+userId），
+/// 笔记与 chat 切换账号 / 环境时行为一致。
+final notesDaoProvider = Provider<NotesDao?>((ref) {
+  final scope = ref.watch(chatOwnerScopeProvider);
+  if (scope == null) return null;
+  return NotesDao(ref.watch(appDbProvider), scope: scope);
 });
 
-/// Repository — null when no hub credentials are configured.
+/// Repository — null when no hub credentials are configured, or when the
+/// owner scope can't be derived (e.g. token 非 JWT）。无 scope 则不读写
+/// 本地库，避免跨账号串写（见 notes_dao.dart 顶部 P0 隔离说明）。
 final notesRepositoryProvider = Provider<NotesRepository?>((ref) {
   final creds = ref.watch(hubCredentialsProvider);
   if (creds == null) return null;
+  final dao = ref.watch(notesDaoProvider);
+  if (dao == null) return null;
   final client = api.NotesClient(creds.endpoint, creds.bearerToken);
   final repo = NotesRepository(
-    dao: ref.watch(notesDaoProvider),
+    dao: dao,
     client: client,
   );
   // 历史 'local-<uuid>' 占位笔记恢复：对没有待冲刷 create op 的孤儿行
@@ -73,8 +85,9 @@ final notesSyncPollerProvider = Provider<NotesSyncPoller?>((ref) {
 });
 
 /// Live count of pending note outbox entries — UI shows it as a
-/// "syncing" badge.
+/// "syncing" badge. 无登录态（dao null）时恒为空流。
 final notesPendingWriteCountProvider = StreamProvider<int>((ref) {
   final dao = ref.watch(notesDaoProvider);
+  if (dao == null) return const Stream.empty();
   return dao.watchOutboxCount();
 });

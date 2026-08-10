@@ -103,7 +103,7 @@ void main() {
     fake = await _FakeBrain.start();
     db = AppDb.memory();
     repo = NotesRepository(
-      dao: NotesDao(db),
+      dao: NotesDao(db, scope: 'test-scope'),
       client: api.NotesClient(fake.url, 'tok'),
     );
     container = ProviderContainer(overrides: <Override>[

@@ -33,6 +33,7 @@ LocalNote _localNote(
       trashed: false,
       trashedAt: null,
       updatedAt: updatedAt ?? DateTime.now().toUtc(),
+      ownerKey: 'test-scope',
     );
 
 RepoNote _repoNote(
@@ -59,7 +60,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    dao = NotesDao(db);
+    dao = NotesDao(db, scope: 'test-scope');
     // 不可达地址即可：本组测试只走本地 Drift 流，不触发 HTTP。
     repo = NotesRepository(
       dao: dao,
@@ -113,7 +114,7 @@ void main() {
 
     test('tag 过滤：只含该标签的笔记（updatedAt 倒序）', () async {
       final now = DateTime.now().toUtc();
-      await dao.upsertTag(const LocalNoteTag(id: 't1', name: '工作'));
+      await dao.upsertTag(const LocalNoteTag(id: 't1', name: '工作', ownerKey: 'test-scope'));
       await dao.upsertNote(
           _localNote('n-old', updatedAt: now.subtract(const Duration(days: 1))));
       await dao.upsertNote(_localNote('n-new', updatedAt: now));
@@ -147,8 +148,8 @@ void main() {
 
   group('noteTagIdsProvider', () {
     test('返回标签 id；setNoteTags 后 invalidate 拿到新值', () async {
-      await dao.upsertTag(const LocalNoteTag(id: 't1', name: '工作'));
-      await dao.upsertTag(const LocalNoteTag(id: 't2', name: '生活'));
+      await dao.upsertTag(const LocalNoteTag(id: 't1', name: '工作', ownerKey: 'test-scope'));
+      await dao.upsertTag(const LocalNoteTag(id: 't2', name: '生活', ownerKey: 'test-scope'));
       await dao.upsertNote(_localNote('n1'));
       await dao.setNoteTags('n1', ['t1']);
 

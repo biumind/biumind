@@ -209,7 +209,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    dao = NotesDao(db);
+    dao = NotesDao(db, scope: 'test-scope');
   });
 
   tearDown(() => db.close());
@@ -221,6 +221,7 @@ void main() {
         name: '收件箱',
         position: 0.0,
         updatedAt: DateTime.now().toUtc(),
+        ownerKey: 'test-scope',
       ));
       final list = await dao.listNotebooks();
       expect(list.length, 1);
@@ -241,8 +242,9 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: now,
+        ownerKey: 'test-scope',
       ));
-      await dao.upsertTag(const LocalNoteTag(id: 'tag1', name: 'x'));
+      await dao.upsertTag(const LocalNoteTag(id: 'tag1', name: 'x', ownerKey: 'test-scope'));
       await dao.setNoteTags('local-n-1', ['tag1']);
       await dao.renameNoteId('local-n-1', 'srv-n1');
       expect(await dao.listTagIdsForNote('srv-n1'), ['tag1']);
@@ -252,7 +254,7 @@ void main() {
     test('renameNotebookId migrates notes', () async {
       final now = DateTime.now().toUtc();
       await dao.upsertNotebook(LocalNoteNotebook(
-          id: 'local-nb-1', name: 'X', position: 0.0, updatedAt: now));
+          id: 'local-nb-1', name: 'X', position: 0.0, updatedAt: now, ownerKey: 'test-scope'));
       await dao.upsertNote(LocalNote(
         id: 'n1',
         notebookId: 'local-nb-1',
@@ -265,6 +267,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: now,
+        ownerKey: 'test-scope',
       ));
       await dao.renameNotebookId('local-nb-1', 'srv-nb1');
       final note = await dao.noteById('n1');
@@ -403,6 +406,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: DateTime.now().toUtc(),
+        ownerKey: 'test-scope',
       ));
 
       await repo.updateNote('srv-n1', contentMd: 'edited');
@@ -453,6 +457,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: DateTime.now().toUtc(),
+        ownerKey: 'test-scope',
       ));
 
       final copy = await repo.saveAsCopy('srv-n1');
@@ -598,6 +603,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: now,
+        ownerKey: 'test-scope',
       ));
 
       final recovered = await repo.recoverOrphanedLocalNotes();
@@ -657,6 +663,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: DateTime.now().toUtc(),
+        ownerKey: 'test-scope',
       ));
       await repo.updateNote('srv-n1', contentMd: 'edited offline');
 
@@ -702,6 +709,7 @@ void main() {
         trashed: false,
         trashedAt: null,
         updatedAt: DateTime.now().toUtc(),
+        ownerKey: 'test-scope',
       ));
       await repo.updateNote('srv-n1', contentMd: 'edited');
       await flusher.flushOnce();
@@ -805,6 +813,7 @@ void main() {
         trashed: true,
         trashedAt: now,
         updatedAt: now,
+        ownerKey: 'test-scope',
       ));
       fake.addEvent('note.purged', {'note_id': 'srv-n9'});
 

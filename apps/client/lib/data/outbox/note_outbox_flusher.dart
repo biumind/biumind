@@ -244,6 +244,7 @@ class NoteOutboxFlusher {
       trashed: keepTrashed ? existing.trashed : (n.deletedAt != null),
       trashedAt: keepTrashed ? existing.trashedAt : n.deletedAt,
       updatedAt: n.updatedAt,
+      ownerKey: '', // 占位，由 DAO upsertNote 盖当前 scope（见 notes_dao.dart 顶部）
     ));
   }
 

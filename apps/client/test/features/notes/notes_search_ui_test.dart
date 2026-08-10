@@ -63,7 +63,7 @@ void main() {
       fake = await _FakeSearch.start();
       db = AppDb.memory();
       final repo = NotesRepository(
-        dao: NotesDao(db),
+        dao: NotesDao(db, scope: 'test-scope'),
         client: api.NotesClient(fake.url, 'tok'),
       );
       container = ProviderContainer(overrides: <Override>[

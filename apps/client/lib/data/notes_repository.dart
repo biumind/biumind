@@ -12,6 +12,12 @@
 //   * 回收站是软删状态（trashed），purge 才删行；
 //   * 冲突用户裁决：flusher 遇 409 丢 op 并发 NoteOutboxConflict，
 //     UI 调 [saveAsCopy] 把本地草稿另存为新笔记再人工合并。
+//
+// ownerKey（v33 Phase 33 数据隔离）：本仓库不持有 scope —— 构造
+// LocalNote / LocalNoteNotebook / LocalNoteTag 时 ownerKey 一律传 '' 占位，
+// NotesDao 在每次写入时按当前登录 scope 盖章覆盖（见 notes_dao.dart 顶部
+// 隔离说明）。读路径同样由 DAO 强制按 scope 过滤。'' 是非法值，即便漏盖
+// 也只会在查询中永不匹配（safe-fail，不泄露）。
 
 import 'dart:async';
 import 'dart:convert';
@@ -272,6 +278,7 @@ class NotesRepository {
           id: nb.id,
           name: nb.name,
           position: nb.position,
+          ownerKey: '',
           updatedAt: nb.updatedAt,
         ),
     ]);
@@ -290,7 +297,7 @@ class NotesRepository {
   Future<void> refreshTags() async {
     final tags = await client.listTags();
     await dao.upsertTags([
-      for (final t in tags) LocalNoteTag(id: t.id, name: t.name),
+      for (final t in tags) LocalNoteTag(id: t.id, name: t.name, ownerKey: ''),
     ]);
   }
 
@@ -307,6 +314,7 @@ class NotesRepository {
         trashedAt: n.deletedAt,
         archivedAt: n.archivedAt,
         promotedPageId: n.promotedPageId,
+        ownerKey: '',
         updatedAt: n.updatedAt,
       );
 
@@ -391,6 +399,7 @@ class NotesRepository {
             id: id,
             name: p['name'] as String? ?? '',
             position: (p['position'] as num?)?.toDouble() ?? 0.0,
+            ownerKey: '',
             updatedAt: e.createdAt,
           ));
         case 'notebook.deleted':
@@ -402,6 +411,7 @@ class NotesRepository {
             await dao.upsertTag(LocalNoteTag(
               id: id,
               name: p['name'] as String? ?? '',
+              ownerKey: '',
             ));
           }
         case 'note.tags_updated':
@@ -441,6 +451,7 @@ class NotesRepository {
       archivedAt:
           DateTime.tryParse(p['archived_at'] as String? ?? '')?.toUtc(),
       promotedPageId: p['promoted_page_id'] as String?,
+      ownerKey: '',
       updatedAt:
           DateTime.tryParse(p['updated_at'] as String? ?? '')?.toUtc() ??
               eventAt,
@@ -456,6 +467,7 @@ class NotesRepository {
       id: id,
       name: name,
       position: position ?? 0.0,
+      ownerKey: '',
       updatedAt: now,
     ));
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
@@ -483,6 +495,7 @@ class NotesRepository {
       id: id,
       name: name ?? existing.name,
       position: position ?? existing.position,
+      ownerKey: '',
       updatedAt: now,
     ));
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
@@ -534,6 +547,7 @@ class NotesRepository {
       trashedAt: null,
       archivedAt: null,
       promotedPageId: null,
+      ownerKey: '',
       updatedAt: now,
     ));
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
@@ -601,6 +615,7 @@ class NotesRepository {
       trashedAt: existing.trashedAt,
       archivedAt: existing.archivedAt,
       promotedPageId: existing.promotedPageId,
+      ownerKey: '',
       updatedAt: now,
     ));
     final payload = <String, dynamic>{};
@@ -672,7 +687,7 @@ class NotesRepository {
   Future<RepoTag> createTag(String name) async {
     final id = 'local-${_uuid.v4()}';
     final now = DateTime.now().toUtc();
-    await dao.upsertTag(LocalNoteTag(id: id, name: name));
+    await dao.upsertTag(LocalNoteTag(id: id, name: name, ownerKey: ''));
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
       op: NoteOutboxOp.createTag,
       entityId: id,

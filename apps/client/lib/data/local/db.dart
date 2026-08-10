@@ -112,6 +112,9 @@ class NoteNotebooks extends Table {
   TextColumn get name => text()();
   RealColumn get position => real().withDefault(const Constant(0.0))();
   DateTimeColumn get updatedAt => dateTime()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -139,6 +142,9 @@ class NoteNotes extends Table {
   /// 「已转入知识库」只读提示条。
   TextColumn get promotedPageId => text().nullable()();
   DateTimeColumn get updatedAt => dateTime()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -150,6 +156,9 @@ class NoteNotes extends Table {
 class NoteTags extends Table {
   TextColumn get id => text()();
   TextColumn get name => text()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -160,6 +169,9 @@ class NoteTags extends Table {
 class NoteNoteTags extends Table {
   TextColumn get noteId => text()();
   TextColumn get tagId => text()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// v33（Phase 33）加列；迁移已清空无归属存量行（跨账号泄露源）。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 
   @override
   Set<Column> get primaryKey => {noteId, tagId};
@@ -186,6 +198,10 @@ class NoteOutbox extends Table {
   TextColumn get lastError => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get nextAttemptAt => dateTime()();
+  /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
+  /// flusher 只 flush 当前登录 scope 的 op（v33 Phase 33 加列），杜绝
+  /// 「下个账号登录后把上个账号未冲刷的写盒 flush 进自己账号」的串写。
+  TextColumn get ownerKey => text().withDefault(const Constant(''))();
 }
 
 // ─── Chat tables: ChatThreads / ChatMessages / MessageReactions /
@@ -622,7 +638,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 32;
+  int get schemaVersion => 33;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -827,6 +843,33 @@ class AppDb extends _$AppDb {
             // 纯新表；注意这是重建的 chat_outbox（v12 DROP 过 v1 老表，
             // 表名相同但 schema 无关，IF EXISTS 已保证老表不在）。
             await m.createTable(chatOutbox);
+          }
+          if (from < 33) {
+            // Phase 33: 笔记域 P0 本地数据隔离（对齐 Phase 30 给 chat 做的
+            // ownerKey 隔离，docs/BiuMind-Local-Data-Isolation-Design.md §2/§3）。
+            // note_notes / note_notebooks / note_tags / note_note_tags /
+            // note_outbox 五表加 ownerKey scope 列，并清空全部存量行。
+            //
+            // 根因：笔记表此前无任何用户隔离（chat 在 Phase 30 已修，笔记被
+            // 漏掉），本地持久化的笔记不按账号过滤、登出也不清——重新部署 +
+            // 重新注册登录后，桌面端会把上一账号/上一套部署的笔记直接展示给
+            // 新账号（跨账号泄露）。存量行没有归属信息（本身就是泄露源），
+            // 禁止「猜归属」；服务端有权威副本，清空后下一次 hydrate 无感恢复。
+            //
+            // 下界防 duplicate column：from < 28 时 Phase 28 的 createTable
+            // 已按当前 schema（含 ownerKey）建表，再 addColumn 会报重复。
+            if (from >= 28) {
+              await m.addColumn(noteNotes, noteNotes.ownerKey);
+              await m.addColumn(noteNotebooks, noteNotebooks.ownerKey);
+              await m.addColumn(noteTags, noteTags.ownerKey);
+              await m.addColumn(noteNoteTags, noteNoteTags.ownerKey);
+              await m.addColumn(noteOutbox, noteOutbox.ownerKey);
+            }
+            await m.database.customStatement('DELETE FROM note_notes');
+            await m.database.customStatement('DELETE FROM note_notebooks');
+            await m.database.customStatement('DELETE FROM note_tags');
+            await m.database.customStatement('DELETE FROM note_note_tags');
+            await m.database.customStatement('DELETE FROM note_outbox');
           }
         },
       );

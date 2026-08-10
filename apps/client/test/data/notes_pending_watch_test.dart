@@ -29,7 +29,7 @@ void main() {
 
   setUp(() {
     db = AppDb.memory();
-    dao = NotesDao(db);
+    dao = NotesDao(db, scope: 'test-scope');
     // 不可达地址即可：本组测试只走本地 Drift 流，不触发 HTTP。
     repo = NotesRepository(
       dao: dao,
@@ -55,6 +55,7 @@ void main() {
       trashed: false,
       trashedAt: null,
       updatedAt: DateTime.now().toUtc(),
+      ownerKey: 'test-scope',
     ));
 
     final emissions = <List<RepoNote>>[];

@@ -7,43 +7,63 @@
 // 与 WikiDao 的差异：笔记无块层（contentMd 整篇存一行）；回收站用
 // trashed/trashedAt 列表达；组织维度从 projectId 换成 nullable
 // notebookId + 标签关联表。
+//
+// P0 数据隔离（v33 Phase 33，对齐 chat 的 ownerKey 隔离，
+// docs/BiuMind-Local-Data-Isolation-Design.md §2/§3）：构造时绑定 ownerKey
+// scope（sha256(环境) + ":" + userId），**所有读强制 `ownerKey = scope`
+// 过滤、所有写一律盖章 `ownerKey = scope`**。'' 为非法值（查询永不匹配，
+// v33 migration 已清空全部无归属存量行）。compile 期 scope 必填非空，
+// 不存在「不过滤 / 不盖章」的调用路径。笔记表此前无任何隔离，本地持久化
+// 的笔记不按账号过滤、登出也不清——重新部署 + 重新注册登录后桌面端会把
+// 上一账号的笔记直接展示给新账号（跨账号泄露）；本隔离根除该问题。
 
 import 'package:drift/drift.dart';
 
 import 'db.dart';
 
 class NotesDao {
-  NotesDao(this._db);
+  NotesDao(this._db, {required this.scope}) : assert(scope.isNotEmpty);
 
   final AppDb _db;
+
+  /// 当前登录态的 owner scope（见 chat_scope.dart）。所有查询/更新/删除
+  /// 一律带 `ownerKey = scope` 条件，写入一律落 scope。
+  final String scope;
 
   // ─── notebooks ────────────────────────────────────────────
 
   Stream<List<LocalNoteNotebook>> watchNotebooks() {
     return (_db.select(_db.noteNotebooks)
+          ..where((t) => t.ownerKey.equals(scope))
           ..orderBy([(t) => OrderingTerm(expression: t.position)]))
         .watch();
   }
 
   Future<List<LocalNoteNotebook>> listNotebooks() {
     return (_db.select(_db.noteNotebooks)
+          ..where((t) => t.ownerKey.equals(scope))
           ..orderBy([(t) => OrderingTerm(expression: t.position)]))
         .get();
   }
 
   Future<LocalNoteNotebook?> notebookById(String id) {
-    return (_db.select(_db.noteNotebooks)..where((t) => t.id.equals(id)))
+    return (_db.select(_db.noteNotebooks)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
         .getSingleOrNull();
   }
 
   Future<void> upsertNotebook(LocalNoteNotebook row) {
-    return _db.into(_db.noteNotebooks).insertOnConflictUpdate(row);
+    return _db.into(_db.noteNotebooks)
+        .insertOnConflictUpdate(row.copyWith(ownerKey: scope));
   }
 
   Future<void> upsertNotebooks(List<LocalNoteNotebook> rows) async {
     if (rows.isEmpty) return;
     await _db.batch((b) {
-      b.insertAllOnConflictUpdate(_db.noteNotebooks, rows);
+      b.insertAllOnConflictUpdate(
+        _db.noteNotebooks,
+        [for (final r in rows) r.copyWith(ownerKey: scope)],
+      );
     });
   }
 
@@ -55,17 +75,19 @@ class NotesDao {
   Future<void> renameNotebookId(String oldId, String newId) async {
     await _db.transaction(() async {
       final existing = await (_db.select(_db.noteNotebooks)
-            ..where((t) => t.id.equals(oldId)))
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
           .getSingleOrNull();
       if (existing == null) return;
-      await (_db.delete(_db.noteNotebooks)..where((t) => t.id.equals(oldId)))
+      await (_db.delete(_db.noteNotebooks)
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
           .go();
       await _db.into(_db.noteNotebooks).insert(
-            existing.copyWith(id: newId),
+            existing.copyWith(id: newId, ownerKey: scope),
             mode: InsertMode.insertOrReplace,
           );
       await (_db.update(_db.noteNotes)
-            ..where((t) => t.notebookId.equals(oldId)))
+            ..where((t) =>
+                t.notebookId.equals(oldId) & t.ownerKey.equals(scope)))
           .write(NoteNotesCompanion(notebookId: Value(newId)));
     });
   }
@@ -73,7 +95,9 @@ class NotesDao {
   /// 服务端软删笔记本后本地直接删行（本地表无软删列）；挂着的笔记
   /// 由服务端还原逻辑置根，changes 增量会把它们刷成 notebook_id=NULL。
   Future<void> hardDeleteNotebook(String id) async {
-    await (_db.delete(_db.noteNotebooks)..where((t) => t.id.equals(id))).go();
+    await (_db.delete(_db.noteNotebooks)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+        .go();
   }
 
   // ─── notes ────────────────────────────────────────────────
@@ -86,6 +110,7 @@ class NotesDao {
     bool todoOnly = false,
   }) {
     final q = _db.select(_db.noteNotes)
+      ..where((t) => t.ownerKey.equals(scope))
       ..where((t) => t.trashed.equals(false))
       ..where((t) => t.archivedAt.isNull())
       ..orderBy([
@@ -107,6 +132,7 @@ class NotesDao {
   /// 回收站视图，按丢弃时间倒序。
   Stream<List<LocalNote>> watchTrash() {
     return (_db.select(_db.noteNotes)
+          ..where((t) => t.ownerKey.equals(scope))
           ..where((t) => t.trashed.equals(true))
           ..orderBy([
             (t) =>
@@ -122,21 +148,25 @@ class NotesDao {
     final q = _db.select(notes).join([
       innerJoin(links, links.noteId.equalsExp(notes.id)),
     ])
-      ..where(links.tagId.equals(tagId) & notes.trashed.equals(false))
+      ..where(links.tagId.equals(tagId) &
+          notes.ownerKey.equals(scope) &
+          notes.trashed.equals(false))
       ..orderBy([OrderingTerm(expression: notes.position)]);
     return q.watch().map(
         (rows) => rows.map((r) => r.readTable(notes)).toList());
   }
 
   Future<LocalNote?> noteById(String id) {
-    return (_db.select(_db.noteNotes)..where((t) => t.id.equals(id)))
+    return (_db.select(_db.noteNotes)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
         .getSingleOrNull();
   }
 
   /// id 以 [prefix] 开头的笔记行（含回收站）。用于启动时扫描历史
   /// 'local-' 占位 id 的孤儿笔记（见 repository.recoverOrphanedLocalNotes）。
   Future<List<LocalNote>> notesWithIdPrefix(String prefix) {
-    return (_db.select(_db.noteNotes)..where((t) => t.id.like('$prefix%')))
+    return (_db.select(_db.noteNotes)
+          ..where((t) => t.id.like('$prefix%') & t.ownerKey.equals(scope)))
         .get();
   }
 
@@ -144,15 +174,21 @@ class NotesDao {
   /// 类每列都有值），必须连 null 也写进去。insertOnConflictUpdate 走
   /// toColumns(nullToAbsent: true)，null 列会被当成 absent 而保留旧值
   /// —— unarchive 清 archivedAt、还原清 trashedAt、移回根清 notebookId
-  /// 都依赖 replace 才能真正清掉（N3 修复）。
+  /// 都依赖 replace 才能真正清掉（N3 修复）。ownerKey 由本方法强制盖当前
+  /// scope（repository 传入的占位 '' 被覆盖），保证写入必落正确归属。
   Future<void> upsertNote(LocalNote row) {
-    return _db.into(_db.noteNotes).insert(row, mode: InsertMode.replace);
+    return _db.into(_db.noteNotes)
+        .insert(row.copyWith(ownerKey: scope), mode: InsertMode.replace);
   }
 
   Future<void> upsertNotes(List<LocalNote> rows) async {
     if (rows.isEmpty) return;
     await _db.batch((b) {
-      b.insertAll(_db.noteNotes, rows, mode: InsertMode.replace);
+      b.insertAll(
+        _db.noteNotes,
+        [for (final r in rows) r.copyWith(ownerKey: scope)],
+        mode: InsertMode.replace,
+      );
     });
   }
 
@@ -161,24 +197,28 @@ class NotesDao {
     if (oldId == newId) return;
     await _db.transaction(() async {
       final existing = await (_db.select(_db.noteNotes)
-            ..where((t) => t.id.equals(oldId)))
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
           .getSingleOrNull();
       if (existing == null) return;
-      await (_db.delete(_db.noteNotes)..where((t) => t.id.equals(oldId)))
+      await (_db.delete(_db.noteNotes)
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
           .go();
       await _db.into(_db.noteNotes).insert(
-            existing.copyWith(id: newId),
+            existing.copyWith(id: newId, ownerKey: scope),
             mode: InsertMode.insertOrReplace,
           );
       await (_db.update(_db.noteNoteTags)
-            ..where((t) => t.noteId.equals(oldId)))
+            ..where((t) =>
+                t.noteId.equals(oldId) & t.ownerKey.equals(scope)))
           .write(NoteNoteTagsCompanion(noteId: Value(newId)));
     });
   }
 
   /// 进回收站（本地乐观写；tombstone 事件到达时同样走这里）。
   Future<void> markNoteTrashed(String id, DateTime trashedAt) async {
-    await (_db.update(_db.noteNotes)..where((t) => t.id.equals(id))).write(
+    await (_db.update(_db.noteNotes)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+        .write(
       NoteNotesCompanion(
         trashed: const Value(true),
         trashedAt: Value(trashedAt),
@@ -188,7 +228,9 @@ class NotesDao {
   }
 
   Future<void> markNoteRestored(String id) async {
-    await (_db.update(_db.noteNotes)..where((t) => t.id.equals(id))).write(
+    await (_db.update(_db.noteNotes)
+          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+        .write(
       NoteNotesCompanion(
         trashed: const Value(false),
         trashedAt: const Value(null),
@@ -200,9 +242,13 @@ class NotesDao {
   /// 物理删除（purge）；连标签关联一起清。
   Future<void> hardDeleteNote(String id) async {
     await _db.transaction(() async {
-      await (_db.delete(_db.noteNoteTags)..where((t) => t.noteId.equals(id)))
+      await (_db.delete(_db.noteNoteTags)
+            ..where((t) =>
+                t.noteId.equals(id) & t.ownerKey.equals(scope)))
           .go();
-      await (_db.delete(_db.noteNotes)..where((t) => t.id.equals(id))).go();
+      await (_db.delete(_db.noteNotes)
+            ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+          .go();
     });
   }
 
@@ -210,40 +256,49 @@ class NotesDao {
 
   Stream<List<LocalNoteTag>> watchTags() {
     return (_db.select(_db.noteTags)
+          ..where((t) => t.ownerKey.equals(scope))
           ..orderBy([(t) => OrderingTerm(expression: t.name)]))
         .watch();
   }
 
   Future<List<LocalNoteTag>> listTags() {
     return (_db.select(_db.noteTags)
+          ..where((t) => t.ownerKey.equals(scope))
           ..orderBy([(t) => OrderingTerm(expression: t.name)]))
         .get();
   }
 
   Future<void> upsertTag(LocalNoteTag row) {
-    return _db.into(_db.noteTags).insertOnConflictUpdate(row);
+    return _db.into(_db.noteTags)
+        .insertOnConflictUpdate(row.copyWith(ownerKey: scope));
   }
 
   Future<void> upsertTags(List<LocalNoteTag> rows) async {
     if (rows.isEmpty) return;
     await _db.batch((b) {
-      b.insertAllOnConflictUpdate(_db.noteTags, rows);
+      b.insertAllOnConflictUpdate(
+        _db.noteTags,
+        [for (final r in rows) r.copyWith(ownerKey: scope)],
+      );
     });
   }
 
   Future<void> renameTagId(String oldId, String newId) async {
     await _db.transaction(() async {
       final existing = await (_db.select(_db.noteTags)
-            ..where((t) => t.id.equals(oldId)))
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
           .getSingleOrNull();
       if (existing == null) return;
-      await (_db.delete(_db.noteTags)..where((t) => t.id.equals(oldId))).go();
+      await (_db.delete(_db.noteTags)
+            ..where((t) => t.id.equals(oldId) & t.ownerKey.equals(scope)))
+          .go();
       await _db.into(_db.noteTags).insert(
-            existing.copyWith(id: newId),
+            existing.copyWith(id: newId, ownerKey: scope),
             mode: InsertMode.insertOrReplace,
           );
       await (_db.update(_db.noteNoteTags)
-            ..where((t) => t.tagId.equals(oldId)))
+            ..where((t) =>
+                t.tagId.equals(oldId) & t.ownerKey.equals(scope)))
           .write(NoteNoteTagsCompanion(tagId: Value(newId)));
     });
   }
@@ -252,12 +307,16 @@ class NotesDao {
   Future<void> setNoteTags(String noteId, List<String> tagIds) async {
     await _db.transaction(() async {
       await (_db.delete(_db.noteNoteTags)
-            ..where((t) => t.noteId.equals(noteId)))
+            ..where((t) =>
+                t.noteId.equals(noteId) & t.ownerKey.equals(scope)))
           .go();
       await _db.batch((b) {
         b.insertAll(
           _db.noteNoteTags,
-          [for (final tagId in tagIds) NoteNoteTag(noteId: noteId, tagId: tagId)],
+          [
+            for (final tagId in tagIds)
+              NoteNoteTag(noteId: noteId, tagId: tagId, ownerKey: scope),
+          ],
           mode: InsertMode.insertOrIgnore,
         );
       });
@@ -266,7 +325,8 @@ class NotesDao {
 
   Future<List<String>> listTagIdsForNote(String noteId) async {
     final rows = await (_db.select(_db.noteNoteTags)
-          ..where((t) => t.noteId.equals(noteId)))
+          ..where((t) =>
+              t.noteId.equals(noteId) & t.ownerKey.equals(scope)))
         .get();
     return rows.map((r) => r.tagId).toList();
   }
@@ -274,16 +334,20 @@ class NotesDao {
   // ─── outbox ───────────────────────────────────────────────
 
   /// Returns rows that are ready to be flushed (`nextAttemptAt <= now`).
+  /// 只看当前 scope 的 op —— flusher 永不冲刷别的账号的写盒。
   Future<List<NoteOutboxEntry>> dueOutbox({DateTime? now}) {
     final t = now ?? DateTime.now().toUtc();
     return (_db.select(_db.noteOutbox)
-          ..where((r) => r.nextAttemptAt.isSmallerOrEqualValue(t))
+          ..where((r) =>
+              r.nextAttemptAt.isSmallerOrEqualValue(t) &
+              r.ownerKey.equals(scope))
           ..orderBy([(r) => OrderingTerm(expression: r.id)]))
         .get();
   }
 
   Future<List<NoteOutboxEntry>> allOutbox() {
     return (_db.select(_db.noteOutbox)
+          ..where((r) => r.ownerKey.equals(scope))
           ..orderBy([(r) => OrderingTerm(expression: r.id)]))
         .get();
   }
@@ -292,35 +356,48 @@ class NotesDao {
   /// 后 rekey 过的最新 entityId/payloadJson（flushOnce 开头的 due 快照
   /// 是旧的）。
   Future<NoteOutboxEntry?> outboxById(int id) {
-    return (_db.select(_db.noteOutbox)..where((r) => r.id.equals(id)))
+    return (_db.select(_db.noteOutbox)
+          ..where((r) => r.id.equals(id) & r.ownerKey.equals(scope)))
         .getSingleOrNull();
   }
 
   /// 整表 watch —— outbox 很小（未冲刷的乐观写），repository 用它作触发
   /// 流，让 watch 流里的 pending 标志在订阅期内随 outbox 变化刷新。
+  /// 只暴露当前 scope 的 op。
   Stream<List<NoteOutboxEntry>> watchOutbox() {
     return (_db.select(_db.noteOutbox)
+          ..where((r) => r.ownerKey.equals(scope))
           ..orderBy([(r) => OrderingTerm(expression: r.id)]))
         .watch();
   }
 
   Stream<int> watchOutboxCount() {
     final c = _db.noteOutbox.id.count();
-    final q = _db.selectOnly(_db.noteOutbox)..addColumns([c]);
+    final q = _db.selectOnly(_db.noteOutbox)
+      ..addColumns([c])
+      ..where(_db.noteOutbox.ownerKey.equals(scope));
     return q.watchSingle().map((r) => r.read(c) ?? 0);
   }
 
+  /// 入队一条 outbox op。ownerKey 强制盖当前 scope（调用方构造 companion
+  /// 时不带 ownerKey，本方法补上），杜绝跨账号串写。
   Future<int> enqueueOutbox(NoteOutboxCompanion entry) {
-    return _db.into(_db.noteOutbox).insert(entry);
+    return _db
+        .into(_db.noteOutbox)
+        .insert(entry.copyWith(ownerKey: Value(scope)));
   }
 
   Future<void> deleteOutbox(int id) async {
-    await (_db.delete(_db.noteOutbox)..where((r) => r.id.equals(id))).go();
+    await (_db.delete(_db.noteOutbox)
+          ..where((r) => r.id.equals(id) & r.ownerKey.equals(scope)))
+        .go();
   }
 
   Future<void> bumpOutboxFailure(
       int id, String error, DateTime nextAttempt) async {
-    await (_db.update(_db.noteOutbox)..where((r) => r.id.equals(id))).write(
+    await (_db.update(_db.noteOutbox)
+          ..where((r) => r.id.equals(id) & r.ownerKey.equals(scope)))
+        .write(
       NoteOutboxCompanion(
         attempts: const Value.absent(),
         lastError: Value(error),
@@ -329,8 +406,9 @@ class NotesDao {
     );
     // Increment attempts via a separate raw update so the value isn't lost.
     await _db.customStatement(
-      'UPDATE note_outbox SET attempts = attempts + 1 WHERE id = ?',
-      [id],
+      'UPDATE note_outbox SET attempts = attempts + 1 '
+      'WHERE id = ? AND owner_key = ?',
+      [id, scope],
     );
   }
 
@@ -339,33 +417,38 @@ class NotesDao {
   /// 以及 payloadJson 里的引用（create_note/update_note 的 notebook_id、
   /// set_note_tags 的 tag_ids 列表）。id 是 uuid 形态，在 JSON 里只会以
   /// 完整字符串值出现（content_md 等内容里的引号已被转义），所以精确
-  /// 替换 '"old"' → '"new"' 是安全的。
+  /// 替换 '"old"' → '"new"' 是安全的。全部限定当前 scope。
   Future<void> rekeyOutbox({
     required String oldEntityId,
     required String newEntityId,
   }) async {
     await _db.transaction(() async {
       await (_db.update(_db.noteOutbox)
-            ..where((r) => r.entityId.equals(oldEntityId)))
+            ..where((r) =>
+                r.entityId.equals(oldEntityId) & r.ownerKey.equals(scope)))
           .write(NoteOutboxCompanion(entityId: Value(newEntityId)));
       await (_db.update(_db.noteOutbox)
-            ..where((r) => r.notebookId.equals(oldEntityId)))
+            ..where((r) =>
+                r.notebookId.equals(oldEntityId) & r.ownerKey.equals(scope)))
           .write(NoteOutboxCompanion(notebookId: Value(newEntityId)));
       final stale = await (_db.select(_db.noteOutbox)
-            ..where((r) => r.payloadJson.like('%$oldEntityId%')))
+            ..where((r) =>
+                r.payloadJson.like('%$oldEntityId%') &
+                r.ownerKey.equals(scope)))
           .get();
       for (final row in stale) {
         final patched =
             row.payloadJson.replaceAll('"$oldEntityId"', '"$newEntityId"');
         if (patched == row.payloadJson) continue;
         await (_db.update(_db.noteOutbox)
-              ..where((r) => r.id.equals(row.id)))
+              ..where((r) => r.id.equals(row.id) & r.ownerKey.equals(scope)))
             .write(NoteOutboxCompanion(payloadJson: Value(patched)));
       }
     });
   }
 
-  /// Wipe everything — used on logout and in tests.
+  /// Wipe everything — used on logout and in tests. 不按 scope 过滤：
+  /// 登出语义就是清掉本域全部本地行（与 wiki/aigc 同）。
   Future<void> wipe() async {
     await _db.transaction(() async {
       await _db.delete(_db.noteOutbox).go();
