@@ -83,6 +83,15 @@ func streamAsAnthropic(
 		stopReason   = ""
 		errMsg       = ""
 		hasError     = false
+		// stopSeen tracks whether the provider emitted a terminal
+		// FrameStop (openai finish_reason / anthropic message_delta stop).
+		// A stream that closes without one was truncated mid-flight (the
+		// openai gateway occasionally drops before finish_reason). We do
+		// NOT emit an Anthropic error frame for truncation — the engine
+		// self-heals the resulting partial tool_use via malformed-input
+		// recovery — but we report success=false so billing/usage reflect
+		// the truth instead of masquerading truncation as a clean end_turn.
+		stopSeen = false
 	)
 
 	openText := func() {
@@ -201,6 +210,7 @@ func streamAsAnthropic(
 				usage = *f.Usage
 			}
 		case provider.FrameStop:
+			stopSeen = true
 			stopReason = mapStopReason(f.Stop, len(toolBlocks) > 0)
 		case provider.FrameError:
 			hasError = true
@@ -261,6 +271,13 @@ func streamAsAnthropic(
 	writeAnthropicSSE(w, flusher, "message_stop", map[string]any{
 		"type": "message_stop",
 	})
+	// success requires a clean terminal frame. A stream that closed
+	// without FrameStop was truncated — report it honestly (billing/
+	// usage) even though the wire above masquerades as end_turn so the
+	// engine's malformed-input self-heal can recover the turn.
+	if !stopSeen {
+		return usage, false, "truncated"
+	}
 	return usage, !hasError, ""
 }
 

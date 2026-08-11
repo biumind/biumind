@@ -165,8 +165,11 @@ func TestParseEmptyToolInput(t *testing.T) {
 }
 
 func TestParseMalformedToolJSON(t *testing.T) {
-	// tool_use with partial JSON that doesn't close — should yield an
-	// ErrorEvent and skip the block, not crash.
+	// tool_use with partial JSON that doesn't close — the block is kept
+	// and marked ToolUseMalformed (not dropped, no fatal ErrorEvent) so
+	// the turn loop can synthesise a soft-error tool_result and let the
+	// model re-emit the call. Regression for the glm truncation bug where
+	// malformed input escaped as a terminal error.
 	frames := pushFrames([]StreamFrame{
 		{Type: FrameMessageStart, Message: &StreamMessageHead{Model: "x"}},
 		{Type: FrameContentBlockStart, Index: 0, ContentBlock: &StreamBlockHead{
@@ -192,19 +195,27 @@ func TestParseMalformedToolJSON(t *testing.T) {
 	close(out)
 	<-doneCh
 
-	// Block should be dropped — only the (malformed) tool_use, no
-	// healthy content.
-	if len(msg.Content) != 0 {
-		t.Errorf("expected 0 blocks, got %+v", msg.Content)
+	// Malformed block is retained and marked — callsFromAssistant skips
+	// it, the turn loop synthesises a soft-error result for this id.
+	if len(msg.Content) != 1 || msg.Content[0].Type != state.ContentToolUse {
+		t.Fatalf("expected 1 tool_use block, got %+v", msg.Content)
 	}
-	hasErr := false
+	b := msg.Content[0]
+	if b.ToolUseID != "toolu_x" || b.ToolUseName != "Bash" {
+		t.Errorf("block identity lost: %+v", b)
+	}
+	if b.ToolUseMalformed == "" {
+		t.Errorf("expected ToolUseMalformed reason set, got empty")
+	}
+	if b.ToolUseInput != nil {
+		t.Errorf("malformed block should have nil input, got %+v", b.ToolUseInput)
+	}
+	// No fatal ErrorEvent must escape — recovery is in-band via the turn
+	// loop's soft-error tool_result, not a terminal error.
 	for _, ev := range collected {
 		if _, ok := ev.(*ErrorEvent); ok {
-			hasErr = true
+			t.Errorf("malformed tool_use must not emit ErrorEvent (would be terminal), got %+v", ev)
 		}
-	}
-	if !hasErr {
-		t.Errorf("expected ErrorEvent for malformed tool_use json")
 	}
 }
 

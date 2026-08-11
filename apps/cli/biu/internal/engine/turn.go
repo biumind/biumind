@@ -27,6 +27,12 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
 )
 
+// maxConsecutiveMalformed caps how many consecutive turns may self-heal
+// a malformed/truncated tool_use input (soft-error result → model retry)
+// before the engine gives up. Prevents a persistently truncating upstream
+// from looping until maxToolTurns (token/latency bomb).
+const maxConsecutiveMalformed = 3
+
 func (e *QueryEngine) runSubmit(
 	ctx context.Context,
 	out chan<- Event,
@@ -39,6 +45,11 @@ func (e *QueryEngine) runSubmit(
 	turnCacheRead := 0
 	turnCacheWrite := 0
 	stopReason := ""
+	// consecutiveMalformed counts consecutive turns where the LLM emitted
+	// at least one tool_use block whose streamed input JSON failed to
+	// parse. Capped so a persistently truncating upstream can't loop the
+	// self-heal path until maxToolTurns (token/latency bomb).
+	consecutiveMalformed := 0
 
 	// Track whether the success-path Stop hook fired. Defer fires
 	// StopFailure (P20.55) when the turn returns without a clean
@@ -435,7 +446,24 @@ func (e *QueryEngine) runSubmit(
 
 		case "tool_use":
 			calls := callsFromAssistant(assistant)
-			if len(calls) == 0 {
+			malformed := malformedBlocks(assistant)
+			if len(malformed) > 0 {
+				consecutiveMalformed++
+				// A persistently truncating upstream would otherwise loop
+				// the self-heal path until maxToolTurns — a token/latency
+				// bomb. Bail early with a clear, non-recoverable error.
+				if consecutiveMalformed > maxConsecutiveMalformed {
+					SafeSend(out, &ErrorEvent{
+						Err: fmt.Errorf("malformed tool input persists after %d consecutive retries; aborting turn",
+							consecutiveMalformed),
+						Source: ErrSrcLLM, Recoverable: false,
+					}, ctx.Done())
+					return
+				}
+			} else {
+				consecutiveMalformed = 0
+			}
+			if len(calls) == 0 && len(malformed) == 0 {
 				// Defensive: stop_reason said tool_use but no blocks
 				// found. Bail out so we don't infinite-loop.
 				SafeSend(out, &ErrorEvent{
@@ -452,6 +480,23 @@ func (e *QueryEngine) runSubmit(
 			// after Interrupt(). softError for the tool name surfaces the
 			// reason to the model on the next turn (when the user resumes).
 			outs = backfillInterruptedToolResults(out, calls, outs, ctx)
+			// Soft-error tool_results for malformed-input blocks: every
+			// tool_use needs a matching tool_result (Anthropic pairing),
+			// and the model gets a clean, actionable reason to re-emit the
+			// call next round. Non-fatal — emit ToolUseResultEvent (not
+			// ErrorEvent, which the SDK consumer treats as terminal) so the
+			// turn continues and the UI shows the failed tool inline.
+			for _, b := range malformed {
+				payload := softError(b.ToolUseName, b.ToolUseMalformed)
+				outs = append(outs, runnerOutput{
+					UseID:   b.ToolUseID,
+					Name:    b.ToolUseName,
+					Payload: payload,
+				})
+				SafeSend(out, &ToolUseResultEvent{
+					ID: b.ToolUseID, Name: b.ToolUseName, Result: payload,
+				}, nil)
+			}
 			toolResultMsg := buildToolResultMessage(outs)
 			toolResultMsg.CreatedAt = time.Now().UTC()
 			e.state.AppendMessage(toolResultMsg)

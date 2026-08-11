@@ -119,11 +119,18 @@ func groupBySafety(reg ToolRegistry, calls []runnerInput) [][]int {
 }
 
 // callsFromAssistant pulls the tool_use blocks out of an assistant
-// message in the order they appeared.
+// message in the order they appeared. Blocks with malformed input are
+// skipped (the turn loop synthesises soft-error results for them).
 func callsFromAssistant(msg state.Message) []runnerInput {
 	out := []runnerInput{}
 	for _, b := range msg.Content {
 		if b.Type != state.ContentToolUse {
+			continue
+		}
+		if b.ToolUseMalformed != "" {
+			// Malformed-input blocks are not executed — the turn loop
+			// synthesises a soft-error tool_result for them so the model
+			// can re-emit the call. Skip real dispatch here.
 			continue
 		}
 		out = append(out, runnerInput{
@@ -131,6 +138,20 @@ func callsFromAssistant(msg state.Message) []runnerInput {
 			Name:  b.ToolUseName,
 			Input: b.ToolUseInput,
 		})
+	}
+	return out
+}
+
+// malformedBlocks returns the tool_use blocks in msg whose streamed
+// input JSON failed to parse (ToolUseMalformed != ""). They are not
+// dispatched to real tools; the turn loop synthesises soft-error
+// tool_results so the model can re-emit them next round.
+func malformedBlocks(msg state.Message) []state.ContentBlock {
+	var out []state.ContentBlock
+	for _, b := range msg.Content {
+		if b.Type == state.ContentToolUse && b.ToolUseMalformed != "" {
+			out = append(out, b)
+		}
 	}
 	return out
 }

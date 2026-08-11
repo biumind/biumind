@@ -115,6 +115,12 @@ type StreamError struct {
 	Message string `json:"message"`
 }
 
+// malformedToolInputReason is the model-facing reason attached to a
+// tool_use block whose streamed input JSON failed to parse. Generic and
+// actionable; the raw partial fragment is intentionally omitted (useless
+// to the model, leaks parser internals).
+const malformedToolInputReason = "arguments were incomplete or invalid JSON (likely a stream interruption); re-emit the call with complete, valid JSON arguments"
+
 // ─── Parser ────────────────────────────────────────────
 
 // ParseStream consumes frames from `frames` and emits Events into
@@ -232,14 +238,21 @@ func ParseStream(
 					if raw == "" {
 						input = map[string]any{}
 					} else if err := json.Unmarshal([]byte(raw), &input); err != nil {
-						// Malformed JSON from the LLM. Surface as an
-						// error event and skip the block — engine will
-						// retry the turn.
-						SafeSend(out, &ErrorEvent{
-							Err:         fmt.Errorf("tool_use input json: %w (raw=%q)", err, raw),
-							Source:      ErrSrcLLM,
-							Recoverable: true,
-						}, done)
+						// Malformed/truncated tool input — typically an
+						// upstream stream cut mid-argument (e.g. glm
+						// truncating tool_calls.function.arguments).
+						// Don't fatal: mark the block malformed and keep
+						// it in the message so the turn loop synthesises
+						// a soft-error tool_result and lets the model
+						// re-emit the call next round. The raw fragment
+						// is parser-internal; the model gets a clean,
+						// actionable reason.
+						msg.Content = append(msg.Content, state.ContentBlock{
+							Type:             state.ContentToolUse,
+							ToolUseID:        b.toolID,
+							ToolUseName:      b.toolName,
+							ToolUseMalformed: malformedToolInputReason,
+						})
 						continue
 					}
 					msg.Content = append(msg.Content, state.ContentBlock{

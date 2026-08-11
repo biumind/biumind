@@ -7,6 +7,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -430,6 +431,87 @@ func twoToolsTurn(id1, name1, in1, id2, name2, in2 string) []StreamFrame {
 		{Type: FrameContentBlockStop, Index: 1},
 		{Type: FrameMessageDelta, Delta: &StreamDelta{StopReason: "tool_use"}},
 		{Type: FrameMessageStop},
+	}
+}
+
+// TestMalformedToolInputSelfHeals verifies the glm-truncation bug fix:
+// a tool_use whose streamed input JSON is incomplete (upstream cut
+// mid-argument) must NOT abort the turn. The engine synthesises a
+// soft-error tool_result for the malformed block, loops back, and the
+// model re-emits cleanly on the next round. No fatal ErrorEvent escapes.
+func TestMalformedToolInputSelfHeals(t *testing.T) {
+	// Turn 1: tool_use with truncated input JSON `{"` (the bug scenario).
+	// Turn 2: clean text after the model sees the soft-error result.
+	prov := &scriptedProvider{scripts: [][]StreamFrame{
+		toolUseTurn("calling tool", "tu_1", "Echo", `{"`),
+		textTurn("recovered"),
+	}}
+	st := state.New()
+	reg := NewRegistry()
+	eng, _ := New(Options{
+		State: st, Tools: reg, Provider: prov, Model: "test",
+		BypassPermissions: true,
+	})
+	events := drainAll(eng.Submit(context.Background(), "do the thing"))
+
+	// Engine must loop: turn 1 self-healed, turn 2 produced clean text.
+	if prov.calls != 2 {
+		t.Fatalf("expected provider called 2× (self-heal loop), got %d; events: %v", prov.calls, events)
+	}
+	// Malformed tool_use must yield a synthesised error tool_result.
+	sawErrResult := false
+	for _, ev := range events {
+		if r, ok := ev.(*ToolUseResultEvent); ok && r.ID == "tu_1" && r.Result.IsError {
+			sawErrResult = true
+		}
+	}
+	if !sawErrResult {
+		t.Errorf("expected soft-error ToolUseResultEvent for malformed tu_1")
+	}
+	// No terminal ErrorEvent — recovery is in-band via tool_result.
+	for _, ev := range events {
+		if e, ok := ev.(*ErrorEvent); ok {
+			t.Errorf("malformed self-heal must not emit fatal ErrorEvent: %+v", e)
+		}
+	}
+	// Turn reached a clean end after self-heal.
+	if !hasEvent(events, func(d *DoneEvent) bool { return d.StopReason == "end_turn" }) {
+		t.Errorf("expected Done{end_turn} after self-heal; events: %v", events)
+	}
+}
+
+// TestMalformedToolInputPersistsAborts verifies the cost-bomb guard: if
+// the model (or a stuck upstream) keeps emitting malformed tool input,
+// the engine gives up after maxConsecutiveMalformed turns instead of
+// looping until maxToolTurns.
+func TestMalformedToolInputPersistsAborts(t *testing.T) {
+	// Every turn is malformed — never recovers.
+	scripts := make([][]StreamFrame, maxConsecutiveMalformed+2)
+	for i := range scripts {
+		scripts[i] = toolUseTurn("again", "tu_"+strconv.Itoa(i), "Echo", `{"`)
+	}
+	prov := &scriptedProvider{scripts: scripts}
+	st := state.New()
+	reg := NewRegistry()
+	eng, _ := New(Options{
+		State: st, Tools: reg, Provider: prov, Model: "test",
+		BypassPermissions: true,
+	})
+	events := drainAll(eng.Submit(context.Background(), "do the thing"))
+
+	// Must abort with a non-recoverable ErrorEvent around the cap, not
+	// run all maxToolTurns iterations.
+	sawFatal := false
+	for _, ev := range events {
+		if e, ok := ev.(*ErrorEvent); ok && !e.Recoverable {
+			sawFatal = true
+		}
+	}
+	if !sawFatal {
+		t.Errorf("expected fatal ErrorEvent after %d consecutive malformed turns; events: %v", maxConsecutiveMalformed, events)
+	}
+	if prov.calls > maxConsecutiveMalformed+1 {
+		t.Errorf("engine ran %d turns, expected abort around %d", prov.calls, maxConsecutiveMalformed+1)
 	}
 }
 

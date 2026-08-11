@@ -128,6 +128,12 @@ type ContentBlock struct {
 	ToolUseID    string         `json:"id,omitempty"`
 	ToolUseName  string         `json:"name,omitempty"`
 	ToolUseInput map[string]any `json:"input,omitempty"`
+	// ToolUseMalformed != "" marks a tool_use block whose streamed input
+	// JSON failed to parse (typically an upstream stream truncation mid
+	// argument). callsFromAssistant skips it (no real tool execution),
+	// the turn loop synthesises a soft-error tool_result so the model can
+	// re-emit the call next round. Kept out of the SDK wire (engine-only).
+	ToolUseMalformed string `json:"-"`
 
 	// Type=tool_result (response we feed back to the LLM)
 	ToolResultID      string         `json:"tool_use_id,omitempty"`

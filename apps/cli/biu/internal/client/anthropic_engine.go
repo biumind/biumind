@@ -189,11 +189,19 @@ func contentBlockToWire(b state.ContentBlock) map[string]any {
 	case state.ContentText:
 		return map[string]any{"type": "text", "text": b.Text}
 	case state.ContentToolUse:
+		// nil/empty input must serialise as {} — Anthropic requires
+		// tool_use.input to be an object. A malformed block replayed in
+		// history (ToolUseInput nil after a parse failure) would otherwise
+		// emit "input":null and 400 the next request.
+		input := b.ToolUseInput
+		if len(input) == 0 {
+			input = map[string]any{}
+		}
 		return map[string]any{
 			"type":  "tool_use",
 			"id":    b.ToolUseID,
 			"name":  b.ToolUseName,
-			"input": b.ToolUseInput,
+			"input": input,
 		}
 	case state.ContentToolResult:
 		// Per claude.ts:1894-1902 — when is_error is true, content must
