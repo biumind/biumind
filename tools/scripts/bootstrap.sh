@@ -49,6 +49,24 @@ bold "4. Project state"
 [[ -d packages/proto ]] && ok "packages/proto present" || warn "proto schema not yet defined"
 [[ -f deploy/docker-compose/.env ]] && ok ".env present" || warn "no .env yet — copy from deploy/docker-compose/.env.example"
 
+# Milkdown WYSIWYG bundle —— notes/wiki 编辑器嵌入的 JS bundle。bundle 是
+# gitignore 构建产物（不入仓），fresh clone 后必须构建，否则编辑器白屏
+#（已踩过一次）。release CI 已建；这里给本地 dev 兜底。
+bold "5. Editor bundle (Milkdown WYSIWYG)"
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  if [[ -d apps/client/editor-web ]]; then
+    if (cd apps/client/editor-web && npm install --silent >/dev/null 2>&1 && npm run build >/dev/null 2>&1); then
+      ok "editor bundle built (apps/client/assets/editor + web/editor)"
+    else
+      warn "editor-web build failed — 后续手跑 task editor-web:build，否则 notes/wiki 编辑器白屏"
+    fi
+  else
+    warn "apps/client/editor-web 不存在，跳过 bundle 构建"
+  fi
+else
+  warn "node/npm 缺失 —— 跳过 editor bundle 构建（notes/wiki 编辑器首跑前需 task editor-web:build）"
+fi
+
 echo
 bold "Next steps:"
 echo "  task proto:generate    # 生成 Go / Dart / TS 客户端"

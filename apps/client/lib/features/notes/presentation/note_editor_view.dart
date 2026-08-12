@@ -1,25 +1,23 @@
-/// 笔记编辑器 —— 标题输入框 + flutter_smooth_markdown 正文编辑器
-///（NoteSmoothEditor，Typora 式原生 markdown 编辑，split 模式源码+预览同屏）。
+/// 笔记编辑器 —— 标题输入框 + Milkdown WYSIWYG（PageEditorView）。
 ///
-/// 接线链路（markdown 源码串端到端，存储链零改动）：
-///   * 自动保存：NoteSmoothEditor.onChanged → toCanonical → AutoSaveController
-///     .schedule（1.5s 防抖）→ NotesRepository.updateNote（乐观落 Drift +
-///     outbox，离线天然可用）。标题走第二个 AutoSaveController。IME 组合态
-///     （拼音未上屏）期间 onChanged 被包内抑制，不触发保存。
+/// 三条接线链路：
+///   * 自动保存：editor onMarkdownChanged → AutoSaveController.schedule
+///     （1.5s 防抖）→ saver 调 NotesRepository.updateNote（乐观落 Drift +
+///     outbox，离线天然可用）。标题走第二个 AutoSaveController。
 ///   * 远端覆盖：noteByIdProvider 流里 version 变化且非本机 pending 时
-///     （changes 轮询落库的他端变更），经 NoteSmoothEditorHandle.setDoc()
-///     推进编辑器（内置回声守卫，setDoc 不触发 onChanged）。
+///     （changes 轮询落库的他端变更），经 controllerRef 拿到的
+///     EditorBridgeController.setDoc() 推进编辑器。
 ///   * 409 冲突：订阅 NoteOutboxFlusher.conflicts，命中本笔记时弹
 ///     SnackBar「当前编辑基于旧版本，已被服务端更新覆盖」+「另存为副本」
 ///     （repository.saveAsCopy，设计 §4 D4 用户裁决，禁止 latest-wins）。
 ///   * 附件：标题行「插入图片 / 插入附件」→ 选文件 → presign 直传 →
-///     Handle.insertMarkdown 在光标处插 `![name](url)` / `[name](url)`；
-///     正文里的 biu-file:// 经 NoteAttachmentResolver 进编辑器换临时 URL、
+///     光标处插 `![name](url)` 图片或 `[name](url)` 链接；正文里的
+///     biu-file:// 经 NoteAttachmentResolver 进编辑器换临时 URL、
 ///     落库前换回规范 URI。
 ///
 /// 桌面三栏右栏 / 手机详情页共用。dispose 前 flush() 防丢半句输入。
-/// 桌面三栏切笔记复用同一 NoteSmoothEditor，新正文加载完成后经 Handle.setDoc
-/// 推进。wiki 页仍用 core/editor Milkdown（PageEditorView），本轮不动。
+/// 桌面三栏切笔记走 didUpdateWidget 复用同一编辑器 webview（不重建），
+/// 新正文加载完成后经 EditorBridgeController.setDoc 推进。
 library;
 
 import 'dart:async';
@@ -29,10 +27,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:flutter_smooth_markdown/flutter_smooth_markdown_editor.dart';
-
 import '../../../app/theme.dart';
+import '../../../core/editor/editor_bridge_controller.dart';
+import '../../../core/editor/editor_bridge_protocol.dart';
 import '../../../core/editor/page_autosave.dart';
+import '../../../core/editor/page_editor_view.dart';
 import '../../../core/layout/form_factor.dart';
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
@@ -42,7 +41,6 @@ import '../../code/data/files_client.dart';
 import '../application/notes_ui_providers.dart';
 import '../data/note_attachment_resolver.dart';
 import 'note_revisions_dialog.dart';
-import 'note_smooth_editor.dart';
 import 'notes_home_page.dart' show relativeTime;
 
 class NoteEditorView extends ConsumerStatefulWidget {
@@ -66,9 +64,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   /// 切笔记时「先 flush、再切 id」。
   late String _currentNoteId;
 
-  /// 笔记正文 smooth markdown 编辑器句柄（setDoc 远端覆盖 / insertMarkdown
-  /// 附件插入）。首屏挂载后由 NoteSmoothEditor.onControllerReady 回填。
-  NoteSmoothEditorHandle? _smoothHandle;
+  EditorBridgeController? _editorController;
   late final AutoSaveController _contentAutosave;
   late final AutoSaveController _titleAutosave;
   StreamSubscription<NoteOutboxConflict>? _conflictSub;
@@ -121,7 +117,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   ///
   /// 时序：先 flush 旧笔记的未保存内容（saver 读 _currentNoteId，此刻
   /// 仍是旧 id），再切 id、重置状态、重新加载 —— 顺序反了会把旧内容
-  /// 存到新笔记上。加载期间保留旧 _note，让 NoteSmoothEditor 挂在树上
+  /// 存到新笔记上。加载期间保留旧 _note，让 PageEditorView 挂在树上
   /// （置空会触发 FutureBuilder 的 spinner 分支把 webview 卸载）；
   /// 新正文加载完成后在 _loadNote 里经 setDoc 推进。
   void _switchNote() {
@@ -158,12 +154,10 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
             _lastVersion = note.version;
             _titleController.text = note.title;
           });
-          // 记下加载到的 canonical，_onRemoteNote 据此识别回声（含「只改标题、
-          // 正文未动」时收到的正文回声）。
-          _lastSavedCanonical = note.contentMd;
-          // 切笔记场景编辑器已存在，直接 setDoc 复用；首屏 handle 还没挂上，
-          // 由 initialMarkdown 喂入。
-          _smoothHandle?.setDoc(resolved);
+          // 切笔记场景编辑器（webview）已存在，直接 setDoc 复用；首屏
+          // controller 还没挂上，由 initialMarkdown 喂入。
+          final controller = _editorController;
+          if (controller != null) unawaited(controller.setDoc(resolved));
         }
       } else {
         setState(() => _note = null);
@@ -194,8 +188,8 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           status: AutoSaveStatus.error, errorMessage: '未连接 hub');
     }
     // 记下刚存的 canonical 串，供 _onRemoteNote 识别本机 save 的服务端回声
-    // （flush 成功后 flusher 回写本地行 + 删 outbox → watch 二次回放，
-    // 内容 == 刚存 → 是自己，setDoc 会冲掉此后敲的字 → 丢字。见 _onRemoteNote）。
+    // （flush 成功后 flusher 回写本地行 + 删 outbox → pendingUpdate 清零 →
+    // watch 二次回放，内容 == 刚存 → 是自己，setDoc 会冲掉此后敲的字 → 丢字）。
     _lastSavedCanonical = md;
     await repo.updateNote(_currentNoteId, contentMd: md);
     return const AutoSaveOutcome(status: AutoSaveStatus.saved);
@@ -237,7 +231,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   /// 远端正文推进编辑器前，同样要把 biu-file:// 换成临时 URL。
   Future<void> _pushRemoteContent(String canonical) async {
     final resolved = await _attachmentResolver.resolveForEditor(canonical);
-    _smoothHandle?.setDoc(resolved);
+    await _editorController?.setDoc(resolved);
   }
 
   // ─── 附件（N2）：图片 + 任意文件 ────────────────────────────
@@ -297,7 +291,10 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           mime: f.mimeType ?? _guessImageMime(f.name),
         );
         final alt = f.name.replaceAll(RegExp(r'[\[\]]'), '');
-        _smoothHandle?.insertMarkdown('![$alt]($url)');
+        await _editorController?.command(
+          'insertText',
+          args: {'text': '![$alt]($url)'},
+        );
       }
       messenger.hideCurrentSnackBar();
     } on Exception catch (e) {
@@ -344,7 +341,10 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           .replaceAll(r'\', r'\\')
           .replaceAll('[', r'\[')
           .replaceAll(']', r'\]');
-      _smoothHandle?.insertMarkdown('[$name]($url)');
+      await _editorController?.command(
+        'insertText',
+        args: {'text': '[$name]($url)'},
+      );
       messenger.hideCurrentSnackBar();
     } on Exception catch (e) {
       messenger.hideCurrentSnackBar();
@@ -559,6 +559,9 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           }
           return const Center(child: CircularProgressIndicator());
         }
+        final theme = Theme.of(context).brightness == Brightness.dark
+            ? BridgeTheme.dark
+            : BridgeTheme.light;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -569,6 +572,8 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
               onTrash: _trashThisNote,
               note: note,
               onToggleTodo: _toggleTodo,
+              onInsertImage: _insertImage,
+              onInsertAttachment: _insertAttachment,
               onShowHistory: _showHistory,
               onPromoteToWiki:
                   note.promotedPageId == null ? _promoteToWiki : null,
@@ -579,37 +584,23 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 onToggle: _toggleTodoCompleted,
               ),
             _NoteTagsRow(noteId: widget.noteId),
+            Divider(height: 1, color: BiuTokens.borderSubtle),
             Expanded(
-              child: NoteSmoothEditor(
-                // 喂编辑器的是临时 URL 形式；落库前在 onChanged 里换回
-                // biu-file://（见 _attachmentResolver）。
+              child: PageEditorView(
+                // 喂给编辑器的是临时 URL 形式；落库前在 onMarkdownChanged
+                // 里换回 biu-file://（见 _attachmentResolver）。
                 initialMarkdown: _resolvedContent ?? note.contentMd,
-                // 已转入知识库（归档）→ 只读预览。
-                editable: note.promotedPageId == null,
-                initialMode: MarkdownEditorMode.split,
-                onChanged: (md) => _contentAutosave
+                theme: theme,
+                // 双链是 wiki 功能，笔记侧关掉 wikilink（mermaid 保留）。
+                // engine 默认 'milkdown' = ProseMirror 连续 WYSIWYG（点哪编哪，
+                // 整篇一个可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
+                features: const BridgeFeatures(wikilink: false),
+                onMarkdownChanged: (md) => _contentAutosave
                     .schedule(_attachmentResolver.toCanonical(md)),
-                onControllerReady: (h) => _smoothHandle = h,
-                // 「插入图片 / 插入附件」挂编辑器自带 toolbar 最左，跟 bold/italic
-                // 同栏（正文动作，比放标题行近光标）。宿主仍持上传链路。
-                toolbarLeading: <Widget>[
-                  Tooltip(
-                    message: '插入图片',
-                    child: IconButton(
-                      icon: const Icon(Icons.image_outlined, size: 20),
-                      onPressed: _insertImage,
-                    ),
-                  ),
-                  Tooltip(
-                    message: '插入附件',
-                    child: IconButton(
-                      icon: const Icon(Icons.attach_file, size: 20),
-                      onPressed: _insertAttachment,
-                    ),
-                  ),
-                ],
+                controllerRef: (c) => _editorController = c,
               ),
             ),
+            Divider(height: 1, color: BiuTokens.borderSubtle),
             _StatusBar(
               contentStatus: _contentAutosave.status,
               titleStatus: _titleAutosave.status,
@@ -630,17 +621,19 @@ class _TitleRow extends StatelessWidget {
     required this.onTrash,
     required this.note,
     required this.onToggleTodo,
+    required this.onInsertImage,
+    required this.onInsertAttachment,
     required this.onShowHistory,
     required this.onPromoteToWiki,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
-
-  /// 移入回收站（收进「更多」菜单，不再占标题行独立按钮位）。
   final VoidCallback onTrash;
   final RepoNote note;
   final VoidCallback onToggleTodo;
+  final VoidCallback onInsertImage;
+  final VoidCallback onInsertAttachment;
   final VoidCallback onShowHistory;
 
   /// null = 已转入知识库（归档），菜单里隐藏该入口。
@@ -649,9 +642,8 @@ class _TitleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 32, right: 12, top: 12, bottom: 6),
+      padding: const EdgeInsets.only(left: 20, right: 8, top: 4),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           Expanded(
             child: TextField(
@@ -659,44 +651,53 @@ class _TitleRow extends StatelessWidget {
               onChanged: onChanged,
               style: TextStyle(
                 color: BiuTokens.text,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
               decoration: InputDecoration(
                 border: InputBorder.none,
-                isCollapsed: true,
-                contentPadding: EdgeInsets.zero,
                 hintText: '无标题笔记',
-                hintStyle: TextStyle(
-                  color: BiuTokens.textMuted,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w400,
-                ),
+                hintStyle: TextStyle(color: BiuTokens.textMuted),
               ),
             ),
+          ),
+          IconButton(
+            tooltip: '插入图片',
+            onPressed: onInsertImage,
+            icon: Icon(Icons.image_outlined,
+                size: 18, color: BiuTokens.textSecondary),
+          ),
+          IconButton(
+            tooltip: '插入附件',
+            onPressed: onInsertAttachment,
+            icon: Icon(Icons.attach_file,
+                size: 18, color: BiuTokens.textSecondary),
           ),
           IconButton(
             tooltip: note.isTodo ? '取消待办' : '转为待办',
             onPressed: onToggleTodo,
             icon: Icon(
               note.isTodo ? Icons.check_box : Icons.check_box_outline_blank,
-              size: 20,
+              size: 18,
               color: note.isTodo ? BiuTokens.purple : BiuTokens.textSecondary,
             ),
+          ),
+          IconButton(
+            tooltip: '移入回收站',
+            onPressed: onTrash,
+            icon: Icon(Icons.delete_outline,
+                size: 18, color: BiuTokens.textSecondary),
           ),
           PopupMenuButton<String>(
             tooltip: '更多操作',
             icon: Icon(Icons.more_vert,
-                size: 20, color: BiuTokens.textSecondary),
+                size: 18, color: BiuTokens.textSecondary),
             onSelected: (value) {
               switch (value) {
                 case 'history':
                   onShowHistory();
                 case 'promote':
                   onPromoteToWiki?.call();
-                case 'trash':
-                  onTrash();
               }
             },
             itemBuilder: (context) => <PopupMenuEntry<String>>[
@@ -719,16 +720,6 @@ class _TitleRow extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'trash',
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(Icons.delete_outline, size: 18),
-                  title: Text('移入回收站'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
             ],
           ),
         ],
@@ -825,9 +816,9 @@ class _TodoCompletionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final completed = completedAt != null;
     return Container(
-      height: 30,
-      // 透明底，去 banding；左 32 与标题 / 标签行对齐。
-      padding: const EdgeInsets.only(left: 32, right: 16),
+      height: 34,
+      color: BiuTokens.surface,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: <Widget>[
           SizedBox(
@@ -896,10 +887,9 @@ class _NoteTagsRow extends ConsumerWidget {
           if (t.id == id) t,
     ];
     return Container(
-      constraints: const BoxConstraints(minHeight: 30),
-      // 透明底 —— 去 banding（原 surface 灰底与编辑器默认底交替成条纹）；
-      // 左 32 与标题对齐，正文层次靠编辑器自带 toolbar + 字号留白。
-      padding: const EdgeInsets.only(left: 32, right: 16, bottom: 4),
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+      color: BiuTokens.surface,
       child: Wrap(
         spacing: 6,
         runSpacing: 4,
@@ -1065,7 +1055,7 @@ class _StatusBar extends StatelessWidget {
     return Container(
       height: 24,
       alignment: Alignment.centerRight,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Text(
         status == AutoSaveStatus.error && errorMessage != null
             ? '$label：$errorMessage'

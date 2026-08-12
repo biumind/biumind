@@ -108,12 +108,6 @@ dependencies:
   flutter_svg: ^2.3.0
   flutter_widget_from_html_core: ^0.17.2
   flutter_math_fork: ^0.7.4
-  # 笔记编辑器内核（N1）：flutter_smooth_markdown 是 Typora 式原生 markdown
-  # 编辑器 + 渲染器，markdown 源码即权威（无损，匹配 content_md TEXT 列）。
-  # 替代笔记侧原 WebView+Milkdown 方案（冷启动慢、IME 经 webview 中转、
-  # bundle 是 gitignore 产物易断）。MIT。wiki 仍用 core/editor Milkdown。
-  # 把对它的 API 依赖收敛在 note_smooth_editor.dart 一个文件内（隔离层）。
-  flutter_smooth_markdown: ^0.8.1
 
   # Wiki 模块依赖（B1.x）：
   # - shared_preferences: 项目浏览器 expanded 分组状态持久化
