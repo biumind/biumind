@@ -1,23 +1,25 @@
-/// 笔记编辑器 —— 标题输入框 + Milkdown WYSIWYG（PageEditorView）。
+/// 笔记编辑器 —— 标题输入框 + flutter_smooth_markdown 正文编辑器
+///（NoteSmoothEditor，Typora 式原生 markdown 编辑，split 模式源码+预览同屏）。
 ///
-/// 三条接线链路：
-///   * 自动保存：editor onMarkdownChanged → AutoSaveController.schedule
-///     （1.5s 防抖）→ saver 调 NotesRepository.updateNote（乐观落 Drift +
-///     outbox，离线天然可用）。标题走第二个 AutoSaveController。
+/// 接线链路（markdown 源码串端到端，存储链零改动）：
+///   * 自动保存：NoteSmoothEditor.onChanged → toCanonical → AutoSaveController
+///     .schedule（1.5s 防抖）→ NotesRepository.updateNote（乐观落 Drift +
+///     outbox，离线天然可用）。标题走第二个 AutoSaveController。IME 组合态
+///     （拼音未上屏）期间 onChanged 被包内抑制，不触发保存。
 ///   * 远端覆盖：noteByIdProvider 流里 version 变化且非本机 pending 时
-///     （changes 轮询落库的他端变更），经 controllerRef 拿到的
-///     EditorBridgeController.setDoc() 推进编辑器。
+///     （changes 轮询落库的他端变更），经 NoteSmoothEditorHandle.setDoc()
+///     推进编辑器（内置回声守卫，setDoc 不触发 onChanged）。
 ///   * 409 冲突：订阅 NoteOutboxFlusher.conflicts，命中本笔记时弹
 ///     SnackBar「当前编辑基于旧版本，已被服务端更新覆盖」+「另存为副本」
 ///     （repository.saveAsCopy，设计 §4 D4 用户裁决，禁止 latest-wins）。
 ///   * 附件：标题行「插入图片 / 插入附件」→ 选文件 → presign 直传 →
-///     光标处插 `![name](url)` 图片或 `[name](url)` 链接；正文里的
-///     biu-file:// 经 NoteAttachmentResolver 进编辑器换临时 URL、
+///     Handle.insertMarkdown 在光标处插 `![name](url)` / `[name](url)`；
+///     正文里的 biu-file:// 经 NoteAttachmentResolver 进编辑器换临时 URL、
 ///     落库前换回规范 URI。
 ///
 /// 桌面三栏右栏 / 手机详情页共用。dispose 前 flush() 防丢半句输入。
-/// 桌面三栏切笔记走 didUpdateWidget 复用同一编辑器 webview（不重建），
-/// 新正文加载完成后经 EditorBridgeController.setDoc 推进。
+/// 桌面三栏切笔记复用同一 NoteSmoothEditor，新正文加载完成后经 Handle.setDoc
+/// 推进。wiki 页仍用 core/editor Milkdown（PageEditorView），本轮不动。
 library;
 
 import 'dart:async';
@@ -27,11 +29,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:flutter_smooth_markdown/flutter_smooth_markdown_editor.dart';
+
 import '../../../app/theme.dart';
-import '../../../core/editor/editor_bridge_controller.dart';
-import '../../../core/editor/editor_bridge_protocol.dart';
 import '../../../core/editor/page_autosave.dart';
-import '../../../core/editor/page_editor_view.dart';
 import '../../../core/layout/form_factor.dart';
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
@@ -41,6 +42,7 @@ import '../../code/data/files_client.dart';
 import '../application/notes_ui_providers.dart';
 import '../data/note_attachment_resolver.dart';
 import 'note_revisions_dialog.dart';
+import 'note_smooth_editor.dart';
 import 'notes_home_page.dart' show relativeTime;
 
 class NoteEditorView extends ConsumerStatefulWidget {
@@ -64,7 +66,9 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   /// 切笔记时「先 flush、再切 id」。
   late String _currentNoteId;
 
-  EditorBridgeController? _editorController;
+  /// 笔记正文 smooth markdown 编辑器句柄（setDoc 远端覆盖 / insertMarkdown
+  /// 附件插入）。首屏挂载后由 NoteSmoothEditor.onControllerReady 回填。
+  NoteSmoothEditorHandle? _smoothHandle;
   late final AutoSaveController _contentAutosave;
   late final AutoSaveController _titleAutosave;
   StreamSubscription<NoteOutboxConflict>? _conflictSub;
@@ -79,6 +83,11 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
 
   int _lastVersion = -1;
   bool _conflictSnackbarVisible = false;
+
+  /// 最近一次落库的 canonical markdown（biu-file 形式）。_onRemoteNote 据此
+  /// 识别本机 save 的服务端回声 —— flush 成功后 flusher 回写本地行触发 watch
+  /// 二次回放，内容 == 刚存 → 是自己，setDoc 会冲掉此后敲的字（丢字根因）。
+  String? _lastSavedCanonical;
 
   @override
   void initState() {
@@ -112,7 +121,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   ///
   /// 时序：先 flush 旧笔记的未保存内容（saver 读 _currentNoteId，此刻
   /// 仍是旧 id），再切 id、重置状态、重新加载 —— 顺序反了会把旧内容
-  /// 存到新笔记上。加载期间保留旧 _note，让 PageEditorView 挂在树上
+  /// 存到新笔记上。加载期间保留旧 _note，让 NoteSmoothEditor 挂在树上
   /// （置空会触发 FutureBuilder 的 spinner 分支把 webview 卸载）；
   /// 新正文加载完成后在 _loadNote 里经 setDoc 推进。
   void _switchNote() {
@@ -124,6 +133,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     _conflictSnackbarVisible = false;
     _resolvedContent = null;
     _lastVersion = -1;
+    _lastSavedCanonical = null;
     _initial = _loadNote(_currentNoteId);
   }
 
@@ -148,10 +158,12 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
             _lastVersion = note.version;
             _titleController.text = note.title;
           });
-          // 切笔记场景编辑器（webview）已存在，直接 setDoc 复用；首屏
-          // controller 还没挂上，由 initialMarkdown 喂入。
-          final controller = _editorController;
-          if (controller != null) unawaited(controller.setDoc(resolved));
+          // 记下加载到的 canonical，_onRemoteNote 据此识别回声（含「只改标题、
+          // 正文未动」时收到的正文回声）。
+          _lastSavedCanonical = note.contentMd;
+          // 切笔记场景编辑器已存在，直接 setDoc 复用；首屏 handle 还没挂上，
+          // 由 initialMarkdown 喂入。
+          _smoothHandle?.setDoc(resolved);
         }
       } else {
         setState(() => _note = null);
@@ -181,6 +193,10 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
       return const AutoSaveOutcome(
           status: AutoSaveStatus.error, errorMessage: '未连接 hub');
     }
+    // 记下刚存的 canonical 串，供 _onRemoteNote 识别本机 save 的服务端回声
+    // （flush 成功后 flusher 回写本地行 + 删 outbox → watch 二次回放，
+    // 内容 == 刚存 → 是自己，setDoc 会冲掉此后敲的字 → 丢字。见 _onRemoteNote）。
+    _lastSavedCanonical = md;
     await repo.updateNote(_currentNoteId, contentMd: md);
     return const AutoSaveOutcome(status: AutoSaveStatus.saved);
   }
@@ -206,6 +222,11 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     // 本机 pending 时跳过，避免回声冲掉正在编辑的内容。
     if (note.version == _lastVersion || note.pendingUpdate) return;
     _lastVersion = note.version;
+    // 本机 save 的服务端回声：flush 成功后 flusher._upsertFromDto 回写本地行
+    // + 删 outbox → pendingUpdate 清零 → watch 二次回放来到这里。内容 == 刚存
+    // → 编辑器里已有（或更新），setDoc 会冲掉此后敲的字（丢字根因）→ 跳过。
+    // 真他端编辑内容不同 → 不等 → 照常应用，多设备无损。
+    if (note.contentMd == _lastSavedCanonical) return;
     _note = note;
     unawaited(_pushRemoteContent(note.contentMd));
     if (note.title != _titleController.text) {
@@ -216,7 +237,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   /// 远端正文推进编辑器前，同样要把 biu-file:// 换成临时 URL。
   Future<void> _pushRemoteContent(String canonical) async {
     final resolved = await _attachmentResolver.resolveForEditor(canonical);
-    await _editorController?.setDoc(resolved);
+    _smoothHandle?.setDoc(resolved);
   }
 
   // ─── 附件（N2）：图片 + 任意文件 ────────────────────────────
@@ -276,10 +297,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           mime: f.mimeType ?? _guessImageMime(f.name),
         );
         final alt = f.name.replaceAll(RegExp(r'[\[\]]'), '');
-        await _editorController?.command(
-          'insertText',
-          args: {'text': '![$alt]($url)'},
-        );
+        _smoothHandle?.insertMarkdown('![$alt]($url)');
       }
       messenger.hideCurrentSnackBar();
     } on Exception catch (e) {
@@ -326,10 +344,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           .replaceAll(r'\', r'\\')
           .replaceAll('[', r'\[')
           .replaceAll(']', r'\]');
-      await _editorController?.command(
-        'insertText',
-        args: {'text': '[$name]($url)'},
-      );
+      _smoothHandle?.insertMarkdown('[$name]($url)');
       messenger.hideCurrentSnackBar();
     } on Exception catch (e) {
       messenger.hideCurrentSnackBar();
@@ -544,9 +559,6 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           }
           return const Center(child: CircularProgressIndicator());
         }
-        final theme = Theme.of(context).brightness == Brightness.dark
-            ? BridgeTheme.dark
-            : BridgeTheme.light;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -571,17 +583,16 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
             _NoteTagsRow(noteId: widget.noteId),
             Divider(height: 1, color: BiuTokens.borderSubtle),
             Expanded(
-              child: PageEditorView(
-                // 喂给编辑器的是临时 URL 形式；落库前在 onMarkdownChanged
-                // 里换回 biu-file://（见 _attachmentResolver）。
+              child: NoteSmoothEditor(
+                // 喂编辑器的是临时 URL 形式；落库前在 onChanged 里换回
+                // biu-file://（见 _attachmentResolver）。
                 initialMarkdown: _resolvedContent ?? note.contentMd,
-                theme: theme,
-                // 双链是 wiki 功能，笔记侧关掉 wikilink（mermaid 保留）；
-                // 笔记页走 CM6 源码内核（wiki 不传 engine，维持 Milkdown）。
-                features: const BridgeFeatures(wikilink: false, engine: 'cm6'),
-                onMarkdownChanged: (md) => _contentAutosave
+                // 已转入知识库（归档）→ 只读预览。
+                editable: note.promotedPageId == null,
+                initialMode: MarkdownEditorMode.split,
+                onChanged: (md) => _contentAutosave
                     .schedule(_attachmentResolver.toCanonical(md)),
-                controllerRef: (c) => _editorController = c,
+                onControllerReady: (h) => _smoothHandle = h,
               ),
             ),
             Divider(height: 1, color: BiuTokens.borderSubtle),
