@@ -306,7 +306,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: client-nightly.${{ github.run_number }}
-          name: Client Nightly #${{ github.run_number }} · ${{ steps.ver.outputs.date }}
+          name: "Client Nightly v${{ steps.ver.outputs.version }}-${{ github.run_number }}"
           prerelease: true
           make_latest: "false"
           body_path: nightly-body.md
