@@ -17,6 +17,8 @@
 // 的笔记不按账号过滤、登出也不清——重新部署 + 重新注册登录后桌面端会把
 // 上一账号的笔记直接展示给新账号（跨账号泄露）；本隔离根除该问题。
 
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import 'db.dart';
@@ -410,6 +412,83 @@ class NotesDao {
       'WHERE id = ? AND owner_key = ?',
       [id, scope],
     );
+  }
+
+  /// 合并同笔记的 pending `update_note` op —— 在 flushOnce 起点（_flushing
+  /// 守卫内）调用，消除单机编辑会话堆积的多条 update_note。
+  ///
+  /// 根因：每次 autosave 入一条 update_note，baseVersion 锁定入队瞬间的本地
+  /// note.version（repository.updateNote 保持基线，只有 flush 成功才回填）。
+  /// 若一轮 flush 里多条同笔记 update_note 排队，第一条 PUT 成功 → 服务端
+  /// version+1 + 回填本地 → 第二条仍带旧 baseVersion → 服务端
+  /// `cur.Version != IfMatchVersion` → 409。这是**单机自伤**（非真多端冲突），
+  /// 全量快照语义下只有最新一条有意义。
+  ///
+  /// 合并：按 entityId 分组，组内多条折叠进最老那行 —— payloadJson 字段并集
+  /// （id 大的盖 id 小的），baseVersion 取最老行的（= 该笔记上次 flush 成功
+  /// 回填的服务端 version），attempts/nextAttemptAt 重置、lastError 清零，删
+  /// 其余行。合并后同笔记队列 ≤1 条 update_note → 单次 PUT → 无自伤 409。
+  ///
+  /// payload 合并安全性：所有 update_note 都是同笔记的全意图 patch（presence
+  /// = set，absence = don't-change）。字段并集 + 新值盖旧 = 折叠后的正确状态。
+  /// notebook_id='' 是 moveToRoot 哨兵，作为普通值覆盖也正确（最新意图胜）。
+  Future<void> compactUpdateNotes() async {
+    await _db.transaction(() async {
+      final rows = await (_db.select(_db.noteOutbox)
+            ..where((r) =>
+                r.op.equals('update_note') & r.ownerKey.equals(scope))
+            ..orderBy([(r) => OrderingTerm(expression: r.id)]))
+          .get();
+      final byEntity = <String, List<NoteOutboxEntry>>{};
+      for (final r in rows) {
+        byEntity.putIfAbsent(r.entityId, () => []).add(r);
+      }
+      final now = DateTime.now().toUtc();
+      for (final group in byEntity.values) {
+        if (group.length < 2) continue;
+        final merged = <String, dynamic>{};
+        for (final row in group) {
+          final p = jsonDecode(row.payloadJson) as Map<String, dynamic>;
+          merged.addAll(p); // id 升序遍历，后者盖前者
+        }
+        final oldest = group.first;
+        await (_db.update(_db.noteOutbox)
+              ..where((r) => r.id.equals(oldest.id) & r.ownerKey.equals(scope)))
+            .write(NoteOutboxCompanion(
+          payloadJson: Value(jsonEncode(merged)),
+          attempts: const Value(0),
+          nextAttemptAt: Value(now),
+          lastError: const Value(null),
+        ));
+        for (final row in group.skip(1)) {
+          await (_db.delete(_db.noteOutbox)
+                ..where((r) => r.id.equals(row.id) & r.ownerKey.equals(scope)))
+              .go();
+        }
+      }
+    });
+  }
+
+  /// flusher 成功 flush 一条 update_note 后调用：把同笔记**其余** pending
+  /// update_note 行的 baseVersion 抬到服务端刚回填的新 version。
+  ///
+  /// 必要性：compact 只折叠 flush **起点**已存在的行。flush _applyOne 网络
+  /// 往返期间，autosave 仍可插入新 update_note（compact 已跑完，不再合并）。
+  /// 这条新行 baseVersion 取自本地 note.version —— 而本地 version 在
+  /// _applyOne 返回前还没被 _upsertFromDto 回填，仍是旧值 → 下轮 flush 必
+  /// 409（自伤）。cascade 在成功后立即抬剩余行，下轮 PUT 带新 baseVersion
+  /// 必中。已 delete 的当前行也在 UPDATE 范围内，但紧接着被 flushOnce 删除，
+  /// 抬一个将死行无副作用。
+  ///
+  /// 仅成功路径调用：409 不 cascade（服务端非因本 op 前进，剩余行陈旧是真
+  /// 他端冲突，应各自 409 走用户裁决）。
+  Future<void> bumpOutboxBaseVersion(String entityId, int newVersion) async {
+    await (_db.update(_db.noteOutbox)
+          ..where((r) =>
+              r.entityId.equals(entityId) &
+              r.op.equals('update_note') &
+              r.ownerKey.equals(scope)))
+        .write(NoteOutboxCompanion(baseVersion: Value(newVersion)));
   }
 
   /// When a create_* op succeeds with a new server id we have to rewrite any

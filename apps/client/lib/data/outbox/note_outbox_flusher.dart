@@ -99,6 +99,9 @@ class NoteOutboxFlusher {
     _flushing = true;
     var flushedAny = false;
     try {
+      // 折叠同笔记堆积的 update_note（compactUpdateNotes 顶部注释的根因）。
+      // 必须在 due 快照前跑 —— 否则堆积行原样进 due，逐条 flush 自伤 409。
+      await dao.compactUpdateNotes();
       final due = await dao.dueOutbox(now: _now().toUtc());
       for (final entry in due) {
         try {
@@ -203,6 +206,11 @@ class NoteOutboxFlusher {
         );
         // Reflect the server-bumped version locally so the next If-Match works.
         await _upsertFromDto(updated, keepTrashed: true);
+        // Cascade：flush _applyOne 网络往返期间 autosave 可能新插 update_note
+        // （compact 已跑完不合并），那条新行 baseVersion 还是旧值 → 下轮必 409。
+        // 抬剩余同笔记行到服务端刚回填的新 version（bumpOutboxBaseVersion
+        // 注释）。当前行也在范围里但马上被 flushOnce 删除，无副作用。
+        await dao.bumpOutboxBaseVersion(entry.entityId, updated.version);
       case 'trash_note':
         await client.trashNote(entry.entityId);
       case 'restore_note':

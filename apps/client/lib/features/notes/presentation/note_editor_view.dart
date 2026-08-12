@@ -425,7 +425,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
         .showSnackBar(
           SnackBar(
             content: const Text('当前编辑基于旧版本，已被服务端更新覆盖'),
-            duration: const Duration(days: 1),
+            duration: const Duration(seconds: 8),
             action: SnackBarAction(
               label: '另存为副本',
               onPressed: () => unawaited(_saveAsCopy()),
