@@ -26,27 +26,55 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:logging/logging.dart';
 
 import '../api/notes_client.dart' as api;
 import '../local/db.dart';
 import '../local/notes_dao.dart';
+import '../note_merge.dart';
 
+/// 409 冲突通知。两类：
+///   * legacy（base 缺失等无法三方合并）：仅 op/entityId/baseVersion/body，
+///     UI 走老 SnackBar + saveAsCopy 兜底。
+///   * merge bundle（base 已设，merge3 算出冲突段）：携带 base/local/remote
+///     三份正文 + remoteVersion + segments 有序片段（含自动合并段 + 冲突段），
+///     UI 弹合并对话框逐段裁决。
 class NoteOutboxConflict {
   final String op;
   final String entityId;
   final int? baseVersion;
   final String body;
+
+  // ─── merge bundle（非 null 时 = 三方合并冲突，UI 走合并对话框）───
+  final String? baseContentMd;
+  final String? localContentMd;
+  final String? remoteContentMd;
+  final int? remoteVersion;
+
+  /// 有序片段（ResolvedMergeSegment 已自动合并 + ConflictMergeSegment 待裁决）。
+  /// 非 null = 带 merge bundle。
+  final List<MergeSegment>? segments;
+
   const NoteOutboxConflict({
     required this.op,
     required this.entityId,
     required this.baseVersion,
     required this.body,
+    this.baseContentMd,
+    this.localContentMd,
+    this.remoteContentMd,
+    this.remoteVersion,
+    this.segments,
   });
+
+  /// 是否带 merge bundle（决定 UI 走合并对话框还是 legacy SnackBar）。
+  bool get hasMergeBundle => segments != null;
 
   @override
   String toString() =>
-      'NoteOutboxConflict(op=$op, entity=$entityId, base=$baseVersion)';
+      'NoteOutboxConflict(op=$op, entity=$entityId, base=$baseVersion, '
+      'bundle=${hasMergeBundle ? "${segments!.length} segments" : "legacy"})';
 }
 
 class NoteOutboxFlusher {
@@ -71,6 +99,13 @@ class NoteOutboxFlusher {
 
   /// 成功冲刷 ≥1 条 op 后回调（providers 接到 sync poller 的 kick）。
   Future<void> Function()? onFlushSuccess;
+
+  /// 409 三方合并「无冲突」时回调：把合并后的正文当一次新本地编辑写回
+  /// （providers 接 repository.updateNote）。flusher 不持有 repository
+  /// （repository 持有 flusher，避免环），故用回调注入。写入的新 op
+  /// baseVersion = remoteVersion，下一轮 flush 重发即落库。
+  Future<void> Function(String noteId, String mergedContentMd)?
+      onAutoMergeResolved;
 
   /// Conflict stream — UI can subscribe to surface "this edit was based on a
   /// stale version" prompts without coupling to the flusher's internals.
@@ -98,6 +133,7 @@ class NoteOutboxFlusher {
     if (_flushing) return;
     _flushing = true;
     var flushedAny = false;
+    var autoMergedPending = false;
     try {
       // 折叠同笔记堆积的 update_note（compactUpdateNotes 顶部注释的根因）。
       // 必须在 due 快照前跑 —— 否则堆积行原样进 due，逐条 flush 自伤 409。
@@ -115,15 +151,9 @@ class NoteOutboxFlusher {
           flushedAny = true;
         } on api.NotesApiError catch (e) {
           if (e.isVersionConflict) {
-            _conflicts.add(NoteOutboxConflict(
-              op: entry.op,
-              entityId: entry.entityId,
-              baseVersion: entry.baseVersion,
-              body: e.body,
-            ));
-            // Drop the op — the user's pending edit was based on stale state.
-            // Server is source of truth; the next pull will bring the
-            // current version into Drift.
+            final autoMerged =
+                await _handleVersionConflict(entry.entityId, entry.baseVersion, e);
+            autoMergedPending = autoMergedPending || autoMerged;
             await dao.deleteOutbox(entry.id);
           } else if (e.status >= 500 || e.status == 429) {
             await _backoff(entry, '${e.status}: ${e.body}');
@@ -139,12 +169,95 @@ class NoteOutboxFlusher {
     } finally {
       _flushing = false;
     }
+    // 三方合并「无冲突」时 onAutoMergeResolved 入队了新 update_note
+    // （baseVersion=remote），当前 _flushing 守卫挡递归；微任务里守卫已
+    // 释放，立刻再冲一轮把合并结果落库。每轮 base 前进，无死循环。
+    if (autoMergedPending) {
+      await Future<void>.delayed(Duration.zero);
+      unawaited(flushOnce());
+    }
     if (flushedAny) {
       try {
         await onFlushSuccess?.call();
       } catch (e) {
         _log.fine('onFlushSuccess callback failed: $e');
       }
+    }
+  }
+
+  /// 处理 update_note 的 409：解析服务端 current 快照 → 写回本地（编辑器
+  /// 立刻显示服务端最新 + base 重置为 remote）→ 三方合并 base/local/remote。
+  ///
+  /// 返回 true = 自动合并成功（无冲突段），已调 [onAutoMergeResolved] 把
+  /// 合并文写入并入队新 op；false = 真冲突（emit merge bundle 给 UI）或
+  /// 退化 legacy（base 缺失 / current 不可解析，emit legacy conflict）。
+  Future<bool> _handleVersionConflict(
+      String entityId, int? opBaseVersion, api.NotesApiError e) async {
+    final parsed = _parseBody(e.body);
+    final remoteVersion = parsed['current_version'] as int?;
+    final current = parsed['current'] as Map<String, dynamic>?;
+    final remoteContent = current?['content_md'] as String?;
+
+    final existing = await dao.noteById(entityId);
+
+    // base 或服务端 current 不可得 → 无法三方合并，退化 legacy。
+    if (existing == null ||
+        remoteVersion == null ||
+        remoteContent == null ||
+        existing.baseContentMd == null) {
+      _conflicts.add(NoteOutboxConflict(
+        op: 'update_note',
+        entityId: entityId,
+        baseVersion: opBaseVersion,
+        body: e.body,
+      ));
+      return false;
+    }
+
+    // 合并前先取 base / local（写 remote 快照会覆盖这两列）。
+    final baseText = existing.baseContentMd!;
+    final localText = existing.contentMd;
+
+    // 写服务端快照：编辑器立刻显示 remote 最新，base := remote。
+    await dao.upsertNote(existing.copyWith(
+      contentMd: remoteContent,
+      version: remoteVersion,
+      baseContentMd: Value(remoteContent),
+      baseVersion: Value(remoteVersion),
+    ));
+
+    final result = merge3(baseText, localText, remoteContent);
+    if (!result.hasConflict) {
+      // 无冲突段 —— 静默自动合并。把合并文当一次新本地编辑写回（base 已
+      // = remote，入队的 update_note baseVersion = remoteVersion 命中服务端）。
+      try {
+        await onAutoMergeResolved?.call(entityId, result.merged!);
+      } catch (err) {
+        _log.warning('onAutoMergeResolved failed for $entityId: $err');
+      }
+      return true;
+    }
+    // 真冲突 —— emit merge bundle，UI 弹合并对话框逐段裁决。
+    _conflicts.add(NoteOutboxConflict(
+      op: 'update_note',
+      entityId: entityId,
+      baseVersion: existing.baseVersion,
+      body: e.body,
+      baseContentMd: baseText,
+      localContentMd: localText,
+      remoteContentMd: remoteContent,
+      remoteVersion: remoteVersion,
+      segments: result.segments,
+    ));
+    return false;
+  }
+
+  Map<String, dynamic> _parseBody(String body) {
+    if (body.isEmpty) return const {};
+    try {
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
     }
   }
 
@@ -249,6 +362,10 @@ class NoteOutboxFlusher {
       todoCompletedAt: n.todoCompletedAt,
       position: n.position,
       version: n.version,
+      // flush 成功 = 服务端确认态刷新，base := 本次服务端内容与版本
+      // （3-way merge 共同祖先，下次本地编辑从此基线发散）。
+      baseContentMd: n.contentMd,
+      baseVersion: n.version,
       trashed: keepTrashed ? existing.trashed : (n.deletedAt != null),
       trashedAt: keepTrashed ? existing.trashedAt : n.deletedAt,
       updatedAt: n.updatedAt,

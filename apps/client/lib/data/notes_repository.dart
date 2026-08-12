@@ -310,6 +310,10 @@ class NotesRepository {
         todoCompletedAt: n.todoCompletedAt,
         position: n.position,
         version: n.version,
+        // 服务端权威快照 —— base := 本次服务端内容与版本（3-way merge
+        // 共同祖先）。本地编辑保留此基线不动，仅在下次服务端确认时刷新。
+        baseContentMd: n.contentMd,
+        baseVersion: n.version,
         trashed: n.deletedAt != null,
         trashedAt: n.deletedAt,
         archivedAt: n.archivedAt,
@@ -445,6 +449,10 @@ class NotesRepository {
               ?.toUtc(),
       position: (p['position'] as num?)?.toDouble() ?? 0.0,
       version: (p['version'] as num?)?.toInt() ?? 1,
+      // 服务端事件快照 = 权威，base := 本次 content/version（3-way merge
+      // 共同祖先）。
+      baseContentMd: p['content_md'] as String? ?? '',
+      baseVersion: (p['version'] as num?)?.toInt() ?? 1,
       // created/updated/restored 事件只会出现在活笔记上。
       trashed: false,
       trashedAt: null,
@@ -611,6 +619,10 @@ class NotesRepository {
       todoCompletedAt: newTodoCompletedAt,
       position: position ?? existing.position,
       version: existing.version, // 保持基线，flush 成功后回填
+      // 本地编辑不动 merge 基线：保留 existing 的 baseContentMd/baseVersion
+      // （= 上次服务端确认态）。下次 flush 成功由 _upsertFromDto 刷新。
+      baseContentMd: existing.baseContentMd,
+      baseVersion: existing.baseVersion,
       trashed: existing.trashed,
       trashedAt: existing.trashedAt,
       archivedAt: existing.archivedAt,

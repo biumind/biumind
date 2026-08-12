@@ -40,6 +40,7 @@ import '../../../services/auth_service.dart';
 import '../../code/data/files_client.dart';
 import '../application/notes_ui_providers.dart';
 import '../data/note_attachment_resolver.dart';
+import 'note_merge_dialog.dart';
 import 'note_revisions_dialog.dart';
 import 'notes_home_page.dart' show relativeTime;
 
@@ -79,6 +80,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
 
   int _lastVersion = -1;
   bool _conflictSnackbarVisible = false;
+  bool _mergeDialogVisible = false;
 
   /// 最近一次落库的 canonical markdown（biu-file 形式）。_onRemoteNote 据此
   /// 识别本机 save 的服务端回声 —— flush 成功后 flusher 回写本地行触发 watch
@@ -419,6 +421,22 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
 
   void _onConflict(NoteOutboxConflict conflict) {
     if (conflict.entityId != widget.noteId || !mounted) return;
+
+    // 三方合并有冲突段 → 弹合并对话框（替换 SnackBar）。一次只弹一个，
+    // 防止连续 flush 轮次堆叠。
+    if (conflict.hasMergeBundle) {
+      if (_mergeDialogVisible) return;
+      _mergeDialogVisible = true;
+      NoteMergeDialog.show(
+        context,
+        noteId: widget.noteId,
+        conflict: conflict,
+      ).then((_) => _mergeDialogVisible = false);
+      return;
+    }
+
+    // legacy（base 缺失 / current 不可解析，无法三方合并）→ 老 SnackBar +
+    // 另存为副本兜底。
     if (_conflictSnackbarVisible) return;
     _conflictSnackbarVisible = true;
     ScaffoldMessenger.of(context)

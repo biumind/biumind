@@ -61,8 +61,11 @@ final notesRepositoryProvider = Provider<NotesRepository?>((ref) {
 final noteOutboxFlusherProvider = Provider<NoteOutboxFlusher?>((ref) {
   final repo = ref.watch(notesRepositoryProvider);
   if (repo == null) return null;
-  final flusher = NoteOutboxFlusher(dao: repo.dao, client: repo.client)
-    ..start();
+  final flusher = NoteOutboxFlusher(dao: repo.dao, client: repo.client);
+  // 409 三方合并「无冲突」时把合并文当新本地编辑写回（base 已 = remote，
+  // 入队 update_note baseVersion=remoteVersion，下轮 flush 落库）。
+  flusher.onAutoMergeResolved = (id, md) => repo.updateNote(id, contentMd: md);
+  flusher.start();
   ref.onDispose(flusher.dispose);
   return flusher;
 });

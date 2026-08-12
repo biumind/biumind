@@ -18,6 +18,11 @@
 //   v30: chat 五表加 owner_key 并**刻意清空存量**（P0 数据隔离 —— 归属不明
 //        的存量行是跨账号泄露源；服务端有权威副本，清空后全量 hydrate 恢复。
 //        详细断言见 migration_v29_to_v30_test.dart）
+//   v33: 笔记五表加 owner_key 并清空存量（对齐 chat 的 P0 隔离）；from<28
+//        时 v28 的 createTable 已按当前 schema（含 owner_key）建表，v33 的
+//        addColumn 只对 from>=28 的老库执行，DELETE 落在刚建的空表上。
+//   v34: 清 sse_cursors 存量（scope 升级为 'ownerKey:topic'，P2 多账号；
+//        详细断言见 migration_v33_to_v34_test.dart）。
 //
 // 注:v25 的 DROP COLUMN 需 SQLite ≥3.35。host `flutter test` 用系统
 // libsqlite3(macOS/Ubuntu 均 ≥3.37),真机用 sqlite3_flutter_libs 打包的更新
@@ -30,7 +35,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 void main() {
   test(
-    'v22 旧库迁移到 v30:加 model/starred/remote_updated_at_us/owner_key 列 / DROP 同步表 / DROP 云字段,非 chat 数据保留(chat 存量由 v30 刻意清空)',
+    'v22 旧库迁移到 v34:加 model/starred/remote_updated_at_us/owner_key 列 / DROP 同步表 / DROP 云字段,非 chat 数据保留(chat 存量由 v30 刻意清空)',
     () async {
       // ── 1. 手建 v22 形态的库(drift snake_case 列名,匹配生成的 mapper)──
       final raw = sqlite3.openInMemory();
@@ -187,6 +192,21 @@ void main() {
       );
     ''');
 
+      // 真实 v22 库必有 sse_cursors（v17 建）—— v34 会 DELETE 它（scope 升级
+      // 为 'ownerKey:topic'，清旧的裸 topic 行），fixture 缺了会
+      // no such table。种一条旧形态（裸 topic）的脏数据验证清空。
+      raw.execute('''
+      CREATE TABLE sse_cursors (
+        scope TEXT NOT NULL PRIMARY KEY,
+        last_event_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+      raw.execute(
+        "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
+        "VALUES ('chat.sync','evt-1',1780000000)",
+      );
+
       // 种数据:1 个历史任务 + 1 个带云字段的产物 + 同步表各 1 行。
       final ts = DateTime.utc(2026, 5, 1).millisecondsSinceEpoch ~/ 1000;
       raw.execute(
@@ -219,11 +239,21 @@ void main() {
       final tasks = await db.select(db.codeTasks).get();
 
       // ── 3. 断言 ──
-      // 迁移真的跑到了当前最新版本（v30：v28 建笔记域 5 表；v29 加
+      // 迁移真的跑到了当前最新版本（v34：v28 建笔记域 5 表；v29 加
       // note_notes.archived_at/promoted_page_id —— from<28 时 createTable
       // 已含新列，v29 步骤跳过；v30 chat 五表加 owner_key 并清空存量；
-      // v31/v32 加 chat_sync_state / chat_outbox）。
-      expect(raw.userVersion, 32, reason: '迁移后 schema 版本应为 32');
+      // v31/v32 加 chat_sync_state / chat_outbox；v33 笔记五表加 owner_key
+      // —— from<28 时 createTable 已含，addColumn 跳过，DELETE 落空表；
+      // v34 清 sse_cursors 存量 —— scope 升级为 'ownerKey:topic'）。
+      expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35');
+
+      // v34:sse_cursors 旧的裸 topic 行已清（切账号防拿错 cursor;
+      // 详细断言见 migration_v33_to_v34_test.dart）。
+      expect(
+        raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
+        0,
+        reason: 'v34 应清空 sse_cursors 存量行',
+      );
 
       // v28:笔记域 5 张表已建（note_notebooks/note_notes/note_tags/
       // note_note_tags/note_outbox）。
@@ -248,6 +278,9 @@ void main() {
           .toSet();
       expect(noteCols, contains('archived_at'));
       expect(noteCols, contains('promoted_page_id'));
+      // v33:owner_key 经 createTable 全列路径带进来（addColumn 只对
+      // from>=28 老库执行）。
+      expect(noteCols, contains('owner_key'), reason: 'v33: from<28 时 createTable 已含 owner_key');
 
       // v23:model 列已加;旧行该列为 null;其余字段完整保留。
       expect(tasks, hasLength(1), reason: '历史任务不应在迁移中丢失');

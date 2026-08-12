@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/data/local/db.dart';
 import 'package:biumind/data/local/notes_dao.dart';
+import 'package:biumind/data/note_merge.dart';
 import 'package:biumind/data/api/notes_client.dart' as api;
 import 'package:biumind/data/outbox/note_outbox_flusher.dart';
 
@@ -25,6 +26,9 @@ import 'package:biumind/data/outbox/note_outbox_flusher.dart';
 /// autosave 入队」。
 class _FakeBrain {
   final Map<String, int> versionByNote = {};
+  /// 409 时 current.content_md 的覆盖值（模拟「他端已改服务端正文」）。
+  /// 未设置则回显请求 body 的 content_md（旧行为）。
+  final Map<String, String> remoteContentByConflict = {};
   Future<void> Function(String noteId)? onBeforeRespond;
   final List<String> requests = [];
   HttpServer? _server;
@@ -59,7 +63,8 @@ class _FakeBrain {
           'current': {
             'id': noteId,
             'title': j['title'] ?? '',
-            'content_md': j['content_md'] ?? '',
+            'content_md':
+                remoteContentByConflict[noteId] ?? j['content_md'] ?? '',
             'version': cur,
             'updated_at': DateTime.utc(2100).toIso8601String(),
           },
@@ -124,6 +129,32 @@ void main() {
     brain.versionByNote[id] = version;
   }
 
+  /// 落一条带 base 的笔记（content=本地草稿，baseContent=上次服务端确认态，
+  /// baseVersion=对应版本）。用于 3-way merge 测试。brain 端 versionByNote
+  /// 设为 [serverVersion]（若 > baseVersion 表示他端已推高 → 触发 409）。
+  Future<void> seedNoteWithBase(
+    String id, {
+    required String content,
+    required String baseContent,
+    required int baseVersion,
+    int? serverVersion,
+  }) async {
+    await dao.upsertNote(LocalNote(
+      id: id,
+      title: 't',
+      contentMd: content,
+      isTodo: false,
+      position: 0,
+      version: baseVersion,
+      trashed: false,
+      updatedAt: DateTime.utc(2100),
+      ownerKey: 'test',
+      baseContentMd: baseContent,
+      baseVersion: baseVersion,
+    ));
+    brain.versionByNote[id] = serverVersion ?? baseVersion;
+  }
+
   Future<int> enqueueUpdate(
     String entityId, {
     required int baseVersion,
@@ -143,6 +174,23 @@ void main() {
         client: client,
         interval: const Duration(seconds: 1),
       );
+
+  /// 模拟 providers 注入的 onAutoMergeResolved = repository.updateNote：
+  /// 把合并文写回本地行（保留 base）+ 入队新 update_note（baseVersion=当前
+  /// 本地 version，flusher 已把本地行写回 remote 快照故 = remoteVersion）。
+  Future<void> applyMerged(String id, String md) async {
+    final ex = await dao.noteById(id);
+    if (ex == null) return;
+    await dao.upsertNote(ex.copyWith(contentMd: md));
+    await dao.enqueueOutbox(NoteOutboxCompanion.insert(
+      op: 'update_note',
+      entityId: id,
+      payloadJson: jsonEncode({'content_md': md}),
+      baseVersion: Value(ex.version),
+      createdAt: DateTime.utc(2000),
+      nextAttemptAt: DateTime.utc(2000),
+    ));
+  }
 
   group('compact', () {
     test('同笔记多条 update_note 合并成一条，payload 字段并集', () async {
@@ -250,6 +298,94 @@ void main() {
       expect(await dao.allOutbox(), isEmpty, reason: 'race 行已成功 flush');
       expect(brain.requests, hasLength(2));
       expect(brain.requests.last, contains('If-Match=11'));
+    });
+  });
+
+  group('3-way merge (409)', () {
+    test('非重叠段 → 静默自动合并，无 conflict，新 op baseVersion=remote', () async {
+      // base v10 = P1/P2/P3。本地改 P2→P2L（草稿）。他端改 P3→P3R 推到 v11。
+      await seedNoteWithBase('n1',
+          content: 'P1\n\nP2L\n\nP3',
+          baseContent: 'P1\n\nP2\n\nP3',
+          baseVersion: 10,
+          serverVersion: 11);
+      brain.remoteContentByConflict['n1'] = 'P1\n\nP2\n\nP3R';
+      await enqueueUpdate('n1',
+          baseVersion: 10, payload: {'content_md': 'P1\n\nP2L\n\nP3'});
+
+      final flusher = makeFlusher();
+      final conflicts = <NoteOutboxConflict>[];
+      final sub = flusher.conflicts.listen(conflicts.add);
+      String? autoMerged;
+      flusher.onAutoMergeResolved = (id, md) async {
+        autoMerged = md;
+        await applyMerged(id, md);
+      };
+
+      await flusher.flushOnce();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(conflicts, isEmpty, reason: '非重叠段静默自动合并，不弹冲突');
+      expect(autoMerged, 'P1\n\nP2L\n\nP3R');
+      // 本地行：merge 后 applyMerged 覆盖为合并文。
+      expect((await dao.noteById('n1'))!.contentMd, 'P1\n\nP2L\n\nP3R');
+      // 新 op 入队 baseVersion=11（remote），原 op 已删。
+      final pending = await dao.allOutbox();
+      expect(pending, hasLength(1));
+      expect(pending.single.op, 'update_note');
+      expect(pending.single.baseVersion, 11);
+    });
+
+    test('同段冲突 → emit merge bundle（带 segments），op 删，本地行=remote',
+        () async {
+      await seedNoteWithBase('n1',
+          content: 'A\n\nBX\n\nC',
+          baseContent: 'A\n\nB\n\nC',
+          baseVersion: 10,
+          serverVersion: 11);
+      brain.remoteContentByConflict['n1'] = 'A\n\nBY\n\nC';
+      await enqueueUpdate('n1',
+          baseVersion: 10, payload: {'content_md': 'A\n\nBX\n\nC'});
+
+      final flusher = makeFlusher();
+      final conflicts = <NoteOutboxConflict>[];
+      final sub = flusher.conflicts.listen(conflicts.add);
+      flusher.onAutoMergeResolved = applyMerged; // 同段冲突不应触发自动合并
+
+      await flusher.flushOnce();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(conflicts, hasLength(1));
+      final c = conflicts.single;
+      expect(c.hasMergeBundle, isTrue);
+      expect(c.baseContentMd, 'A\n\nB\n\nC');
+      expect(c.localContentMd, 'A\n\nBX\n\nC');
+      expect(c.remoteContentMd, 'A\n\nBY\n\nC');
+      expect(c.remoteVersion, 11);
+      expect(c.segments!.whereType<ConflictMergeSegment>().length, 1);
+      expect(await dao.allOutbox(), isEmpty, reason: '冲突 op 已丢');
+      expect((await dao.noteById('n1'))!.contentMd, 'A\n\nBY\n\nC',
+          reason: '本地行写成服务端快照');
+    });
+
+    test('base==null（离线建未同步）→ legacy conflict，无 bundle', () async {
+      await seedNote('n1', version: 10); // 无 base 列
+      brain.versionByNote['n1'] = 11;
+      brain.remoteContentByConflict['n1'] = 'REMOTE';
+      await enqueueUpdate('n1', baseVersion: 10, payload: {'content_md': 'LOCAL'});
+
+      final flusher = makeFlusher();
+      final conflicts = <NoteOutboxConflict>[];
+      final sub = flusher.conflicts.listen(conflicts.add);
+      await flusher.flushOnce();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(conflicts, hasLength(1));
+      expect(conflicts.single.hasMergeBundle, isFalse, reason: '无 base → legacy');
+      expect(await dao.allOutbox(), isEmpty, reason: 'op 已丢');
     });
   });
 }

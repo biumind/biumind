@@ -30,22 +30,43 @@ void main() {
     'note_outbox',
   ];
 
-  test('v32 旧库迁移到 v33：笔记五表加 owner_key 列，存量行清空', () async {
+  test('v32 旧库迁移到 v34：笔记五表加 owner_key 列，存量行清空', () async {
     // ── 1. 手建 v32 形态的五表（均无 owner_key）+ 各种一行脏数据 ──
     final raw = sqlite3.openInMemory();
     for (final t in tables) {
       raw.execute('CREATE TABLE $t (id TEXT NOT NULL PRIMARY KEY)');
       raw.execute("INSERT INTO $t (id) VALUES ('stale-$t')");
     }
+    // 真实 v32 库必有 sse_cursors（v17 建）—— v34 会 DELETE 它（scope 升级
+    // 'ownerKey:topic'），fixture 缺了会 no such table。种一条旧形态脏数据。
+    raw.execute('''
+      CREATE TABLE sse_cursors (
+        scope TEXT NOT NULL PRIMARY KEY,
+        last_event_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+    raw.execute(
+      "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
+      "VALUES ('chat.sync','evt-1',1780000000)",
+    );
     raw.userVersion = 32;
 
-    // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(32→33) ──
+    // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(32→34) ──
     final db = AppDb.executor(NativeDatabase.opened(raw));
     addTearDown(db.close);
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 33, reason: '迁移后 schema 版本应为 33');
+    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35');
+
+    // v34:sse_cursors 旧的裸 topic 行已清（详细断言见
+    // migration_v33_to_v34_test.dart）。
+    expect(
+      raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
+      0,
+      reason: 'v34 应清空 sse_cursors 存量行',
+    );
 
     for (final t in tables) {
       final cols = raw

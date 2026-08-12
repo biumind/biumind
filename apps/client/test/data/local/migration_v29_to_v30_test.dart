@@ -7,8 +7,14 @@
 //
 // 手搓旧库的原因见 migration_v22_to_v26_test.dart 头注释：AppDb.memory()
 // 走 onCreate 永远跑不到 onUpgrade。本测试用 package:sqlite3 手建 v29
-// 形态的五张表 + 种数据，经 NativeDatabase.opened 触发 onUpgrade(29→30)，
-// 断言：升到 v30、五表清空、owner_key 列存在、新写入的行带 ownerKey。
+// 形态的五张表 + 种数据，经 NativeDatabase.opened 触发 onUpgrade(29→当前)，
+// 断言：升到当前版本、五表清空、owner_key 列存在、新写入的行带 ownerKey。
+//
+// 注意：真实 v29 库必有 notes 五表（v28 createTable 建，v29 加
+// archived_at/promoted_page_id，均无 owner_key）—— 迁移链跑到 v33 时会
+// 对 note_* 做 addColumn + DELETE，fixture 缺了会报 no such table。这里
+// 用最小骨架（同 migration_v32_to_v33_test：Phase 33 的 addColumn/DELETE
+// 不依赖其他列形态），各种一行脏数据验证清空。
 
 import 'package:biumind/data/local/db.dart';
 import 'package:biumind/features/chat/data/chat_repo.dart';
@@ -104,6 +110,34 @@ void main() {
       );
     ''');
 
+    // 真实 v29 库必有的 notes 五表（v28 建、v29 补列，均无 owner_key）——
+    // 最小骨架即可（Phase 33 的 addColumn/DELETE 不依赖其他列形态，
+    // 同 migration_v32_to_v33_test 的论证）。
+    const noteTables = [
+      'note_notes',
+      'note_notebooks',
+      'note_tags',
+      'note_note_tags',
+      'note_outbox',
+    ];
+    for (final t in noteTables) {
+      raw.execute('CREATE TABLE $t (id TEXT NOT NULL PRIMARY KEY)');
+      raw.execute("INSERT INTO $t (id) VALUES ('stale-$t')");
+    }
+    // 真实 v29 库必有 sse_cursors（v17 建）—— v34 会 DELETE 它（scope 升级
+    // 'ownerKey:topic'），fixture 缺了会 no such table。
+    raw.execute('''
+      CREATE TABLE sse_cursors (
+        scope TEXT NOT NULL PRIMARY KEY,
+        last_event_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+    raw.execute(
+      "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
+      "VALUES ('aigc.tasks','evt-1',1780000000)",
+    );
+
     // 种数据：五表各 1 行 —— 模拟真实旧库里的存量聊天记录。
     final ts = DateTime.utc(2026, 8, 1).millisecondsSinceEpoch ~/ 1000;
     raw.execute(
@@ -138,7 +172,28 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 32, reason: '迁移后 schema 版本应为 32（v31/v32 加了 chat_sync_state / chat_outbox）');
+    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35（v31/v32 加 chat_sync_state / chat_outbox，v33 笔记五表加 owner_key，v34 清 sse_cursors）');
+
+    // v34:sse_cursors 旧的裸 topic 行已清。
+    expect(
+      raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
+      0,
+      reason: 'v34 应清空 sse_cursors 存量行',
+    );
+
+    // v33:notes 五表 owner_key 列已加、存量行清空（from>=28 走 addColumn）。
+    for (final t in noteTables) {
+      final cols = raw
+          .select('PRAGMA table_info($t)')
+          .map((r) => r['name'] as String)
+          .toSet();
+      expect(cols, contains('owner_key'), reason: 'v33 应给 $t 加 owner_key 列');
+      expect(
+        raw.select('SELECT COUNT(*) AS c FROM $t').first['c'],
+        0,
+        reason: 'v33 应清空 $t 存量行',
+      );
+    }
 
     // 五表 owner_key 列已加。
     for (final t in [

@@ -133,6 +133,14 @@ class NoteNotes extends Table {
   DateTimeColumn get todoCompletedAt => dateTime().nullable()();
   RealColumn get position => real().withDefault(const Constant(0.0))();
   IntColumn get version => integer().withDefault(const Constant(1))();
+  /// 上次服务端确认的正文 + 版本号 —— 3-way merge 的「共同祖先」。
+  /// 服务端写路径（pull 增量 `_applyNotePayload` / flush 成功回填
+  /// `_upsertFromDto`）设 base := 本次服务端内容与版本；本地编辑路径
+  /// （`updateNote`）保留 existing.base（基线不动）。null = 未与服务端
+  /// 确认过（离线新建 / v35 前老行），409 时无法三方合并，退化为「另存
+  /// 为副本」兜底。详见 docs 3-way merge 设计。
+  TextColumn get baseContentMd => text().nullable()();
+  IntColumn get baseVersion => integer().nullable()();
   BoolColumn get trashed => boolean().withDefault(const Constant(false))();
   DateTimeColumn get trashedAt => dateTime().nullable()();
   /// 归档时间（转入知识库后服务端置位）。null = 未归档。归档笔记不进
@@ -293,10 +301,11 @@ class CodeProjects extends Table {
 }
 
 /// SSE Last-Event-ID 续传游标 (v2-4) — 重启 app 后立即从上次 cursor 续接,
-/// 避免后台 30s+ 漏事件. RealtimeHub 实例间用 [scope] 区分 (e.g.
-/// 'aigc.tasks' / 'code.tasks' / 'skills.events'); 服务端 ledger 全局
-/// ID ordering, 续连时 last-event-id header 配合 topic filter 能取到正确
-/// 的 replay 范围.
+/// 避免后台 30s+ 漏事件. RealtimeHub 实例间用 [scope] 区分; P2 多账号起
+/// scope = 'ownerKey:topic' (e.g. 'sha256(环境):userId:aigc.tasks'), 切账号
+/// 不会拿错上一账号的 cursor (v34 迁移清了旧的裸 topic 行); 服务端 ledger
+/// 全局 ID ordering, 续连时 last-event-id header 配合 topic filter 能取到
+/// 正确的 replay 范围.
 @DataClassName('LocalSseCursor')
 class SseCursors extends Table {
   TextColumn get scope => text()(); // RealtimeHub 实例标识, e.g. 'aigc.tasks'
@@ -638,7 +647,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 33;
+  int get schemaVersion => 35;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -870,6 +879,30 @@ class AppDb extends _$AppDb {
             await m.database.customStatement('DELETE FROM note_tags');
             await m.database.customStatement('DELETE FROM note_note_tags');
             await m.database.customStatement('DELETE FROM note_outbox');
+          }
+          if (from < 34) {
+            // Phase 34: SseCursors scope 升级为 'ownerKey:topic'（P2 多账号
+            // Step 2）—— 旧行是裸 topic（'chat.sync' / 'aigc.tasks' /
+            // 'notes.changes'），不含账号身份，「不登出直接 switchAccount」
+            // 会拿上一个账号的 last-event-id 续接。cursor 拿错的代价只是
+            // 重连后从头收（服务端 replay 纠偏），故直接清存量行，不做
+            // 归属猜测。表自 v17 起必存在（from < 17 时上面 createTable
+            // 已建），无需 IF EXISTS 防御。
+            await m.database.customStatement('DELETE FROM sse_cursors');
+          }
+          if (from < 35) {
+            // Phase 35: 笔记 3-way merge —— NoteNotes 加 baseContentMd /
+            // baseVersion 两列存「上次服务端确认态」作合并共同祖先。两列
+            // nullable，老行 NULL = 无 base（409 时退化为另存为副本兜底），
+            // 下次 flush 成功回填后即有值。
+            //
+            // 下界防 duplicate column：from < 28 时 Phase 28 的 createTable
+            // 已按当前 schema（含 base 列）建表，再 addColumn 报重复（同 v33
+            // owner_key 的 from >= 28 守卫）。
+            if (from >= 28) {
+              await m.addColumn(noteNotes, noteNotes.baseContentMd);
+              await m.addColumn(noteNotes, noteNotes.baseVersion);
+            }
           }
         },
       );

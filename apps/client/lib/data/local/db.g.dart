@@ -2294,6 +2294,28 @@ class $NoteNotesTable extends NoteNotes
     requiredDuringInsert: false,
     defaultValue: const Constant(1),
   );
+  static const VerificationMeta _baseContentMdMeta = const VerificationMeta(
+    'baseContentMd',
+  );
+  @override
+  late final GeneratedColumn<String> baseContentMd = GeneratedColumn<String>(
+    'base_content_md',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _baseVersionMeta = const VerificationMeta(
+    'baseVersion',
+  );
+  @override
+  late final GeneratedColumn<int> baseVersion = GeneratedColumn<int>(
+    'base_version',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _trashedMeta = const VerificationMeta(
     'trashed',
   );
@@ -2375,6 +2397,8 @@ class $NoteNotesTable extends NoteNotes
     todoCompletedAt,
     position,
     version,
+    baseContentMd,
+    baseVersion,
     trashed,
     trashedAt,
     archivedAt,
@@ -2442,6 +2466,24 @@ class $NoteNotesTable extends NoteNotes
       context.handle(
         _versionMeta,
         version.isAcceptableOrUnknown(data['version']!, _versionMeta),
+      );
+    }
+    if (data.containsKey('base_content_md')) {
+      context.handle(
+        _baseContentMdMeta,
+        baseContentMd.isAcceptableOrUnknown(
+          data['base_content_md']!,
+          _baseContentMdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('base_version')) {
+      context.handle(
+        _baseVersionMeta,
+        baseVersion.isAcceptableOrUnknown(
+          data['base_version']!,
+          _baseVersionMeta,
+        ),
       );
     }
     if (data.containsKey('trashed')) {
@@ -2526,6 +2568,14 @@ class $NoteNotesTable extends NoteNotes
         DriftSqlType.int,
         data['${effectivePrefix}version'],
       )!,
+      baseContentMd: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_content_md'],
+      ),
+      baseVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}base_version'],
+      ),
       trashed: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}trashed'],
@@ -2568,6 +2618,15 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
   final DateTime? todoCompletedAt;
   final double position;
   final int version;
+
+  /// 上次服务端确认的正文 + 版本号 —— 3-way merge 的「共同祖先」。
+  /// 服务端写路径（pull 增量 `_applyNotePayload` / flush 成功回填
+  /// `_upsertFromDto`）设 base := 本次服务端内容与版本；本地编辑路径
+  /// （`updateNote`）保留 existing.base（基线不动）。null = 未与服务端
+  /// 确认过（离线新建 / v35 前老行），409 时无法三方合并，退化为「另存
+  /// 为副本」兜底。详见 docs 3-way merge 设计。
+  final String? baseContentMd;
+  final int? baseVersion;
   final bool trashed;
   final DateTime? trashedAt;
 
@@ -2592,6 +2651,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     this.todoCompletedAt,
     required this.position,
     required this.version,
+    this.baseContentMd,
+    this.baseVersion,
     required this.trashed,
     this.trashedAt,
     this.archivedAt,
@@ -2614,6 +2675,12 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     }
     map['position'] = Variable<double>(position);
     map['version'] = Variable<int>(version);
+    if (!nullToAbsent || baseContentMd != null) {
+      map['base_content_md'] = Variable<String>(baseContentMd);
+    }
+    if (!nullToAbsent || baseVersion != null) {
+      map['base_version'] = Variable<int>(baseVersion);
+    }
     map['trashed'] = Variable<bool>(trashed);
     if (!nullToAbsent || trashedAt != null) {
       map['trashed_at'] = Variable<DateTime>(trashedAt);
@@ -2643,6 +2710,12 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           : Value(todoCompletedAt),
       position: Value(position),
       version: Value(version),
+      baseContentMd: baseContentMd == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baseContentMd),
+      baseVersion: baseVersion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baseVersion),
       trashed: Value(trashed),
       trashedAt: trashedAt == null && nullToAbsent
           ? const Value.absent()
@@ -2672,6 +2745,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
       todoCompletedAt: serializer.fromJson<DateTime?>(json['todoCompletedAt']),
       position: serializer.fromJson<double>(json['position']),
       version: serializer.fromJson<int>(json['version']),
+      baseContentMd: serializer.fromJson<String?>(json['baseContentMd']),
+      baseVersion: serializer.fromJson<int?>(json['baseVersion']),
       trashed: serializer.fromJson<bool>(json['trashed']),
       trashedAt: serializer.fromJson<DateTime?>(json['trashedAt']),
       archivedAt: serializer.fromJson<DateTime?>(json['archivedAt']),
@@ -2692,6 +2767,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
       'todoCompletedAt': serializer.toJson<DateTime?>(todoCompletedAt),
       'position': serializer.toJson<double>(position),
       'version': serializer.toJson<int>(version),
+      'baseContentMd': serializer.toJson<String?>(baseContentMd),
+      'baseVersion': serializer.toJson<int?>(baseVersion),
       'trashed': serializer.toJson<bool>(trashed),
       'trashedAt': serializer.toJson<DateTime?>(trashedAt),
       'archivedAt': serializer.toJson<DateTime?>(archivedAt),
@@ -2710,6 +2787,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     Value<DateTime?> todoCompletedAt = const Value.absent(),
     double? position,
     int? version,
+    Value<String?> baseContentMd = const Value.absent(),
+    Value<int?> baseVersion = const Value.absent(),
     bool? trashed,
     Value<DateTime?> trashedAt = const Value.absent(),
     Value<DateTime?> archivedAt = const Value.absent(),
@@ -2727,6 +2806,10 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
         : this.todoCompletedAt,
     position: position ?? this.position,
     version: version ?? this.version,
+    baseContentMd: baseContentMd.present
+        ? baseContentMd.value
+        : this.baseContentMd,
+    baseVersion: baseVersion.present ? baseVersion.value : this.baseVersion,
     trashed: trashed ?? this.trashed,
     trashedAt: trashedAt.present ? trashedAt.value : this.trashedAt,
     archivedAt: archivedAt.present ? archivedAt.value : this.archivedAt,
@@ -2750,6 +2833,12 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           : this.todoCompletedAt,
       position: data.position.present ? data.position.value : this.position,
       version: data.version.present ? data.version.value : this.version,
+      baseContentMd: data.baseContentMd.present
+          ? data.baseContentMd.value
+          : this.baseContentMd,
+      baseVersion: data.baseVersion.present
+          ? data.baseVersion.value
+          : this.baseVersion,
       trashed: data.trashed.present ? data.trashed.value : this.trashed,
       trashedAt: data.trashedAt.present ? data.trashedAt.value : this.trashedAt,
       archivedAt: data.archivedAt.present
@@ -2774,6 +2863,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           ..write('todoCompletedAt: $todoCompletedAt, ')
           ..write('position: $position, ')
           ..write('version: $version, ')
+          ..write('baseContentMd: $baseContentMd, ')
+          ..write('baseVersion: $baseVersion, ')
           ..write('trashed: $trashed, ')
           ..write('trashedAt: $trashedAt, ')
           ..write('archivedAt: $archivedAt, ')
@@ -2794,6 +2885,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
     todoCompletedAt,
     position,
     version,
+    baseContentMd,
+    baseVersion,
     trashed,
     trashedAt,
     archivedAt,
@@ -2813,6 +2906,8 @@ class LocalNote extends DataClass implements Insertable<LocalNote> {
           other.todoCompletedAt == this.todoCompletedAt &&
           other.position == this.position &&
           other.version == this.version &&
+          other.baseContentMd == this.baseContentMd &&
+          other.baseVersion == this.baseVersion &&
           other.trashed == this.trashed &&
           other.trashedAt == this.trashedAt &&
           other.archivedAt == this.archivedAt &&
@@ -2830,6 +2925,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
   final Value<DateTime?> todoCompletedAt;
   final Value<double> position;
   final Value<int> version;
+  final Value<String?> baseContentMd;
+  final Value<int?> baseVersion;
   final Value<bool> trashed;
   final Value<DateTime?> trashedAt;
   final Value<DateTime?> archivedAt;
@@ -2846,6 +2943,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     this.todoCompletedAt = const Value.absent(),
     this.position = const Value.absent(),
     this.version = const Value.absent(),
+    this.baseContentMd = const Value.absent(),
+    this.baseVersion = const Value.absent(),
     this.trashed = const Value.absent(),
     this.trashedAt = const Value.absent(),
     this.archivedAt = const Value.absent(),
@@ -2863,6 +2962,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     this.todoCompletedAt = const Value.absent(),
     this.position = const Value.absent(),
     this.version = const Value.absent(),
+    this.baseContentMd = const Value.absent(),
+    this.baseVersion = const Value.absent(),
     this.trashed = const Value.absent(),
     this.trashedAt = const Value.absent(),
     this.archivedAt = const Value.absent(),
@@ -2881,6 +2982,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     Expression<DateTime>? todoCompletedAt,
     Expression<double>? position,
     Expression<int>? version,
+    Expression<String>? baseContentMd,
+    Expression<int>? baseVersion,
     Expression<bool>? trashed,
     Expression<DateTime>? trashedAt,
     Expression<DateTime>? archivedAt,
@@ -2898,6 +3001,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
       if (todoCompletedAt != null) 'todo_completed_at': todoCompletedAt,
       if (position != null) 'position': position,
       if (version != null) 'version': version,
+      if (baseContentMd != null) 'base_content_md': baseContentMd,
+      if (baseVersion != null) 'base_version': baseVersion,
       if (trashed != null) 'trashed': trashed,
       if (trashedAt != null) 'trashed_at': trashedAt,
       if (archivedAt != null) 'archived_at': archivedAt,
@@ -2917,6 +3022,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     Value<DateTime?>? todoCompletedAt,
     Value<double>? position,
     Value<int>? version,
+    Value<String?>? baseContentMd,
+    Value<int?>? baseVersion,
     Value<bool>? trashed,
     Value<DateTime?>? trashedAt,
     Value<DateTime?>? archivedAt,
@@ -2934,6 +3041,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
       todoCompletedAt: todoCompletedAt ?? this.todoCompletedAt,
       position: position ?? this.position,
       version: version ?? this.version,
+      baseContentMd: baseContentMd ?? this.baseContentMd,
+      baseVersion: baseVersion ?? this.baseVersion,
       trashed: trashed ?? this.trashed,
       trashedAt: trashedAt ?? this.trashedAt,
       archivedAt: archivedAt ?? this.archivedAt,
@@ -2971,6 +3080,12 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
     if (version.present) {
       map['version'] = Variable<int>(version.value);
     }
+    if (baseContentMd.present) {
+      map['base_content_md'] = Variable<String>(baseContentMd.value);
+    }
+    if (baseVersion.present) {
+      map['base_version'] = Variable<int>(baseVersion.value);
+    }
     if (trashed.present) {
       map['trashed'] = Variable<bool>(trashed.value);
     }
@@ -3006,6 +3121,8 @@ class NoteNotesCompanion extends UpdateCompanion<LocalNote> {
           ..write('todoCompletedAt: $todoCompletedAt, ')
           ..write('position: $position, ')
           ..write('version: $version, ')
+          ..write('baseContentMd: $baseContentMd, ')
+          ..write('baseVersion: $baseVersion, ')
           ..write('trashed: $trashed, ')
           ..write('trashedAt: $trashedAt, ')
           ..write('archivedAt: $archivedAt, ')
@@ -14928,6 +15045,8 @@ typedef $$NoteNotesTableCreateCompanionBuilder =
       Value<DateTime?> todoCompletedAt,
       Value<double> position,
       Value<int> version,
+      Value<String?> baseContentMd,
+      Value<int?> baseVersion,
       Value<bool> trashed,
       Value<DateTime?> trashedAt,
       Value<DateTime?> archivedAt,
@@ -14946,6 +15065,8 @@ typedef $$NoteNotesTableUpdateCompanionBuilder =
       Value<DateTime?> todoCompletedAt,
       Value<double> position,
       Value<int> version,
+      Value<String?> baseContentMd,
+      Value<int?> baseVersion,
       Value<bool> trashed,
       Value<DateTime?> trashedAt,
       Value<DateTime?> archivedAt,
@@ -15001,6 +15122,16 @@ class $$NoteNotesTableFilterComposer
 
   ColumnFilters<int> get version => $composableBuilder(
     column: $table.version,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get baseContentMd => $composableBuilder(
+    column: $table.baseContentMd,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get baseVersion => $composableBuilder(
+    column: $table.baseVersion,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -15084,6 +15215,16 @@ class $$NoteNotesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get baseContentMd => $composableBuilder(
+    column: $table.baseContentMd,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get baseVersion => $composableBuilder(
+    column: $table.baseVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get trashed => $composableBuilder(
     column: $table.trashed,
     builder: (column) => ColumnOrderings(column),
@@ -15152,6 +15293,16 @@ class $$NoteNotesTableAnnotationComposer
   GeneratedColumn<int> get version =>
       $composableBuilder(column: $table.version, builder: (column) => column);
 
+  GeneratedColumn<String> get baseContentMd => $composableBuilder(
+    column: $table.baseContentMd,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get baseVersion => $composableBuilder(
+    column: $table.baseVersion,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get trashed =>
       $composableBuilder(column: $table.trashed, builder: (column) => column);
 
@@ -15211,6 +15362,8 @@ class $$NoteNotesTableTableManager
                 Value<DateTime?> todoCompletedAt = const Value.absent(),
                 Value<double> position = const Value.absent(),
                 Value<int> version = const Value.absent(),
+                Value<String?> baseContentMd = const Value.absent(),
+                Value<int?> baseVersion = const Value.absent(),
                 Value<bool> trashed = const Value.absent(),
                 Value<DateTime?> trashedAt = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
@@ -15227,6 +15380,8 @@ class $$NoteNotesTableTableManager
                 todoCompletedAt: todoCompletedAt,
                 position: position,
                 version: version,
+                baseContentMd: baseContentMd,
+                baseVersion: baseVersion,
                 trashed: trashed,
                 trashedAt: trashedAt,
                 archivedAt: archivedAt,
@@ -15245,6 +15400,8 @@ class $$NoteNotesTableTableManager
                 Value<DateTime?> todoCompletedAt = const Value.absent(),
                 Value<double> position = const Value.absent(),
                 Value<int> version = const Value.absent(),
+                Value<String?> baseContentMd = const Value.absent(),
+                Value<int?> baseVersion = const Value.absent(),
                 Value<bool> trashed = const Value.absent(),
                 Value<DateTime?> trashedAt = const Value.absent(),
                 Value<DateTime?> archivedAt = const Value.absent(),
@@ -15261,6 +15418,8 @@ class $$NoteNotesTableTableManager
                 todoCompletedAt: todoCompletedAt,
                 position: position,
                 version: version,
+                baseContentMd: baseContentMd,
+                baseVersion: baseVersion,
                 trashed: trashed,
                 trashedAt: trashedAt,
                 archivedAt: archivedAt,

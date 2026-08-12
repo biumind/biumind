@@ -9,9 +9,12 @@
 // 存在且列齐全、存量 chat 行不受影响、新表可正常读写。
 //
 // 手搓旧库的原因见 migration_v22_to_v26_test.dart 头注释：AppDb.memory()
-// 走 onCreate 永远跑不到 onUpgrade。这里只需建一张 v30 形态的
-// chat_threads_v2（含 owner_key 列）种一行数据 —— from=30 时 onUpgrade
-// 只跑 from<31 / from<32 两个 createTable，不碰其他表。
+// 走 onCreate 永远跑不到 onUpgrade。这里需建一张 v30 形态的
+// chat_threads_v2（含 owner_key 列）种一行数据，外加真实 v30 库必有的
+// notes 五表（v28 建，无 owner_key；最小骨架即可）与 sse_cursors（v17 建）
+// —— 迁移链会跑到 v34：v33 对 note_* 做 addColumn + DELETE，v34 DELETE
+// sse_cursors，fixture 缺了会报 no such table。from=30 时 v31/v32 两个
+// createTable 不碰其他表。
 
 import 'package:biumind/data/local/db.dart';
 import 'package:biumind/features/chat/data/chat_repo.dart';
@@ -20,7 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 void main() {
-  test('v30 旧库迁移到 v32：chat_sync_state / chat_outbox 建表，存量行保留', () async {
+  test('v30 旧库迁移到 v34：chat_sync_state / chat_outbox 建表，存量行保留', () async {
     // ── 1. 手建 v30 形态的 chat_threads_v2（当前 schema）+ 种一行 ──
     final raw = sqlite3.openInMemory();
     raw.execute('''
@@ -46,6 +49,31 @@ void main() {
         owner_key TEXT NOT NULL DEFAULT ''
       );
     ''');
+    // 真实 v30 库必有的 notes 五表（v28 建，无 owner_key；v33 才补列）。
+    const noteTables = [
+      'note_notes',
+      'note_notebooks',
+      'note_tags',
+      'note_note_tags',
+      'note_outbox',
+    ];
+    for (final t in noteTables) {
+      raw.execute('CREATE TABLE $t (id TEXT NOT NULL PRIMARY KEY)');
+      raw.execute("INSERT INTO $t (id) VALUES ('stale-$t')");
+    }
+    // 真实 v30 库必有 sse_cursors（v17 建）—— v34 会 DELETE 它（scope 升级
+    // 'ownerKey:topic'），fixture 缺了会 no such table。
+    raw.execute('''
+      CREATE TABLE sse_cursors (
+        scope TEXT NOT NULL PRIMARY KEY,
+        last_event_id TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    ''');
+    raw.execute(
+      "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
+      "VALUES ('notes.changes','42',1780000000)",
+    );
     final ts = DateTime.utc(2026, 8, 1).millisecondsSinceEpoch ~/ 1000;
     raw.execute(
       "INSERT INTO chat_threads_v2 (id,title,mode,created_at,updated_at,owner_key) "
@@ -53,13 +81,34 @@ void main() {
     );
     raw.userVersion = 30;
 
-    // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(30→32) ──
+    // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(30→33) ──
     final db = AppDb.executor(NativeDatabase.opened(raw));
     addTearDown(db.close);
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 32, reason: '迁移后 schema 版本应为 32');
+    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35（v33 笔记五表加 owner_key，v34 清 sse_cursors）');
+
+    // v34:sse_cursors 旧的裸 topic 行已清。
+    expect(
+      raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
+      0,
+      reason: 'v34 应清空 sse_cursors 存量行',
+    );
+
+    // v33:notes 五表补 owner_key 并清空存量。
+    for (final t in noteTables) {
+      final cols = raw
+          .select('PRAGMA table_info($t)')
+          .map((r) => r['name'] as String)
+          .toSet();
+      expect(cols, contains('owner_key'), reason: 'v33 应给 $t 加 owner_key 列');
+      expect(
+        raw.select('SELECT COUNT(*) AS c FROM $t').first['c'],
+        0,
+        reason: 'v33 应清空 $t 存量行',
+      );
+    }
 
     final syncCols = raw
         .select('PRAGMA table_info(chat_sync_state)')
