@@ -363,7 +363,7 @@ jobs:
 
       - name: Log in to GHCR
         if: steps.filt.outputs.skip == 'false'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -373,7 +373,7 @@ jobs:
       # credential secret are configured in repo settings.
       - name: Log in to Docker Hub
         if: steps.filt.outputs.skip == 'false' && vars.DOCKERHUB_NAMESPACE != '' && env.HAVE_DOCKERHUB_TOKEN == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -381,7 +381,7 @@ jobs:
 
       - name: Log in to Aliyun ACR
         if: steps.filt.outputs.skip == 'false' && vars.ALIYUN_REGISTRY != '' && env.HAVE_ALIYUN_PASSWORD == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ vars.ALIYUN_REGISTRY }}
           username: ${{ secrets.ALIYUN_USERNAME }}
