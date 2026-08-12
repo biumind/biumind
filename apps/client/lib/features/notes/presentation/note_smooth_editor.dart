@@ -17,9 +17,10 @@
 ///     `[](biu-file://uuid)`（上传在宿主侧完成，见 `_uploadAndResolve`）。
 ///
 /// 把对 flutter_smooth_markdown API 的依赖收敛在本文件内 —— 升级包只动这一处。
-/// 模式：formatted（WYSIWYG，渲染好的富文本，点击 block 即编辑）默认；split /
-/// source / preview 仍在编辑器自带 toolbar 可切。归档态 `editable=false` 强制
-/// preview（等价原 Milkdown 只读）。正文居中限宽 820px（见 build）。
+/// 模式：split（源码 + 预览同屏，直击「markdown 与富文本同屏」需求）默认；源码侧
+/// 是整篇一个连续 TextField（CJK 安全）。formatted / source / preview 仍在编辑器
+/// 自带 toolbar 可切。归档态 `editable=false` 强制 preview。正文居中限宽（split
+/// 1100 / 单栏 760，见 build）。
 library;
 
 import 'dart:async';
@@ -58,7 +59,7 @@ class NoteSmoothEditor extends StatefulWidget {
     super.key,
     required this.initialMarkdown,
     this.editable = true,
-    this.initialMode = MarkdownEditorMode.formatted,
+    this.initialMode = MarkdownEditorMode.split,
     this.onChanged,
     this.onControllerReady,
     this.onPickImage,
@@ -72,9 +73,11 @@ class NoteSmoothEditor extends StatefulWidget {
   /// false = 归档只读态，强制 preview 模式 + 禁用编辑。
   final bool editable;
 
-  /// 默认 formatted（WYSIWYG，渲染好的富文本，点击 block 即编辑）。split /
-  /// source / preview 仍在编辑器自带 toolbar 可切（重度用户用）。归档态忽略，
-  /// 用 preview。
+  /// 默认 split（源码 + 预览同屏，直击「markdown 与富文本同屏」需求）。源码侧是
+  /// 整篇一个连续 TextField（`_controller.textController`，CJK IME 安全、无盒子、
+  /// 无 per-block 焦点），右侧实时渲染预览。formatted 是 Notion 式 block 编辑器
+  /// （一次只编一个 block + 活跃 block 套边框），实测不适合连续写作，不作默认；
+  /// 仍可在 toolbar 切。归档态忽略，用 preview。
   final MarkdownEditorMode initialMode;
 
   /// markdown 源码变化（IME 组合态期间被包内抑制，组合提交后才发）。
@@ -162,13 +165,15 @@ class _NoteSmoothEditorState extends State<NoteSmoothEditor> {
 
   @override
   Widget build(BuildContext context) {
-    // 居中限宽：宽屏（桌面右栏 Expanded 可达 ~2500px）单行拉极长难读；
-    // 限 820px 阅读栏，手机窄屏（<820）自然不触发。编辑器自带 toolbar
-    // 也随之居中，与正文对齐（对标 Notion / Bear）。限宽封装在本层，
-    // 所有 consumer 受益，宿主只管 Expanded 撑高。
+    // 居中限宽：宽屏（桌面右栏 Expanded 可达 ~2500px）单行拉极长难读。
+    // 按模式给不同上限：split 两半屏各需 ~550 → 总 1100；formatted/preview
+    // 单栏阅读 → 760。手机窄屏（< 上限）自然不触发。编辑器自带 toolbar
+    // 也随之居中，与正文对齐（对标 Typora / MarkText 双栏）。
+    final maxWidth =
+        _mode == MarkdownEditorMode.split ? 1100.0 : 760.0;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 820),
+        constraints: BoxConstraints(maxWidth: maxWidth),
         child: SmoothMarkdownEditor(
           controller: _controller,
           // host 权威模式（归档态强制 preview）。

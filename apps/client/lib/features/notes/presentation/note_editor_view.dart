@@ -586,7 +586,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 initialMarkdown: _resolvedContent ?? note.contentMd,
                 // 已转入知识库（归档）→ 只读预览。
                 editable: note.promotedPageId == null,
-                initialMode: MarkdownEditorMode.formatted,
+                initialMode: MarkdownEditorMode.split,
                 onChanged: (md) => _contentAutosave
                     .schedule(_attachmentResolver.toCanonical(md)),
                 onControllerReady: (h) => _smoothHandle = h,
