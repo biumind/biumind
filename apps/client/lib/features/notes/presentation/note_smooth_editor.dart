@@ -17,8 +17,9 @@
 ///     `[](biu-file://uuid)`（上传在宿主侧完成，见 `_uploadAndResolve`）。
 ///
 /// 把对 flutter_smooth_markdown API 的依赖收敛在本文件内 —— 升级包只动这一处。
-/// 模式：split（源码 + 预览同屏，直击「markdown 与富文本同屏」需求）默认；
-/// 归档态 `editable=false` 强制 preview（等价原 Milkdown 只读）。
+/// 模式：formatted（WYSIWYG，渲染好的富文本，点击 block 即编辑）默认；split /
+/// source / preview 仍在编辑器自带 toolbar 可切。归档态 `editable=false` 强制
+/// preview（等价原 Milkdown 只读）。正文居中限宽 820px（见 build）。
 library;
 
 import 'dart:async';
@@ -57,10 +58,11 @@ class NoteSmoothEditor extends StatefulWidget {
     super.key,
     required this.initialMarkdown,
     this.editable = true,
-    this.initialMode = MarkdownEditorMode.split,
+    this.initialMode = MarkdownEditorMode.formatted,
     this.onChanged,
     this.onControllerReady,
     this.onPickImage,
+    this.toolbarLeading = const <Widget>[],
   });
 
   /// 首屏 markdown（已过 `NoteAttachmentResolver.resolveForEditor` 的临时 URL
@@ -70,7 +72,9 @@ class NoteSmoothEditor extends StatefulWidget {
   /// false = 归档只读态，强制 preview 模式 + 禁用编辑。
   final bool editable;
 
-  /// 默认 split（源码 + 预览同屏）。归档态忽略，用 preview。
+  /// 默认 formatted（WYSIWYG，渲染好的富文本，点击 block 即编辑）。split /
+  /// source / preview 仍在编辑器自带 toolbar 可切（重度用户用）。归档态忽略，
+  /// 用 preview。
   final MarkdownEditorMode initialMode;
 
   /// markdown 源码变化（IME 组合态期间被包内抑制，组合提交后才发）。
@@ -83,6 +87,10 @@ class NoteSmoothEditor extends StatefulWidget {
   /// 编辑器工具栏「插入图片」按钮回调：宿主完成选图 + presign 上传，返回
   /// 带「临时 URL」的 selection，编辑器自行插入 `![alt](url)`。
   final FutureOr<MarkdownEditorImageSelection?> Function()? onPickImage;
+
+  /// 前置到编辑器自带 toolbar 最左的自定义按钮（笔记侧挂「插入图片/附件」，
+  /// 与 bold/italic 等格式命令同栏）。空 = 仅包内默认按钮。
+  final List<Widget> toolbarLeading;
 
   @override
   State<NoteSmoothEditor> createState() => _NoteSmoothEditorState();
@@ -154,22 +162,36 @@ class _NoteSmoothEditorState extends State<NoteSmoothEditor> {
 
   @override
   Widget build(BuildContext context) {
-    return SmoothMarkdownEditor(
-      controller: _controller,
-      // host 权威模式（归档态强制 preview）。
-      mode: _mode,
-      onModeChanged: _onModeChanged,
-      enabled: widget.editable,
-      onChanged: _onChanged,
-      onPickImage: widget.onPickImage,
-      // 笔记侧关 wikilink（wiki 才有双链）；mermaid / math / table 保留。
-      enableWikilinks: false,
-      wikilinkSuggestions: const <String>[],
-      capabilities: const MarkdownEditorCapabilities(
-        disabledCommands: <MarkdownEditorCommand>{MarkdownEditorCommand.wikilink},
+    // 居中限宽：宽屏（桌面右栏 Expanded 可达 ~2500px）单行拉极长难读；
+    // 限 820px 阅读栏，手机窄屏（<820）自然不触发。编辑器自带 toolbar
+    // 也随之居中，与正文对齐（对标 Notion / Bear）。限宽封装在本层，
+    // 所有 consumer 受益，宿主只管 Expanded 撑高。
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 820),
+        child: SmoothMarkdownEditor(
+          controller: _controller,
+          // host 权威模式（归档态强制 preview）。
+          mode: _mode,
+          onModeChanged: _onModeChanged,
+          enabled: widget.editable,
+          showToolbar: true,
+          toolbarLeading: widget.toolbarLeading,
+          onChanged: _onChanged,
+          onPickImage: widget.onPickImage,
+          // 笔记侧关 wikilink（wiki 才有双链）；mermaid / math / table 保留。
+          enableWikilinks: false,
+          wikilinkSuggestions: const <String>[],
+          capabilities: const MarkdownEditorCapabilities(
+            disabledCommands: <MarkdownEditorCommand>{
+              MarkdownEditorCommand.wikilink,
+            },
+          ),
+          // 笔记随宿主主题；编辑器主题（toolbar / 分割线 / block 边框色）
+          // 由 buildTheme 注册的 MarkdownEditorThemeData 提供。
+          autofocus: false,
+        ),
       ),
-      // 笔记随宿主主题；编辑器自己从 ThemeData.extensions 读默认样式。
-      autofocus: false,
     );
   }
 }

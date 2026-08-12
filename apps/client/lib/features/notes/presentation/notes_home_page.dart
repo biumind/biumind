@@ -3,8 +3,8 @@
 ///   ┌──────────┬──────────────┬─────────────────────┐
 ///   │ 笔记本    │ 笔记列表      │ 编辑器              │
 ///   │ 全部      │ 标题+摘要+    │ NoteEditorView      │
-///   │ 未归档    │ 更新时间      │ (Milkdown)          │
-///   │ …各笔记本 │              │                     │
+///   │ 未归档    │ 更新时间      │ (flutter_smooth     │
+///   │ …各笔记本 │              │  _markdown)        │
 ///   └──────────┴──────────────┴─────────────────────┘
 ///
 /// 手机形态（<600px，core/layout/form_factor.dart）退化为列表 ↔ 详情：
@@ -44,8 +44,9 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
   @override
   void initState() {
     super.initState();
-    // 提前把编辑器共享的 localhost server 跑起来（fire-and-forget），
-    // 首个笔记编辑器 webview 不必再等 server 启动。
+    // wiki 页仍用 Milkdown webview，提前把共享 localhost server 跑起来
+    // （fire-and-forget），首个 wiki 编辑器不必等 server 启动。笔记侧已迁
+    // flutter_smooth_markdown（原生），不依赖此 server。
     unawaited(EditorNativeView.warmup());
   }
 
@@ -149,7 +150,8 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
             child: selectedId == null
                 ? const _DetailPlaceholder()
                 // 不带 key：切笔记走 NoteEditorView.didUpdateWidget 复用
-                // 同一编辑器 webview，不为每条笔记重载 2MB bundle。
+                // 同一 NoteSmoothEditor，新正文加载后经 Handle.setDoc 推进，
+                // 不为每条笔记重建编辑器。
                 : NoteEditorView(noteId: selectedId),
           ),
         ),

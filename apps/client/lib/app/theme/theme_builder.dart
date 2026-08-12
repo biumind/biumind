@@ -13,6 +13,7 @@
 // 加新色板: 见 palettes.dart 顶部说明。
 
 import 'package:flutter/material.dart';
+import 'package:flutter_smooth_markdown/flutter_smooth_markdown_editor.dart';
 
 import 'extensions.dart';
 import 'font_size.dart';
@@ -75,6 +76,43 @@ ThemeData buildTheme({
 
   final textTheme = _buildTextTheme(neutral, fst);
 
+  // flutter_smooth_markdown 编辑器主题 —— 注册成 ThemeData.extensions 后，
+  // SmoothMarkdownEditor._effectiveEditorTheme 自动 `.merge(theme.extension<…>())`
+  // 取用（widgets/smooth_markdown_editor.dart:1301-1302），不必逐处传 editorTheme。
+  // 色值走当前 palette（brand / neutral），跟 BiuColors 同源；亮度由 buildTheme
+  // light/dark 各调一次自带覆盖。wiki 仍用 Milkdown，不消费此扩展，无影响。
+  final editorTheme = MarkdownEditorThemeData(
+    toolbarColor: neutral.surface0,
+    toolbarIconColor: neutral.text2,
+    toolbarActiveIconColor: brand,
+    toolbarActiveBackgroundColor: brandSoft.withValues(alpha: 0.14),
+    dividerColor: neutral.borderHairline,
+    searchBarColor: neutral.surface1,
+    suggestionPanelColor: neutral.surface0,
+    suggestionSelectedBackgroundColor: brandSoft.withValues(alpha: 0.14),
+    selectionColor: brand.withValues(alpha: 0.12),
+    dropTargetColor: brand.withValues(alpha: 0.08),
+    dropTargetBorderColor: brand.withValues(alpha: 0.65),
+    blockBorderColor: neutral.borderHairline,
+    blockHeaderColor: neutral.surface2,
+    tableBorderColor: neutral.borderHairline,
+    tableHeaderColor: neutral.surface1,
+    tableSelectionColor: brand.withValues(alpha: 0.12),
+    tableActiveBorderColor: brand.withValues(alpha: 0.45),
+    editorBorderRadius: RadiusTokens.md,
+    toolbarButtonRadius: RadiusTokens.sm,
+    blockBorderRadius: RadiusTokens.sm,
+    // 横向 padding 由这层给（外层 Center+ConstrainedBox 只限宽不加 padding），
+    // 联动用户字体档 cardPad。竖向留白让正文不贴 toolbar 底沿。
+    contentPadding:
+        EdgeInsets.symmetric(horizontal: fst.cardPad, vertical: 12),
+    sourcePadding: EdgeInsets.symmetric(horizontal: fst.cardPad, vertical: 12),
+    previewPadding:
+        EdgeInsets.symmetric(horizontal: fst.cardPad, vertical: 12),
+    blockPadding: const EdgeInsets.all(12),
+    tablePadding: const EdgeInsets.all(12),
+  );
+
   return ThemeData(
     useMaterial3: true,
     brightness: mode,
@@ -105,6 +143,7 @@ ThemeData buildTheme({
       biuColors,
       BiuMetrics(tokens: fst),
       BiuMotion.defaults,
+      editorTheme,
     ],
     cardTheme: const CardThemeData(
       elevation: 0,

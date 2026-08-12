@@ -569,8 +569,6 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
               onTrash: _trashThisNote,
               note: note,
               onToggleTodo: _toggleTodo,
-              onInsertImage: _insertImage,
-              onInsertAttachment: _insertAttachment,
               onShowHistory: _showHistory,
               onPromoteToWiki:
                   note.promotedPageId == null ? _promoteToWiki : null,
@@ -581,7 +579,6 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 onToggle: _toggleTodoCompleted,
               ),
             _NoteTagsRow(noteId: widget.noteId),
-            Divider(height: 1, color: BiuTokens.borderSubtle),
             Expanded(
               child: NoteSmoothEditor(
                 // 喂编辑器的是临时 URL 形式；落库前在 onChanged 里换回
@@ -589,13 +586,30 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 initialMarkdown: _resolvedContent ?? note.contentMd,
                 // 已转入知识库（归档）→ 只读预览。
                 editable: note.promotedPageId == null,
-                initialMode: MarkdownEditorMode.split,
+                initialMode: MarkdownEditorMode.formatted,
                 onChanged: (md) => _contentAutosave
                     .schedule(_attachmentResolver.toCanonical(md)),
                 onControllerReady: (h) => _smoothHandle = h,
+                // 「插入图片 / 插入附件」挂编辑器自带 toolbar 最左，跟 bold/italic
+                // 同栏（正文动作，比放标题行近光标）。宿主仍持上传链路。
+                toolbarLeading: <Widget>[
+                  Tooltip(
+                    message: '插入图片',
+                    child: IconButton(
+                      icon: const Icon(Icons.image_outlined, size: 20),
+                      onPressed: _insertImage,
+                    ),
+                  ),
+                  Tooltip(
+                    message: '插入附件',
+                    child: IconButton(
+                      icon: const Icon(Icons.attach_file, size: 20),
+                      onPressed: _insertAttachment,
+                    ),
+                  ),
+                ],
               ),
             ),
-            Divider(height: 1, color: BiuTokens.borderSubtle),
             _StatusBar(
               contentStatus: _contentAutosave.status,
               titleStatus: _titleAutosave.status,
@@ -616,19 +630,17 @@ class _TitleRow extends StatelessWidget {
     required this.onTrash,
     required this.note,
     required this.onToggleTodo,
-    required this.onInsertImage,
-    required this.onInsertAttachment,
     required this.onShowHistory,
     required this.onPromoteToWiki,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
+
+  /// 移入回收站（收进「更多」菜单，不再占标题行独立按钮位）。
   final VoidCallback onTrash;
   final RepoNote note;
   final VoidCallback onToggleTodo;
-  final VoidCallback onInsertImage;
-  final VoidCallback onInsertAttachment;
   final VoidCallback onShowHistory;
 
   /// null = 已转入知识库（归档），菜单里隐藏该入口。
@@ -637,8 +649,9 @@ class _TitleRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 20, right: 8, top: 4),
+      padding: const EdgeInsets.only(left: 32, right: 12, top: 12, bottom: 6),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
           Expanded(
             child: TextField(
@@ -646,53 +659,44 @@ class _TitleRow extends StatelessWidget {
               onChanged: onChanged,
               style: TextStyle(
                 color: BiuTokens.text,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                height: 1.25,
               ),
               decoration: InputDecoration(
                 border: InputBorder.none,
+                isCollapsed: true,
+                contentPadding: EdgeInsets.zero,
                 hintText: '无标题笔记',
-                hintStyle: TextStyle(color: BiuTokens.textMuted),
+                hintStyle: TextStyle(
+                  color: BiuTokens.textMuted,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
             ),
-          ),
-          IconButton(
-            tooltip: '插入图片',
-            onPressed: onInsertImage,
-            icon: Icon(Icons.image_outlined,
-                size: 18, color: BiuTokens.textSecondary),
-          ),
-          IconButton(
-            tooltip: '插入附件',
-            onPressed: onInsertAttachment,
-            icon: Icon(Icons.attach_file,
-                size: 18, color: BiuTokens.textSecondary),
           ),
           IconButton(
             tooltip: note.isTodo ? '取消待办' : '转为待办',
             onPressed: onToggleTodo,
             icon: Icon(
               note.isTodo ? Icons.check_box : Icons.check_box_outline_blank,
-              size: 18,
+              size: 20,
               color: note.isTodo ? BiuTokens.purple : BiuTokens.textSecondary,
             ),
-          ),
-          IconButton(
-            tooltip: '移入回收站',
-            onPressed: onTrash,
-            icon: Icon(Icons.delete_outline,
-                size: 18, color: BiuTokens.textSecondary),
           ),
           PopupMenuButton<String>(
             tooltip: '更多操作',
             icon: Icon(Icons.more_vert,
-                size: 18, color: BiuTokens.textSecondary),
+                size: 20, color: BiuTokens.textSecondary),
             onSelected: (value) {
               switch (value) {
                 case 'history':
                   onShowHistory();
                 case 'promote':
                   onPromoteToWiki?.call();
+                case 'trash':
+                  onTrash();
               }
             },
             itemBuilder: (context) => <PopupMenuEntry<String>>[
@@ -715,6 +719,16 @@ class _TitleRow extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'trash',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.delete_outline, size: 18),
+                  title: Text('移入回收站'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
             ],
           ),
         ],
@@ -811,9 +825,9 @@ class _TodoCompletionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final completed = completedAt != null;
     return Container(
-      height: 34,
-      color: BiuTokens.surface,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 30,
+      // 透明底，去 banding；左 32 与标题 / 标签行对齐。
+      padding: const EdgeInsets.only(left: 32, right: 16),
       child: Row(
         children: <Widget>[
           SizedBox(
@@ -882,9 +896,10 @@ class _NoteTagsRow extends ConsumerWidget {
           if (t.id == id) t,
     ];
     return Container(
-      constraints: const BoxConstraints(minHeight: 34),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      color: BiuTokens.surface,
+      constraints: const BoxConstraints(minHeight: 30),
+      // 透明底 —— 去 banding（原 surface 灰底与编辑器默认底交替成条纹）；
+      // 左 32 与标题对齐，正文层次靠编辑器自带 toolbar + 字号留白。
+      padding: const EdgeInsets.only(left: 32, right: 16, bottom: 4),
       child: Wrap(
         spacing: 6,
         runSpacing: 4,
@@ -1050,7 +1065,7 @@ class _StatusBar extends StatelessWidget {
     return Container(
       height: 24,
       alignment: Alignment.centerRight,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(
         status == AutoSaveStatus.error && errorMessage != null
             ? '$label：$errorMessage'
