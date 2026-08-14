@@ -20,16 +20,40 @@ import '../../../app/theme/font_size.dart';
 import '../../../app/theme/palettes.dart';
 import '../../../data/api/device_name.dart';
 import '../../../data/api/identity_client.dart';
+import '../../../services/account_registry.dart';
 import '../../../services/auth_logout.dart';
 import '../../../services/settings_repo.dart';
+import '../../../services/token_manager.dart';
+import '../../chat/data/chat_scope.dart' show accountIdFromEndpoint;
+import '../../chat/sync/chat_events_realtime.dart' show decodeJwtUserId;
+import '../../notes/application/notes_ui_providers.dart'
+    show selectedNoteIdProvider;
 
 class SettingsController extends AsyncNotifier<AppSettings> {
   late final SettingsRepo _repo;
+  late final AccountRegistryStore _accounts;
 
   @override
   Future<AppSettings> build() async {
     _repo = ref.watch(settingsRepoProvider);
-    return _repo.load();
+    _accounts = ref.watch(accountRegistryStoreProvider);
+    final s = await _repo.load();
+    // 存量用户迁移播种 (P2 多账号 Step 1): registry 为空而已登录 → 用当前
+    // settings 的 identity slice 种一条 AccountRecord。best-effort try/catch,
+    // 失败不阻塞 build (下次启动再试)。播种不 invalidate accountsProvider —
+    // 此时它还没被读, 首读即拿到播种结果; build 里 invalidate 依赖链下游
+    // 有循环风险, 不做。
+    if (s.signedIn) {
+      try {
+        if ((await _accounts.load()).isEmpty) {
+          final rec = _recordFromSettings(s);
+          if (rec != null) await _accounts.save([rec]);
+        }
+      } catch (_) {
+        /* best-effort */
+      }
+    }
+    return s;
   }
 
   // ── Mutators ────────────────────────────────────────────────
@@ -102,12 +126,19 @@ class SettingsController extends AsyncNotifier<AppSettings> {
       return t.isEmpty ? null : t;
     }
 
+    // 显式构造而不是 copyWith —— 空串清空需要把字段置 null, copyWith 的
+    // ?? 语义做不到。**新增 AppSettings 字段时必须同步此列表**, 否则用户
+    // 改一次 coding 路径就把该字段抹掉 (曾漏 accessTtlSeconds /
+    // refreshTokenExpiresAt / sessionId / installationId 四个)。
     await _save(
       AppSettings(
         identityUrl: cur.identityUrl,
         accessToken: cur.accessToken,
         refreshToken: cur.refreshToken,
         tokenExpiresAt: cur.tokenExpiresAt,
+        accessTtlSeconds: cur.accessTtlSeconds,
+        refreshTokenExpiresAt: cur.refreshTokenExpiresAt,
+        sessionId: cur.sessionId,
         userEmail: cur.userEmail,
         defaultChatModel: cur.defaultChatModel,
         searchIncludeNotes: cur.searchIncludeNotes,
@@ -123,6 +154,7 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         codeUseWorktree: useWorktree ?? cur.codeUseWorktree,
         codeOriginDeviceId: cur.codeOriginDeviceId,
         codeOriginDeviceLabel: cur.codeOriginDeviceLabel,
+        installationId: cur.installationId,
       ),
     );
   }
@@ -204,6 +236,7 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         accessTtlSeconds: result.expiresInSeconds,
       ),
     );
+    await _upsertActiveAccount();
     return result;
   }
 
@@ -275,6 +308,7 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         accessTtlSeconds: result.expiresInSeconds,
       ),
     );
+    await _upsertActiveAccount();
     return result;
   }
 
@@ -380,6 +414,50 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         sessionId: sessionId,
       ),
     );
+    // 同步刷新 active 账号在 registry 里的 token 槽位 — registry 是
+    // settings 的镜像, 轮换后的新 token 不落进去的话, 切走再切回会拿到
+    // 旧 (已被服务端 rotation 作废) 的 refresh token。
+    await _mirrorRefreshed(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+      tokenExpiresAt: tokenExpiresAt,
+      accessTtlSeconds: accessTtlSeconds,
+      refreshTokenExpiresAt: refreshTokenExpiresAt,
+      sessionId: sessionId,
+    );
+  }
+
+  /// applyRefreshed 的 registry 镜像: 按当前 active accountId 找槽位更新,
+  /// 找不到直接跳过 (不 throw — 老版本升级后尚未播种 / token 非 JWT 等)。
+  /// null 参数语义同 applyRefreshed: 不动旧值而不是清掉。
+  Future<void> _mirrorRefreshed({
+    required String accessToken,
+    required String refreshToken,
+    required String tokenExpiresAt,
+    int? accessTtlSeconds,
+    String? refreshTokenExpiresAt,
+    String? sessionId,
+  }) async {
+    try {
+      final cur = await future;
+      final id = _activeAccountId(cur);
+      if (id == null) return;
+      final list = await _accounts.load();
+      final i = list.indexWhere((a) => a.accountId == id);
+      if (i < 0) return;
+      list[i] = list[i].copyWith(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        tokenExpiresAt: tokenExpiresAt,
+        accessTtlSeconds: accessTtlSeconds,
+        refreshTokenExpiresAt: refreshTokenExpiresAt,
+        sessionId: sessionId,
+      );
+      await _accounts.save(list);
+      ref.invalidate(accountsProvider);
+    } catch (_) {
+      /* best-effort — registry 是镜像, 不放大为主流程异常 */
+    }
   }
 
   /// Wipes auth-related fields. Identity URL + UI prefs preserved (the
@@ -396,6 +474,12 @@ class SettingsController extends AsyncNotifier<AppSettings> {
   /// 凭证(共享 settings 存储),本会话只是拿旧 rt 被拒。此时收编磁盘值,
   /// **不清盘、不调 logout**,返回 false。UI 主动登出走默认 false,维持
   /// 原行为。返回值 = 是否真的清了盘。
+  ///
+  /// P2 多账号: 真正清盘时额外从 account registry 移除 active 账号记录 —
+  /// 登出 = 该账号凭证作废 (服务端 refresh token 已撤), registry 槽位随之
+  /// 删除; 本地 chat/notes 数据按 ownerKey 隔离保留 (purgeUserData 不清,
+  /// 见 auth_logout.dart), 同账号重新登录后数据还在。compareAndClear 收编
+  /// 路径 (返回 false) 不动 registry — 磁盘上是另一实例的新会话, 凭证没废。
   Future<bool> signOut({bool compareAndClear = false}) async {
     final cur = await future;
     if (compareAndClear) {
@@ -406,6 +490,8 @@ class SettingsController extends AsyncNotifier<AppSettings> {
         return false;
       }
     }
+    // 登出前先记下 active accountId — clearTokens 后 token 没了就解不出了。
+    final activeId = _activeAccountId(cur);
     final url = (cur.identityUrl ?? '').trim();
     final rt = (cur.refreshToken ?? '').trim();
     if (url.isNotEmpty && rt.isNotEmpty) {
@@ -424,7 +510,162 @@ class SettingsController extends AsyncNotifier<AppSettings> {
     // 数据泄露. code DAO 不清 (零云同步 SoT), rss 按 scopeId 隔离不必清.
     await purgeUserData(ref);
     await _save(cur.clearTokens());
+    if (activeId != null) await _removeAccountRecord(activeId);
     return true;
+  }
+
+  // ── Multi-account (P2 Step 1: 凭证层) ───────────────────────
+
+  /// 从 settings 的 identity slice 派生 active 账号的 accountId
+  /// (= Drift ownerKey); 未登录 / token 非 JWT 返回 null。
+  String? _activeAccountId(AppSettings s) {
+    final url = s.identityUrl;
+    final tok = s.accessToken;
+    if (url == null || url.isEmpty || tok == null || tok.isEmpty) return null;
+    try {
+      return accountIdFromEndpoint(Uri.parse(url), tok);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 用 settings 的 identity slice 生成一条 registry 记录; 无法派生
+  /// accountId (token 非 JWT) 返回 null。
+  AccountRecord? _recordFromSettings(AppSettings s) {
+    final id = _activeAccountId(s);
+    if (id == null) return null;
+    return AccountRecord(
+      accountId: id,
+      identityUrl: s.identityUrl!,
+      userId: decodeJwtUserId(s.accessToken!)!,
+      email: s.userEmail,
+      accessToken: s.accessToken,
+      refreshToken: s.refreshToken,
+      tokenExpiresAt: s.tokenExpiresAt,
+      accessTtlSeconds: s.accessTtlSeconds,
+      refreshTokenExpiresAt: s.refreshTokenExpiresAt,
+      sessionId: s.sessionId,
+      lastActiveAt: DateTime.now().toUtc().toIso8601String(),
+    );
+  }
+
+  /// 登录/验证成功后把 active 账号的凭证切片镜像进 registry (按 accountId
+  /// 替换或追加, 同账号重复登录不产生重复记录)。best-effort: registry
+  /// 写失败不影响登录主流程。
+  Future<void> _upsertActiveAccount() async {
+    try {
+      final cur = await future;
+      final rec = _recordFromSettings(cur);
+      if (rec == null) return;
+      final list = await _accounts.load();
+      final i = list.indexWhere((a) => a.accountId == rec.accountId);
+      if (i >= 0) {
+        list[i] = rec;
+      } else {
+        list.add(rec);
+      }
+      await _accounts.save(list);
+      ref.invalidate(accountsProvider);
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+
+  Future<void> _removeAccountRecord(String accountId) async {
+    try {
+      final list = await _accounts.load();
+      final next = list.where((a) => a.accountId != accountId).toList();
+      if (next.length != list.length) {
+        await _accounts.save(next);
+        ref.invalidate(accountsProvider);
+      }
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+
+  /// 切换到 registry 里的另一个账号 (P2 多账号 Step 1 凭证层)。
+  ///
+  /// 关键不变量: **单次 _save 原子换入**目标账号的整个 identity slice,
+  /// 中途不出现 null token 的中间态。全 App 的凭证消费都经
+  /// settingsControllerProvider 响应式派生 (hubCredentialsProvider → 各
+  /// client / sync / router redirect), 一次原子 save 让下游整体重建,
+  /// router 不会因短暂登出态弹登录页。UI 偏好 / installationId / code*
+  /// 等设备级字段由 copyWith 原样保留 (它们属设备不属账号)。
+  ///
+  /// 记录不存在 (或槽位缺 access token) 时 throw [StateError]。
+  Future<void> switchAccount(String accountId) async {
+    final list = await _accounts.load();
+    final target = list.where((a) => a.accountId == accountId).firstOrNull;
+    if (target == null) {
+      throw StateError('switchAccount: $accountId not in registry');
+    }
+    final tok = target.accessToken;
+    if (tok == null || tok.isEmpty) {
+      throw StateError('switchAccount: $accountId has no access token');
+    }
+    final cur = await future;
+    await _save(
+      cur.copyWith(
+        identityUrl: target.identityUrl,
+        accessToken: target.accessToken,
+        refreshToken: target.refreshToken,
+        tokenExpiresAt: target.tokenExpiresAt,
+        accessTtlSeconds: target.accessTtlSeconds,
+        refreshTokenExpiresAt: target.refreshTokenExpiresAt,
+        sessionId: target.sessionId,
+        userEmail: target.email,
+      ),
+    );
+    // 刷新目标账号 lastActiveAt (账号列表排序用), best-effort。
+    try {
+      final i = list.indexWhere((a) => a.accountId == accountId);
+      list[i] = target.copyWith(
+        lastActiveAt: DateTime.now().toUtc().toIso8601String(),
+      );
+      await _accounts.save(list);
+      ref.invalidate(accountsProvider);
+    } catch (_) {
+      /* best-effort */
+    }
+    _resetAccountScopedState();
+  }
+
+  /// 切账号后重置「语义上属于当前账号会话」的全局 StateProvider:
+  ///   - connectivityStateProvider: 离线/重连徽标是上一个账号的 refresh
+  ///     结果, 新账号不该继承 (TokenManager 下次 refresh 会重判);
+  ///   - sessionExpiredCount/ReasonProvider: 过期弹窗计数同理;
+  ///   - selectedNoteIdProvider: 选中的笔记是上一个账号的行, 新账号 scope
+  ///     下不存在, 留着会让编辑器对着空 note。
+  /// 这些都是不依赖 settingsController 的 StateProvider, 直接写 state
+  /// 安全 (不能 invalidate 依赖 settings 的 provider — CircularDependencyError,
+  /// 见 auth_logout.dart 头注释)。
+  void _resetAccountScopedState() {
+    ref.read(connectivityStateProvider.notifier).state =
+        ConnectivityState.online;
+    ref.read(sessionExpiredReasonProvider.notifier).state =
+        SessionExpiredReason.expired;
+    ref.read(sessionExpiredCountProvider.notifier).state = 0;
+    ref.read(selectedNoteIdProvider.notifier).state = null;
+  }
+
+  /// 移除一个账号。
+  ///
+  /// - 非 active: 只删 registry 槽位 (其本地 chat/notes 数据按 ownerKey
+  ///   保留, 重新登录即恢复可见)。
+  /// - active: 走 signOut() 等价路径 — best-effort 服务端撤 refresh
+  ///   token + clearTokens + 移除 registry 记录; 本地 chat/notes 同样按
+  ///   ownerKey 保留 (purgeUserData 不清)。
+  ///
+  /// 删完 registry 若还有其他账号, **不做自动切换** — 是否自动切到下一
+  /// 个账号是产品决策, 留给 Step 3 UI 层。
+  Future<void> removeAccount(String accountId) async {
+    final cur = await future;
+    if (_activeAccountId(cur) == accountId) {
+      await signOut();
+      return;
+    }
+    await _removeAccountRecord(accountId);
   }
 
   Future<void> _save(AppSettings s) async {
@@ -488,3 +729,11 @@ final settingsControllerProvider =
     AsyncNotifierProvider<SettingsController, AppSettings>(
       SettingsController.new,
     );
+
+/// UI 用的账号列表 (P2 多账号, Step 3 账号切换器消费)。
+/// SettingsController 在每次 registry 变动 (登录 upsert / 切账号 /
+/// 移除 / token 轮换镜像) 后 invalidate 它。build 里的迁移播种不
+/// invalidate — 那时它还没被读, 首读即拿到播种结果。
+final accountsProvider = FutureProvider<List<AccountRecord>>((ref) {
+  return ref.watch(accountRegistryStoreProvider).load();
+});

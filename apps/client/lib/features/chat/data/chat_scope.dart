@@ -27,10 +27,18 @@ import '../sync/chat_events_realtime.dart' show decodeJwtUserId;
 
 /// 从登录凭据派生 ownerKey；无法派生（token 缺 sub）返回 null。
 String? chatOwnerKeyFromCredentials(HubCredentials creds) {
-  final userId = decodeJwtUserId(creds.bearerToken);
+  return accountIdFromEndpoint(creds.endpoint, creds.bearerToken);
+}
+
+/// 从 endpoint + access JWT 派生 accountId —— 与 chat ownerKey 完全同构
+/// （sha256(normalize(endpoint)) + ':' + JWT sub）。P2 多账号的
+/// account_registry 用它做账号主键，保证切账号后 Drift scope 过滤天然
+/// 命中对应账号的本地数据。token 非 JWT（解不出 sub）返回 null。
+String? accountIdFromEndpoint(Uri endpoint, String accessToken) {
+  final userId = decodeJwtUserId(accessToken);
   if (userId == null) return null;
   final envHash = sha256
-      .convert(utf8.encode(normalizeIdentityUrl(creds.endpoint)))
+      .convert(utf8.encode(normalizeIdentityUrl(endpoint)))
       .toString();
   return '$envHash:$userId';
 }

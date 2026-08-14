@@ -410,6 +410,39 @@ void main() {
       expect(c.state.connection, ConnectionState.offline);
       await c.stop();
     });
+
+    test('P2 多账号: 传了 ownerKey 时 cursor scope 带前缀, 各账号隔离', () async {
+      final db = AppDb.memory();
+      addTearDown(() async => db.close());
+      final cursors = SseCursorsDao(db);
+      // 两个账号各自的 cursor + 一条 v34 前的裸 topic 旧行。
+      await cursors.save('hash-a:user-a:${TasksController.sseScope}', 'CA');
+      await cursors.save('hash-b:user-b:${TasksController.sseScope}', 'CB');
+      await cursors.save(TasksController.sseScope, 'LEGACY');
+
+      final client = _FakeAigcClient();
+      final c = TasksController(
+        client: client,
+        realtimeEndpoint: null,
+        tokenProvider: () async => 'tok',
+        userId: 'user-a',
+        sseCursors: cursors,
+        ownerKey: 'hash-a:user-a',
+      );
+
+      await c.debugHandleDesync(4009, 'gap');
+
+      // 只清当前账号的 cursor; 另一账号与裸 topic 旧行不动 (旧行由 v34
+      // 迁移清, 运行时不管)。
+      expect(
+        await cursors.load('hash-a:user-a:${TasksController.sseScope}'),
+        isNull,
+      );
+      expect(await cursors.load('hash-b:user-b:${TasksController.sseScope}'),
+          'CB');
+      expect(await cursors.load(TasksController.sseScope), 'LEGACY');
+      await c.stop();
+    });
   });
 
   // ─── v2-5 progress 节流 (200ms coalesce) ─────────────

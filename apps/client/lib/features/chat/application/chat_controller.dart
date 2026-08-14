@@ -280,6 +280,12 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
 
   @override
   Future<ChatState> build(String threadId) async {
+    // P2 多账号: watch owner scope —— 换账号/换环境时 scope 变化触发本
+    // family 实例重建, onDispose → _disposeConnection 关掉旧账号的活跃
+    // WS (family 实例不按 creds 自动死, 不 watch 的话旧连接会一直挂着旧
+    // 账号的 session)。只 watch scope 字符串: token 轮换 (同人) scope 不变,
+    // 不会误杀在途会话。
+    ref.watch(chatOwnerScopeProvider);
     final deps = ref.read(chatControllerDepsProvider);
     final thread = await deps.repo.getThread(threadId);
     if (thread == null) {

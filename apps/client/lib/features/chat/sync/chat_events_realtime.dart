@@ -36,6 +36,7 @@ import '../../../data/sse/realtime_hub.dart';
 import '../../../data/sse/sse_cursors_dao.dart';
 import '../../../data/wiki_providers.dart' show appDbProvider;
 import '../../../services/auth_service.dart';
+import '../data/chat_scope.dart' show accountIdFromEndpoint;
 import '../data/chat_sync.dart';
 
 final _log = Logger('biumind.chat.realtime');
@@ -48,7 +49,8 @@ class ChatEventsListener {
     required ChatSyncService? Function() resolveService,
   }) : _resolveService = resolveService;
 
-  /// SseCursors scope —— 多 RealtimeHub 实例共用一张表，靠 scope 区分。
+  /// SseCursors topic 段 —— 多 RealtimeHub 实例共用一张表，靠 scope 区分。
+  /// 完整 scope = 'ownerKey:chat.sync'（P2 多账号: 见 start()）。
   static const sseScope = 'chat.sync';
 
   /// 一轮 turn 会产生 user + assistant 两条 message_created（+ 可能的
@@ -62,7 +64,12 @@ class ChatEventsListener {
   StreamSubscription<RealtimeFrame>? _sub;
   String? _topic;
   SseCursorsDao? _cursors;
+  String? _cursorScope;
   final Map<String, Timer> _pendingThreads = {};
+
+  /// 当前登录态的完整 cursor scope ('ownerKey:chat.sync'); 测试断言用。
+  @visibleForTesting
+  String? get debugCursorScope => _cursorScope;
 
   void start() {
     if (_topic != null) return;
@@ -76,6 +83,11 @@ class ChatEventsListener {
       _log.warning('JWT missing sub; chat events listener disabled');
       return;
     }
+    // P2 多账号: cursor scope 拼 ownerKey 前缀 (= Drift 数据同一把隔离键),
+    // 「不登出直接 switchAccount」时各账号 cursor 互不污染。userId 已解出,
+    // ownerKey 必然非 null。
+    final ownerKey = accountIdFromEndpoint(creds.endpoint, creds.bearerToken)!;
+    _cursorScope = '$ownerKey:$sseScope';
     _topic = 'chat:user:$userId';
     final cursors = SseCursorsDao(_ref.read(appDbProvider));
     _cursors = cursors;
@@ -88,8 +100,8 @@ class ChatEventsListener {
           return c?.bearerToken ?? '';
         },
       ),
-      loadLastEventId: () => cursors.load(sseScope),
-      saveLastEventId: (id) => cursors.save(sseScope, id),
+      loadLastEventId: () => cursors.load(_cursorScope!),
+      saveLastEventId: (id) => cursors.save(_cursorScope!, id),
       onDesync: _handleDesync,
     );
 
@@ -113,6 +125,7 @@ class ChatEventsListener {
     _hub = null;
     _topic = null;
     _cursors = null;
+    _cursorScope = null;
   }
 
   /// app resume / token 轮换后主动重连（RealtimeHub.reconnect —— 不断
@@ -194,7 +207,8 @@ class ChatEventsListener {
       'clearing cursor + full sync',
     );
     try {
-      await _cursors?.clear(sseScope);
+      final scope = _cursorScope;
+      if (scope != null) await _cursors?.clear(scope);
     } catch (e) {
       _log.warning('clear chat sse cursor on desync: $e');
     }

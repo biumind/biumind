@@ -53,6 +53,8 @@ Future<void> purgeUserData(Ref ref) async {
   await SseCursorsDao(db).clearAll();
   // sidebar 待提交编辑 (desktop scope) — 不清则下个用户 flush 把上个用户
   // 的 sidebar 编辑 PUT 进自己账号 (定制是桌面功能, 手机端 R1.6 移除, 故
-  // 只 'desktop' scope).
+  // 只 'desktop' scope)。P2 起 outbox storage key 带 ownerKey namespace,
+  // 这里 clear 落的是当前账号的 pending; switchAccount 路径不经 purge,
+  // 靠 namespace 天然隔离。
   await ref.read(sidebarOutboxProvider).clear('desktop');
 }

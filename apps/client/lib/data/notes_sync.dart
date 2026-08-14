@@ -4,7 +4,7 @@
 // 但服务端 N0 未做 /v1/notes/sync WS，故 N1 先轮询：周期性（默认 15s）
 // + kick() 手动触发（flusher 冲刷成功后也会踢一脚）。
 //
-// 游标持久化到现有 SseCursors 表（scope='notes.changes'，lastEventId
+// 游标持久化到现有 SseCursors 表（scope='ownerKey:notes.changes'，lastEventId
 // 存事件 id 的十进制字符串）—— 重启 app 后从上次位置续拉，不漏事件。
 // 删除事件（tombstone）由 repository.applyChanges 应用到 Drift。
 //
@@ -24,17 +24,28 @@ class NotesSyncPoller {
   NotesSyncPoller({
     required this.db,
     required this.repository,
+    this.ownerKey,
     this.interval = const Duration(seconds: 15),
     Logger? log,
   }) : _log = log ?? Logger('NotesSyncPoller');
 
   final AppDb db;
   final NotesRepository repository;
+  /// P2 多账号: 当前登录态的 ownerKey (= notes Drift 数据隔离键)。非 null
+  /// 时游标 scope = 'ownerKey:notes.changes', 切账号续拉位置互不污染;
+  /// null (测试) 时退化为裸 topic。
+  final String? ownerKey;
   final Duration interval;
   final Logger _log;
 
-  /// SseCursors 表里笔记域 changes 游标的 scope。
+  /// SseCursors 表里笔记域 changes 游标的 topic 段。
   static const cursorScope = 'notes.changes';
+
+  /// 完整游标 scope: 有 ownerKey 时 'ownerKey:notes.changes'。
+  String get _scope {
+    final k = ownerKey;
+    return k == null || k.isEmpty ? cursorScope : '$k:$cursorScope';
+  }
 
   /// 单页拉取上限（服务端上限 1000，默认 200）。
   static const _pageSize = 500;
@@ -86,7 +97,7 @@ class NotesSyncPoller {
 
   Future<int> _readCursor() async {
     final row = await (db.select(db.sseCursors)
-          ..where((t) => t.scope.equals(cursorScope)))
+          ..where((t) => t.scope.equals(_scope)))
         .getSingleOrNull();
     return int.tryParse(row?.lastEventId ?? '') ?? 0;
   }
@@ -94,7 +105,7 @@ class NotesSyncPoller {
   Future<void> _writeCursor(int latest) async {
     await db.into(db.sseCursors).insert(
           SseCursorsCompanion.insert(
-            scope: cursorScope,
+            scope: _scope,
             lastEventId: '$latest',
             updatedAt: DateTime.now().toUtc(),
           ),

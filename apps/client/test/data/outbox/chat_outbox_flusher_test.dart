@@ -127,7 +127,13 @@ void main() {
   });
 
   test('500 → 指数退避：到期前不重试，到期后重试成功', () async {
-    var now = DateTime.utc(2026, 8, 10, 12);
+    // fake 时钟锚定真实当前时间(秒精度, Drift DateTime 存秒) +1min ——
+    // enqueueOutbox 用真实时钟写 nextAttemptAt=now, 锚未来值保证入队的
+    // op 对 fake 时钟到期可 flush。之前硬编码 2026-08-10 12:00, 真实时间
+    // 一过该时刻 op 就「永不到期」, 首条 flush 发不出请求 (time bomb)。
+    final n = DateTime.now().toUtc();
+    var now = DateTime.utc(n.year, n.month, n.day, n.hour, n.minute, n.second)
+        .add(const Duration(minutes: 1));
     brain.statusByPath['/v1/threads/t1'] = 500;
     await repo.enqueueOutbox(
       op: ChatRepo.outboxOpDeleteThread,

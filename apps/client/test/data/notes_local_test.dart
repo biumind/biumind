@@ -827,5 +827,45 @@ void main() {
       await poller.pullOnce();
       expect(await dao.noteById('srv-n9'), isNull);
     });
+
+    test('P2 多账号: 传了 ownerKey 时游标写 ownerKey:notes.changes', () async {
+      final fake = await _FakeNotes.start();
+      addTearDown(fake.stop);
+      fake.addEvent('note.created', {
+        'note_id': 'srv-n1',
+        'title': 't',
+        'content_md': '',
+        'is_todo': false,
+        'position': 1.0,
+        'version': 1,
+        'notebook_id': null,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      });
+
+      final repo = NotesRepository(
+        dao: dao,
+        client: api.NotesClient(fake.url, 'tok'),
+      );
+      final poller = NotesSyncPoller(
+        db: db,
+        repository: repo,
+        ownerKey: 'hash-a:user-a',
+      );
+      addTearDown(poller.dispose);
+
+      await poller.pullOnce();
+
+      // 游标落在带前缀的 scope; 裸 topic 无行 (各账号续拉位置互不污染)。
+      final scoped = await (db.select(db.sseCursors)
+            ..where((t) =>
+                t.scope.equals('hash-a:user-a:${NotesSyncPoller.cursorScope}')))
+          .getSingleOrNull();
+      expect(scoped, isNotNull);
+      expect(scoped!.lastEventId, '1');
+      final bare = await (db.select(db.sseCursors)
+            ..where((t) => t.scope.equals(NotesSyncPoller.cursorScope)))
+          .getSingleOrNull();
+      expect(bare, isNull);
+    });
   });
 }

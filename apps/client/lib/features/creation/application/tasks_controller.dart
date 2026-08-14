@@ -23,6 +23,7 @@ import '../../../data/sse/realtime_hub.dart';
 import '../../../data/sse/sse_cursors_dao.dart';
 import '../../../services/auth_service.dart';
 import '../../../data/wiki_providers.dart' show appDbProvider;
+import '../../chat/data/chat_scope.dart' show accountIdFromEndpoint;
 import '../data/aigc_client.dart';
 import '../data/aigc_tasks_dao.dart';
 import '../domain/creation_task.dart';
@@ -150,11 +151,12 @@ class TasksController extends StateNotifier<TasksState> {
     required this.userId,
     this.dao,
     this.sseCursors,
+    this.ownerKey,
     Duration pollInterval = const Duration(seconds: 30),
   })  : _pollInterval = pollInterval,
         super(const TasksState());
 
-  /// SSE cursor scope — RealtimeHub 多实例共用 sse_cursors 表, 用 scope
+  /// SSE cursor topic 段 — RealtimeHub 多实例共用 sse_cursors 表, 用 scope
   /// 区分. AIGC tasks 用此值; 改名会丢续传 cursor.
   static const sseScope = 'aigc.tasks';
 
@@ -166,6 +168,10 @@ class TasksController extends StateNotifier<TasksState> {
   final AigcTasksDao? dao;
   /// v2-4: SSE last-event-id 续传 DAO. nil 时跳过.
   final SseCursorsDao? sseCursors;
+  /// P2 多账号: 当前登录态的 ownerKey (= Drift 数据隔离键)。非 null 时
+  /// cursor scope = 'ownerKey:aigc.tasks', 切账号互不污染; null (测试 /
+  /// 占位 controller) 时退化为裸 topic。
+  final String? ownerKey;
   final Duration _pollInterval;
 
   /// notifications — 业务事件流 (任务终态切换 + 积分退还).
@@ -188,6 +194,13 @@ class TasksController extends StateNotifier<TasksState> {
   final Map<String, CreationTask> _pendingThrottle = {};
 
   String get _topic => 'aigc.user.$userId.tasks';
+
+  /// 完整 cursor scope: 有 ownerKey 时 'ownerKey:aigc.tasks' (P2 多账号
+  /// 隔离), 否则裸 topic (测试 / 占位)。
+  String get _cursorScope {
+    final k = ownerKey;
+    return k == null || k.isEmpty ? sseScope : '$k:$sseScope';
+  }
 
   /// 启动: 先从本地 (dao) 秒回最近 N 条 → 再拉 active → 起 SSE.
   /// 失败时退化到轮询.
@@ -279,10 +292,10 @@ class TasksController extends StateNotifier<TasksState> {
       ),
       loadLastEventId: sseCursors == null
           ? null
-          : () => sseCursors!.load(sseScope),
+          : () => sseCursors!.load(_cursorScope),
       saveLastEventId: sseCursors == null
           ? null
-          : (id) => sseCursors!.save(sseScope, id),
+          : (id) => sseCursors!.save(_cursorScope, id),
       onDesync: _handleDesync,
     );
     _sub = _hub!.subscribe(_topic).listen(
@@ -309,7 +322,7 @@ class TasksController extends StateNotifier<TasksState> {
         'clearing cursor + full refetch');
     if (sseCursors != null) {
       try {
-        await sseCursors!.clear(sseScope);
+        await sseCursors!.clear(_cursorScope);
       } catch (e) {
         _log.warning('clear sse cursor on desync: $e');
       }
@@ -631,13 +644,18 @@ DateTime? _parseDate(dynamic v) {
 final tasksControllerProvider =
     StateNotifierProvider<TasksController, TasksState>((ref) {
   // select 稳定切片: token 轮换不重建 StateNotifier (否则掉 SSE + 内存任务态).
-  // userId (sub claim) / endpoint 跨轮换稳定; token 走 tokenProvider + aigcClient
-  // bearerProvider 现读. 仅 login/logout (null 翻转) 才重建.
+  // key = endpoint + userId (sub claim), 跨轮换稳定; P2 多账号: 换人
+  // (switchAccount) 时 key 变化 → 重建 (旧 controller stop → 新 SSE topic /
+  // 新 cursor scope), 否则旧账号的 aigc.user.<uid>.tasks 订阅会漏给新账号。
+  // token 走 tokenProvider + aigcClient bearerProvider 现读.
   ref.watch(aigcClientProvider.select((c) => c?.baseUrl));
-  ref.watch(hubCredentialsProvider.select((c) => c == null));
+  final credsKey = ref.watch(hubCredentialsProvider.select((c) {
+    if (c == null) return null;
+    return '${c.endpoint}|${_decodeJwtSub(c.bearerToken) ?? ''}';
+  }));
   final client = ref.read(aigcClientProvider);
   final creds = ref.read(hubCredentialsProvider);
-  if (client == null || creds == null) {
+  if (client == null || creds == null || credsKey == null) {
     // 未登录 → 占位 controller (start 不会真起 SSE)
     return TasksController(
       client: AigcClient(
@@ -650,6 +668,9 @@ final tasksControllerProvider =
   }
   // 解 user_id (sub claim from JWT)
   final userId = _decodeJwtSub(creds.bearerToken) ?? '';
+  // P2 多账号: cursor scope 前缀 (= Drift 数据隔离键)。解不出 (token 非
+  // JWT) 时不传 sseCursors —— 不落无账号归属的 cursor, 也不阻塞 SSE。
+  final ownerKey = accountIdFromEndpoint(creds.endpoint, creds.bearerToken);
   // realtime endpoint = identity 同源 :7008 (与 code_tasks_realtime 同套)
   // 但 dev 通常 7001 (model-relay); 这里复用 creds.endpoint 作 base.
   final controller = TasksController(
@@ -661,7 +682,9 @@ final tasksControllerProvider =
     },
     userId: userId,
     dao: AigcTasksDao(ref.read(appDbProvider)),
-    sseCursors: SseCursorsDao(ref.read(appDbProvider)),
+    sseCursors:
+        ownerKey == null ? null : SseCursorsDao(ref.read(appDbProvider)),
+    ownerKey: ownerKey,
   );
   // 自动 start; 释放时 stop.
   controller.start();

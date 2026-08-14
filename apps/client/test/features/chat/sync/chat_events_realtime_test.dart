@@ -5,6 +5,9 @@
 //   2. thread_deleted 缺 thread_id → no-op
 //   3. 未知 kind → 静默忽略（前向兼容）
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,9 +15,14 @@ import 'package:biumind/data/local/db.dart';
 import 'package:biumind/data/sse/realtime_hub.dart';
 import 'package:biumind/data/wiki_providers.dart' show appDbProvider;
 import 'package:biumind/features/chat/data/chat_repo.dart';
+import 'package:biumind/features/chat/data/chat_scope.dart'
+    show accountIdFromEndpoint;
 import 'package:biumind/features/chat/data/chat_sync.dart';
 import 'package:biumind/features/chat/domain/chat_models.dart';
 import 'package:biumind/features/chat/sync/chat_events_realtime.dart';
+import 'package:biumind/features/settings/application/settings_controller.dart';
+import 'package:biumind/services/account_registry.dart';
+import 'package:biumind/services/settings_repo.dart';
 
 // 从 container 拿一个 Ref —— ChatEventsListener 构造吃 Ref 不吃 container。
 final _refProbe = Provider<Ref>((ref) => ref);
@@ -140,5 +148,49 @@ void main() {
     await flush();
 
     expect(await repo.getThread('t1'), isNotNull);
+  });
+
+  test('P2 多账号: cursor scope = ownerKey:chat.sync', () async {
+    // 本地 404 server 当 identity endpoint —— listener.start() 会真发起
+    // SSE 连接, 给个快速失败的端点让 _connect 一轮走完 (hydrate → auth →
+    // 404 → backoff timer), 再在测试体内 stop, 避免容器 dispose 后在途
+    // _connect 回调读 provider 抛 Bad state。
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((req) async {
+      req.response.statusCode = 404;
+      await req.response.close();
+    });
+    addTearDown(() => server.close(force: true));
+    final url = 'http://localhost:${server.port}';
+
+    // 独立 container: 真实 settings 链提供 account A 登录态 (JWT 带 sub)。
+    String b64(Map<String, dynamic> o) =>
+        base64Url.encode(utf8.encode(jsonEncode(o))).replaceAll('=', '');
+    final jwt =
+        '${b64({'alg': 'HS256', 'typ': 'JWT'})}.${b64({'sub': 'user-a'})}.sig';
+    final c = ProviderContainer(overrides: [
+      appDbProvider.overrideWithValue(db),
+      settingsRepoProvider.overrideWithValue(InMemorySettingsRepo(
+        AppSettings(
+          identityUrl: url,
+          accessToken: jwt,
+          refreshToken: 'rt-a',
+        ),
+      )),
+      accountRegistryStoreProvider
+          .overrideWithValue(InMemoryAccountRegistryStore()),
+    ]);
+    addTearDown(c.dispose);
+    await c.read(settingsControllerProvider.future);
+
+    final l = ChatEventsListener(c.read(_refProbe), resolveService: () => null);
+    l.start();
+
+    final ownerKey = accountIdFromEndpoint(Uri.parse(url), jwt)!;
+    expect(l.debugCursorScope, '$ownerKey:chat.sync');
+
+    // 让首轮 connect 落定 (404 → 退避 timer 挂起), 再停 listener 断干净。
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await l.stop();
   });
 }

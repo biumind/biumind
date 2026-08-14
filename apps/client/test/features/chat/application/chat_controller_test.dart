@@ -14,6 +14,9 @@ import 'package:biumind/data/local/db.dart';
 import 'package:biumind/features/chat/application/chat_controller.dart';
 import 'package:biumind/features/chat/data/chat_repo.dart';
 import 'package:biumind/features/chat/domain/chat_models.dart';
+import 'package:biumind/features/settings/application/settings_controller.dart';
+import 'package:biumind/services/account_registry.dart';
+import 'package:biumind/services/settings_repo.dart';
 
 class FakeAgentPlane extends AgentPlaneClient {
   FakeAgentPlane()
@@ -64,6 +67,7 @@ class FakeAgentPlane extends AgentPlaneClient {
 class FakeTransport implements BiuTransport {
   final _ctrl = StreamController<dynamic>.broadcast();
   final List<String> sent = [];
+  bool closed = false;
 
   void push(dynamic frame) => _ctrl.add(frame);
 
@@ -73,8 +77,16 @@ class FakeTransport implements BiuTransport {
   void send(String data) => sent.add(data);
   @override
   Future<void> close() async {
+    closed = true;
     if (!_ctrl.isClosed) await _ctrl.close();
   }
+}
+
+/// 造一个带 sub 的假 JWT (只解 payload, 不验签)。
+String _fakeJwt(String sub) {
+  String b64(Map<String, dynamic> o) =>
+      base64Url.encode(utf8.encode(jsonEncode(o))).replaceAll('=', '');
+  return '${b64({'alg': 'HS256', 'typ': 'JWT'})}.${b64({'sub': sub})}.sig';
 }
 
 void main() {
@@ -477,5 +489,61 @@ void main() {
     expect(last.length, 2);
     expect(last.any((t) => t.id == 'a'), true);
     expect(last.any((t) => t.id == 'b'), true);
+  });
+
+  test('P2 多账号: owner scope 变化关闭活跃连接; 同人 token 轮换不关', () async {
+    // 独立 container: chatOwnerScopeProvider 走真实 settings 链 (account A
+    // 登录态), deps 复用共享 fake (repo/transport 同源, 便于断言)。
+    // 切账号用 applyRefreshed 换不同 sub 的 JWT 模拟 —— 对 scope provider
+    // 而言与 switchAccount 等效 (都是 settings identity slice 原子换)。
+    final settingsRepo = InMemorySettingsRepo(AppSettings(
+      identityUrl: 'http://x',
+      accessToken: _fakeJwt('user-a'),
+      refreshToken: 'rt-a',
+    ));
+    final c = ProviderContainer(overrides: [
+      chatControllerDepsProvider
+          .overrideWithValue(container.read(chatControllerDepsProvider)),
+      settingsRepoProvider.overrideWithValue(settingsRepo),
+      accountRegistryStoreProvider
+          .overrideWithValue(InMemoryAccountRegistryStore()),
+    ]);
+    addTearDown(c.dispose);
+    await c.read(settingsControllerProvider.future);
+
+    await createTestThread();
+    await c.read(chatControllerProvider('t1').future);
+    await c.read(chatControllerProvider('t1').notifier).sendMessage('hi');
+    await Future.delayed(const Duration(milliseconds: 50));
+    expect(transports, hasLength(1));
+    expect(c.read(chatControllerProvider('t1')).value!.isStreaming, isTrue);
+    final connTransport = currentTransport();
+
+    // 同人 token 轮换 (同 sub 新 JWT) → scope 不变 → 连接不动。
+    await c.read(settingsControllerProvider.notifier).applyRefreshed(
+          accessToken: _fakeJwt('user-a'),
+          refreshToken: 'rt-a-rotated',
+          tokenExpiresAt:
+              DateTime.now().toUtc().add(const Duration(hours: 1)).toIso8601String(),
+        );
+    await Future.delayed(const Duration(milliseconds: 50));
+    expect(connTransport.closed, isFalse, reason: 'token 轮换不该杀在途会话');
+    expect(transports, hasLength(1), reason: 'scope 没变 → family 实例不重建');
+    expect(c.read(chatControllerProvider('t1')).value!.isStreaming, isTrue);
+
+    // 换账号 (不同 sub) → scope 变 → 重建 → onDispose 关旧连接。
+    await c.read(settingsControllerProvider.notifier).applyRefreshed(
+          accessToken: _fakeJwt('user-b'),
+          refreshToken: 'rt-b',
+          tokenExpiresAt:
+              DateTime.now().toUtc().add(const Duration(hours: 1)).toIso8601String(),
+        );
+    await Future.delayed(const Duration(milliseconds: 100));
+    expect(connTransport.closed, isTrue,
+        reason: '切账号必须关掉旧账号的活跃 WS');
+    // 注: 重建后新 build 是否 resume 出「新」连接存在 dispose/close 时序
+    // race (测试里 deps 是静态 fake, scope 不变); 生产上 deps 随 creds 重建,
+    // 新 scope 的 repo.getThread(旧 threadId) 必为 null, 不会误接旧会话。
+    // 这里只断言核心语义: 旧连接被关。
   });
 }

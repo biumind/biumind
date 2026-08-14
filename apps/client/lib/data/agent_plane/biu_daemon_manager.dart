@@ -42,6 +42,8 @@ import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/chat/sync/chat_events_realtime.dart'
+    show decodeJwtUserId;
 import '../../services/auth_service.dart';
 import '../../services/login_shell_env.dart';
 
@@ -848,31 +850,44 @@ class BiuDaemonManager {
   }
 }
 
+/// biuDaemonWatchKeyProvider —— daemon 重建的 watch key: endpoint + 账号
+/// 身份 (JWT sub)。
+///
+/// 关键设计: **不能 watch 整个 HubCredentials / bearerToken**。token_manager
+/// 的后台 timer 每个 ttl × 0.05 触发一次 refresh, refresh 后 settings 写入
+/// 新 bearerToken → hubCredentialsProvider 重 build。如果 watch 整个 token,
+/// 每次 refresh 都会 dispose 旧 daemon + spawn 新 daemon, 进入死循环(实际
+/// 曾经 22 分钟内重启了 30+ 次)。同人换 token 由 biuDaemonTokenPusherProvider
+/// 推新 token 热更, 不重启进程。
+///
+/// P2 多账号: key 里加 userId —— 同 endpoint 换账号 (switchAccount) 时
+/// key 变化 → provider 重建 → 旧 daemon SIGTERM + respawn。不重启的话旧
+/// 进程还挂着旧账号在 brain 注册的 environment_id, tokenPusher 还会把新
+/// 账号 token 推给旧 daemon。
+final biuDaemonWatchKeyProvider = Provider<String?>((ref) {
+  return ref.watch(
+    hubCredentialsProvider.select((c) {
+      if (c == null) return null;
+      return '${c.endpoint}|${decodeJwtUserId(c.bearerToken) ?? ''}';
+    }),
+  );
+});
+
 /// biuDaemonManagerProvider —— null 表示未登录或不支持平台。
 ///
 /// 自动 start：watch 时如果未启动且 creds 已就位，会触发 start()。app
 /// 退出时 ref.onDispose → manager.dispose() → SIGTERM。
 ///
-/// 关键设计:**只 watch endpoint**, 不 watch bearerToken。token_manager 的
-/// 后台 timer 每个 ttl × 0.05 触发一次 refresh, refresh 后 settings 写入
-/// 新 bearerToken → hubCredentialsProvider 重 build。如果这里 watch 整个
-/// HubCredentials, 每次 refresh 都会 dispose 旧 daemon + spawn 新 daemon,
-/// 进入死循环(实际曾经 22 分钟内重启了 30+ 次)。
-///
-/// 实践代价:daemon 启动时塞进 env 的 BIUMIND_PAT 是当时的 access token,
-/// 长期跑会 401。后续要做"daemon token rotation"(brain 通过 control 通道
-/// 把新 token 推给 daemon)。当前 v1 单机自用,access token TTL 24h, 一天
-/// 不重启 app 才碰得到这个边界 — 接受。
+/// 重建时机见 [biuDaemonWatchKeyProvider]: endpoint 或账号身份变化才
+/// dispose + respawn; token 轮换 (同人) 不触发。
 final biuDaemonManagerProvider = Provider<BiuDaemonManager?>((ref) {
   if (!BiuDaemonManager.isSupported) return null;
-  // 只看 endpoint 触发 rebuild;bearerToken 变化不重启 daemon。
-  final endpoint = ref.watch(
-    hubCredentialsProvider.select((c) => c?.endpoint),
-  );
-  if (endpoint == null) return null;
+  final watchKey = ref.watch(biuDaemonWatchKeyProvider);
+  if (watchKey == null) return null;
   // 拿当前 token 一次塞进环境变量;后续 token 变了不响应。
   final creds = ref.read(hubCredentialsProvider);
   if (creds == null) return null;
+  final endpoint = creds.endpoint;
   // login shell env 是 FutureProvider；watch.valueOrNull 拿当前快照，加载
   // 完会重 build 这个 provider 给到 manager。manager 自己 idempotent。
   // 用 select 避免 FutureProvider 中间态(loading → data)也触发 rebuild。
@@ -931,9 +946,10 @@ final biuDaemonStateProvider = StreamProvider<BiuDaemonState>((ref) {
 /// environment_id required 报错链。
 ///
 /// 关键设计: 用 ref.listen (side-effect), **不改 biuDaemonManagerProvider**
-/// (它只 watch endpoint, 避免 token refresh 触发 daemon 重启死循环)。token 变化
-/// 只 POST, 不 rebuild manager。daemon 非 running 时 pushToken 自身 no-op (daemon
-/// 下次 start 用最新 bearerToken 已对)。
+/// (它只 watch endpoint+userId, 避免 token refresh 触发 daemon 重启死循环,
+/// 见 biuDaemonWatchKeyProvider)。token 变化只 POST, 不 rebuild manager。
+/// daemon 非 running 时 pushToken 自身 no-op (daemon 下次 start 用最新
+/// bearerToken 已对)。
 final biuDaemonTokenPusherProvider = Provider<void>((ref) {
   final mgr = ref.watch(biuDaemonManagerProvider);
   if (mgr == null) return;

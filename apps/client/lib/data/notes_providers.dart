@@ -79,6 +79,9 @@ final notesSyncPollerProvider = Provider<NotesSyncPoller?>((ref) {
   final poller = NotesSyncPoller(
     db: ref.watch(appDbProvider),
     repository: repo,
+    // repository 非 null ⇒ notesDao 非 null ⇒ owner scope 已解出
+    // (notesDaoProvider), 这里直接复用同一把隔离键做游标前缀 (P2 多账号)。
+    ownerKey: ref.watch(chatOwnerScopeProvider),
   )..start();
   // flusher 成功 flush 后触发一次 pull（协调放这里，避免 flusher 反向
   // 依赖 poller 造成 provider 循环）。

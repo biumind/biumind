@@ -16,6 +16,18 @@
 // 持久化用 FlutterSecureStorage 一致 (项目其他偏好都走它); 单 scope
 // 单 entry — 后写覆盖前写 (item-level 合并交给服务端 expected_version
 // 乐观锁判断)。
+//
+// P2 多账号: storage key 带账号 namespace (= chat/notes 同一把 ownerKey
+// 隔离键), 即 `biumind.sidebar_outbox.<ownerKey>.<scope>`。不隔离的话
+// switchAccount (不登出) 后 listener start() 的 flush 会用新账号 creds
+// 把旧账号的 pending 编辑 PUT 上去 (logout 路径有 purgeUserData 兜底,
+// switch 没有)。
+//
+// 存量迁移: 老版本留在裸 key `biumind.sidebar_outbox.desktop` 下的 pending
+// 编辑归属不明 (可能是任一历史账号的), 选择**留在原地不再 flush** ——
+// 不猜归属 (猜错 = 跨账号写入), 也不删 (保留现场, 且内容只是 pinned app
+// id 列表, 遗留无害)。影响: 升级前恰好有离线 pending 的用户那次编辑不再
+// 补传, UI 回落到服务端 layout 后重做一次即可。
 
 import 'dart:convert';
 
@@ -23,6 +35,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../features/chat/data/chat_scope.dart' show chatOwnerScopeProvider;
 import 'api/sidebar_client.dart';
 
 /// 一条等待提交的 sidebar 编辑。expectedVersion 是用户编辑时本地 cache
@@ -63,14 +76,37 @@ class PendingSidebarEdit {
   }
 }
 
-/// 持久层 — key = `biumind.sidebar_outbox.<scope>`。一个 scope 至多一
-/// 条 pending; 后写覆盖前写。
+/// 持久层 — key = `biumind.sidebar_outbox.<namespace>.<scope>`（namespace
+/// = 当前账号 ownerKey，见文件头注释；未登录/测试不传 namespace 时退化为
+/// 旧格式 `biumind.sidebar_outbox.<scope>`）。一个 scope 至多一条 pending;
+/// 后写覆盖前写。
+///
+/// 注意 [PendingSidebarEdit.scope] 仍是裸的服务端 scope ('desktop') ——
+/// namespace 只作用于本地 storage key, 不进 PUT 请求体。
 class SidebarOutbox {
-  SidebarOutbox({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+  SidebarOutbox({
+    FlutterSecureStorage? storage,
+    String? namespace,
+    String? Function()? namespaceResolver,
+  })  : _storage = storage ?? const FlutterSecureStorage(),
+        _namespace = namespace,
+        _namespaceResolver = namespaceResolver;
   final FlutterSecureStorage _storage;
 
-  String _key(String scope) => 'biumind.sidebar_outbox.$scope';
+  /// 固定 namespace (测试用)。
+  final String? _namespace;
+
+  /// 懒解析当前账号 ownerKey (生产路径) — 每次操作时现读, 见
+  /// sidebarOutboxProvider 注释 (不能直接 watch, 会 CircularDependencyError)。
+  final String? Function()? _namespaceResolver;
+
+  String? get _ns => _namespaceResolver?.call() ?? _namespace;
+
+  String _key(String scope) {
+    final ns = _ns;
+    if (ns == null || ns.isEmpty) return 'biumind.sidebar_outbox.$scope';
+    return 'biumind.sidebar_outbox.$ns.$scope';
+  }
 
   Future<PendingSidebarEdit?> load(String scope) async {
     try {
@@ -106,4 +142,16 @@ class SidebarOutbox {
 }
 
 final sidebarOutboxProvider =
-    Provider<SidebarOutbox>((_) => SidebarOutbox());
+    Provider<SidebarOutbox>((ref) {
+  // P2 多账号: namespace = 当前账号 ownerKey, 每次操作现读。
+  //
+  // 为什么是 resolver 而不是 ref.watch: purgeUserData 在
+  // SettingsController.signOut 里用 controller 自己的 ref 读本 provider;
+  // 若这里 watch chatOwnerScopeProvider (传递依赖 settingsControllerProvider)
+  // 就构成 settingsController → sidebarOutbox → chatOwnerScope →
+  // settingsController 的循环, riverpod 抛 CircularDependencyError (同一
+  // 陷阱见 auth_logout.dart 头注释)。outbox 本身无状态, 不需要响应式重建。
+  return SidebarOutbox(
+    namespaceResolver: () => ref.read(chatOwnerScopeProvider),
+  );
+});
