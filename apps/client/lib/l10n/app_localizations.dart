@@ -757,6 +757,18 @@ abstract class AppLocalizations {
   /// **'Server URL'**
   String get signInIdentityUrl;
 
+  /// No description provided for @signInAdvanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced'**
+  String get signInAdvanced;
+
+  /// No description provided for @signInVerifyCode.
+  ///
+  /// In en, this message translates to:
+  /// **'6-digit code'**
+  String get signInVerifyCode;
+
   /// No description provided for @signInEmail.
   ///
   /// In en, this message translates to:
@@ -840,6 +852,186 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sign-in failed. Try again.'**
   String get signInErrUnknown;
+
+  /// No description provided for @signInCodeSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Code sent to {email} — check your inbox (valid for 10 minutes)'**
+  String signInCodeSent(String email);
+
+  /// No description provided for @signInCodeDevMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Code generated. Dev mode: SMTP not configured — ask an admin to read the code from server logs'**
+  String get signInCodeDevMode;
+
+  /// No description provided for @signInEnterCodeSentTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit code sent to {email}'**
+  String signInEnterCodeSentTo(String email);
+
+  /// No description provided for @signInEnterCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the 6-digit code'**
+  String get signInEnterCode;
+
+  /// No description provided for @signInCodeResent.
+  ///
+  /// In en, this message translates to:
+  /// **'Code re-sent to {email}'**
+  String signInCodeResent(String email);
+
+  /// No description provided for @signInCodeRegenerated.
+  ///
+  /// In en, this message translates to:
+  /// **'New code generated. Dev mode — read it from server logs'**
+  String get signInCodeRegenerated;
+
+  /// No description provided for @signInForgotHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your account email and we\'ll send a 6-digit reset code'**
+  String get signInForgotHint;
+
+  /// No description provided for @signInErrEmailRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your account email'**
+  String get signInErrEmailRequired;
+
+  /// No description provided for @signInResetCodeSent.
+  ///
+  /// In en, this message translates to:
+  /// **'If this email is registered, a code was sent to {email} (valid for 10 minutes)'**
+  String signInResetCodeSent(String email);
+
+  /// No description provided for @signInResetCodeDevMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Code generated. Dev mode — ask an admin to read it from server logs'**
+  String get signInResetCodeDevMode;
+
+  /// No description provided for @signInErrNewPasswordShort.
+  ///
+  /// In en, this message translates to:
+  /// **'New password must be at least 8 characters'**
+  String get signInErrNewPasswordShort;
+
+  /// No description provided for @signInPasswordReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Password reset — sign in with your new password'**
+  String get signInPasswordReset;
+
+  /// No description provided for @signInNewPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'New password (≥ 8 chars)'**
+  String get signInNewPasswordLabel;
+
+  /// No description provided for @signInForgotPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Forgot password?'**
+  String get signInForgotPassword;
+
+  /// No description provided for @signInNoAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'No account?'**
+  String get signInNoAccount;
+
+  /// No description provided for @signInSendResetCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Send reset code'**
+  String get signInSendResetCode;
+
+  /// No description provided for @signInBackToSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to sign in'**
+  String get signInBackToSignIn;
+
+  /// No description provided for @signInResetPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset password'**
+  String get signInResetPassword;
+
+  /// No description provided for @signInResendCooldown.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend ({seconds}s)'**
+  String signInResendCooldown(int seconds);
+
+  /// No description provided for @signInResendCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Resend code'**
+  String get signInResendCode;
+
+  /// No description provided for @signInSubtitleVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify your email to activate your account'**
+  String get signInSubtitleVerify;
+
+  /// No description provided for @signInSubtitleForgot.
+  ///
+  /// In en, this message translates to:
+  /// **'Forgot password — we\'ll email you a reset code'**
+  String get signInSubtitleForgot;
+
+  /// No description provided for @signInSubtitleReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter the code and a new password to finish the reset'**
+  String get signInSubtitleReset;
+
+  /// No description provided for @signInVerifySubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify & sign in'**
+  String get signInVerifySubmit;
+
+  /// No description provided for @signInErrInvalidCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Incorrect code — try again'**
+  String get signInErrInvalidCode;
+
+  /// No description provided for @signInErrCodeExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Code expired — tap resend'**
+  String get signInErrCodeExpired;
+
+  /// No description provided for @signInErrCodeLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts — request a new code'**
+  String get signInErrCodeLocked;
+
+  /// No description provided for @signInErrCodeUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Code already used — request a new one'**
+  String get signInErrCodeUsed;
+
+  /// No description provided for @signInErrNoPendingCode.
+  ///
+  /// In en, this message translates to:
+  /// **'No code sent yet — tap resend first'**
+  String get signInErrNoPendingCode;
+
+  /// No description provided for @signInErrRateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many requests — try again later'**
+  String get signInErrRateLimited;
 
   /// No description provided for @settingsModeSection.
   ///

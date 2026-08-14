@@ -109,6 +109,8 @@
   "signInTitle": "Sign in",
   "signInSubtitle": "Sign in to your BiuMind account.",
   "signInIdentityUrl": "Server URL",
+  "signInAdvanced": "Advanced",
+  "signInVerifyCode": "6-digit code",
   "signInEmail": "Email",
   "signInPassword": "Password",
   "signInSubmit": "Sign in",
@@ -123,6 +125,71 @@
   "signInErrPasswordTooShort": "Password is too short — use at least 8 characters.",
   "signInErrNetwork": "Cannot reach the server. Check your network.",
   "signInErrUnknown": "Sign-in failed. Try again.",
+  "signInCodeSent": "Code sent to {email} — check your inbox (valid for 10 minutes)",
+  "@signInCodeSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "signInCodeDevMode": "Code generated. Dev mode: SMTP not configured — ask an admin to read the code from server logs",
+  "signInEnterCodeSentTo": "Enter the 6-digit code sent to {email}",
+  "@signInEnterCodeSentTo": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "signInEnterCode": "Enter the 6-digit code",
+  "signInCodeResent": "Code re-sent to {email}",
+  "@signInCodeResent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "signInCodeRegenerated": "New code generated. Dev mode — read it from server logs",
+  "signInForgotHint": "Enter your account email and we'll send a 6-digit reset code",
+  "signInErrEmailRequired": "Enter your account email",
+  "signInResetCodeSent": "If this email is registered, a code was sent to {email} (valid for 10 minutes)",
+  "@signInResetCodeSent": {
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "signInResetCodeDevMode": "Code generated. Dev mode — ask an admin to read it from server logs",
+  "signInErrNewPasswordShort": "New password must be at least 8 characters",
+  "signInPasswordReset": "Password reset — sign in with your new password",
+  "signInNewPasswordLabel": "New password (≥ 8 chars)",
+  "signInForgotPassword": "Forgot password?",
+  "signInNoAccount": "No account?",
+  "signInSendResetCode": "Send reset code",
+  "signInBackToSignIn": "Back to sign in",
+  "signInResetPassword": "Reset password",
+  "signInResendCooldown": "Resend ({seconds}s)",
+  "@signInResendCooldown": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "signInResendCode": "Resend code",
+  "signInSubtitleVerify": "Verify your email to activate your account",
+  "signInSubtitleForgot": "Forgot password — we'll email you a reset code",
+  "signInSubtitleReset": "Enter the code and a new password to finish the reset",
+  "signInVerifySubmit": "Verify & sign in",
+  "signInErrInvalidCode": "Incorrect code — try again",
+  "signInErrCodeExpired": "Code expired — tap resend",
+  "signInErrCodeLocked": "Too many attempts — request a new code",
+  "signInErrCodeUsed": "Code already used — request a new one",
+  "signInErrNoPendingCode": "No code sent yet — tap resend first",
+  "signInErrRateLimited": "Too many requests — try again later",
   "settingsModeSection": "Mode",
   "settingsModeSectionSubtitle": "How AI calls are routed.",
   "settingsHubSection": "model-relay connection",

@@ -357,6 +357,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get signInIdentityUrl => '服务器地址';
 
   @override
+  String get signInAdvanced => '高级';
+
+  @override
+  String get signInVerifyCode => '6 位验证码';
+
+  @override
   String get signInEmail => '邮箱';
 
   @override
@@ -405,6 +411,106 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get signInErrUnknown => '登录失败,请重试。';
+
+  @override
+  String signInCodeSent(String email) {
+    return '验证码已发送至 $email, 请查收 (10 分钟内有效)';
+  }
+
+  @override
+  String get signInCodeDevMode => '验证码已生成. 当前为开发模式: SMTP 未配置, 请联系管理员从服务日志获取验证码';
+
+  @override
+  String signInEnterCodeSentTo(String email) {
+    return '请输入发送至 $email 的 6 位验证码';
+  }
+
+  @override
+  String get signInEnterCode => '请输入 6 位验证码';
+
+  @override
+  String signInCodeResent(String email) {
+    return '已重新发送验证码至 $email';
+  }
+
+  @override
+  String get signInCodeRegenerated => '已生成新验证码. 当前为开发模式: 请从服务日志获取';
+
+  @override
+  String get signInForgotHint => '输入注册邮箱, 我们将发送 6 位重置验证码';
+
+  @override
+  String get signInErrEmailRequired => '请填写注册邮箱';
+
+  @override
+  String signInResetCodeSent(String email) {
+    return '若该邮箱已注册, 验证码已发送至 $email (10 分钟内有效)';
+  }
+
+  @override
+  String get signInResetCodeDevMode => '验证码已生成. 当前为开发模式: 请联系管理员从服务日志获取';
+
+  @override
+  String get signInErrNewPasswordShort => '新密码至少 8 位';
+
+  @override
+  String get signInPasswordReset => '密码已重置, 请使用新密码登录';
+
+  @override
+  String get signInNewPasswordLabel => '新密码 (≥ 8 位)';
+
+  @override
+  String get signInForgotPassword => '忘记密码?';
+
+  @override
+  String get signInNoAccount => '没有账号?';
+
+  @override
+  String get signInSendResetCode => '发送重置验证码';
+
+  @override
+  String get signInBackToSignIn => '返回登录';
+
+  @override
+  String get signInResetPassword => '重置密码';
+
+  @override
+  String signInResendCooldown(int seconds) {
+    return '重新发送 (${seconds}s)';
+  }
+
+  @override
+  String get signInResendCode => '重新发送验证码';
+
+  @override
+  String get signInSubtitleVerify => '验证您的邮箱以激活账户';
+
+  @override
+  String get signInSubtitleForgot => '忘记密码 — 我们将通过邮件发送重置码';
+
+  @override
+  String get signInSubtitleReset => '输入验证码 + 新密码完成重置';
+
+  @override
+  String get signInVerifySubmit => '验证并登录';
+
+  @override
+  String get signInErrInvalidCode => '验证码错误, 请重试';
+
+  @override
+  String get signInErrCodeExpired => '验证码已过期, 请点击重新发送';
+
+  @override
+  String get signInErrCodeLocked => '验证错误次数过多, 请重新发送验证码';
+
+  @override
+  String get signInErrCodeUsed => '该验证码已被使用, 请重新发送';
+
+  @override
+  String get signInErrNoPendingCode => '尚未发送验证码, 请先点击重新发送';
+
+  @override
+  String get signInErrRateLimited => '发送过于频繁, 请稍后再试';
 
   @override
   String get settingsModeSection => '模式';

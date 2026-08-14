@@ -360,6 +360,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get signInIdentityUrl => 'Server URL';
 
   @override
+  String get signInAdvanced => 'Advanced';
+
+  @override
+  String get signInVerifyCode => '6-digit code';
+
+  @override
   String get signInEmail => 'Email';
 
   @override
@@ -409,6 +415,115 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get signInErrUnknown => 'Sign-in failed. Try again.';
+
+  @override
+  String signInCodeSent(String email) {
+    return 'Code sent to $email — check your inbox (valid for 10 minutes)';
+  }
+
+  @override
+  String get signInCodeDevMode =>
+      'Code generated. Dev mode: SMTP not configured — ask an admin to read the code from server logs';
+
+  @override
+  String signInEnterCodeSentTo(String email) {
+    return 'Enter the 6-digit code sent to $email';
+  }
+
+  @override
+  String get signInEnterCode => 'Enter the 6-digit code';
+
+  @override
+  String signInCodeResent(String email) {
+    return 'Code re-sent to $email';
+  }
+
+  @override
+  String get signInCodeRegenerated =>
+      'New code generated. Dev mode — read it from server logs';
+
+  @override
+  String get signInForgotHint =>
+      'Enter your account email and we\'ll send a 6-digit reset code';
+
+  @override
+  String get signInErrEmailRequired => 'Enter your account email';
+
+  @override
+  String signInResetCodeSent(String email) {
+    return 'If this email is registered, a code was sent to $email (valid for 10 minutes)';
+  }
+
+  @override
+  String get signInResetCodeDevMode =>
+      'Code generated. Dev mode — ask an admin to read it from server logs';
+
+  @override
+  String get signInErrNewPasswordShort =>
+      'New password must be at least 8 characters';
+
+  @override
+  String get signInPasswordReset =>
+      'Password reset — sign in with your new password';
+
+  @override
+  String get signInNewPasswordLabel => 'New password (≥ 8 chars)';
+
+  @override
+  String get signInForgotPassword => 'Forgot password?';
+
+  @override
+  String get signInNoAccount => 'No account?';
+
+  @override
+  String get signInSendResetCode => 'Send reset code';
+
+  @override
+  String get signInBackToSignIn => 'Back to sign in';
+
+  @override
+  String get signInResetPassword => 'Reset password';
+
+  @override
+  String signInResendCooldown(int seconds) {
+    return 'Resend (${seconds}s)';
+  }
+
+  @override
+  String get signInResendCode => 'Resend code';
+
+  @override
+  String get signInSubtitleVerify =>
+      'Verify your email to activate your account';
+
+  @override
+  String get signInSubtitleForgot =>
+      'Forgot password — we\'ll email you a reset code';
+
+  @override
+  String get signInSubtitleReset =>
+      'Enter the code and a new password to finish the reset';
+
+  @override
+  String get signInVerifySubmit => 'Verify & sign in';
+
+  @override
+  String get signInErrInvalidCode => 'Incorrect code — try again';
+
+  @override
+  String get signInErrCodeExpired => 'Code expired — tap resend';
+
+  @override
+  String get signInErrCodeLocked => 'Too many attempts — request a new code';
+
+  @override
+  String get signInErrCodeUsed => 'Code already used — request a new one';
+
+  @override
+  String get signInErrNoPendingCode => 'No code sent yet — tap resend first';
+
+  @override
+  String get signInErrRateLimited => 'Too many requests — try again later';
 
   @override
   String get settingsModeSection => 'Mode';

@@ -138,11 +138,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         password: _password.text,
       );
       if (!mounted) return;
+      final t = AppLocalizations.of(context)!;
       setState(() {
         _mode = _AuthMode.verify;
         _info = result.emailSent
-            ? '验证码已发送至 ${_email.text}, 请查收 (10 分钟内有效)'
-            : '验证码已生成. 当前为开发模式: SMTP 未配置, 请联系管理员从服务日志获取验证码';
+            ? t.signInCodeSent(_email.text)
+            : t.signInCodeDevMode;
       });
       _startCooldown();
     } on IdentityApiError catch (e) {
@@ -156,10 +157,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _switchToVerify({bool autoResend = false}) async {
+    final t = AppLocalizations.of(context)!;
     setState(() {
       _mode = _AuthMode.verify;
       _message = null;
-      _info = '请输入发送至 ${_email.text} 的 6 位验证码';
+      _info = t.signInEnterCodeSentTo(_email.text);
       _busy = false;
     });
     if (autoResend) {
@@ -168,9 +170,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _doVerify() async {
+    final t = AppLocalizations.of(context)!;
     final code = _code.text.trim();
     if (code.length != 6) {
-      setState(() => _message = '请输入 6 位验证码');
+      setState(() => _message = t.signInEnterCode);
       return;
     }
     setState(() {
@@ -188,7 +191,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       // 成功 → settings 已写入 token, 路由 redirect 自动跳 /chat.
     } on IdentityApiError catch (e) {
       if (!mounted) return;
-      setState(() => _message = _mapVerifyError(e));
+      setState(() => _message = _mapVerifyError(e, AppLocalizations.of(context)!));
       // 错码不清空输入, 让用户改一位再提交; locked / expired 时清空提示重发.
       if (e.code == 'code_locked' ||
           e.code == 'code_expired' ||
@@ -217,14 +220,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       );
       if (!mounted) return;
       _startCooldown();
+      final t = AppLocalizations.of(context)!;
       setState(() {
         _info = sent
-            ? '已重新发送验证码至 ${_email.text}'
-            : '已生成新验证码. 当前为开发模式: 请从服务日志获取';
+            ? t.signInCodeResent(_email.text)
+            : t.signInCodeRegenerated;
       });
     } on IdentityApiError catch (e) {
       if (!mounted) return;
-      setState(() => _message = _mapVerifyError(e));
+      setState(() => _message = _mapVerifyError(e, AppLocalizations.of(context)!));
     } catch (e) {
       setState(() => _message = '$e');
     } finally {
@@ -245,18 +249,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   void _enterForgotPassword() {
+    final t = AppLocalizations.of(context)!;
     setState(() {
       _mode = _AuthMode.forgotEmail;
       _message = null;
-      _info = '输入注册邮箱, 我们将发送 6 位重置验证码';
+      _info = t.signInForgotHint;
       _password.clear();
     });
   }
 
   Future<void> _doForgot() async {
+    final t = AppLocalizations.of(context)!;
     final email = _email.text.trim();
     if (email.isEmpty || !email.contains('@')) {
-      setState(() => _message = '请填写注册邮箱');
+      setState(() => _message = t.signInErrEmailRequired);
       return;
     }
     setState(() {
@@ -274,13 +280,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       setState(() {
         _mode = _AuthMode.resetCode;
         _info = sent
-            ? '若该邮箱已注册, 验证码已发送至 $email (10 分钟内有效)'
-            : '验证码已生成. 当前为开发模式: 请联系管理员从服务日志获取';
+            ? t.signInResetCodeSent(email)
+            : t.signInResetCodeDevMode;
       });
       _startCooldown();
     } on IdentityApiError catch (e) {
       if (!mounted) return;
-      setState(() => _message = _mapVerifyError(e));
+      setState(() => _message = _mapVerifyError(e, AppLocalizations.of(context)!));
     } catch (e) {
       setState(() => _message = '$e');
     } finally {
@@ -289,14 +295,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _doReset() async {
+    final t = AppLocalizations.of(context)!;
     final code = _code.text.trim();
     final newPass = _newPassword.text;
     if (code.length != 6) {
-      setState(() => _message = '请输入 6 位验证码');
+      setState(() => _message = t.signInEnterCode);
       return;
     }
     if (newPass.length < 8) {
-      setState(() => _message = '新密码至少 8 位');
+      setState(() => _message = t.signInErrNewPasswordShort);
       return;
     }
     setState(() {
@@ -316,7 +323,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       // 成功 — 切回登录页, 让用户用新密码登录.
       setState(() {
         _mode = _AuthMode.signIn;
-        _info = '密码已重置, 请使用新密码登录';
+        _info = t.signInPasswordReset;
         _password.clear();
         _code.clear();
         _newPassword.clear();
@@ -325,7 +332,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       _resendCooldown = 0;
     } on IdentityApiError catch (e) {
       if (!mounted) return;
-      setState(() => _message = _mapVerifyError(e));
+      setState(() => _message = _mapVerifyError(e, AppLocalizations.of(context)!));
       if (e.code == 'code_locked' ||
           e.code == 'code_expired' ||
           e.code == 'code_already_used') {
@@ -352,14 +359,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       );
       if (!mounted) return;
       _startCooldown();
+      final t = AppLocalizations.of(context)!;
       setState(() {
         _info = sent
-            ? '已重新发送验证码至 ${_email.text}'
-            : '已生成新验证码. 当前为开发模式';
+            ? t.signInCodeResent(_email.text)
+            : t.signInCodeRegenerated;
       });
     } on IdentityApiError catch (e) {
       if (!mounted) return;
-      setState(() => _message = _mapVerifyError(e));
+      setState(() => _message = _mapVerifyError(e, AppLocalizations.of(context)!));
     } catch (e) {
       setState(() => _message = '$e');
     } finally {
@@ -417,9 +425,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 const SizedBox(height: BiuTokens.space5),
 
                 if (_mode == _AuthMode.signIn) ..._signInActions(t)
-                else if (_mode == _AuthMode.verify) ..._verifyActions()
-                else if (_mode == _AuthMode.forgotEmail) ..._forgotEmailActions()
-                else ..._resetCodeActions(),
+                else if (_mode == _AuthMode.verify) ..._verifyActions(t)
+                else if (_mode == _AuthMode.forgotEmail) ..._forgotEmailActions(t)
+                else ..._resetCodeActions(t),
               ],
             ),
           ),
@@ -461,7 +469,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    '高级',
+                    t.signInAdvanced,
                     style: TextStyle(fontSize: 12, color: BiuTokens.textMuted),
                   ),
                 ],
@@ -480,13 +488,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       ];
 
   List<Widget> _verifyForm(AppLocalizations t) => [
-        _label('邮箱'),
+        _label(t.signInEmail),
         BiuTextField(
           controller: _email,
           enabled: false,
         ),
         const SizedBox(height: BiuTokens.space3),
-        _label('6 位验证码'),
+        _label(t.signInVerifyCode),
         BiuTextField(
           controller: _code,
           keyboardType: TextInputType.number,
@@ -527,13 +535,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               padding: EdgeInsets.zero,
               minimumSize: const Size(0, 28),
             ),
-            child: const Text('忘记密码?'),
+            child: Text(t.signInForgotPassword),
           ),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('没有账号?', style: Theme.of(context).textTheme.bodySmall),
+            Text(t.signInNoAccount, style: Theme.of(context).textTheme.bodySmall),
             TextButton(
               onPressed: _busy ? null : _doRegister,
               style: TextButton.styleFrom(
@@ -561,12 +569,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       ];
 
-  List<Widget> _forgotEmailActions() => [
+  List<Widget> _forgotEmailActions(AppLocalizations t) => [
         SizedBox(
           height: 40,
           child: FilledButton(
             onPressed: _busy ? null : _doForgot,
-            child: Text(_busy ? '...' : '发送重置验证码'),
+            child: Text(_busy ? '...' : t.signInSendResetCode),
           ),
         ),
         const SizedBox(height: BiuTokens.space2),
@@ -578,19 +586,19 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               foregroundColor: BiuTokens.textSecondary,
               textStyle: const TextStyle(fontSize: 13),
             ),
-            child: const Text('返回登录'),
+            child: Text(t.signInBackToSignIn),
           ),
         ),
       ];
 
   List<Widget> _resetCodeForm(AppLocalizations t) => [
-        _label('邮箱'),
+        _label(t.signInEmail),
         BiuTextField(
           controller: _email,
           enabled: false,
         ),
         const SizedBox(height: BiuTokens.space3),
-        _label('6 位验证码'),
+        _label(t.signInVerifyCode),
         BiuTextField(
           controller: _code,
           keyboardType: TextInputType.number,
@@ -609,7 +617,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           ),
         ),
         const SizedBox(height: BiuTokens.space3),
-        _label('新密码 (≥ 8 位)'),
+        _label(t.signInNewPasswordLabel),
         BiuTextField(
           controller: _newPassword,
           obscureText: true,
@@ -618,12 +626,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       ];
 
-  List<Widget> _resetCodeActions() => [
+  List<Widget> _resetCodeActions(AppLocalizations t) => [
         SizedBox(
           height: 40,
           child: FilledButton(
             onPressed: _busy ? null : _doReset,
-            child: Text(_busy ? '...' : '重置密码'),
+            child: Text(_busy ? '...' : t.signInResetPassword),
           ),
         ),
         const SizedBox(height: BiuTokens.space2),
@@ -636,7 +644,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 foregroundColor: BiuTokens.textSecondary,
                 textStyle: const TextStyle(fontSize: 13),
               ),
-              child: const Text('返回登录'),
+              child: Text(t.signInBackToSignIn),
             ),
             TextButton(
               onPressed: (_busy || _resendCooldown > 0) ? null : _resendReset,
@@ -649,8 +657,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               ),
               child: Text(
                 _resendCooldown > 0
-                    ? '重新发送 (${_resendCooldown}s)'
-                    : '重新发送验证码',
+                    ? t.signInResendCooldown(_resendCooldown)
+                    : t.signInResendCode,
               ),
             ),
           ],
@@ -662,20 +670,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       case _AuthMode.signIn:
         return t.signInSubtitle;
       case _AuthMode.verify:
-        return '验证您的邮箱以激活账户';
+        return t.signInSubtitleVerify;
       case _AuthMode.forgotEmail:
-        return '忘记密码 — 我们将通过邮件发送重置码';
+        return t.signInSubtitleForgot;
       case _AuthMode.resetCode:
-        return '输入验证码 + 新密码完成重置';
+        return t.signInSubtitleReset;
     }
   }
 
-  List<Widget> _verifyActions() => [
+  List<Widget> _verifyActions(AppLocalizations t) => [
         SizedBox(
           height: 40,
           child: FilledButton(
             onPressed: _busy ? null : _doVerify,
-            child: Text(_busy ? '...' : '验证并登录'),
+            child: Text(_busy ? '...' : t.signInVerifySubmit),
           ),
         ),
         const SizedBox(height: BiuTokens.space2),
@@ -688,7 +696,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 foregroundColor: BiuTokens.textSecondary,
                 textStyle: const TextStyle(fontSize: 13),
               ),
-              child: const Text('返回登录'),
+              child: Text(t.signInBackToSignIn),
             ),
             TextButton(
               onPressed: (_busy || _resendCooldown > 0) ? null : _doResend,
@@ -701,8 +709,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               ),
               child: Text(
                 _resendCooldown > 0
-                    ? '重新发送 (${_resendCooldown}s)'
-                    : '重新发送验证码',
+                    ? t.signInResendCooldown(_resendCooldown)
+                    : t.signInResendCode,
               ),
             ),
           ],
@@ -771,22 +779,22 @@ String _mapAuthError(IdentityApiError e, AppLocalizations t) {
   return msg.isEmpty ? t.signInErrUnknown : msg;
 }
 
-String _mapVerifyError(IdentityApiError e) {
+String _mapVerifyError(IdentityApiError e, AppLocalizations t) {
   switch (e.code) {
     case 'invalid_code':
-      return '验证码错误, 请重试';
+      return t.signInErrInvalidCode;
     case 'code_expired':
-      return '验证码已过期, 请点击重新发送';
+      return t.signInErrCodeExpired;
     case 'code_locked':
-      return '验证错误次数过多, 请重新发送验证码';
+      return t.signInErrCodeLocked;
     case 'code_already_used':
-      return '该验证码已被使用, 请重新发送';
+      return t.signInErrCodeUsed;
     case 'no_pending_code':
-      return '尚未发送验证码, 请先点击重新发送';
+      return t.signInErrNoPendingCode;
     case 'rate_limited':
-      return '发送过于频繁, 请稍后再试';
+      return t.signInErrRateLimited;
     case '':
-      if (e.status == 0) return '无法连接服务器, 请检查网络';
+      if (e.status == 0) return t.signInErrNetwork;
       break;
   }
   return e.friendlyMessage;
