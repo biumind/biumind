@@ -370,11 +370,13 @@ jobs:
           mkdir -p android/keystore
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode \
             > android/keystore/upload.jks
-          # Project's android/app/build.gradle expects key.properties
-          # at android/key.properties. See Flutter docs:
+          # app/build.gradle.kts loads android/key.properties when present and
+          # signs with the release config. storeFile resolves relative to the
+          # app/ module dir, hence ../keystore/ (mirrors the local key.properties
+          # → ../biumind-dev.jks). See Flutter docs:
           # https://docs.flutter.dev/deployment/android#signing-the-app
           cat > android/key.properties <<EOF
-          storeFile=keystore/upload.jks
+          storeFile=../keystore/upload.jks
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}

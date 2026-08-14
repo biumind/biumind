@@ -15,9 +15,15 @@
 #     only ever sees tagged stable releases. Real users never get
 #     pushed a nightly.
 #
-# Signing is skipped (no APPLE_*/ANDROID_KEYSTORE_*/IOS_* secrets):
-#   * macOS .dmg   — unsigned; Gatekeeper warns on first launch.
-#   * Android .apk — debug-signed; side-loadable, Play Console rejects.
+# Signing is conditional on secrets:
+#   * macOS .dmg   — always unsigned in nightly (no APPLE_* signing step
+#     here); Gatekeeper warns on first launch. Signed DMGs stay tag-triggered
+#     via release-client.yml.
+#   * Android .apk — signed with the upload keystore when the
+#     ANDROID_KEYSTORE_* secret set is present; otherwise debug-signed
+#     (side-loadable, Play Console rejects). Same secrets + same keystore as
+#     release-client.yml → stable tag builds and nightlies share one signing
+#     key and upgrade into each other without reinstall.
 #   * iOS          — not built (needs the full IOS_* signing set).
 # Stable, signed, distributed releases stay tag-triggered via
 # release-client.yml (push a `client-v*` tag).
@@ -55,6 +61,12 @@ jobs:
     defaults:
       run:
         working-directory: apps/client
+    # Whether the .apk was release-signed (keystore secrets present) or
+    # debug-signed (fallback). Threaded to nightly-release for accurate
+    # `signed` metadata in release notes + nightly/index.json.
+    outputs:
+      android_signed:
+        value: ${{ steps.keystore.outputs.signed == 'true' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -92,7 +104,41 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # Debug-signed (no keystore secret) — side-loadable for testing only.
+      # ── Optional release signing ──────────────────────────────
+      # Gated on ANDROID_KEYSTORE_BASE64 — without it the build falls back
+      # to the debug keystore (same gating as release-client.yml). On the
+      # ephemeral runner the debug key is regenerated every run → different
+      # signing cert each build → "signature mismatch, reinstall" on upgrade.
+      # Setting the 4 secrets pins a stable upload key across all builds.
+      #
+      # Required secrets (all four together; one missing → debug build):
+      #   ANDROID_KEYSTORE_BASE64    base64 of the upload keystore .jks
+      #   ANDROID_KEYSTORE_PASSWORD
+      #   ANDROID_KEY_ALIAS
+      #   ANDROID_KEY_PASSWORD
+      - name: Decode keystore
+        id: keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          mkdir -p android/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode \
+            > android/keystore/upload.jks
+          # app/build.gradle.kts loads android/key.properties when present and
+          # signs with the release config. storeFile resolves relative to the
+          # app/ module dir, hence ../keystore/ (mirrors the local key.properties
+          # → ../biumind-dev.jks). See Flutter docs:
+          # https://docs.flutter.dev/deployment/android#signing-the-app
+          cat > android/key.properties <<EOF
+          storeFile=../keystore/upload.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
       - name: Build .apk
         run: flutter build apk --release
 
@@ -247,6 +293,7 @@ jobs:
           RUN: ${{ github.run_number }}
           ANDROID: ${{ steps.ver.outputs.android_asset }}
           MACOS: ${{ steps.ver.outputs.macos_asset }}
+          ANDROID_SIGNED: ${{ needs.android-apk.outputs.android_signed }}
         run: |
           set -e
           # Newest existing nightly tag = the previous published build.
@@ -286,7 +333,11 @@ jobs:
             echo "This is an automated nightly build and is **not** intended for production use."
             echo
             echo "- **macOS \`.dmg\`** — unsigned. Gatekeeper blocks first launch. Bypass: right-click → *Open*, or \`xattr -dr com.apple.quarantine ${MACOS}\`."
-            echo "- **Android \`.apk\`** — debug-signed; side-load only. Not Play Store compatible."
+            if [ "$ANDROID_SIGNED" = "true" ]; then
+              echo "- **Android \`.apk\`** — signed with the upload keystore (same key as stable releases; upgrades in place over earlier signed builds)."
+            else
+              echo "- **Android \`.apk\`** — debug-signed; side-load only. Not Play Store compatible."
+            fi
             echo "- **iOS** — not built."
             echo
             echo "For signed, stable builds see the [latest release](https://github.com/${{ github.repository }}/releases/latest)."
@@ -337,6 +388,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           ANDROID: ${{ steps.ver.outputs.android_asset }}
           MACOS: ${{ steps.ver.outputs.macos_asset }}
+          ANDROID_SIGNED: ${{ needs.android-apk.outputs.android_signed }}
         run: |
           set -eu
           REL="nightly/client-nightly.${RUN}"
@@ -370,6 +422,7 @@ jobs:
             --arg base "$BASE" --arg rel "$REL" \
             --arg sha_apk "$sha_apk" --arg sha_dmg "$sha_dmg" \
             --argjson size_apk "$size_apk" --argjson size_dmg "$size_dmg" \
+            --argjson apk_signed "${ANDROID_SIGNED:-false}" \
             '{
               manifest: "nightly-canary-v1",
               channel: "nightly",
@@ -377,9 +430,9 @@ jobs:
               run: $run,
               releasedAt: $releasedAt,
               releaseUrl: $releaseUrl,
-              notes: "Automated nightly build — not for production. Unsigned.",
+              notes: "Automated nightly build — not for production. See release notes for signing status.",
               assets: [
-                {platform:"android-apk", arch:"universal", signed:false,
+                {platform:"android-apk", arch:"universal", signed:$apk_signed,
                  url:($base+"/"+$rel+"/"+$apk), filename:$apk, sha256:$sha_apk, size:$size_apk},
                 {platform:"macos-arm64", arch:"arm64", signed:false,
                  url:($base+"/"+$rel+"/"+$dmg), filename:$dmg, sha256:$sha_dmg, size:$size_dmg}
