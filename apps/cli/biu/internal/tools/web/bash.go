@@ -403,8 +403,14 @@ func (b BashTool) Call(ctx context.Context, input map[string]any, env *engine.To
 	go stream("stdout", stdoutPipe, &stdout)
 	go stream("stderr", stderrPipe, &stderr)
 
-	err := cmd.Wait()
+	// Drain BEFORE Wait: StdoutPipe's doc warns that Wait closes the
+	// pipe as soon as the process exits, discarding anything the
+	// scanner goroutines haven't read yet. With a fast command (echo)
+	// on a loaded/-race CI runner, Wait can win that race and the
+	// result silently loses all output (bgtask's reaper does the same
+	// wg-first ordering for this reason).
 	wg.Wait()
+	err := cmd.Wait()
 
 	exitCode := 0
 	if err != nil {

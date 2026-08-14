@@ -169,6 +169,16 @@ func TestCircuitBreakerTrips(t *testing.T) {
 	}
 	// Server died after handshake — every subsequent call fails. After
 	// MaxConsecutiveErrors, IsHealthy returns false.
+	//
+	// Wait for the readLoop to observe stdout EOF (i.e. the server
+	// process fully exited) before hammering it. Without this, a slow-
+	// to-die server on a loaded CI runner keeps the first ListTools
+	// blocked until the shared 5s ctx expires — and ctx cancellation
+	// deliberately does NOT count toward the circuit breaker, so the
+	// breaker never trips and the test flakes. After EOF every call
+	// deterministically fails with a stdin EPIPE write error, which
+	// does count.
+	<-c.readLoopDone
 	for i := 0; i < MaxConsecutiveErrors; i++ {
 		_, _ = c.ListTools(ctx)
 	}
