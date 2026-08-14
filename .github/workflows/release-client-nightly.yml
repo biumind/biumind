@@ -140,8 +140,12 @@ jobs:
           EOF
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
+      # --build-number=run_number: 把 nightly 号注入 APK versionCode
+      # (versionName 仍是 pubspec 的 0.1.0)。客户端 _checkNightly 用
+      # PackageInfo.buildNumber 识别"已装的就是这号", 不再重复提示;
+      # versionCode 单调递增也符合 Android 覆盖安装语义。
       - name: Build .apk
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number="${{ github.run_number }}"
 
       - name: Stage artefact
         env:
@@ -193,8 +197,10 @@ jobs:
       - name: pub get
         run: flutter pub get
 
+      # --build-number=run_number: CFBundleVersion 带 nightly 号, 与 Android 对齐
+      # (客户端 _checkNightly 靠 PackageInfo.buildNumber 判断已装夜版)。
       - name: Build release
-        run: flutter build macos --release
+        run: flutter build macos --release --build-number="${{ github.run_number }}"
 
       # biu CLI sidecar into .app Resources (daemon auto-start). Nightly
       # builds only the host-arch (arm64) sidecar, not the 4 standalone

@@ -14,7 +14,7 @@
 import 'dart:convert' show jsonDecode;
 import 'dart:io' as io;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -58,9 +58,14 @@ final updateAvailableProvider =
   if (origin.isEmpty) return null; // 未配置服务器地址, 不查
 
   Version current;
+  // 已装 nightly 号: nightly workflow 以 --build-number=run_number 构建,
+  // buildNumber 即 CI run。stable/旧夜版 buildNumber 很小 (+1 之类),
+  // 对 nightly run 恒 <, 不影响提示。解析失败按 0 (总视为更旧)。
+  int installedRun;
   try {
     final info = await PackageInfo.fromPlatform();
     current = _normalizeVersion(info.version);
+    installedRun = int.tryParse(info.buildNumber) ?? 0;
   } catch (_) {
     return null;
   }
@@ -68,8 +73,9 @@ final updateAvailableProvider =
   // 1. nightly canary — envelope 非 v1 (channel=nightly + run), 单独 fetch/parse。
   //    nightly 优先:开了开关的用户要 bleeding edge, 同一 banner 位不叠 stable。
   if (settings.fetchNightly) {
-    final nightly = await _checkNightly(
+    final nightly = await checkNightly(
       origin: origin,
+      installedRun: installedRun,
       lastNotifiedRun: settings.lastNotifiedNightlyRun,
     );
     if (nightly != null) return nightly;
@@ -111,12 +117,17 @@ Future<UpdateInfo?> _checkStable({
   }
 }
 
-/// nightly/index.json 检查 (canary 通道)。run 单调递增去重:已提示过的 run 不
-/// 再弹, 直到更新的 run。nightly 清单始终是"最新构建", 出现即提示 (用户已
-/// opt-in)。下载 url:当前平台匹配的 asset.url (OSS CNAME 直链, 经 site nginx
+/// nightly/index.json 检查 (canary 通道)。两级去重:
+///   1. 已装去重:APK versionCode = CI run number, manifest.run <= installedRun
+///      说明装的已是这号或更新, 不再弹;
+///   2. 提示去重:dismiss 回写的 lastNotifiedRun 单调递增, 已提示过的 run 不再弹。
+/// nightly 清单始终是"最新构建", 两级都未命中即提示 (用户已 opt-in)。
+/// 下载 url:当前平台匹配的 asset.url (OSS CNAME 直链, 经 site nginx
 /// 反代); 无对应平台 (intel mac / web / iOS) → GH release 页 fallback。
-Future<UpdateInfo?> _checkNightly({
+@visibleForTesting
+Future<UpdateInfo?> checkNightly({
   required String origin,
+  required int installedRun,
   required int? lastNotifiedRun,
 }) async {
   try {
@@ -129,7 +140,9 @@ Future<UpdateInfo?> _checkNightly({
     final decoded = jsonDecode(body);
     if (decoded is! Map<String, dynamic>) return null;
     final manifest = NightlyManifest.fromJson(decoded);
-    // run 去重:已提示过的 run 不再弹 (跨重启), 直到更新的 run。
+    // 已装去重:装的就是这号 (或回退装了更新号), 无需提示。
+    if (manifest.run <= installedRun) return null;
+    // 提示去重:已提示过的 run 不再弹 (跨重启), 直到更新的 run。
     if (lastNotifiedRun != null && manifest.run <= lastNotifiedRun) {
       return null;
     }
