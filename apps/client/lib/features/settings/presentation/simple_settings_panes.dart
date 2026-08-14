@@ -9,6 +9,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/ui/biu_text_field.dart';
@@ -261,6 +262,11 @@ class _CredentialsPaneState extends ConsumerState<CredentialsPane> {
 
 // ─── About ─────────────────────────────────────────────
 
+/// 运行时包信息 (version/buildNumber 来自 PackageInfo, nightly 包的
+/// buildNumber 即 CI run 号)。仅 AboutPane 用, autoDispose 随页释放。
+final _packageInfoProvider =
+    FutureProvider.autoDispose<PackageInfo>((ref) => PackageInfo.fromPlatform());
+
 class AboutPane extends ConsumerWidget {
   const AboutPane({super.key});
   @override
@@ -269,6 +275,7 @@ class AboutPane extends ConsumerWidget {
     final settings = ref.watch(settingsControllerProvider).valueOrNull;
     final asyncUpdate = ref.watch(updateAvailableProvider);
     final update = asyncUpdate.valueOrNull;
+    final pkg = ref.watch(_packageInfoProvider).valueOrNull;
 
     // 检查更新 状态: 有更新 (banner 已在顶部提示, 这里只显状态) > 检查中 > 已最新。
     final String checkStatus;
@@ -288,8 +295,9 @@ class AboutPane extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _kv('BiuMind', t.aboutVersion),
-          _kv(t.aboutBuild, '0.1.0+1'),
+          _kv('BiuMind', pkg?.version ?? '—'),
+          _kv(t.aboutBuild,
+              pkg == null ? '—' : '${pkg.version}+${pkg.buildNumber}'),
           const SizedBox(height: BiuTokens.space4),
           // ── 更新 ──────────────────────────────────────────
           _kv(t.settingsCheckUpdate, checkStatus),

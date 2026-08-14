@@ -868,9 +868,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutSubtitle => '关于 BiuMind';
 
   @override
-  String get aboutVersion => '0.1.0';
-
-  @override
   String get aboutBuild => '构建';
 
   @override

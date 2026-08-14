@@ -892,9 +892,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aboutSubtitle => 'About BiuMind';
 
   @override
-  String get aboutVersion => '0.1.0';
-
-  @override
   String get aboutBuild => 'Build';
 
   @override

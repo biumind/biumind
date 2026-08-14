@@ -1735,12 +1735,6 @@ abstract class AppLocalizations {
   /// **'About BiuMind'**
   String get aboutSubtitle;
 
-  /// No description provided for @aboutVersion.
-  ///
-  /// In en, this message translates to:
-  /// **'0.1.0'**
-  String get aboutVersion;
-
   /// No description provided for @aboutBuild.
   ///
   /// In en, this message translates to:
