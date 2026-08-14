@@ -62,11 +62,12 @@ jobs:
       run:
         working-directory: apps/client
     # Whether the .apk was release-signed (keystore secrets present) or
-    # debug-signed (fallback). Threaded to nightly-release for accurate
+    # debug-signed (fallback). job-level outputs 用 shorthand
+    # (name: ${{ ... }}),不用 value: 子键(那是 workflow_call.outputs 的写法,
+    # 套到 job 上会让 Actions 解析失败)。Threaded to nightly-release for accurate
     # `signed` metadata in release notes + nightly/index.json.
     outputs:
-      android_signed:
-        value: ${{ steps.keystore.outputs.signed == 'true' }}
+      android_signed: ${{ steps.keystore.outputs.signed }}
 
     steps:
       - uses: actions/checkout@v4
