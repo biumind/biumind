@@ -18,19 +18,14 @@ class BridgeFeatures {
   const BridgeFeatures({
     this.wikilink = true,
     this.mermaid = true,
-    this.engine = 'milkdown',
   });
 
   final bool wikilink;
   final bool mermaid;
 
-  /// 编辑器内核：'milkdown'（wiki 默认）或 'cm6'（笔记页源码内核）。
-  final String engine;
-
   Map<String, dynamic> toJson() => {
         'wikilink': wikilink,
         'mermaid': mermaid,
-        'engine': engine,
       };
 }
 
@@ -131,6 +126,19 @@ BridgeMessage wikilinkQueryReplyMessage({
     type: 'wikilinkQuery.reply',
     id: id,
     payload: {'items': items.map((e) => e.toJson()).toList()},
+  );
+}
+
+/// presignGet.reply — 编辑器渲染 `biu-file://<uuid>` 图片前向 host 换
+/// 临时 URL 的应答。`url` 为空串 = 换取失败（图片裂开，编辑器不崩）。
+BridgeMessage presignGetReplyMessage({
+  required String id,
+  required String url,
+}) {
+  return BridgeMessage(
+    type: 'presignGet.reply',
+    id: id,
+    payload: {'url': url},
   );
 }
 

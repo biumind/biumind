@@ -18,6 +18,8 @@ import {
   type NavigatePayload,
   type SetDocPayload,
   type SetOptionsPayload,
+  type PresignGetPayload,
+  type PresignGetReplyPayload,
   type WikilinkQueryPayload,
   type WikilinkQueryReplyPayload,
 } from './protocol'
@@ -90,6 +92,15 @@ export class BridgeClient {
   ): Promise<WikilinkQueryReplyPayload> {
     return this.request<WikilinkQueryPayload, WikilinkQueryReplyPayload>(
       'wikilinkQuery',
+      payload,
+    )
+  }
+
+  requestPresignGet(
+    payload: PresignGetPayload,
+  ): Promise<PresignGetReplyPayload> {
+    return this.request<PresignGetPayload, PresignGetReplyPayload>(
+      'presignGet',
       payload,
     )
   }
@@ -172,6 +183,9 @@ export class BridgeClient {
         this.handlers.onCommand(msg.payload)
         return
       case 'wikilinkQuery.reply':
+        // already handled by request() id matching above; defensively no-op
+        return
+      case 'presignGet.reply':
         // already handled by request() id matching above; defensively no-op
         return
     }

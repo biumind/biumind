@@ -26,6 +26,10 @@ typedef WikilinkResolver = Future<List<WikilinkSuggestion>> Function(
   String prefix,
 );
 
+/// 渲染时给 `biu-file://<uuid>` 图片换 presigned GET URL（15 分钟 TTL，
+/// 编辑器侧缓存 + 过期重换）。返回空串表示换取失败。
+typedef PresignGetResolver = Future<String> Function(String fileId);
+
 class EditorBridgeController extends ChangeNotifier {
   EditorBridgeController({
     required this.initialMarkdown,
@@ -60,6 +64,10 @@ class EditorBridgeController extends ChangeNotifier {
   /// Called by the controller to fetch wikilink completion candidates.
   /// Wire to apiRepository.
   WikilinkResolver? resolveWikilinks;
+
+  /// Called by the controller when the editor renders a `biu-file://`
+  /// image and needs a presigned URL for the `<img>` tag.
+  PresignGetResolver? resolvePresignGet;
 
   EditorSend? _send;
   final Completer<void> _readyCompleter = Completer<void>();
@@ -97,6 +105,8 @@ class EditorBridgeController extends ChangeNotifier {
         _onDocChanged(msg);
       case 'wikilinkQuery':
         await _onWikilinkQuery(msg);
+      case 'presignGet':
+        await _onPresignGet(msg);
       case 'navigate':
         _onNavigate(msg);
       case 'log':
@@ -145,6 +155,25 @@ class EditorBridgeController extends ChangeNotifier {
       items = const <WikilinkSuggestion>[];
     }
     await _send?.call(wikilinkQueryReplyMessage(id: id, items: items));
+  }
+
+  /// 编辑器渲染 biu-file:// 图片前来换临时 URL。resolver 未接线或换取
+  /// 失败时回空串 —— 编辑器侧按失败处理（图片裂开，正文不受影响）。
+  Future<void> _onPresignGet(BridgeMessage msg) async {
+    final id = msg.id;
+    final fileId = msg.payload['fileId'];
+    final resolver = resolvePresignGet;
+    if (id == null || fileId is! String) return;
+    var url = '';
+    if (resolver != null) {
+      try {
+        url = await resolver(fileId);
+      } catch (_) {
+        // 含 Error（note 侧未连接 hub 时抛 StateError）——一律回空串。
+        url = '';
+      }
+    }
+    await _send?.call(presignGetReplyMessage(id: id, url: url));
   }
 
   void _onNavigate(BridgeMessage msg) {

@@ -32,6 +32,7 @@ class PageEditorView extends StatefulWidget {
     required this.onMarkdownChanged,
     this.onWikilinkTap,
     this.resolveWikilinks,
+    this.resolvePresignGet,
     this.controllerRef,
     this.features = const BridgeFeatures(),
   });
@@ -41,6 +42,10 @@ class PageEditorView extends StatefulWidget {
   final ValueChanged<String> onMarkdownChanged;
   final void Function(String slug)? onWikilinkTap;
   final WikilinkResolver? resolveWikilinks;
+
+  /// 编辑器渲染 `biu-file://<uuid>` 图片时向 host 换 presigned URL 的
+  /// 回调（笔记附件；wiki 侧暂不接，biu-file 图片在 wiki 里保持裂开）。
+  final PresignGetResolver? resolvePresignGet;
 
   /// Feature toggles sent in the init message (wikilink / mermaid).
   /// Defaults keep the historical behavior; hosts like the note editor
@@ -69,7 +74,8 @@ class _PageEditorViewState extends State<PageEditorView> {
     )
       ..onMarkdownChanged = widget.onMarkdownChanged
       ..onWikilinkTap = widget.onWikilinkTap
-      ..resolveWikilinks = widget.resolveWikilinks;
+      ..resolveWikilinks = widget.resolveWikilinks
+      ..resolvePresignGet = widget.resolvePresignGet;
     widget.controllerRef?.call(_controller);
   }
 
@@ -79,7 +85,8 @@ class _PageEditorViewState extends State<PageEditorView> {
     _controller
       ..onMarkdownChanged = widget.onMarkdownChanged
       ..onWikilinkTap = widget.onWikilinkTap
-      ..resolveWikilinks = widget.resolveWikilinks;
+      ..resolveWikilinks = widget.resolveWikilinks
+      ..resolvePresignGet = widget.resolvePresignGet;
     if (oldWidget.theme != widget.theme) {
       _controller.setOptions(newTheme: widget.theme);
     }

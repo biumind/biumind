@@ -53,13 +53,13 @@ import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
+import { createImagePresignConfig } from './plugins/image-presign'
 import { mermaidPlugins } from './plugins/mermaid'
 import { applyWikilinkRemark, wikilinkPlugins } from './plugins/wikilink'
 import { SourceModeController } from './source-mode'
 import { formatTimestamp } from './timestamp'
 import { computeActiveState } from './toolbar/active-state'
 import { createToolbar, type Toolbar } from './toolbar'
-import type { Cm6Handle } from './cm6'
 import type {
   CommandPayload,
   InitPayload,
@@ -73,7 +73,6 @@ const DOC_CHANGED_DEBOUNCE_MS = 200
 
 interface EditorState {
   crepe: Crepe | null
-  cm6: Cm6Handle | null
   toolbar: Toolbar | null
   sourceMode: SourceModeController | null
   readOnly: boolean
@@ -87,7 +86,6 @@ interface EditorState {
 
 const state: EditorState = {
   crepe: null,
-  cm6: null,
   toolbar: null,
   sourceMode: null,
   readOnly: false,
@@ -113,68 +111,22 @@ function bootstrap(): void {
 
   // Standalone dev shortcut — when no host is around, render an empty editor
   // so `npm run dev` is useful without bootstrapping a Flutter shell.
-  // `?engine=cm6` 切到 CM6 内核并喂一份覆盖各格式元素的示例文档，
-  // 方便人工验证 Rich Markdown 渲染。
   if (!window.flutter_inappwebview && (!window.parent || window.parent === window)) {
-    const cm6 = new URLSearchParams(window.location.search).get('engine') === 'cm6'
     void mountEditor({
-      markdown: cm6 ? CM6_DEMO_MARKDOWN : '# Hello Milkdown\n\nStart typing — `npm run dev` mode.\n',
+      markdown: '# Hello Milkdown\n\nStart typing — `npm run dev` mode.\n',
       theme: 'light',
       readOnly: false,
       locale: 'en',
-      features: { wikilink: true, mermaid: true, engine: cm6 ? 'cm6' : undefined },
+      features: { wikilink: true, mermaid: true },
     })
   }
 }
-
-// standalone CM6 示例：覆盖粗/斜/行内 code/链接/checkbox/标题/引用/代码块/
-// 图片/mermaid
-const CM6_DEMO_MARKDOWN = [
-  '# CM6 渲染自测',
-  '',
-  '正文 **粗体** *斜体* ~~删除线~~ `inline code`，以及 [示例链接](https://example.com)（Ctrl/Cmd+点击触发 navigate）。',
-  '',
-  '## 任务列表',
-  '',
-  '- [ ] 未完成项',
-  '- [x] 已完成项（整行半透明）',
-  '',
-  '> 引用块：光标离开本行后只剩左边框。',
-  '',
-  '```ts',
-  'const answer: number = 42',
-  '```',
-  '',
-  '## 图片（独占行 → 源码行下方挂图）',
-  '',
-  '![示例图片](https://picsum.photos/400/200)',
-  '',
-  '行内图片 ![不会渲染](https://picsum.photos/40) 保持源码。',
-  '',
-  '## Mermaid（光标进入代码块隐藏预览）',
-  '',
-  '```mermaid',
-  'graph LR',
-  '  A[开始] --> B{判断}',
-  '  B -->|是| C[结束]',
-  '  B -->|否| A',
-  '```',
-  '',
-  '---',
-  '',
-].join('\n')
 
 async function handleInit(payload: InitPayload): Promise<void> {
   await mountEditor(payload)
 }
 
 async function handleSetDoc(payload: SetDocPayload): Promise<void> {
-  if (state.cm6) {
-    if (payload.markdown === state.lastSentMarkdown) return
-    applyExternalMarkdownCm6(payload.markdown, payload.preserveSelection)
-    state.revision = Math.max(state.revision, payload.revision)
-    return
-  }
   if (!state.crepe) return
   if (payload.markdown === state.lastSentMarkdown) return
   if (state.sourceMode?.active) {
@@ -192,30 +144,16 @@ async function handleSetDoc(payload: SetDocPayload): Promise<void> {
 function handleSetOptions(payload: SetOptionsPayload): void {
   if (payload.theme) {
     applyTheme(payload.theme)
-    state.cm6?.setTheme(payload.theme)
   }
   if (payload.readOnly !== undefined) {
     state.readOnly = payload.readOnly
     state.crepe?.setReadonly(payload.readOnly)
-    state.cm6?.setReadOnly(payload.readOnly)
     state.toolbar?.setDisabled(payload.readOnly)
     state.sourceMode?.setReadOnly(payload.readOnly)
   }
 }
 
 function handleCommand(payload: CommandPayload): void {
-  if (state.cm6) {
-    if (payload.name === 'focus') state.cm6.focus()
-    // undo/redo 协议里早已定义，CM6 内核顺手接上（CM history 现成）
-    if (payload.name === 'undo' || payload.name === 'redo') {
-      state.cm6.execCommand(payload.name)
-    }
-    if (payload.name === 'insertText') {
-      const text = payload.args?.text
-      if (typeof text === 'string' && text.length > 0) state.cm6.insertText(text)
-    }
-    return
-  }
   if (!state.crepe) return
   // Phase 1: only `focus` is wired. The rest land in phase 6.
   if (payload.name === 'focus') {
@@ -240,23 +178,15 @@ function handleCommand(payload: CommandPayload): void {
 }
 
 async function mountEditor(payload: InitPayload): Promise<void> {
-  // 双内核分支：features.engine === 'cm6' 走 CM6 源码内核（懒加载），
-  // 否则维持 Milkdown Crepe（wiki 路径，行为不变）。
-  if (payload.features.engine === 'cm6') {
-    await mountCm6Editor(payload)
-    return
-  }
   await mountCrepeEditor(payload)
 }
 
-/** 重建前的公共清理：两个内核分支共用（另一内核残留一并清掉） */
+/** 重建前的公共清理 */
 async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
   state.sourceMode?.destroy()
   state.sourceMode = null
   state.toolbar = null
-  state.cm6?.destroy()
-  state.cm6 = null
   if (state.crepe) {
     await state.crepe.destroy()
     state.crepe = null
@@ -281,6 +211,13 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       // 关闭 latex：KaTeX (~586KB) 及其字体不随包分发（katex 本身被
       // crepe 静态 import，另由 vite alias 指向 stub 才能真正移出产物）
       [Crepe.Feature.Latex]: false,
+    },
+    featureConfigs: {
+      // biu-file:// 附件渲染时换 presigned URL（文档里只存规范 URI），
+      // 过期 403 由 onImageLoadError 强刷重换。block/inline 一处配置都覆盖。
+      [Crepe.Feature.ImageBlock]: createImagePresignConfig((fileId) =>
+        bridge.requestPresignGet({ fileId }).then((r) => r.url ?? ''),
+      ),
     },
   })
 
@@ -350,84 +287,6 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     onEdit: (markdown) => scheduleDocChanged(markdown),
   })
   state.sourceMode.setReadOnly(state.readOnly)
-}
-
-/** CM6 源码内核挂载：动态 import 懒加载，不进 Milkdown 路径主 chunk */
-async function mountCm6Editor(payload: InitPayload): Promise<void> {
-  await teardownEditor()
-  applyTheme(payload.theme)
-  const root = document.getElementById('root')
-  if (!root) throw new Error('#root not found')
-  root.innerHTML = ''
-
-  const editorWrap = document.createElement('div')
-  editorWrap.className = 'kc-editor-wrap'
-  root.appendChild(editorWrap)
-
-  const { mountCm6Editor: mount } = await import('./cm6')
-  const handle = mount({
-    container: editorWrap,
-    markdown: payload.markdown,
-    theme: payload.theme,
-    readOnly: !!payload.readOnly,
-    mermaid: !!payload.features.mermaid,
-    onDocChanged: (markdown) => {
-      if (state.applyingExternalEdit) return
-      scheduleDocChanged(markdown)
-    },
-    onActiveStateChange: (active) => {
-      state.toolbar?.setActive(active)
-    },
-    onNavigate: (url) => {
-      bridge.sendNavigate({ kind: 'external', url })
-    },
-  })
-  state.cm6 = handle
-  state.readOnly = !!payload.readOnly
-  state.lastSentMarkdown = payload.markdown
-  state.pendingMarkdown = null
-
-  // CM6 即源码编辑器：隐藏「源码切换」按钮，其余 16 闭包走命令路由表
-  const exec = (name: string): void => {
-    handle.execCommand(name)
-  }
-  const toolbar = createToolbar(
-    {
-      undo: () => exec('undo'),
-      redo: () => exec('redo'),
-      toggleStrong: () => exec('toggleStrong'),
-      toggleEmphasis: () => exec('toggleEmphasis'),
-      toggleStrikeThrough: () => exec('toggleStrikeThrough'),
-      toggleInlineCode: () => exec('toggleInlineCode'),
-      wrapInHeading: (level) => exec(`h${level}`),
-      wrapInBlockquote: () => exec('blockquote'),
-      insertHr: () => exec('hr'),
-      wrapInBulletList: () => exec('bulletList'),
-      wrapInOrderedList: () => exec('orderedList'),
-      toggleTaskList: () => exec('taskList'),
-      createCodeBlock: () => exec('codeBlock'),
-      insertTable: () => exec('table'),
-      insertTimestamp: () => exec('timestamp'),
-      toggleSourceMode: () => {},
-    },
-    { hideSourceToggle: true },
-  )
-  root.insertBefore(toolbar.element, editorWrap)
-  toolbar.setDisabled(state.readOnly)
-  toolbar.setActive(handle.computeActiveState())
-  state.toolbar = toolbar
-}
-
-/** CM6 内核的外部灌入（setDoc）：防回环标志与 Crepe 路径同一套 */
-function applyExternalMarkdownCm6(markdown: string, preserveSelection: boolean): void {
-  if (!state.cm6) return
-  state.applyingExternalEdit = true
-  try {
-    state.cm6.applyMarkdown(markdown, preserveSelection)
-    state.lastSentMarkdown = markdown
-  } finally {
-    state.applyingExternalEdit = false
-  }
 }
 
 /** 走 Milkdown 命令体系执行一个 $Command */

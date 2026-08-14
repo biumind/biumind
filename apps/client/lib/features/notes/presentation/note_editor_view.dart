@@ -11,9 +11,9 @@
 ///     SnackBar「当前编辑基于旧版本，已被服务端更新覆盖」+「另存为副本」
 ///     （repository.saveAsCopy，设计 §4 D4 用户裁决，禁止 latest-wins）。
 ///   * 附件：标题行「插入图片 / 插入附件」→ 选文件 → presign 直传 →
-///     光标处插 `![name](url)` 图片或 `[name](url)` 链接；正文里的
-///     biu-file:// 经 NoteAttachmentResolver 进编辑器换临时 URL、
-///     落库前换回规范 URI。
+///     光标处插 `![name](biu-file://<uuid>)` 图片或 `[name](biu-file://<uuid>)`
+///     链接；正文全程只存规范 URI，编辑器渲染 <img> 前经 bridge
+///     `presignGet` 消息向 host 换临时 URL（渲染时解析，不落库）。
 ///
 /// 桌面三栏右栏 / 手机详情页共用。dispose 前 flush() 防丢半句输入。
 /// 桌面三栏切笔记走 didUpdateWidget 复用同一编辑器 webview（不重建），
@@ -39,7 +39,7 @@ import '../../../data/outbox/note_outbox_flusher.dart';
 import '../../../services/auth_service.dart';
 import '../../code/data/files_client.dart';
 import '../application/notes_ui_providers.dart';
-import '../data/note_attachment_resolver.dart';
+import '../data/note_attachment_presign.dart';
 import 'note_merge_dialog.dart';
 import 'note_revisions_dialog.dart';
 import 'notes_home_page.dart' show relativeTime;
@@ -70,12 +70,10 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   late final AutoSaveController _titleAutosave;
   StreamSubscription<NoteOutboxConflict>? _conflictSub;
 
-  /// biu-file:// ↔ 临时 URL 重写（进编辑器换 URL、落库换回规范 URI）。
-  /// 凭证在调用当下读取，token 轮换不影响已建立的映射。
-  late final NoteAttachmentResolver _attachmentResolver;
+  /// 编辑器渲染 `biu-file://` 图片时经 bridge 来换临时 URL 的回调。
+  /// 凭证在调用当下读取，token 轮换不影响。
+  late final PresignGetResolver _presignGetAttachment;
 
-  /// 首屏喂给编辑器的正文（biu-file 已换成临时 URL）。
-  String? _resolvedContent;
   bool _insertingAttachment = false;
 
   int _lastVersion = -1;
@@ -91,13 +89,11 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   void initState() {
     super.initState();
     _currentNoteId = widget.noteId;
-    _attachmentResolver = NoteAttachmentResolver(
-      presignGet: (fileId) {
-        final creds = ref.read(hubCredentialsProvider);
-        if (creds == null) throw StateError('未连接 hub');
-        return presignGetFileUrl(creds.endpoint, creds.bearerToken, fileId);
-      },
-    );
+    _presignGetAttachment = (fileId) {
+      final creds = ref.read(hubCredentialsProvider);
+      if (creds == null) throw StateError('未连接 hub');
+      return presignGetFileUrl(creds.endpoint, creds.bearerToken, fileId);
+    };
     _contentAutosave = AutoSaveController(saver: _saveContent)
       ..addListener(_onAutosaveStatus);
     _titleAutosave = AutoSaveController(saver: _saveTitle)
@@ -129,15 +125,15 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     // 旧笔记的冲突 snackbar 不再适用（「另存为副本」按当前 id 落）。
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     _conflictSnackbarVisible = false;
-    _resolvedContent = null;
     _lastVersion = -1;
     _lastSavedCanonical = null;
     _initial = _loadNote(_currentNoteId);
   }
 
-  /// 首屏 / 切笔记共用的加载链路：getNote → biu-file 换临时 URL →
-  /// setState。编辑器已挂载时（切笔记）正文改走 setDoc 推进，
-  /// initialMarkdown 只在编辑器首次创建时生效。
+  /// 首屏 / 切笔记共用的加载链路：getNote → setState。编辑器已挂载时
+  /// （切笔记）正文走 setDoc 推进，initialMarkdown 只在编辑器首次创建时
+  /// 生效。正文是 canonical 形式（biu-file://），临时 URL 由编辑器渲染时
+  /// 经 bridge presignGet 换取。
   Future<RepoNote?>? _loadNote(String noteId) {
     final repo = ref.read(notesRepositoryProvider);
     if (repo == null) return null;
@@ -145,21 +141,16 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
       // 快速连切时丢弃过期的加载结果（last-click-wins）。
       if (!mounted || noteId != _currentNoteId) return note;
       if (note != null) {
-        // 进编辑器前把 biu-file:// 换成可渲染的临时 URL（换取失败的
-        // 保留原 URI，编辑器里裂开但正文不丢）。
-        final resolved =
-            await _attachmentResolver.resolveForEditor(note.contentMd);
         if (mounted && noteId == _currentNoteId) {
           setState(() {
             _note = note;
-            _resolvedContent = resolved;
             _lastVersion = note.version;
             _titleController.text = note.title;
           });
           // 切笔记场景编辑器（webview）已存在，直接 setDoc 复用；首屏
           // controller 还没挂上，由 initialMarkdown 喂入。
           final controller = _editorController;
-          if (controller != null) unawaited(controller.setDoc(resolved));
+          if (controller != null) unawaited(controller.setDoc(note.contentMd));
         }
       } else {
         setState(() => _note = null);
@@ -230,16 +221,15 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     }
   }
 
-  /// 远端正文推进编辑器前，同样要把 biu-file:// 换成临时 URL。
+  /// 远端正文推进编辑器：canonical 直接 setDoc，临时 URL 渲染时再换。
   Future<void> _pushRemoteContent(String canonical) async {
-    final resolved = await _attachmentResolver.resolveForEditor(canonical);
-    await _editorController?.setDoc(resolved);
+    await _editorController?.setDoc(canonical);
   }
 
   // ─── 附件（N2）：图片 + 任意文件 ────────────────────────────
 
-  /// 上传单个附件并登记映射，返回可渲染临时 URL。大小超 10MB 抛异常。
-  Future<String> _uploadAndResolve(
+  /// 上传单个附件，返回规范 URI（`biu-file://<uuid>`）。大小超 10MB 抛异常。
+  Future<String> _uploadAttachment(
     FilesClient filesClient,
     XFile f, {
     required String mime,
@@ -254,12 +244,12 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
       mime: mime,
       source: 'note-attachment',
     );
-    return _attachmentResolver.resolveOne(result.fileId);
+    return 'biu-file://${result.fileId}';
   }
 
-  /// 选图 → 走 chat 同款 presign 直传上传 → 换取临时 URL → 在编辑器
-  /// 当前光标处插入 `![name](url)`（docChanged 回流时按映射换回
-  /// `biu-file://<uuid>` 落库）。上传失败 SnackBar 报错，正文不留占位。
+  /// 选图 → 走 chat 同款 presign 直传上传 → 在编辑器当前光标处插入
+  /// `![name](biu-file://<uuid>)`（渲染时编辑器经 bridge presignGet 换
+  /// 临时 URL）。上传失败 SnackBar 报错，正文不留占位。
   Future<void> _insertImage() async {
     if (_insertingAttachment) return;
     final filesClient = ref.read(filesClientProvider);
@@ -285,9 +275,9 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
       ));
     try {
       for (final f in picked) {
-        // 上传成功再换临时 URL 并登记映射，然后才让编辑器插入 ——
-        // 任何一步失败正文都不会出现半截占位。
-        final url = await _uploadAndResolve(
+        // 上传成功拿到规范 URI 才让编辑器插入 —— 任何一步失败正文都
+        // 不会出现半截占位。
+        final uri = await _uploadAttachment(
           filesClient,
           f,
           mime: f.mimeType ?? _guessImageMime(f.name),
@@ -295,7 +285,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
         final alt = f.name.replaceAll(RegExp(r'[\[\]]'), '');
         await _editorController?.command(
           'insertText',
-          args: {'text': '![$alt]($url)'},
+          args: {'text': '![$alt]($uri)'},
         );
       }
       messenger.hideCurrentSnackBar();
@@ -308,7 +298,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
   }
 
   /// 选任意文件 → 同一条 presign 直传通路 → 光标处插入
-  /// `[文件名](biu-file://<uuid>)` 链接（先换成临时 URL，回流时换回）。
+  /// `[文件名](biu-file://<uuid>)` 链接。
   Future<void> _insertAttachment() async {
     if (_insertingAttachment) return;
     final filesClient = ref.read(filesClientProvider);
@@ -333,7 +323,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
         duration: Duration(days: 1),
       ));
     try {
-      final url = await _uploadAndResolve(
+      final uri = await _uploadAttachment(
         filesClient,
         picked,
         mime: picked.mimeType ?? 'application/octet-stream',
@@ -345,7 +335,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           .replaceAll(']', r'\]');
       await _editorController?.command(
         'insertText',
-        args: {'text': '[$name]($url)'},
+        args: {'text': '[$name]($uri)'},
       );
       messenger.hideCurrentSnackBar();
     } on Exception catch (e) {
@@ -605,16 +595,17 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
             Divider(height: 1, color: BiuTokens.borderSubtle),
             Expanded(
               child: PageEditorView(
-                // 喂给编辑器的是临时 URL 形式；落库前在 onMarkdownChanged
-                // 里换回 biu-file://（见 _attachmentResolver）。
-                initialMarkdown: _resolvedContent ?? note.contentMd,
+                // 喂给编辑器的是 canonical 正文（biu-file:// 规范 URI）；
+                // 临时 URL 由编辑器渲染 <img> 前经 bridge presignGet 换取，
+                // 不接触落库文本。
+                initialMarkdown: note.contentMd,
                 theme: theme,
                 // 双链是 wiki 功能，笔记侧关掉 wikilink（mermaid 保留）。
-                // engine 默认 'milkdown' = ProseMirror 连续 WYSIWYG（点哪编哪，
-                // 整篇一个可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
+                // Milkdown = ProseMirror 连续 WYSIWYG（点哪编哪，整篇一个
+                // 可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
                 features: const BridgeFeatures(wikilink: false),
-                onMarkdownChanged: (md) => _contentAutosave
-                    .schedule(_attachmentResolver.toCanonical(md)),
+                resolvePresignGet: _presignGetAttachment,
+                onMarkdownChanged: _contentAutosave.schedule,
                 controllerRef: (c) => _editorController = c,
               ),
             ),

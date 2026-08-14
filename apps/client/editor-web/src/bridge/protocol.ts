@@ -11,13 +11,9 @@ export const PROTOCOL_VERSION = 1 as const
 
 export type Theme = 'light' | 'dark'
 
-export type EditorEngine = 'milkdown' | 'cm6'
-
 export interface BridgeFeatures {
   wikilink: boolean
   mermaid: boolean
-  /** 编辑器内核。缺省走 Milkdown Crepe（wiki），笔记页传 'cm6'。 */
-  engine?: EditorEngine
 }
 
 // Host → Editor
@@ -69,6 +65,11 @@ export interface WikilinkQueryReplyPayload {
   items: Array<{ slug: string; title: string }>
 }
 
+export interface PresignGetReplyPayload {
+  /** 可匿名 GET 的临时 URL；空串 = 换取失败（图片裂开但编辑器不崩）。 */
+  url: string
+}
+
 // Editor → Host
 
 export interface ReadyPayload {
@@ -83,6 +84,12 @@ export interface DocChangedPayload {
 
 export interface WikilinkQueryPayload {
   prefix: string
+}
+
+/** 渲染时换取附件临时 URL：正文里只存 biu-file://<uuid>，<img> 展示前
+ *  经此请求向 host 换 presigned GET URL（15 分钟 TTL，过期可重换）。 */
+export interface PresignGetPayload {
+  fileId: string
 }
 
 export interface NavigatePayload {
@@ -117,11 +124,13 @@ export type HostToEditorMessage =
   | Msg<'setOptions', SetOptionsPayload>
   | Msg<'command', CommandPayload>
   | Msg<'wikilinkQuery.reply', WikilinkQueryReplyPayload>
+  | Msg<'presignGet.reply', PresignGetReplyPayload>
 
 export type EditorToHostMessage =
   | Msg<'ready', ReadyPayload>
   | Msg<'docChanged', DocChangedPayload>
   | Msg<'wikilinkQuery', WikilinkQueryPayload>
+  | Msg<'presignGet', PresignGetPayload>
   | Msg<'navigate', NavigatePayload>
   | Msg<'log', LogPayload>
   | Msg<'selectionChanged', SelectionChangedPayload>
