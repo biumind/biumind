@@ -2574,9 +2574,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get creationTabHotparse => '爆款解析';
 
   @override
-  String get creationTabChat => '对话模型';
-
-  @override
   String get creationPromptHint => '描述你想生成的画面...';
 
   @override

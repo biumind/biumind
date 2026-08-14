@@ -838,7 +838,6 @@
   "creationTabVideo": "Video",
   "creationTabDigitalHuman": "Digital Human",
   "creationTabHotparse": "Hot Parse",
-  "creationTabChat": "Chat",
   "creationPromptHint": "Describe what you want to generate...",
   "creationFirstFrame": "First Frame",
   "creationLastFrame": "Last Frame",

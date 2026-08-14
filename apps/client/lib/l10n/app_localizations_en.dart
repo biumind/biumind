@@ -2656,9 +2656,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get creationTabHotparse => 'Hot Parse';
 
   @override
-  String get creationTabChat => 'Chat';
-
-  @override
   String get creationPromptHint => 'Describe what you want to generate...';
 
   @override

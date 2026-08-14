@@ -4889,12 +4889,6 @@ abstract class AppLocalizations {
   /// **'Hot Parse'**
   String get creationTabHotparse;
 
-  /// No description provided for @creationTabChat.
-  ///
-  /// In en, this message translates to:
-  /// **'Chat'**
-  String get creationTabChat;
-
   /// No description provided for @creationPromptHint.
   ///
   /// In en, this message translates to:

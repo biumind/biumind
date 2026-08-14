@@ -1,13 +1,11 @@
-// TabStrip — 创作类型 5 段切.
+// TabStrip — 创作类型 4 段切.
 //
 // 视频 / 图片 / 数字人 / 爆款解析 切 GenerationType.
-// 「对话模型」是个跳转锚点 — 点击直接 push /chat (不影响 form state).
 //
 // 视觉: zhiying-portal 风格 — 浅底 + 当前段背景 surface + 强调色文字.
 // 未选 chip 透明背景 + 次级文字色; 选中 chip 实心 (绿色 / 紫色按主题).
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../l10n/app_localizations.dart';
@@ -53,8 +51,6 @@ class TabStrip extends StatelessWidget {
                 onTap: () => onSelect(e.type),
               ),
             ),
-          // 「对话模型」shortcut — 跳到 /chat, 不参与 form state
-          _ChatShortcut(label: t.creationTabChat),
         ],
       ),
     );
@@ -125,46 +121,6 @@ class _TabSegment extends StatelessWidget {
                 ),
               ],
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ChatShortcut extends StatelessWidget {
-  const _ChatShortcut({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(BiuTokens.radiusSm),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(BiuTokens.radiusSm),
-          onTap: () => context.go('/chat'),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.chat_bubble_outline, size: 14, color: BiuTokens.textMuted),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: BiuTokens.textMuted,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                Icon(Icons.north_east, size: 11, color: BiuTokens.textMuted),
-              ],
-            ),
           ),
         ),
       ),
