@@ -284,6 +284,37 @@ if [[ $iso_fail -eq 0 ]]; then
   ok "C-ISO: per-user 表隔离列齐全（SCOPED $scoped_n 张 + EXEMPT $exempt_n 张）"
 fi
 
+bold "FGC: files.objects 引用域必须进 orphan scan（防 GC 误删）"
+# brain files 模块的孤儿 GC（services/brain/internal/files/orphan.go scanOrphans）
+# 靠手工维护的 NOT EXISTS 清单判断一个 ready blob 是否还有业务引用：
+#   brain.note_attachments / brain.wiki_sources / chat.messages(LIKE 兜底)
+# 新功能开始引用 files.objects 而没登记第四个 NOT EXISTS 的话，孤儿扫描会把
+# 还在被引用的 blob 物理删掉 —— 静默且不可恢复。本条把「新增引用域必须登记」
+# 沉淀为 CI 护栏：migrations 里凡 REFERENCES files.objects(...) 的表，
+# 表名必须出现在 orphan.go 中。
+# 豁免：chat.messages 无外键（引用形式是消息 JSON 里的 UUID，文本 LIKE 兜底），
+# 不走 FK 扫描、本来就只能在 orphan.go 里手写；files.objects 自身 / 测试不算。
+FK_REF_TABLES=$(awk '
+  /CREATE TABLE/ && /\(/ {
+    tbl=$0; sub(/.*CREATE TABLE (IF NOT EXISTS )?/, "", tbl); sub(/[[:space:]]*\(.*$/, "", tbl)
+  }
+  /ALTER TABLE/ {
+    tbl=$0; sub(/.*ALTER TABLE (IF EXISTS )?(ONLY )?/, "", tbl); sub(/[^a-zA-Z0-9_.].*$/, "", tbl)
+  }
+  /REFERENCES[[:space:]]+files\.objects/ { if (tbl != "") print tbl }
+' services/brain/migrations/*.sql 2>/dev/null | sort -u)
+fgc_fail=0
+for t in $FK_REF_TABLES; do
+  if ! grep -q "$t" services/brain/internal/files/orphan.go 2>/dev/null; then
+    fail "FGC: 表 $t 外键引用 files.objects 但未登记进 orphan.go scanOrphans —— 不登记会被孤儿 GC 物理删除"
+    fgc_fail=1
+  fi
+done
+if [[ $fgc_fail -eq 0 ]]; then
+  fgc_n=$(echo "$FK_REF_TABLES" | grep -c . || true)
+  ok "FGC: files.objects 引用域登记齐全（FK 表 $fgc_n 张 + chat.messages LIKE 兜底）"
+fi
+
 echo
 if [[ $FAILED -eq 0 ]]; then
   bold "✓ 不变量检查全部通过"
