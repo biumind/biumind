@@ -38,8 +38,10 @@
 #
 # Each image is built FROM SCRATCH using its own Dockerfile (see the
 # matrix `dockerfile`/`context` fields). Multi-arch (linux/amd64 +
-# linux/arm64) via buildx unless a row overrides `platforms`;
-# one build pushes every configured registry's tags.
+# linux/arm64) via buildx unless a row overrides `platforms`.
+# GHCR/Docker Hub 带 provenance/sbom attestations 一次构建推送；
+# Aliyun ACR 个人版不支持 OCI 1.1 attestation manifest，由独立步骤
+# 裸推（无 attestations，digest 与 GHCR 不同，详见该步骤注释）。
 #
 # Trivy scan runs after each image is built and BLOCKS the push when a
 # CRITICAL vulnerability is found. (Configurable via `severity` input
@@ -409,12 +411,13 @@ jobs:
             vers=("latest")
           fi
 
-          # 2. configured registries (GHCR always on)
+          # 2. configured registries (GHCR always on).
+          # Aliyun ACR 个人版 rejects OCI 1.1 attestation manifests
+          # ("unknown manifest class for application/vnd.oci.empty.v1+json"),
+          # so its tags go into a separate list pushed WITHOUT
+          # provenance/sbom by the dedicated step below.
           regs=("ghcr.io/biumind")
           [ -n "$DOCKERHUB_NS" ] && regs+=("docker.io/${DOCKERHUB_NS}")
-          if [ -n "$ALIYUN_REG" ] && [ -n "$ALIYUN_NS" ]; then
-            regs+=("${ALIYUN_REG}/${ALIYUN_NS}")
-          fi
 
           # 3. cartesian product → full tag list
           {
@@ -424,6 +427,13 @@ jobs:
                 echo "${r}/${SVC}:${v}"
               done
             done
+            echo "EOF"
+            echo "tags_aliyun<<EOF"
+            if [ -n "$ALIYUN_REG" ] && [ -n "$ALIYUN_NS" ]; then
+              for v in "${vers[@]}"; do
+                echo "${ALIYUN_REG}/${ALIYUN_NS}/${SVC}:${v}"
+              done
+            fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
@@ -453,7 +463,7 @@ jobs:
           vuln-type: "os,library"
 
       # Once Trivy has cleared the scan, build for the row's platforms and
-      # push to every configured registry (one build, multi-registry push).
+      # push to GHCR/Docker Hub (Aliyun 由下一步单独裸推).
       - name: Build + push (multi-arch)
         if: steps.filt.outputs.skip == 'false'
         id: pushed
@@ -467,11 +477,29 @@ jobs:
           provenance: true
           sbom: true
 
+      # Aliyun ACR 个人版不支持 OCI 1.1 attestation manifest
+      # (provenance/sbom 的 subject 是 application/vnd.oci.empty.v1+json，
+      # 推送被拒: "unknown manifest class")，所以单独裸推，不带
+      # attestations。层全部命中上一步缓存，这里只重新导出 manifest。
+      # 注意：无 attestations 意味着阿里云腿的 manifest digest 与 GHCR
+      # 不同，cosign 签名（绑 GHCR digest）不覆盖阿里云 ref。
+      - name: Build + push (Aliyun ACR, no attestations)
+        if: steps.filt.outputs.skip == 'false' && vars.ALIYUN_REGISTRY != '' && vars.ALIYUN_NAMESPACE != '' && env.HAVE_ALIYUN_PASSWORD == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
+          tags: ${{ steps.ver.outputs.tags_aliyun }}
+          push: true
+          provenance: false
+          sbom: false
+
       # Signing only on release tags — keyless cosign writes a rekor
       # entry per image; skip for the per-commit :sha/:main CI builds.
       #The signature attaches to the GHCR ref by digest; the identical
-      # manifest copied to Docker Hub / Aliyun verifies against the same
-      # digest.
+      # manifest copied to Docker Hub verifies against the same digest.
+      # (Aliyun 是另一次裸推，digest 不同，签名不覆盖它。)
       - name: Install cosign
         if: steps.filt.outputs.skip == 'false' && startsWith(github.ref, 'refs/tags/')
         uses: sigstore/cosign-installer@v3
