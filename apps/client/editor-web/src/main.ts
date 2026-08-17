@@ -52,6 +52,7 @@ import './theme/light.css'
 import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
+import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
 import { mermaidPlugins } from './plugins/mermaid'
@@ -204,6 +205,7 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   editorWrap.className = 'kc-editor-wrap'
   root.appendChild(editorWrap)
 
+  const localizedConfigs = buildLocalizedFeatureConfigs(payload.locale)
   const crepe = new Crepe({
     root: editorWrap,
     defaultValue: payload.markdown,
@@ -213,11 +215,17 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       [Crepe.Feature.Latex]: false,
     },
     featureConfigs: {
+      // UI 文案本地化（字典 → featureConfigs，见 src/i18n）；宿主行为配置
+      // 在其后展开，同名字段宿主优先。
+      ...localizedConfigs,
       // biu-file:// 附件渲染时换 presigned URL（文档里只存规范 URI），
       // 过期 403 由 onImageLoadError 强刷重换。block/inline 一处配置都覆盖。
-      [Crepe.Feature.ImageBlock]: createImagePresignConfig((fileId) =>
-        bridge.requestPresignGet({ fileId }).then((r) => r.url ?? ''),
-      ),
+      [Crepe.Feature.ImageBlock]: {
+        ...localizedConfigs[Crepe.Feature.ImageBlock],
+        ...createImagePresignConfig((fileId) =>
+          bridge.requestPresignGet({ fileId }).then((r) => r.url ?? ''),
+        ),
+      },
     },
   })
 
