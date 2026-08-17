@@ -591,7 +591,6 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 completedAt: note.todoCompletedAt,
                 onToggle: _toggleTodoCompleted,
               ),
-            _NoteTagsRow(noteId: widget.noteId),
             Divider(height: 1, color: BiuTokens.borderSubtle),
             Expanded(
               child: PageEditorView(
@@ -610,6 +609,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
               ),
             ),
             Divider(height: 1, color: BiuTokens.borderSubtle),
+            _NoteTagsRow(noteId: widget.noteId),
             _StatusBar(
               contentStatus: _contentAutosave.status,
               titleStatus: _titleAutosave.status,

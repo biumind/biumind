@@ -12,3 +12,9 @@ html, body {
   background: var(--kc-editor-bg);
   color: var(--kc-editor-fg);
 }
+
+/* 覆盖 crepe reset.css 的 `padding: 60px 120px` —— Joplin 式通栏编辑，
+   两侧不留宽白边（dark.css 只覆盖变量，此规则双主题共用）。 */
+.milkdown .ProseMirror {
+  padding: 8px 12px 24px;
+}
