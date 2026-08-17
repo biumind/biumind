@@ -77,7 +77,7 @@ func TestDefaultChatModelEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", m.ID)     //nolint:errcheck
+	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", m.ID)    //nolint:errcheck
 	defer pool.Exec(ctx, "UPDATE model_relay.models SET is_default_chat=false") //nolint:errcheck
 
 	if !m.IsDefaultChat {
