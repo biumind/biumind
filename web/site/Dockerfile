@@ -14,7 +14,9 @@ ARG NODE_IMAGE=docker.io/library/node:22-alpine
 ARG NGINX_IMAGE=docker.io/library/nginx:1.27-alpine
 
 # ─────────── 1. builder (Astro) ───────────
-FROM ${NODE_IMAGE} AS builder
+# 钉在构建机原生架构：产物是纯静态文件，与目标架构无关。
+# 不钉的话 arm64 腿要在 QEMU 模拟里跑 pnpm install/build，慢 5-10 倍。
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 # pnpm 全局：用 corepack 锁定版本，避免与本机不一致
