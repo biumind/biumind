@@ -153,7 +153,7 @@ export const en: Translation = {
       { label: 'Docs', href: '/docs' },
       { label: 'Download', href: '/en/download' },
       { label: 'Changelog', href: '#' },
-      { label: 'GitHub', href: 'https://github.com/' },
+      { label: 'GitHub', href: 'https://github.com/biumind/biumind' },
     ],
     companyCol: 'Company',
     companyLinks: [

@@ -153,7 +153,7 @@ export const zh: Translation = {
       { label: '文档', href: '/docs' },
       { label: '下载', href: '/download' },
       { label: '更新日志', href: '#' },
-      { label: 'GitHub', href: 'https://github.com/' },
+      { label: 'GitHub', href: 'https://github.com/biumind/biumind' },
     ],
     companyCol: '公司',
     companyLinks: [

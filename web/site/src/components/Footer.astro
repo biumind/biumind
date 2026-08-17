@@ -49,6 +49,7 @@ const t = useTranslations(locale);
               <li>
                 <a
                   href={item.href}
+                  {...(item.href.startsWith('http') ? { target: '_blank', rel: 'noopener' } : {})}
                   class="text-[13px] text-ink-secondary transition-colors hover:text-ink"
                 >
                   {item.label}
