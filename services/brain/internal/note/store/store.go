@@ -26,12 +26,23 @@ import (
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("version conflict")
+	// ErrInvalidParent —— 指定父本不存在 / 跨用户 / 已软删。
+	ErrInvalidParent = errors.New("invalid parent notebook")
+	// ErrNotebookCycle —— reparent 目标是本笔记本自身或其后代。
+	ErrNotebookCycle = errors.New("notebook parent would create a cycle")
+	// ErrNotebookDepth —— 创建/移动后层级超过 maxNotebookDepth。
+	ErrNotebookDepth = errors.New("notebook hierarchy too deep")
 )
+
+// maxNotebookDepth —— 笔记本目录树最大层数（根=1）。DB 不加约束，
+// 与事件/软删一致，规则集中在写路径校验（迁移 00003 头注释 §3）。
+const maxNotebookDepth = 5
 
 type Notebook struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
 	Name      string
+	ParentID  *uuid.UUID
 	Position  float64
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -146,26 +157,41 @@ func notePayload(n *Note) map[string]any {
 
 // ─── Notebooks ──────────────────────────────────────────
 
-func (s *Store) CreateNotebook(ctx context.Context, userID uuid.UUID, name string, position float64, actorID string) (*Notebook, error) {
+// CreateNotebook —— parentID 为 nil 时创建根级笔记本；非 nil 时校验父本
+// 存在/同用户/未软删，且父本已在第 maxNotebookDepth 层时拒绝（ErrNotebookDepth）。
+func (s *Store) CreateNotebook(ctx context.Context, userID uuid.UUID, name string, position float64, parentID *uuid.UUID, actorID string) (*Notebook, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
+	if parentID != nil {
+		depth, derr := notebookDepthTx(ctx, tx, userID, *parentID)
+		if derr != nil {
+			return nil, derr
+		}
+		if depth == 0 {
+			return nil, ErrInvalidParent
+		}
+		if depth+1 > maxNotebookDepth {
+			return nil, ErrNotebookDepth
+		}
+	}
+
 	nb := &Notebook{}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO brain.note_notebooks (user_id, name, position)
-		VALUES ($1, $2, $3)
-		RETURNING id, user_id, name, position, created_at, updated_at
-	`, userID, name, position).Scan(
-		&nb.ID, &nb.UserID, &nb.Name, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
+		INSERT INTO brain.note_notebooks (user_id, name, parent_id, position)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, user_id, name, parent_id, position, created_at, updated_at
+	`, userID, name, parentID, position).Scan(
+		&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert notebook: %w", err)
 	}
 	if err := emitEvent(ctx, tx, userID, "user", actorID, "notebook.created", map[string]any{
-		"notebook_id": nb.ID, "name": nb.Name,
+		"notebook_id": nb.ID, "name": nb.Name, "parent_id": nb.ParentID,
 	}); err != nil {
 		return nil, err
 	}
@@ -175,9 +201,49 @@ func (s *Store) CreateNotebook(ctx context.Context, userID uuid.UUID, name strin
 	return nb, nil
 }
 
+// notebookDepthTx —— 沿 parent 链向上数该活本的层数（根=1）；本不存在 /
+// 跨用户 / 已软删返回 0。软删路径会把子本上移（SoftDeleteNotebook），
+// 所以活本的祖先必然全活，不需要在递归里兜 deleted 链。
+func notebookDepthTx(ctx context.Context, tx pgx.Tx, userID, id uuid.UUID) (int, error) {
+	var depth int
+	err := tx.QueryRow(ctx, `
+		WITH RECURSIVE up AS (
+			SELECT id, parent_id, 1 AS depth
+			FROM brain.note_notebooks
+			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+			UNION ALL
+			SELECT p.id, p.parent_id, up.depth + 1
+			FROM brain.note_notebooks p
+			JOIN up ON p.id = up.parent_id
+			WHERE p.deleted_at IS NULL
+		)
+		SELECT COALESCE(MAX(depth), 0) FROM up
+	`, id, userID).Scan(&depth)
+	return depth, err
+}
+
+// notebookSubtreeTx —— 以 id 为根的活本子树：height = 子树高度（自身=1），
+// contains = target 是否在子树内（含自身）。reparent 防环与深度校验共用。
+func notebookSubtreeTx(ctx context.Context, tx pgx.Tx, userID, id, target uuid.UUID) (height int, contains bool, err error) {
+	err = tx.QueryRow(ctx, `
+		WITH RECURSIVE down AS (
+			SELECT id, 1 AS height
+			FROM brain.note_notebooks
+			WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+			UNION ALL
+			SELECT c.id, down.height + 1
+			FROM brain.note_notebooks c
+			JOIN down ON c.parent_id = down.id
+			WHERE c.deleted_at IS NULL
+		)
+		SELECT COALESCE(MAX(height), 0), COALESCE(BOOL_OR(id = $3), false) FROM down
+	`, id, userID, target).Scan(&height, &contains)
+	return height, contains, err
+}
+
 func (s *Store) ListNotebooks(ctx context.Context, userID uuid.UUID) ([]*Notebook, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, position, created_at, updated_at
+		SELECT id, user_id, name, parent_id, position, created_at, updated_at
 		FROM brain.note_notebooks
 		WHERE user_id = $1 AND deleted_at IS NULL
 		ORDER BY position, created_at
@@ -189,7 +255,7 @@ func (s *Store) ListNotebooks(ctx context.Context, userID uuid.UUID) ([]*Noteboo
 	var out []*Notebook
 	for rows.Next() {
 		nb := &Notebook{}
-		if err := rows.Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt); err != nil {
+		if err := rows.Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, nb)
@@ -202,9 +268,9 @@ func (s *Store) GetNotebook(ctx context.Context, id, userID uuid.UUID) (*Noteboo
 	nb := &Notebook{}
 	var deletedAt *time.Time
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, user_id, name, position, deleted_at, created_at, updated_at
+		SELECT id, user_id, name, parent_id, position, deleted_at, created_at, updated_at
 		FROM brain.note_notebooks WHERE id = $1 AND user_id = $2
-	`, id, userID).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.Position, &deletedAt, &nb.CreatedAt, &nb.UpdatedAt)
+	`, id, userID).Scan(&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &deletedAt, &nb.CreatedAt, &nb.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, ErrNotFound
 	}
@@ -219,7 +285,11 @@ type UpdateNotebookInput struct {
 	UserID   uuid.UUID
 	Name     *string
 	Position *float64
-	ActorID  string
+	// ParentID —— nil = 不动；配合 MoveToRoot 升到根（同 UpdateNoteInput
+	// 的 NotebookID/MoveToRoot 写法）。
+	ParentID   *uuid.UUID
+	MoveToRoot bool
+	ActorID    string
 }
 
 func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*Notebook, error) {
@@ -231,9 +301,9 @@ func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*No
 
 	cur := &Notebook{}
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, name, position, created_at, updated_at
+		SELECT id, user_id, name, parent_id, position, created_at, updated_at
 		FROM brain.note_notebooks WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-	`, in.ID, in.UserID).Scan(&cur.ID, &cur.UserID, &cur.Name, &cur.Position, &cur.CreatedAt, &cur.UpdatedAt)
+	`, in.ID, in.UserID).Scan(&cur.ID, &cur.UserID, &cur.Name, &cur.ParentID, &cur.Position, &cur.CreatedAt, &cur.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -248,19 +318,50 @@ func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*No
 	if in.Position != nil {
 		pos = *in.Position
 	}
+	parentID := cur.ParentID
+	if in.MoveToRoot {
+		parentID = nil
+	} else if in.ParentID != nil {
+		parentID = in.ParentID
+	}
+	// reparent 校验：目标父本存在/同用户/未软删；不能落到自身或后代
+	// 之下（成环）；移动后整个子树深度不超 maxNotebookDepth。
+	reparenting := in.MoveToRoot || in.ParentID != nil
+	if reparenting && parentID != nil {
+		if *parentID == in.ID {
+			return nil, ErrNotebookCycle
+		}
+		pDepth, derr := notebookDepthTx(ctx, tx, in.UserID, *parentID)
+		if derr != nil {
+			return nil, derr
+		}
+		if pDepth == 0 {
+			return nil, ErrInvalidParent
+		}
+		height, contains, serr := notebookSubtreeTx(ctx, tx, in.UserID, in.ID, *parentID)
+		if serr != nil {
+			return nil, serr
+		}
+		if contains {
+			return nil, ErrNotebookCycle
+		}
+		if pDepth+height > maxNotebookDepth {
+			return nil, ErrNotebookDepth
+		}
+	}
 	nb := &Notebook{}
 	err = tx.QueryRow(ctx, `
-		UPDATE brain.note_notebooks SET name = $3, position = $4, updated_at = now()
+		UPDATE brain.note_notebooks SET name = $3, parent_id = $4, position = $5, updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-		RETURNING id, user_id, name, position, created_at, updated_at
-	`, in.ID, in.UserID, name, pos).Scan(
-		&nb.ID, &nb.UserID, &nb.Name, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
+		RETURNING id, user_id, name, parent_id, position, created_at, updated_at
+	`, in.ID, in.UserID, name, parentID, pos).Scan(
+		&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update notebook: %w", err)
 	}
 	if err := emitEvent(ctx, tx, in.UserID, "user", in.ActorID, "notebook.updated", map[string]any{
-		"notebook_id": nb.ID, "name": nb.Name, "position": nb.Position,
+		"notebook_id": nb.ID, "name": nb.Name, "position": nb.Position, "parent_id": nb.ParentID,
 	}); err != nil {
 		return nil, err
 	}
@@ -271,7 +372,9 @@ func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*No
 }
 
 // SoftDeleteNotebook —— 软删笔记本；挂在它下面的笔记不动
-// （还原时父已删则置根，见 RestoreNote）。
+// （还原时父已删则置根，见 RestoreNote）。子笔记本的 parent_id 同事务
+// 上移一层（指向被删本自己的父本，根级的子本变根），保证活本树里
+// 不会挂着已删的祖先。
 func (s *Store) SoftDeleteNotebook(ctx context.Context, id, userID uuid.UUID, actorID string) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -279,6 +382,23 @@ func (s *Store) SoftDeleteNotebook(ctx context.Context, id, userID uuid.UUID, ac
 	}
 	defer tx.Rollback(ctx)
 
+	var parentID *uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT parent_id FROM brain.note_notebooks
+		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, id, userID).Scan(&parentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE brain.note_notebooks SET parent_id = $3, updated_at = now()
+		WHERE parent_id = $1 AND user_id = $2 AND deleted_at IS NULL
+	`, id, userID, parentID); err != nil {
+		return fmt.Errorf("promote child notebooks: %w", err)
+	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE brain.note_notebooks SET deleted_at = now(), updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL

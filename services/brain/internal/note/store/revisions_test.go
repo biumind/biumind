@@ -198,7 +198,7 @@ func TestRevisions_SaveAsCopy(t *testing.T) {
 	uid := uuid.New()
 	defer h.cleanupNotes(t, uid)
 
-	nb, err := h.st.CreateNotebook(context.Background(), uid, "笔记本", 0, uid.String())
+	nb, err := h.st.CreateNotebook(context.Background(), uid, "笔记本", 0, nil, uid.String())
 	if err != nil {
 		t.Fatalf("CreateNotebook: %v", err)
 	}
