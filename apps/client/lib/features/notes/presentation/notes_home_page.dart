@@ -4,8 +4,13 @@
 ///   │ 笔记本    │ 笔记列表      │ 编辑器              │
 ///   │ 全部      │ 标题+摘要+    │ NoteEditorView      │
 ///   │ 未归档    │ 更新时间      │ (Milkdown)          │
-///   │ …各笔记本 │              │                     │
+///   │ …笔记本树 │              │                     │
 ///   └──────────┴──────────────┴─────────────────────┘
+///
+/// 笔记本多级目录（PR4）：左栏按 parentId 组装成树渲染（缩进 + 展开/收起，
+/// 收起集合 SharedPreferences 持久化，key `notes_notebooks_tree_collapsed`），
+/// 行尾菜单提供「新建子目录 / 移动到… / 升到根级」。树组装纯函数见
+/// application/notebook_tree.dart（悬空 parent / 环防御，不丢节点）。
 ///
 /// 手机形态（<600px，core/layout/form_factor.dart）退化为列表 ↔ 详情：
 /// 笔记本收进 bottom sheet，点笔记 push NoteEditorPage。
@@ -19,10 +24,12 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/editor/editor_native_view.dart';
@@ -30,6 +37,7 @@ import '../../../core/layout/form_factor.dart';
 import '../../../data/api/notes_client.dart' as api;
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
+import '../application/notebook_tree.dart';
 import '../application/notes_ui_providers.dart';
 import 'note_editor_view.dart';
 
@@ -209,26 +217,82 @@ class _DetailPlaceholder extends StatelessWidget {
 
 // ─── 左栏：笔记本 ────────────────────────────────────────────
 
-class _NotebookColumn extends ConsumerWidget {
+class _NotebookColumn extends ConsumerStatefulWidget {
   const _NotebookColumn({this.onSelected});
 
   /// 手机 bottom sheet 形态：选中后关 sheet。
   final VoidCallback? onSelected;
 
-  Future<void> _createNotebook(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<_NotebookColumn> createState() => _NotebookColumnState();
+}
+
+class _NotebookColumnState extends ConsumerState<_NotebookColumn> {
+  /// 收起集合 —— 持久化在 SharedPreferences（不落服务端）。null = 尚未
+  /// 读取完成，期间按全展开渲染（默认展开；存「收起」而非「展开」集合，
+  /// 新建的父目录天然默认展开，参照 wiki _PageList 的持久化模式）。
+  Set<String>? _collapsed;
+
+  static const _prefsKey = 'notes_notebooks_tree_collapsed';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCollapsed();
+  }
+
+  Future<void> _loadCollapsed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (!mounted) return;
+    setState(() {
+      if (raw == null) {
+        _collapsed = {};
+        return;
+      }
+      try {
+        final decoded = jsonDecode(raw);
+        _collapsed =
+            decoded is List ? decoded.whereType<String>().toSet() : {};
+      } catch (_) {
+        _collapsed = {};
+      }
+    });
+  }
+
+  Future<void> _toggleCollapsed(String id) async {
+    final next = {...?_collapsed};
+    if (next.contains(id)) {
+      next.remove(id);
+    } else {
+      next.add(id);
+    }
+    setState(() => _collapsed = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKey, jsonEncode(next.toList()));
+  }
+
+  Future<void> _createNotebook({String? parentId}) async {
     final name = await showDialog<String>(
       context: context,
-      builder: (ctx) => const _NamePromptDialog(
-        title: '新建笔记本',
+      builder: (ctx) => _NamePromptDialog(
+        title: parentId == null ? '新建笔记本' : '新建子目录',
         hint: '笔记本名称',
       ),
     );
     if (name == null || name.trim().isEmpty) return;
     final repo = ref.read(notesRepositoryProvider);
-    await repo?.createNotebook(name.trim());
+    await repo?.createNotebook(name.trim(), parentId: parentId);
+    if (parentId != null && mounted) {
+      // 自动展开父节点，新建的子目录立刻可见。
+      final next = {...?_collapsed}..remove(parentId);
+      setState(() => _collapsed = next);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, jsonEncode(next.toList()));
+    }
   }
 
-  Future<void> _createTag(BuildContext context, WidgetRef ref) async {
+  Future<void> _createTag() async {
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => const _NamePromptDialog(
@@ -241,17 +305,55 @@ class _NotebookColumn extends ConsumerWidget {
     await repo?.createTag(name.trim());
   }
 
+  /// 「移动到…」：目标选择弹窗（平铺树形列出可选目录 + 根级选项，排除
+  /// 自身与后代）。返回 '' = 升根（对齐服务端空串约定），id = 移到该目录。
+  Future<void> _moveNotebook(RepoNotebook nb, List<RepoNotebook> flat) async {
+    final exclude = notebookSubtreeIds(flat, nb.id);
+    final target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _MoveNotebookDialog(
+        notebooks: [
+          for (final other in flat)
+            if (!exclude.contains(other.id)) other,
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
+    final repo = ref.read(notesRepositoryProvider);
+    if (target.isEmpty) {
+      await repo?.updateNotebook(nb.id, moveToRoot: true);
+    } else {
+      await repo?.updateNotebook(nb.id, parentId: target);
+    }
+  }
+
+  Future<void> _onNotebookAction(
+      RepoNotebook nb, String action, List<RepoNotebook> flat) async {
+    switch (action) {
+      case 'child':
+        await _createNotebook(parentId: nb.id);
+      case 'move':
+        await _moveNotebook(nb, flat);
+      case 'root':
+        final repo = ref.read(notesRepositoryProvider);
+        await repo?.updateNotebook(nb.id, moveToRoot: true);
+    }
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final notebooks = ref.watch(notesNotebooksProvider).valueOrNull ??
         const <RepoNotebook>[];
     final tags =
         ref.watch(notesTagsProvider).valueOrNull ?? const <RepoTag>[];
     final filter = ref.watch(notesFilterProvider);
+    final collapsed = _collapsed ?? const <String>{};
+    final visible =
+        flattenNotebookTree(buildNotebookTree(notebooks), collapsed);
 
     void select(NotesFilter f) {
       ref.read(notesFilterProvider.notifier).state = f;
-      onSelected?.call();
+      widget.onSelected?.call();
     }
 
     return Container(
@@ -263,7 +365,7 @@ class _NotebookColumn extends ConsumerWidget {
             title: '笔记本',
             action: IconButton(
               tooltip: '新建笔记本',
-              onPressed: () => _createNotebook(context, ref),
+              onPressed: () => _createNotebook(),
               icon: const Icon(Icons.create_new_folder_outlined, size: 16),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -293,18 +395,21 @@ class _NotebookColumn extends ConsumerWidget {
                 ),
                 if (notebooks.isNotEmpty)
                   Divider(height: 1, color: BiuTokens.borderSubtle),
-                for (final nb in notebooks)
-                  _FilterTile(
-                    icon: Icons.folder_outlined,
-                    label: nb.name,
-                    dimmed: nb.pendingCreate,
+                for (final node in visible)
+                  _NotebookTile(
+                    node: node,
                     selected: filter.kind == NotesListKind.notebook &&
-                        filter.notebookId == nb.id,
-                    onTap: () => select(NotesFilter.notebook(nb.id)),
+                        filter.notebookId == node.notebook.id,
+                    collapsed: collapsed.contains(node.notebook.id),
+                    onTap: () =>
+                        select(NotesFilter.notebook(node.notebook.id)),
+                    onToggle: () => _toggleCollapsed(node.notebook.id),
+                    onAction: (action) =>
+                        _onNotebookAction(node.notebook, action, notebooks),
                   ),
                 Divider(height: 1, color: BiuTokens.borderSubtle),
                 _TagsSectionHeader(
-                  onCreateTag: () => _createTag(context, ref),
+                  onCreateTag: _createTag,
                 ),
                 for (final tag in tags)
                   _FilterTile(
@@ -330,6 +435,153 @@ class _NotebookColumn extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 树形笔记本行：缩进 + 展开/收起箭头 + 行尾操作菜单（新建子目录 /
+/// 移动到… / 升到根级）。选中态/灰显语义与 _FilterTile 一致。
+class _NotebookTile extends StatelessWidget {
+  const _NotebookTile({
+    required this.node,
+    required this.selected,
+    required this.collapsed,
+    required this.onTap,
+    required this.onToggle,
+    required this.onAction,
+  });
+
+  final NotebookTreeNode node;
+  final bool selected;
+  final bool collapsed;
+  final VoidCallback onTap;
+  final VoidCallback onToggle;
+
+  /// 行尾菜单动作：'child'（新建子目录）/ 'move'（移动到…）/ 'root'（升根）。
+  final ValueChanged<String> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final nb = node.notebook;
+    final color = selected ? BiuTokens.purple : BiuTokens.text;
+    return Opacity(
+      opacity: nb.pendingCreate ? 0.5 : 1,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          height: 34,
+          padding: EdgeInsets.only(left: 12 + node.depth * 14),
+          color: selected ? BiuTokens.purpleLight : null,
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 16,
+                child: node.children.isEmpty
+                    ? null
+                    : InkWell(
+                        onTap: onToggle,
+                        child: Icon(
+                          collapsed
+                              ? Icons.chevron_right
+                              : Icons.expand_more,
+                          size: 14,
+                          color: BiuTokens.textSecondary,
+                        ),
+                      ),
+              ),
+              Icon(Icons.folder_outlined,
+                  size: 15,
+                  color:
+                      selected ? BiuTokens.purple : BiuTokens.textSecondary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  nb.name,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: color,
+                    fontWeight:
+                        selected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: PopupMenuButton<String>(
+                  tooltip: '笔记本操作',
+                  icon: Icon(Icons.more_horiz,
+                      size: 14, color: BiuTokens.textSecondary),
+                  padding: EdgeInsets.zero,
+                  iconSize: 14,
+                  itemBuilder: (ctx) => <PopupMenuEntry<String>>[
+                    const PopupMenuItem(
+                        value: 'child', child: Text('新建子目录')),
+                    const PopupMenuItem(
+                        value: 'move', child: Text('移动到…')),
+                    if (nb.parentId != null)
+                      const PopupMenuItem(
+                          value: 'root', child: Text('升到根级')),
+                  ],
+                  onSelected: onAction,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「移动到…」目标选择弹窗：根级 + 可选目录（树形缩进；调用方已排除自身
+/// 与后代）。pop 返回值：'' = 根级，其它 = 目标目录 id，null = 取消。
+class _MoveNotebookDialog extends StatelessWidget {
+  const _MoveNotebookDialog({required this.notebooks});
+
+  final List<RepoNotebook> notebooks;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible =
+        flattenNotebookTree(buildNotebookTree(notebooks), const {});
+    return SimpleDialog(
+      title: const Text('移动到…'),
+      children: <Widget>[
+        SimpleDialogOption(
+          onPressed: () => Navigator.of(context).pop(''),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.drive_file_move_outlined,
+                  size: 15, color: BiuTokens.textSecondary),
+              const SizedBox(width: 8),
+              const Text('根级（移到顶层）'),
+            ],
+          ),
+        ),
+        for (final node in visible)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(context).pop(node.notebook.id),
+            child: Padding(
+              padding: EdgeInsets.only(left: node.depth * 14),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.folder_outlined,
+                      size: 15, color: BiuTokens.textSecondary),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      node.notebook.name,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
