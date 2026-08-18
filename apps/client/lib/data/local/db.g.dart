@@ -1861,6 +1861,17 @@ class $NoteNotebooksTable extends NoteNotebooks
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _parentIdMeta = const VerificationMeta(
+    'parentId',
+  );
+  @override
+  late final GeneratedColumn<String> parentId = GeneratedColumn<String>(
+    'parent_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _positionMeta = const VerificationMeta(
     'position',
   );
@@ -1900,6 +1911,7 @@ class $NoteNotebooksTable extends NoteNotebooks
   List<GeneratedColumn> get $columns => [
     id,
     name,
+    parentId,
     position,
     updatedAt,
     ownerKey,
@@ -1928,6 +1940,12 @@ class $NoteNotebooksTable extends NoteNotebooks
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('parent_id')) {
+      context.handle(
+        _parentIdMeta,
+        parentId.isAcceptableOrUnknown(data['parent_id']!, _parentIdMeta),
+      );
     }
     if (data.containsKey('position')) {
       context.handle(
@@ -1966,6 +1984,10 @@ class $NoteNotebooksTable extends NoteNotebooks
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      parentId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}parent_id'],
+      ),
       position: attachedDatabase.typeMapping.read(
         DriftSqlType.double,
         data['${effectivePrefix}position'],
@@ -1991,6 +2013,11 @@ class LocalNoteNotebook extends DataClass
     implements Insertable<LocalNoteNotebook> {
   final String id;
   final String name;
+
+  /// 父笔记本 id（服务端 uuid 或本地 'local-' 占位），null = 根级。
+  /// v36（多级目录）加列；平铺存储，树由 UI 组装。对应服务端
+  /// brain migration 00003 note_notebooks.parent_id。
+  final String? parentId;
   final double position;
   final DateTime updatedAt;
 
@@ -2000,6 +2027,7 @@ class LocalNoteNotebook extends DataClass
   const LocalNoteNotebook({
     required this.id,
     required this.name,
+    this.parentId,
     required this.position,
     required this.updatedAt,
     required this.ownerKey,
@@ -2009,6 +2037,9 @@ class LocalNoteNotebook extends DataClass
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
     map['name'] = Variable<String>(name);
+    if (!nullToAbsent || parentId != null) {
+      map['parent_id'] = Variable<String>(parentId);
+    }
     map['position'] = Variable<double>(position);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     map['owner_key'] = Variable<String>(ownerKey);
@@ -2019,6 +2050,9 @@ class LocalNoteNotebook extends DataClass
     return NoteNotebooksCompanion(
       id: Value(id),
       name: Value(name),
+      parentId: parentId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(parentId),
       position: Value(position),
       updatedAt: Value(updatedAt),
       ownerKey: Value(ownerKey),
@@ -2033,6 +2067,7 @@ class LocalNoteNotebook extends DataClass
     return LocalNoteNotebook(
       id: serializer.fromJson<String>(json['id']),
       name: serializer.fromJson<String>(json['name']),
+      parentId: serializer.fromJson<String?>(json['parentId']),
       position: serializer.fromJson<double>(json['position']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       ownerKey: serializer.fromJson<String>(json['ownerKey']),
@@ -2044,6 +2079,7 @@ class LocalNoteNotebook extends DataClass
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
       'name': serializer.toJson<String>(name),
+      'parentId': serializer.toJson<String?>(parentId),
       'position': serializer.toJson<double>(position),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'ownerKey': serializer.toJson<String>(ownerKey),
@@ -2053,12 +2089,14 @@ class LocalNoteNotebook extends DataClass
   LocalNoteNotebook copyWith({
     String? id,
     String? name,
+    Value<String?> parentId = const Value.absent(),
     double? position,
     DateTime? updatedAt,
     String? ownerKey,
   }) => LocalNoteNotebook(
     id: id ?? this.id,
     name: name ?? this.name,
+    parentId: parentId.present ? parentId.value : this.parentId,
     position: position ?? this.position,
     updatedAt: updatedAt ?? this.updatedAt,
     ownerKey: ownerKey ?? this.ownerKey,
@@ -2067,6 +2105,7 @@ class LocalNoteNotebook extends DataClass
     return LocalNoteNotebook(
       id: data.id.present ? data.id.value : this.id,
       name: data.name.present ? data.name.value : this.name,
+      parentId: data.parentId.present ? data.parentId.value : this.parentId,
       position: data.position.present ? data.position.value : this.position,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       ownerKey: data.ownerKey.present ? data.ownerKey.value : this.ownerKey,
@@ -2078,6 +2117,7 @@ class LocalNoteNotebook extends DataClass
     return (StringBuffer('LocalNoteNotebook(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('parentId: $parentId, ')
           ..write('position: $position, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('ownerKey: $ownerKey')
@@ -2086,13 +2126,15 @@ class LocalNoteNotebook extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(id, name, position, updatedAt, ownerKey);
+  int get hashCode =>
+      Object.hash(id, name, parentId, position, updatedAt, ownerKey);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is LocalNoteNotebook &&
           other.id == this.id &&
           other.name == this.name &&
+          other.parentId == this.parentId &&
           other.position == this.position &&
           other.updatedAt == this.updatedAt &&
           other.ownerKey == this.ownerKey);
@@ -2101,6 +2143,7 @@ class LocalNoteNotebook extends DataClass
 class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   final Value<String> id;
   final Value<String> name;
+  final Value<String?> parentId;
   final Value<double> position;
   final Value<DateTime> updatedAt;
   final Value<String> ownerKey;
@@ -2108,6 +2151,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   const NoteNotebooksCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
+    this.parentId = const Value.absent(),
     this.position = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.ownerKey = const Value.absent(),
@@ -2116,6 +2160,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   NoteNotebooksCompanion.insert({
     required String id,
     required String name,
+    this.parentId = const Value.absent(),
     this.position = const Value.absent(),
     required DateTime updatedAt,
     this.ownerKey = const Value.absent(),
@@ -2126,6 +2171,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   static Insertable<LocalNoteNotebook> custom({
     Expression<String>? id,
     Expression<String>? name,
+    Expression<String>? parentId,
     Expression<double>? position,
     Expression<DateTime>? updatedAt,
     Expression<String>? ownerKey,
@@ -2134,6 +2180,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (name != null) 'name': name,
+      if (parentId != null) 'parent_id': parentId,
       if (position != null) 'position': position,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (ownerKey != null) 'owner_key': ownerKey,
@@ -2144,6 +2191,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
   NoteNotebooksCompanion copyWith({
     Value<String>? id,
     Value<String>? name,
+    Value<String?>? parentId,
     Value<double>? position,
     Value<DateTime>? updatedAt,
     Value<String>? ownerKey,
@@ -2152,6 +2200,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     return NoteNotebooksCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
+      parentId: parentId ?? this.parentId,
       position: position ?? this.position,
       updatedAt: updatedAt ?? this.updatedAt,
       ownerKey: ownerKey ?? this.ownerKey,
@@ -2167,6 +2216,9 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (parentId.present) {
+      map['parent_id'] = Variable<String>(parentId.value);
     }
     if (position.present) {
       map['position'] = Variable<double>(position.value);
@@ -2188,6 +2240,7 @@ class NoteNotebooksCompanion extends UpdateCompanion<LocalNoteNotebook> {
     return (StringBuffer('NoteNotebooksCompanion(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('parentId: $parentId, ')
           ..write('position: $position, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('ownerKey: $ownerKey, ')
@@ -14839,6 +14892,7 @@ typedef $$NoteNotebooksTableCreateCompanionBuilder =
     NoteNotebooksCompanion Function({
       required String id,
       required String name,
+      Value<String?> parentId,
       Value<double> position,
       required DateTime updatedAt,
       Value<String> ownerKey,
@@ -14848,6 +14902,7 @@ typedef $$NoteNotebooksTableUpdateCompanionBuilder =
     NoteNotebooksCompanion Function({
       Value<String> id,
       Value<String> name,
+      Value<String?> parentId,
       Value<double> position,
       Value<DateTime> updatedAt,
       Value<String> ownerKey,
@@ -14870,6 +14925,11 @@ class $$NoteNotebooksTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get parentId => $composableBuilder(
+    column: $table.parentId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -14908,6 +14968,11 @@ class $$NoteNotebooksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get parentId => $composableBuilder(
+    column: $table.parentId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<double> get position => $composableBuilder(
     column: $table.position,
     builder: (column) => ColumnOrderings(column),
@@ -14938,6 +15003,9 @@ class $$NoteNotebooksTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get parentId =>
+      $composableBuilder(column: $table.parentId, builder: (column) => column);
 
   GeneratedColumn<double> get position =>
       $composableBuilder(column: $table.position, builder: (column) => column);
@@ -14982,6 +15050,7 @@ class $$NoteNotebooksTableTableManager
               ({
                 Value<String> id = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String?> parentId = const Value.absent(),
                 Value<double> position = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String> ownerKey = const Value.absent(),
@@ -14989,6 +15058,7 @@ class $$NoteNotebooksTableTableManager
               }) => NoteNotebooksCompanion(
                 id: id,
                 name: name,
+                parentId: parentId,
                 position: position,
                 updatedAt: updatedAt,
                 ownerKey: ownerKey,
@@ -14998,6 +15068,7 @@ class $$NoteNotebooksTableTableManager
               ({
                 required String id,
                 required String name,
+                Value<String?> parentId = const Value.absent(),
                 Value<double> position = const Value.absent(),
                 required DateTime updatedAt,
                 Value<String> ownerKey = const Value.absent(),
@@ -15005,6 +15076,7 @@ class $$NoteNotebooksTableTableManager
               }) => NoteNotebooksCompanion.insert(
                 id: id,
                 name: name,
+                parentId: parentId,
                 position: position,
                 updatedAt: updatedAt,
                 ownerKey: ownerKey,

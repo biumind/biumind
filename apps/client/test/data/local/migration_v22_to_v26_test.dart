@@ -245,7 +245,7 @@ void main() {
       // v31/v32 加 chat_sync_state / chat_outbox；v33 笔记五表加 owner_key
       // —— from<28 时 createTable 已含，addColumn 跳过，DELETE 落空表；
       // v34 清 sse_cursors 存量 —— scope 升级为 'ownerKey:topic'）。
-      expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35');
+      expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
 
       // v34:sse_cursors 旧的裸 topic 行已清（切账号防拿错 cursor;
       // 详细断言见 migration_v33_to_v34_test.dart）。

@@ -34,12 +34,16 @@ import '_http_helpers.dart';
 class NoteNotebook {
   final String id;
   final String name;
+
+  /// 父笔记本 id，null = 根级（多级目录，服务端 migration 00003）。
+  final String? parentId;
   final double position;
   final DateTime updatedAt;
 
   const NoteNotebook({
     required this.id,
     required this.name,
+    this.parentId,
     required this.position,
     required this.updatedAt,
   });
@@ -47,6 +51,8 @@ class NoteNotebook {
   factory NoteNotebook.fromJson(Map<String, dynamic> j) => NoteNotebook(
         id: j['id'] as String,
         name: j['name'] as String? ?? '',
+        // 兼容缺省/null（旧服务端或无父本）—— 都归一为 null = 根级。
+        parentId: j['parent_id'] as String?,
         position: (j['position'] as num? ?? 0).toDouble(),
         updatedAt: DateTime.tryParse(j['updated_at'] as String? ?? '')
                 ?.toUtc() ??
@@ -275,21 +281,27 @@ class NotesClient {
     return list.map(NoteNotebook.fromJson).toList();
   }
 
-  Future<NoteNotebook> createNotebook(String name, {double? position}) async {
+  Future<NoteNotebook> createNotebook(String name,
+      {double? position, String? parentId}) async {
     final body = <String, dynamic>{'name': name};
     if (position != null) body['position'] = position;
+    if (parentId != null) body['parent_id'] = parentId;
     final raw = await _post('/v1/notebooks', body);
     return NoteNotebook.fromJson(raw);
   }
 
+  /// 更新。parentId presence 语义对齐服务端：不传 = 不动；传 '' = 升到根；
+  /// 传 uuid = 移到该父本（同 updateNote 的 notebookId 惯例）。
   Future<NoteNotebook> updateNotebook(
     String id, {
     String? name,
     double? position,
+    String? parentId,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
     if (position != null) body['position'] = position;
+    if (parentId != null) body['parent_id'] = parentId; // '' = 升到根
     final raw = await _put('/v1/notebooks/$id', body);
     return NoteNotebook.fromJson(raw);
   }

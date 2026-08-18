@@ -87,7 +87,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35（v33 笔记五表加 owner_key，v34 清 sse_cursors）');
+    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36（v33 笔记五表加 owner_key，v34 清 sse_cursors）');
 
     // v34:sse_cursors 旧的裸 topic 行已清。
     expect(

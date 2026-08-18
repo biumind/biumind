@@ -252,6 +252,17 @@ class NoteOutboxFlusher {
     return false;
   }
 
+  /// 子本 op 的 parent_id 仍是 'local-' 占位（父本 create_notebook 尚未
+  /// 冲刷成功/rekey）时抛 [_ParentNotSyncedException] 延后 —— 直接把
+  /// local- id 上送会被服务端 400（bad_parent_id），而 flushOnce 对
+  /// 4xx 是永久 drop，op 会丢。
+  void _ensureParentSynced(Map<String, dynamic> payload) {
+    final parentId = payload['parent_id'];
+    if (parentId is String && parentId.startsWith('local-')) {
+      throw _ParentNotSyncedException(parentId);
+    }
+  }
+
   Map<String, dynamic> _parseBody(String body) {
     if (body.isEmpty) return const {};
     try {
@@ -265,18 +276,23 @@ class NoteOutboxFlusher {
     final payload = jsonDecode(entry.payloadJson) as Map<String, dynamic>;
     switch (entry.op) {
       case 'create_notebook':
+        _ensureParentSynced(payload);
         final created = await client.createNotebook(
           payload['name'] as String,
           position: (payload['position'] as num?)?.toDouble(),
+          parentId: payload['parent_id'] as String?,
         );
         await dao.renameNotebookId(entry.entityId, created.id);
         await dao.rekeyOutbox(
             oldEntityId: entry.entityId, newEntityId: created.id);
       case 'update_notebook':
+        _ensureParentSynced(payload);
         await client.updateNotebook(
           entry.entityId,
           name: payload['name'] as String?,
           position: (payload['position'] as num?)?.toDouble(),
+          // presence 透传：key 缺省 = 不动；'' = 升根；uuid = 移到该父本。
+          parentId: payload['parent_id'] as String?,
         );
       case 'delete_notebook':
         await client.deleteNotebook(entry.entityId);
@@ -381,4 +397,16 @@ class NoteOutboxFlusher {
     await dao.bumpOutboxFailure(entry.id, error, next);
     _log.fine('outbox ${entry.id} retry in ${secs}s: $error');
   }
+}
+
+/// 子本 create_notebook/update_notebook 的 parent_id 还是 'local-' 占位
+/// id（父本的 create_notebook 尚未冲刷成功并 rekey）。flushOnce 的通用
+/// catch 会把它走 _backoff 延后重试；父本 flush 成功后 rekeyOutbox 会把
+/// payload 里的占位引用改写为服务端 uuid，下一轮重试即正常上送。
+class _ParentNotSyncedException implements Exception {
+  final String parentId;
+  const _ParentNotSyncedException(this.parentId);
+
+  @override
+  String toString() => 'parent notebook not synced yet: $parentId';
 }

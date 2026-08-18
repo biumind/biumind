@@ -37,11 +37,15 @@ const kNoteConflictCopySuffix = '(冲突副本)';
 class RepoNotebook {
   final String id;
   final String name;
+
+  /// 父笔记本 id（服务端 uuid 或本地 'local-' 占位），null = 根级。
+  final String? parentId;
   final double position;
   final bool pendingCreate;
   const RepoNotebook({
     required this.id,
     required this.name,
+    this.parentId,
     required this.position,
     this.pendingCreate = false,
   });
@@ -51,6 +55,7 @@ class RepoNotebook {
       RepoNotebook(
         id: row.id,
         name: row.name,
+        parentId: row.parentId,
         position: row.position,
         pendingCreate: pendingCreate,
       );
@@ -277,6 +282,7 @@ class NotesRepository {
         LocalNoteNotebook(
           id: nb.id,
           name: nb.name,
+          parentId: nb.parentId,
           position: nb.position,
           ownerKey: '',
           updatedAt: nb.updatedAt,
@@ -402,6 +408,7 @@ class NotesRepository {
           await dao.upsertNotebook(LocalNoteNotebook(
             id: id,
             name: p['name'] as String? ?? '',
+            parentId: p['parent_id'] as String?,
             position: (p['position'] as num?)?.toDouble() ?? 0.0,
             ownerKey: '',
             updatedAt: e.createdAt,
@@ -468,12 +475,14 @@ class NotesRepository {
 
   // ─── Writes (optimistic + outbox) ────────────────────────
 
-  Future<RepoNotebook> createNotebook(String name, {double? position}) async {
+  Future<RepoNotebook> createNotebook(String name,
+      {double? position, String? parentId}) async {
     final id = 'local-${_uuid.v4()}';
     final now = DateTime.now().toUtc();
     await dao.upsertNotebook(LocalNoteNotebook(
       id: id,
       name: name,
+      parentId: parentId,
       position: position ?? 0.0,
       ownerKey: '',
       updatedAt: now,
@@ -484,35 +493,55 @@ class NotesRepository {
       payloadJson: jsonEncode({
         'name': name,
         'position': ?position,
+        'parent_id': ?parentId,
       }),
       createdAt: now,
       nextAttemptAt: now,
     ));
     return RepoNotebook(
-        id: id, name: name, position: position ?? 0.0, pendingCreate: true);
+        id: id,
+        name: name,
+        parentId: parentId,
+        position: position ?? 0.0,
+        pendingCreate: true);
   }
 
-  Future<void> updateNotebook(String id,
-      {String? name, double? position}) async {
+  /// 更新笔记本。presence 语义对齐服务端（同 updateNote 的 notebookId
+  /// 惯例）：parentId 不传 = 不动；moveToRoot = true 升到根；parentId 传
+  /// 值 = 移到该父本。乐观落库 + outbox op，flush 由 flusher 完成。
+  Future<void> updateNotebook(
+    String id, {
+    String? name,
+    double? position,
+    String? parentId,
+    bool moveToRoot = false,
+  }) async {
     final existing = await dao.notebookById(id);
     if (existing == null) {
       throw StateError('notebook not found: $id');
     }
     final now = DateTime.now().toUtc();
+    final newParentId = moveToRoot ? null : (parentId ?? existing.parentId);
     await dao.upsertNotebook(LocalNoteNotebook(
       id: id,
       name: name ?? existing.name,
+      parentId: newParentId,
       position: position ?? existing.position,
       ownerKey: '',
       updatedAt: now,
     ));
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (position != null) payload['position'] = position;
+    if (moveToRoot) {
+      payload['parent_id'] = '';
+    } else if (parentId != null) {
+      payload['parent_id'] = parentId;
+    }
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
       op: NoteOutboxOp.updateNotebook,
       entityId: id,
-      payloadJson: jsonEncode({
-        'name': ?name,
-        'position': ?position,
-      }),
+      payloadJson: jsonEncode(payload),
       createdAt: now,
       nextAttemptAt: now,
     ));

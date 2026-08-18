@@ -36,6 +36,8 @@ void main() {
     // v35 给 note_notes 加 base_content_md / base_version 两列（3-way merge
     // 共同祖先）—— fixture 必须先有此表，否则 v35 addColumn 报 no such table。
     raw.execute('CREATE TABLE note_notes (id TEXT NOT NULL PRIMARY KEY)');
+    // v36 给 note_notebooks 加 parent_id（多级目录）—— 同上，先补桩表。
+    raw.execute('CREATE TABLE note_notebooks (id TEXT NOT NULL PRIMARY KEY)');
     raw.userVersion = 33;
 
     // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(33→34) ──
@@ -44,7 +46,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35');
+    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
     expect(
       raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
       0,

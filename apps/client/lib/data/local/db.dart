@@ -110,6 +110,11 @@ class WikiOutbox extends Table {
 class NoteNotebooks extends Table {
   TextColumn get id => text()();
   TextColumn get name => text()();
+
+  /// 父笔记本 id（服务端 uuid 或本地 'local-' 占位），null = 根级。
+  /// v36（多级目录）加列；平铺存储，树由 UI 组装。对应服务端
+  /// brain migration 00003 note_notebooks.parent_id。
+  TextColumn get parentId => text().nullable()();
   RealColumn get position => real().withDefault(const Constant(0.0))();
   DateTimeColumn get updatedAt => dateTime()();
   /// 见 ChatThreadsV2.ownerKey —— 环境 × 账号隔离键，查询必填过滤。
@@ -647,7 +652,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 35;
+  int get schemaVersion => 36;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -902,6 +907,18 @@ class AppDb extends _$AppDb {
             if (from >= 28) {
               await m.addColumn(noteNotes, noteNotes.baseContentMd);
               await m.addColumn(noteNotes, noteNotes.baseVersion);
+            }
+          }
+          if (from < 36) {
+            // Phase 36: 笔记本多级目录（服务端 brain migration 00003）——
+            // NoteNotebooks 加可空 parent_id（服务端 uuid 或本地 'local-'
+            // 占位 id），null = 根级。老行全部升根，行为与升级前一致。
+            //
+            // 下界防 duplicate column：from < 28 时 Phase 28 的 createTable
+            // 已按当前 schema（含 parent_id）建表，再 addColumn 报重复
+            // （同 v33 owner_key / v35 base 列的 from >= 28 守卫）。
+            if (from >= 28) {
+              await m.addColumn(noteNotebooks, noteNotebooks.parentId);
             }
           }
         },

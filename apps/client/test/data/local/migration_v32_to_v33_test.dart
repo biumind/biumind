@@ -58,7 +58,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 35, reason: '迁移后 schema 版本应为 35');
+    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
 
     // v34:sse_cursors 旧的裸 topic 行已清（详细断言见
     // migration_v33_to_v34_test.dart）。

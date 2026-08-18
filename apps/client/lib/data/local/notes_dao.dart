@@ -54,17 +54,21 @@ class NotesDao {
         .getSingleOrNull();
   }
 
+  /// 整行覆盖语义（同 upsertNote 的 N3 修复）：parentId 是首个可空列，
+  /// 事件 upsert「升根」时要能把 parentId 真清成 null ——
+  /// insertOnConflictUpdate 会把 null 当 absent 保留旧值，必须用 replace。
   Future<void> upsertNotebook(LocalNoteNotebook row) {
     return _db.into(_db.noteNotebooks)
-        .insertOnConflictUpdate(row.copyWith(ownerKey: scope));
+        .insert(row.copyWith(ownerKey: scope), mode: InsertMode.replace);
   }
 
   Future<void> upsertNotebooks(List<LocalNoteNotebook> rows) async {
     if (rows.isEmpty) return;
     await _db.batch((b) {
-      b.insertAllOnConflictUpdate(
+      b.insertAll(
         _db.noteNotebooks,
         [for (final r in rows) r.copyWith(ownerKey: scope)],
+        mode: InsertMode.replace,
       );
     });
   }
@@ -74,6 +78,7 @@ class NotesDao {
   /// Used after a `create_notebook` outbox op succeeds — re-key the row and
   /// every note that referenced the placeholder. We have to
   /// delete-then-insert because the primary key changes.
+  /// 子笔记本的 parentId 引用（多级目录离线先建父再建子）一并改写。
   Future<void> renameNotebookId(String oldId, String newId) async {
     await _db.transaction(() async {
       final existing = await (_db.select(_db.noteNotebooks)
@@ -91,15 +96,31 @@ class NotesDao {
             ..where((t) =>
                 t.notebookId.equals(oldId) & t.ownerKey.equals(scope)))
           .write(NoteNotesCompanion(notebookId: Value(newId)));
+      await (_db.update(_db.noteNotebooks)
+            ..where((t) =>
+                t.parentId.equals(oldId) & t.ownerKey.equals(scope)))
+          .write(NoteNotebooksCompanion(parentId: Value(newId)));
     });
   }
 
   /// 服务端软删笔记本后本地直接删行（本地表无软删列）；挂着的笔记
   /// 由服务端还原逻辑置根，changes 增量会把它们刷成 notebook_id=NULL。
+  /// 子笔记本同步上移一层（parentId := 被删本的 parentId，根级的子本
+  /// 变根）—— 服务端 SoftDeleteNotebook 子本上移不发事件（PR1 语义），
+  /// 客户端必须在 deleted 分支本地重放，否则本地树挂着已删节点。
   Future<void> hardDeleteNotebook(String id) async {
-    await (_db.delete(_db.noteNotebooks)
-          ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
-        .go();
+    await _db.transaction(() async {
+      final existing = await (_db.select(_db.noteNotebooks)
+            ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+          .getSingleOrNull();
+      if (existing == null) return;
+      await (_db.update(_db.noteNotebooks)
+            ..where((t) => t.parentId.equals(id) & t.ownerKey.equals(scope)))
+          .write(NoteNotebooksCompanion(parentId: Value(existing.parentId)));
+      await (_db.delete(_db.noteNotebooks)
+            ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
+          .go();
+    });
   }
 
   // ─── notes ────────────────────────────────────────────────
