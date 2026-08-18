@@ -123,7 +123,7 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SizedBox(width: 200, child: _NotebookColumn()),
+        const SizedBox(width: 200, child: NotebookColumn()),
         Container(width: 1, color: BiuTokens.borderSubtle),
         SizedBox(
           width: 300,
@@ -171,7 +171,7 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
       showDragHandle: true,
       builder: (sheetCtx) => SizedBox(
         height: MediaQuery.sizeOf(sheetCtx).height * 0.6,
-        child: _NotebookColumn(
+        child: NotebookColumn(
           onSelected: () => Navigator.of(sheetCtx).pop(),
         ),
       ),
@@ -217,17 +217,19 @@ class _DetailPlaceholder extends StatelessWidget {
 
 // ─── 左栏：笔记本 ────────────────────────────────────────────
 
-class _NotebookColumn extends ConsumerStatefulWidget {
-  const _NotebookColumn({this.onSelected});
+/// 左栏「笔记本」列（桌面三栏 / 手机 bottom sheet 共用）。public 以便
+/// widget test 独立 pump（test/features/notes/notebook_tree_ui_test.dart）。
+class NotebookColumn extends ConsumerStatefulWidget {
+  const NotebookColumn({super.key, this.onSelected});
 
   /// 手机 bottom sheet 形态：选中后关 sheet。
   final VoidCallback? onSelected;
 
   @override
-  ConsumerState<_NotebookColumn> createState() => _NotebookColumnState();
+  ConsumerState<NotebookColumn> createState() => NotebookColumnState();
 }
 
-class _NotebookColumnState extends ConsumerState<_NotebookColumn> {
+class NotebookColumnState extends ConsumerState<NotebookColumn> {
   /// 收起集合 —— 持久化在 SharedPreferences（不落服务端）。null = 尚未
   /// 读取完成，期间按全展开渲染（默认展开；存「收起」而非「展开」集合，
   /// 新建的父目录天然默认展开，参照 wiki _PageList 的持久化模式）。
