@@ -78,6 +78,9 @@ func (h *apiHarness) cleanupUser(t *testing.T, uid uuid.UUID) {
 	if _, err := h.pool.Exec(ctx, `DELETE FROM brain.note_notes WHERE user_id = $1`, uid); err != nil {
 		t.Fatalf("cleanup notes: %v", err)
 	}
+	if _, err := h.pool.Exec(ctx, `DELETE FROM brain.note_notebooks WHERE user_id = $1`, uid); err != nil {
+		t.Fatalf("cleanup notebooks: %v", err)
+	}
 	if _, err := h.pool.Exec(ctx, `DELETE FROM brain.events WHERE scope = $1`, "note:user:"+uid.String()); err != nil {
 		t.Fatalf("cleanup events: %v", err)
 	}

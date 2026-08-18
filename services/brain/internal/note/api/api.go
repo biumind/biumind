@@ -96,6 +96,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 type createNotebookReq struct {
 	Name     string   `json:"name"`
 	Position *float64 `json:"position"`
+	// ParentID —— 可选；缺省/空串 = 根级（多级目录，迁移 00003）。
+	ParentID *string `json:"parent_id"`
 }
 
 func (s *Server) handleCreateNotebook(w http.ResponseWriter, r *http.Request) {
@@ -112,13 +114,41 @@ func (s *Server) handleCreateNotebook(w http.ResponseWriter, r *http.Request) {
 	if req.Position != nil {
 		pos = *req.Position
 	}
+	var parentID *uuid.UUID
+	if req.ParentID != nil && *req.ParentID != "" {
+		u, err := uuid.Parse(*req.ParentID)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_parent_id", "")
+			return
+		}
+		parentID = &u
+	}
 	uid := mustUserID(r)
-	nb, err := s.Store.CreateNotebook(r.Context(), uid, req.Name, pos, uid.String())
+	nb, err := s.Store.CreateNotebook(r.Context(), uid, req.Name, pos, parentID, uid.String())
 	if err != nil {
+		if writeNotebookErr(w, err) {
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, notebookOut(nb))
+}
+
+// writeNotebookErr —— notebook 层级校验错误 → 4xx（对齐 bad_notebook_id
+// 的 400 惯例）；已处理返回 true。
+func writeNotebookErr(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, store.ErrInvalidParent):
+		writeErr(w, http.StatusBadRequest, "bad_parent_id", "parent notebook not found or deleted")
+	case errors.Is(err, store.ErrNotebookCycle):
+		writeErr(w, http.StatusBadRequest, "notebook_cycle", "parent would create a cycle")
+	case errors.Is(err, store.ErrNotebookDepth):
+		writeErr(w, http.StatusBadRequest, "depth_limit", "notebook hierarchy too deep")
+	default:
+		return false
+	}
+	return true
 }
 
 func (s *Server) handleListNotebooks(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +168,9 @@ func (s *Server) handleListNotebooks(w http.ResponseWriter, r *http.Request) {
 type updateNotebookReq struct {
 	Name     *string  `json:"name"`
 	Position *float64 `json:"position"`
+	// ParentID —— nil = 不动；"" = 升到根；合法 uuid = 移到该父本
+	// （同 handleUpdateNote 的 notebook_id 惯例）。
+	ParentID *string `json:"parent_id"`
 }
 
 func (s *Server) handleUpdateNotebook(w http.ResponseWriter, r *http.Request) {
@@ -152,12 +185,28 @@ func (s *Server) handleUpdateNotebook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := mustUserID(r)
-	nb, err := s.Store.UpdateNotebook(r.Context(), store.UpdateNotebookInput{
+	in := store.UpdateNotebookInput{
 		ID: id, UserID: uid, Name: req.Name, Position: req.Position, ActorID: uid.String(),
-	})
+	}
+	if req.ParentID != nil {
+		if *req.ParentID == "" {
+			in.MoveToRoot = true
+		} else {
+			u, err := uuid.Parse(*req.ParentID)
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, "bad_parent_id", "")
+				return
+			}
+			in.ParentID = &u
+		}
+	}
+	nb, err := s.Store.UpdateNotebook(r.Context(), in)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "not_found", "")
+			return
+		}
+		if writeNotebookErr(w, err) {
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
@@ -963,13 +1012,20 @@ func mustUserID(r *http.Request) uuid.UUID {
 }
 
 func notebookOut(nb *store.Notebook) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"id":         nb.ID.String(),
 		"name":       nb.Name,
 		"position":   nb.Position,
 		"created_at": nb.CreatedAt.UTC().Format(time.RFC3339),
 		"updated_at": nb.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+	// 同 noteOut 的 notebook_id 惯例：可空字段显式序列化为 null。
+	if nb.ParentID != nil {
+		out["parent_id"] = nb.ParentID.String()
+	} else {
+		out["parent_id"] = nil
+	}
+	return out
 }
 
 func noteOut(n *store.Note) map[string]any {
