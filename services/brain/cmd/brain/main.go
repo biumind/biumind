@@ -354,10 +354,12 @@ func run() error {
 	defer pool.Close()
 
 	// Schema 自动 migrate. brain.projects 是 00001 的探针表.
-	// baselineMax=0 = mark 所有现有文件 applied (老行为). brain 当前
-	// 没有"先有表后切 dbmigrate"的历史包袱, 0 不会有副作用.
+	// baselineMax=2: 若遇到"有表但无 brain_goose_db_version"的存量库,
+	// 只把 00001-00002 mark applied, 00003 (notebook_hierarchy) 起的新
+	// migration 仍会真正执行; 传 0 会把它们静默标成已应用 (dbmigrate
+	// 包文档明确警告的场景).
 	if cfg.MigrationsDir != "" {
-		if err := dbmigrate.Run(ctx, pool, serviceName, cfg.MigrationsDir, "brain.projects", 0); err != nil {
+		if err := dbmigrate.Run(ctx, pool, serviceName, cfg.MigrationsDir, "brain.projects", 2); err != nil {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
