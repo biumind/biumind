@@ -20,8 +20,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// isUniqueViolation —— SQLSTATE 23505（唯一索引冲突）。note_notebooks 的
+// 唯一索引只有「同父同名」一条，命中即 ErrDuplicateName。
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -32,6 +40,8 @@ var (
 	ErrNotebookCycle = errors.New("notebook parent would create a cycle")
 	// ErrNotebookDepth —— 创建/移动后层级超过 maxNotebookDepth。
 	ErrNotebookDepth = errors.New("notebook hierarchy too deep")
+	// ErrDuplicateName —— 同一父目录下已存在同名（不区分大小写）的活本。
+	ErrDuplicateName = errors.New("notebook name already exists in parent")
 )
 
 // maxNotebookDepth —— 笔记本目录树最大层数（根=1）。DB 不加约束，
@@ -187,6 +197,9 @@ func (s *Store) CreateNotebook(ctx context.Context, userID uuid.UUID, name strin
 	`, userID, name, parentID, position).Scan(
 		&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
 	)
+	if isUniqueViolation(err) {
+		return nil, ErrDuplicateName
+	}
 	if err != nil {
 		return nil, fmt.Errorf("insert notebook: %w", err)
 	}
@@ -357,6 +370,9 @@ func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*No
 	`, in.ID, in.UserID, name, parentID, pos).Scan(
 		&nb.ID, &nb.UserID, &nb.Name, &nb.ParentID, &nb.Position, &nb.CreatedAt, &nb.UpdatedAt,
 	)
+	if isUniqueViolation(err) {
+		return nil, ErrDuplicateName
+	}
 	if err != nil {
 		return nil, fmt.Errorf("update notebook: %w", err)
 	}

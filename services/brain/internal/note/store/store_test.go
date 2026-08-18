@@ -53,6 +53,8 @@ func (h *storeHarness) cleanupNotes(t *testing.T, uid uuid.UUID) {
 	}
 }
 
+func strPtr(s string) *string { return &s }
+
 func createNote(t *testing.T, h *storeHarness, uid uuid.UUID, title, content string) *Note {
 	t.Helper()
 	n, replayed, err := h.st.CreateNote(context.Background(), CreateNoteInput{
@@ -373,20 +375,26 @@ func TestNotebookHierarchy_NameUniqueWithinParent(t *testing.T) {
 	b := createNotebook(t, h, uid, "目录B", nil)
 	createNotebook(t, h, uid, "读书笔记", &a.ID)
 
-	// 同父下同名（大小写不同也算）拒绝 —— DB 唯一索引冲突。
-	if _, err := h.st.CreateNotebook(context.Background(), uid, "读书笔记", 0, &a.ID, uid.String()); err == nil {
-		t.Errorf("same name under same parent should be rejected")
+	// 同父下同名（大小写不同也算）拒绝 —— DB 唯一索引冲突 → ErrDuplicateName。
+	if _, err := h.st.CreateNotebook(context.Background(), uid, "读书笔记", 0, &a.ID, uid.String()); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("same name under same parent: expected ErrDuplicateName, got %v", err)
 	}
 	createNotebook(t, h, uid, "Reading", &a.ID)
-	if _, err := h.st.CreateNotebook(context.Background(), uid, "reading", 0, &a.ID, uid.String()); err == nil {
-		t.Errorf("case-insensitive same name under same parent should be rejected")
+	if _, err := h.st.CreateNotebook(context.Background(), uid, "reading", 0, &a.ID, uid.String()); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("case-insensitive same name under same parent: expected ErrDuplicateName, got %v", err)
 	}
 	// 不同父下同名允许；根级与目录内同名也允许（不同 parent）。
 	createNotebook(t, h, uid, "读书笔记", &b.ID)
 	createNotebook(t, h, uid, "读书笔记", nil)
 	// 根级之间同名拒绝（NULLS NOT DISTINCT）。
-	if _, err := h.st.CreateNotebook(context.Background(), uid, "目录A", 0, nil, uid.String()); err == nil {
-		t.Errorf("same name at root should be rejected")
+	if _, err := h.st.CreateNotebook(context.Background(), uid, "目录A", 0, nil, uid.String()); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("same name at root: expected ErrDuplicateName, got %v", err)
+	}
+	// 改名撞上同父同名也报 ErrDuplicateName。
+	if _, err := h.st.UpdateNotebook(context.Background(), UpdateNotebookInput{
+		ID: b.ID, UserID: uid, Name: strPtr("目录A"), ActorID: uid.String(),
+	}); !errors.Is(err, ErrDuplicateName) {
+		t.Errorf("rename into conflict: expected ErrDuplicateName, got %v", err)
 	}
 }
 

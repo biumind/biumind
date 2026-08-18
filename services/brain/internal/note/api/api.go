@@ -145,6 +145,8 @@ func writeNotebookErr(w http.ResponseWriter, err error) bool {
 		writeErr(w, http.StatusBadRequest, "notebook_cycle", "parent would create a cycle")
 	case errors.Is(err, store.ErrNotebookDepth):
 		writeErr(w, http.StatusBadRequest, "depth_limit", "notebook hierarchy too deep")
+	case errors.Is(err, store.ErrDuplicateName):
+		writeErr(w, http.StatusConflict, "name_conflict", "notebook name already exists in parent")
 	default:
 		return false
 	}

@@ -132,6 +132,12 @@ func TestNotebookAPI_CreateParentErrors(t *testing.T) {
 	if status != http.StatusBadRequest || errCode(body) != "depth_limit" {
 		t.Fatalf("level 6: expected 400 depth_limit, got %d (%v)", status, body)
 	}
+	// 同父下同名（大小写不敏感）→ 409 name_conflict（store.ErrDuplicateName 映射）。
+	h.createNotebook(t, token, map[string]any{"name": "Dup"})
+	status, body = h.doJSON(t, "POST", "/v1/notebooks", token, map[string]any{"name": "dup"})
+	if status != http.StatusConflict || errCode(body) != "name_conflict" {
+		t.Fatalf("duplicate name: expected 409 name_conflict, got %d (%v)", status, body)
+	}
 }
 
 func TestNotebookAPI_Reparent(t *testing.T) {
