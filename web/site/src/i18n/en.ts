@@ -216,7 +216,8 @@ export const en: Translation = {
     cli: {
       title: 'biu CLI',
       body: 'Chat, run agents and query your knowledge base from the terminal. CLI and GUI share the same kernel; sessions are interchangeable.',
-      install: 'One-line install',
+      install: 'Install (Homebrew)',
+      manual: 'Or download a binary from GitHub Releases',
       verify: 'Verify install',
     },
     requirements: {

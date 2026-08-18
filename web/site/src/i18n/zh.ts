@@ -216,7 +216,8 @@ export const zh: Translation = {
     cli: {
       title: 'biu 命令行',
       body: '终端里直接对话、跑 Agent、操作知识库。CLI 与 GUI 共享同一内核，会话互通。',
-      install: '一键安装',
+      install: '安装（Homebrew）',
+      manual: '或从 GitHub Releases 下载二进制',
       verify: '验证安装',
     },
     requirements: {

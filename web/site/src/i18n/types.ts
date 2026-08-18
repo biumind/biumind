@@ -113,7 +113,7 @@ export interface Translation {
     desktop: { title: string; body: string; macIntel: string; macSilicon: string; windows: string; linuxDeb: string; linuxAppImage: string };
     mobile: { title: string; body: string; ios: string; android: string; androidApk: string };
     web: { title: string; body: string; cta: string };
-    cli: { title: string; body: string; install: string; verify: string };
+    cli: { title: string; body: string; install: string; manual: string; verify: string };
     requirements: { title: string; rows: { platform: string; req: string }[] };
     soon: string;
     // 动态下载 (阶段 4): 运行期 fetch /downloads/releases.json 填充按钮
