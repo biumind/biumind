@@ -29,6 +29,13 @@
 #     (go-sdk, apps/cli/biu, this workflow file) fan out to every image
 #     that COPYs them. Detection failure falls back to building ALL —
 #     never the reverse. Trivy-gated; NOT signed (release-only).
+#     Diff base 不是 github.event.before，而是「本 workflow 在 main 上
+#     最近一次 conclusion=success 的 push run」的 head SHA：并发组
+#     cancel-in-progress 会杀掉正在构建的 run，其未完成的镜像腿永远
+#     不会推送；若 base 仍用 event.before，下一次 run 的 diff 会恰好
+#     漏掉那批改动（2026-08-19 identity 镜像丢失事故）。cancelled /
+#     failed 的 run 不推进 base，下一次 push 自动补建（代价只是多建，
+#     不会少建）。查不到历史成功 run 时回落 event.before。
 #   * `service-v*` tag (e.g. `service-v0.3.0`) — full release: builds
 #     all images so they share a version tag and digest table.
 #   * `<name>-v*` tag (e.g. `model-relay-v0.3.1`, `web-client-v0.4.0`) —
@@ -139,6 +146,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read        # detect-changes 查最近一次成功 run 的 head_sha
   packages: write       # push to ghcr.io/biumind/*
   id-token: write       # cosign keyless signing
 
@@ -183,8 +191,31 @@ jobs:
         id: detect
         env:
           BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Diff base：main 分支 push 时优先用「最近一次 conclusion=success
+          # 的 push run」的 head SHA 而不是 event.before —— 上一次 run 若被
+          # 并发组 cancel，它没跑完的镜像腿永远不会推送，用 event.before
+          # 做 diff 会漏掉那批改动（2026-08-19 identity 镜像丢失事故）。
+          # event=push 过滤掉手动单镜像 dispatch（那种 success 只推了一个
+          # 镜像，不能当 base）。查不到则回落 event.before；diff 失败仍
+          # 回落全量构建。
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "${GITHUB_REF_TYPE:-}" = "branch" ]; then
+            # 注意顺序：先剥 @ref 后缀再取 basename —— @refs/heads/main
+            # 里还有 /，先取 basename 会得到 "main"。
+            WF_FILE="${GITHUB_WORKFLOW_REF%%@*}"; WF_FILE="${WF_FILE##*/}"
+            BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$WF_FILE/runs?branch=$GITHUB_REF_NAME&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+            # gh api 失败时错误 JSON 会进 stdout —— 只接受 40 位 hex SHA。
+            if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "diff base: $BASE (last successful push run; event.before=$BEFORE)"
+              BEFORE="$BASE"
+            else
+              echo "diff base: $BEFORE (event.before; no prior successful run found)"
+            fi
+          fi
 
           # image name → space-separated path prefixes (build inputs).
           declare -A paths=(
