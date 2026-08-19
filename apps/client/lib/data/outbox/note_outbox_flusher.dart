@@ -252,14 +252,17 @@ class NoteOutboxFlusher {
     return false;
   }
 
-  /// 子本 op 的 parent_id 仍是 'local-' 占位（父本 create_notebook 尚未
-  /// 冲刷成功/rekey）时抛 [_ParentNotSyncedException] 延后 —— 直接把
-  /// local- id 上送会被服务端 400（bad_parent_id），而 flushOnce 对
-  /// 4xx 是永久 drop，op 会丢。
+  /// op 引用的父本（parent_id）或所属笔记本（notebook_id）仍是 'local-'
+  /// 占位（create_notebook 尚未冲刷成功/rekey）时抛
+  /// [_ParentNotSyncedException] 延后 —— 直接把 local- id 上送会被服务端
+  /// 400（bad_parent_id / bad_notebook_id），而 flushOnce 对 4xx 是永久
+  /// drop，op 会丢。
   void _ensureParentSynced(Map<String, dynamic> payload) {
-    final parentId = payload['parent_id'];
-    if (parentId is String && parentId.startsWith('local-')) {
-      throw _ParentNotSyncedException(parentId);
+    for (final key in const ['parent_id', 'notebook_id']) {
+      final ref = payload[key];
+      if (ref is String && ref.startsWith('local-')) {
+        throw _ParentNotSyncedException(ref);
+      }
     }
   }
 
@@ -297,6 +300,9 @@ class NoteOutboxFlusher {
       case 'delete_notebook':
         await client.deleteNotebook(entry.entityId);
       case 'create_note':
+        // 笔记建在刚新建、尚未 rekey 的笔记本里时 notebook_id 还是
+        // 'local-' 占位，直接上送会 400 后被 4xx 分支永久 drop —— 延后。
+        _ensureParentSynced(payload);
         final created = await client.createNote(
           // 新创建路径 payload 带客户端 uuid（服务端幂等重放），created.id
           // 与 entityId 相同，下面的 renameNoteId 是 no-op；历史 local-
@@ -315,6 +321,9 @@ class NoteOutboxFlusher {
         // payload 的 presence 语义直接透传服务端 JSON 形状：
         // 'notebook_id' 存在且为 '' = 移回根；'todo_completed_at' 为
         // '' = 清除完成时间。
+        // 移动笔记到未 rekey 的新笔记本时 notebook_id 还是 'local-'
+        // 占位，同 create_note 一样必须延后，否则 400 永久丢 op。
+        _ensureParentSynced(payload);
         final rawTodoCompletedAt = payload['todo_completed_at'] as String?;
         final updated = await client.updateNote(
           entry.entityId,
@@ -399,9 +408,9 @@ class NoteOutboxFlusher {
   }
 }
 
-/// 子本 create_notebook/update_notebook 的 parent_id 还是 'local-' 占位
-/// id（父本的 create_notebook 尚未冲刷成功并 rekey）。flushOnce 的通用
-/// catch 会把它走 _backoff 延后重试；父本 flush 成功后 rekeyOutbox 会把
+/// op 引用的笔记本（parent_id / notebook_id）还是 'local-' 占位 id
+/// （create_notebook 尚未冲刷成功并 rekey）。flushOnce 的通用 catch
+/// 会把它走 _backoff 延后重试；父本 flush 成功后 rekeyOutbox 会把
 /// payload 里的占位引用改写为服务端 uuid，下一轮重试即正常上送。
 class _ParentNotSyncedException implements Exception {
   final String parentId;

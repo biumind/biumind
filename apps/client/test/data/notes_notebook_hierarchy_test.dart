@@ -249,6 +249,34 @@ void main() {
     expect(brain.requests, isEmpty);
   });
 
+  test('flusher 延后：create_note 的 notebook_id 还是 local- 占位时 op 不被 4xx 丢掉',
+      () async {
+    // 笔记建在刚新建、create_notebook 尚未冲刷成功（被 backoff 到未来）
+    // 的笔记本里。直接上送 'local-' 占位 notebook_id 会被服务端 400
+    // （bad_notebook_id），而 4xx 分支会永久 drop —— 必须先延后等 rekey。
+    await dao.enqueueOutbox(NoteOutboxCompanion.insert(
+      op: NoteOutboxOp.createNote,
+      entityId: 'note-1',
+      payloadJson: jsonEncode({
+        'id': 'note-1',
+        'notebook_id': 'local-missing-nb',
+        'title': 't',
+        'content_md': '',
+      }),
+      createdAt: DateTime.utc(2000),
+      nextAttemptAt: DateTime.utc(2000),
+    ));
+
+    final flusher = NoteOutboxFlusher(dao: dao, client: client);
+    await flusher.flushOnce();
+
+    // op 仍在（backoff 延后），没有发出任何请求。
+    final outbox = await dao.allOutbox();
+    expect(outbox, hasLength(1));
+    expect(outbox.first.attempts, 1);
+    expect(brain.requests, isEmpty);
+  });
+
   test('flusher update_notebook 透传 parent_id（含升根空串）', () async {
     // 先建父/子并冲掉 create op（拿到 srv id）。
     final parent = await repo.createNotebook('父');
