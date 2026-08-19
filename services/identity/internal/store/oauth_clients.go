@@ -16,7 +16,11 @@ import (
 
 // OAuthClient is one row of identity.oauth_clients.
 type OAuthClient struct {
-	ClientID                    uuid.UUID
+	ClientID uuid.UUID
+	// ClientAlias — 预注册第一方 client 的可读 id (如 "biu-cli"). client_id
+	// 列是 uuid 主键, CLI 这类内置 client_id 的客户端经 alias 解析; DCR
+	// 注册的第三方 client 此列为 NULL.
+	ClientAlias                 string
 	ClientSecretHash            string // empty for public clients
 	ClientName                  string
 	RedirectURIs                []string
@@ -107,19 +111,30 @@ func (s *Store) CreateOAuthClient(ctx context.Context, in CreateOAuthClientInput
 // GetOAuthClientByID fetches one client. Returns ErrOAuthClientNotFound if
 // missing.
 func (s *Store) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (*OAuthClient, error) {
+	return s.getOAuthClient(ctx, `WHERE client_id = $1`, id)
+}
+
+// GetOAuthClientByAlias fetches one client by its pre-registered alias
+// (e.g. "biu-cli"). Returns ErrOAuthClientNotFound if missing.
+func (s *Store) GetOAuthClientByAlias(ctx context.Context, alias string) (*OAuthClient, error) {
+	return s.getOAuthClient(ctx, `WHERE client_alias = $1`, alias)
+}
+
+// getOAuthClient — ByID / ByAlias 共用一个查询体, 仅 WHERE 不同 (调用方
+// 写死, 不接受用户输入, 不存在注入面).
+func (s *Store) getOAuthClient(ctx context.Context, where string, arg any) (*OAuthClient, error) {
 	var c OAuthClient
-	var secretHash, logo, cliURI, tos, policy, swID, swVer, regHash *string
+	var alias, secretHash, logo, cliURI, tos, policy, swID, swVer, regHash *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT client_id, client_secret_hash, client_name, redirect_uris,
+		SELECT client_id, client_alias, client_secret_hash, client_name, redirect_uris,
 		       grant_types, response_types, token_endpoint_auth_method,
 		       scope, contacts,
 		       logo_uri, client_uri, tos_uri, policy_uri,
 		       software_id, software_version, registration_access_token_hash,
 		       created_by, created_at, updated_at
 		FROM identity.oauth_clients
-		WHERE client_id = $1
-	`, id).Scan(
-		&c.ClientID, &secretHash, &c.ClientName, &c.RedirectURIs,
+		`+where, arg).Scan(
+		&c.ClientID, &alias, &secretHash, &c.ClientName, &c.RedirectURIs,
 		&c.GrantTypes, &c.ResponseTypes, &c.TokenEndpointAuthMethod,
 		&c.Scope, &c.Contacts,
 		&logo, &cliURI, &tos, &policy,
@@ -132,6 +147,7 @@ func (s *Store) GetOAuthClientByID(ctx context.Context, id uuid.UUID) (*OAuthCli
 	if err != nil {
 		return nil, err
 	}
+	c.ClientAlias = strFromPtr(alias)
 	c.ClientSecretHash = strFromPtr(secretHash)
 	c.LogoURI = strFromPtr(logo)
 	c.ClientURI = strFromPtr(cliURI)

@@ -254,11 +254,8 @@ func (s *Server) authenticateOAuthClient(r *http.Request) (*store.OAuthClient, e
 	if clientID == "" {
 		return nil, errors.New("client_id missing")
 	}
-	id, err := uuid.Parse(clientID)
-	if err != nil {
-		return nil, errors.New("client_id invalid")
-	}
-	c, err := s.Store.GetOAuthClientByID(r.Context(), id)
+	// uuid 主键 (DCR client) 或 client_alias (预注册第一方 client, 如 biu-cli).
+	c, err := s.resolveOAuthClient(r.Context(), clientID)
 	if err != nil {
 		return nil, errors.New("client not found")
 	}

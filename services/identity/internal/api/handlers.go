@@ -235,6 +235,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	s.MountOAuthRegister(mux)
 	s.MountOAuthAuthorize(mux)
 	s.MountOAuthToken(mux)
+	// 浏览器登录页 — CLI OAuth 流的人端入口 (authorize 无 session 时 302 到这里).
+	s.MountOAuthLoginPage(mux)
 }
 
 // ─── register ───────────────────────────────────────────
