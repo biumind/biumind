@@ -143,6 +143,9 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "biu",
 		Short: "BiuMind CLI — chat with your AI from the terminal",
+		// 让 cobra 自动支持 --version（打印 "biu version <ver>"）；完整
+		// 元信息仍在 `biu version` 子命令。
+		Version: version,
 		// Cobra prints its own "Error: …" + usage on RunE failure; we
 		// re-print via the main() catcher with the unified `biu: …`
 		// prefix. Silence cobra's so the message lands once. Usage on
