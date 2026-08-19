@@ -214,6 +214,23 @@ func (s *Signer) Sign(c *Claims) (string, error) {
 	return tok.SignedString(s.Secret)
 }
 
+// SignMap signs arbitrary claims — unlike Sign it does NOT stamp
+// iss/aud/iat/exp, so callers own the full claim set (PATs and OAuth
+// access tokens carry their own TTL/jti/kind). RS256 mode stamps the
+// kid header so JWKS verifiers resolve the right public key.
+func (s *Signer) SignMap(claims jwt.MapClaims) (string, error) {
+	if s.rsaKey != nil {
+		tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+		tok.Header["kid"] = s.kid
+		return tok.SignedString(s.rsaKey)
+	}
+	if len(s.Secret) == 0 {
+		return "", fmt.Errorf("auth: signer has no key material")
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return tok.SignedString(s.Secret)
+}
+
 // SigningKid returns the `kid` this signer stamps on RS256 tokens.
 // Empty when running in HS256 mode.
 func (s *Signer) SigningKid() string { return s.kid }

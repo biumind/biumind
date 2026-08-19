@@ -314,19 +314,13 @@ func randomPrefix(n int) string {
 	return hex.EncodeToString(b)[:n]
 }
 
-// signCustomJWT signs claims with the configured Signer's key. Mirrors
-// Signer.Sign's HS256/RS256 dispatch but accepts arbitrary claims so
-// PATs can carry their own iat/exp/jti without going through the
-// session-token TTL.
+// signCustomJWT signs claims with the configured Signer's key. Delegates
+// to Signer.SignMap, which dispatches HS256/RS256 (RS256 stamps the kid
+// header for JWKS verifiers) and accepts arbitrary claims so PATs / OAuth
+// access tokens can carry their own iat/exp/jti without going through
+// the session-token TTL.
 func (s *Server) signCustomJWT(claims jwt.MapClaims) (string, error) {
-	if s.Signer.Secret != nil {
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		return tok.SignedString(s.Signer.Secret)
-	}
-	// RS256 path — Signer's RSA key isn't exported. Re-export through
-	// a small accessor on Signer (in jwt.go); for now use HS256 dev
-	// path and document the prod path as future work.
-	return "", errors.New("PAT minting requires HS256 signer; RS256 PAT path lands in P2-I-1c")
+	return s.Signer.SignMap(claims)
 }
 
 // getJWTKind / jwtKindFromAuthHeader inspect the Authorization header
