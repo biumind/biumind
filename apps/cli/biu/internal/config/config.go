@@ -33,6 +33,7 @@ type Config struct {
 type AuthSection struct {
 	AuthorizeURL      string   `toml:"authorize_url"`
 	TokenURL          string   `toml:"token_url"`
+	RevokeURL         string   `toml:"revoke_url,omitempty"`
 	ClientID          string   `toml:"client_id"`
 	Scopes            []string `toml:"scopes"`
 	CallbackPort      int      `toml:"callback_port"`
@@ -174,7 +175,7 @@ func Defaults() *Config {
 			Model:    "claude-sonnet-4-6",
 		},
 		Relay: HubSection{
-			Endpoint: "https://api.biu.app",
+			Endpoint: "https://biumind.xxlab.tech",
 		},
 		Providers:   map[string]ProviderSection{},
 		Permissions: PermissionsSection{Mode: "ask"},

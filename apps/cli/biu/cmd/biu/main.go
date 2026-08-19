@@ -18,6 +18,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -33,6 +34,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/headless"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
+	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"github.com/biumind/biumind/apps/cli/biu/internal/output"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plugins"
 	"github.com/biumind/biumind/apps/cli/biu/internal/repl"
@@ -659,19 +661,37 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 		// permissions still run in this process so the SDK can prompt
 		// the user (via PermissionPolicy) before destructive ops.
 		relayURL := firstNonEmpty(f.relayURL, os.Getenv("BIUMIND_MODEL_RELAY_URL"), cfg.Relay.Endpoint)
-		// P4: daemon worker 优先用 brain 投下来的委托 user JWT (work.UserBearer) —
-		// relay 拿 claims.UserID 原生解析 BYOK。空 → 回退本地 BIUMIND_TOKEN/PAT
-		// (平台池)。非 daemon 调用 (REPL/headless) o.bearer 恒空, 走老路径。
-		token := firstNonEmpty(o.bearer, f.token, os.Getenv("BIUMIND_TOKEN"), cfg.Relay.VirtualKey)
-		if relayURL == "" || token == "" {
+		if relayURL == "" {
 			return nil, clierr.WithHint(
-				clierr.Newf("sdk", "cloud mode SDK requires model-relay URL + bearer token"),
-				"set BIUMIND_MODEL_RELAY_URL + BIUMIND_TOKEN env vars, or pass --model-relay-url + --token")
+				clierr.Newf("sdk", "cloud mode SDK requires model-relay URL"),
+				"set BIUMIND_MODEL_RELAY_URL or [model-relay].endpoint, or pass --model-relay-url")
 		}
+		// P4: daemon worker 优先用 brain 投下来的委托 user JWT (work.UserBearer) —
+		// relay 拿 claims.UserID 原生解析 BYOK。空 → 走本地解析链
+		// (--token > BIUMIND_TOKEN > virtual_key > OAuth store, 方案 D5)。
+		token := o.bearer
+		var tp *oauth.TokenProvider
+		if token == "" {
+			tp = wiring.TokenProviderFor(cfg, f.wiringFlags(), relayURL)
+			var err error
+			token, err = tp.Token(context.Background())
+			if err != nil {
+				// 哨兵错误（未登录/登录过期）的 message 已含完整引导，
+				// 不再叠加 hint；其余错误给通用提示。
+				if errors.Is(err, oauth.ErrNotLoggedIn) || errors.Is(err, oauth.ErrLoginExpired) {
+					return nil, clierr.Wrapf("sdk", err, "cloud mode SDK requires bearer token")
+				}
+				return nil, clierr.WithHint(
+					clierr.Wrapf("sdk", err, "cloud mode SDK requires bearer token"),
+					"run 'biu auth login' to sign in via browser, or set BIUMIND_TOKEN / pass --token")
+			}
+		}
+		// 自己构建 engine（biumindkit 的 UseRelayAuth 路径等价），这样
+		// OAuth store 来源的 token 才能挂上 401 强刷重试 transport。
+		eng := client.NewRelayEngine(relayURL, token)
+		wiring.AttachOAuthRetry(&eng.HTTP, tp)
 		return biumindkit.New(biumindkit.Options{
-			APIKey:              token,
-			AnthropicEndpoint:   relayURL,
-			UseRelayAuth:        true,
+			Provider:            eng,
 			Model:               model,
 			System:              f.system,
 			Cwd:                 cwd,

@@ -14,6 +14,8 @@ require (
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.47.0
+	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -61,8 +63,6 @@ require (
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect

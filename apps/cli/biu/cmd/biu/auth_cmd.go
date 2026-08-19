@@ -12,8 +12,12 @@
 //   callback_port   = 0          # 0 = pick free
 //   manual_redirect = "https://platform.biumind.app/oauth/code/callback"
 //
-// Token storage: ~/.biu/auth.json (mode 0600). The agent loop /
-// provider adapters read it via oauth.Store.
+// [auth] 段通常不出现：端点从 [model-relay].endpoint 推导（方案 D4，
+// identity 与 model-relay 同 origin），[auth] / BIU_OAUTH_* env 只作
+// 为自部署的覆盖入口。
+//
+// Token storage: OS keychain (auto-picked) or ~/.biu/auth.json (0600).
+// The agent loop / provider adapters read it via oauth.TokenProvider.
 
 package main
 
@@ -23,8 +27,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
@@ -40,23 +42,20 @@ func loadConfig(f *rootFlags) (*config.Config, string, error) {
 	return config.Load(f.cfgPath)
 }
 
-// buildOAuthConfig folds the [auth] config into oauth.Config. Env vars
-// override TOML so `BIU_OAUTH_CLIENT_ID=… biu auth login` works without
-// editing config.toml.
-func buildOAuthConfig(cfg *config.Config) oauth.Config {
-	out := oauth.Config{
-		AuthorizeURL: firstNonEmpty(os.Getenv("BIU_OAUTH_AUTHORIZE_URL"), cfg.Auth.AuthorizeURL),
-		TokenURL:     firstNonEmpty(os.Getenv("BIU_OAUTH_TOKEN_URL"), cfg.Auth.TokenURL),
-		ClientID:     firstNonEmpty(os.Getenv("BIU_OAUTH_CLIENT_ID"), cfg.Auth.ClientID),
-		Scopes:       cfg.Auth.Scopes,
-		CallbackPort: cfg.Auth.CallbackPort,
-		ManualRedirectURL: firstNonEmpty(
-			os.Getenv("BIU_OAUTH_MANUAL_REDIRECT"), cfg.Auth.ManualRedirectURL),
-	}
-	if len(out.Scopes) == 0 {
-		out.Scopes = []string{"openid", "profile"}
-	}
-	return out
+// buildOAuthConfig 汇总 OAuth 配置（方案 C1/D4）：[auth] TOML 段 >
+// BIU_OAUTH_* env > 从 relay endpoint 推导。推导失败（endpoint 非法）
+// 且没有显式配置时才报错。
+func buildOAuthConfig(cfg *config.Config, f *rootFlags) (oauth.Config, error) {
+	relayEndpoint := firstNonEmpty(f.relayURL, os.Getenv("BIUMIND_MODEL_RELAY_URL"), cfg.Relay.Endpoint)
+	return oauth.ConfigFromSources(oauth.Config{
+		AuthorizeURL:      cfg.Auth.AuthorizeURL,
+		TokenURL:          cfg.Auth.TokenURL,
+		RevokeURL:         cfg.Auth.RevokeURL,
+		ClientID:          cfg.Auth.ClientID,
+		Scopes:            cfg.Auth.Scopes,
+		CallbackPort:      cfg.Auth.CallbackPort,
+		ManualRedirectURL: cfg.Auth.ManualRedirectURL,
+	}, relayEndpoint)
 }
 
 func newAuthCmd(f *rootFlags) *cobra.Command {
@@ -147,11 +146,11 @@ func newAuthLoginCmd(f *rootFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			oc := buildOAuthConfig(cfg)
-			if oc.AuthorizeURL == "" || oc.TokenURL == "" || oc.ClientID == "" {
+			oc, err := buildOAuthConfig(cfg, f)
+			if err != nil {
 				return clierr.WithHint(
-					clierr.Newf("auth login", "[auth] section incomplete: authorize_url, token_url, client_id all required"),
-					"add the [auth] block to ~/.biu/config.toml or set BIU_OAUTH_AUTHORIZE_URL / BIU_OAUTH_TOKEN_URL / BIU_OAUTH_CLIENT_ID")
+					clierr.Wrapf("auth login", err, "resolve OAuth endpoints"),
+					"fix [model-relay].endpoint, or add an explicit [auth] block to ~/.biu/config.toml")
 			}
 			store, err := oauth.Open("")
 			if err != nil {
@@ -165,25 +164,11 @@ func newAuthLoginCmd(f *rootFlags) *cobra.Command {
 				return runManualLogin(ctx, oc, store)
 			}
 
-			login := oauth.Login{
-				Config: oc,
-				UrlOpener: func(authURL string) {
-					fmt.Fprintln(os.Stderr, "[biu] open this URL in your browser to log in:")
-					fmt.Fprintln(os.Stderr, "      "+authURL)
-					_ = openBrowser(authURL)
-				},
-			}
-			res, err := login.Run(ctx)
-			if err != nil {
+			if err := oauth.BrowserLogin(ctx, oc, store, os.Stderr); err != nil {
 				return clierr.WithHint(
 					clierr.Wrapf("auth login", err, "browser flow failed"),
 					"try `--manual` for SSH/sandboxed environments, or check your IdP settings")
 			}
-			if err := store.Save(res.Tokens); err != nil {
-				return clierr.Wrapf("auth login", err, "save tokens")
-			}
-			fmt.Fprintf(os.Stderr, "[biu] login ok — tokens saved to %s\n",
-				clierr.DisplayPath(store.Path()))
 			return nil
 		},
 	}
@@ -192,14 +177,27 @@ func newAuthLoginCmd(f *rootFlags) *cobra.Command {
 	return c
 }
 
-func newAuthLogoutCmd(_ *rootFlags) *cobra.Command {
+func newAuthLogoutCmd(f *rootFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Delete cached OAuth tokens from ~/.biu/auth.json",
+		Short: "Revoke refresh token upstream and delete cached OAuth tokens",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			store, err := oauth.Open("")
 			if err != nil {
 				return err
+			}
+			// 先吊销（方案 D7）：refresh_token 是长期凭证，泄漏后可
+			// 一直换新 access token。网络/服务端失败只 warn，本地一定
+			// 登出。
+			if t, lerr := store.Load(); lerr == nil && t.RefreshToken != "" {
+				if oc, cerr := logoutOAuthConfig(f); cerr == nil && oc.RevokeURL != "" {
+					ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+					rerr := oauth.Revoke(ctx, oc, t.RefreshToken, nil)
+					cancel()
+					if rerr != nil {
+						fmt.Fprintf(os.Stderr, "[biu] warning: upstream revoke failed: %v (local logout continues)\n", rerr)
+					}
+				}
 			}
 			if err := store.Delete(); err != nil {
 				return err
@@ -208,6 +206,16 @@ func newAuthLogoutCmd(_ *rootFlags) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// logoutOAuthConfig 尽力推导 revoke_url；失败返回 error，调用方降级
+// 跳过上游吊销。
+func logoutOAuthConfig(f *rootFlags) (oauth.Config, error) {
+	cfg, _, err := loadConfig(f)
+	if err != nil {
+		return oauth.Config{}, err
+	}
+	return buildOAuthConfig(cfg, f)
 }
 
 func newAuthStatusCmd(_ *rootFlags) *cobra.Command {
@@ -309,20 +317,7 @@ func extractCodeFromURL(s string) (string, string, error) {
 	return code, state, nil
 }
 
-// openBrowser tries the OS-specific "open URL" command. Failures are
-// logged but not fatal — the URL was already printed.
-func openBrowser(u string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", u)
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
-	default:
-		cmd = exec.Command("xdg-open", u)
-	}
-	return cmd.Start()
-}
+// openBrowser 已移到 oauth.OpenBrowser（REPL /login 复用同一实现）。
 
 func presentString(b bool) string {
 	if b {

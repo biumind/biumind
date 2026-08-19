@@ -28,8 +28,10 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/client"
 	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
+	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 func newInitCmd(_ *rootFlags) *cobra.Command {
@@ -83,18 +85,36 @@ func newInitCmd(_ *rootFlags) *cobra.Command {
 			default: // cloud / byo_endpoint
 				url := relayURLFlag
 				if url == "" && !nonInteractive {
-					url = promptString("model-relay endpoint URL (https://api.biu.app): ", "https://api.biu.app")
+					url = promptString("model-relay endpoint URL (https://biumind.xxlab.tech): ", "https://biumind.xxlab.tech")
 				}
-				token := relayTokenFlag
-				if token == "" && !nonInteractive {
-					token = promptSecret("model-relay auth token: ")
-				}
-				if url == "" || token == "" {
+				if url == "" {
 					return clierr.WithHint(
-						clierr.Newf("init", "mode=%s needs model-relay URL + token", mode),
-						"pass --model-relay-url and --model-relay-token, or re-run without --yes for the interactive prompt")
+						clierr.Newf("init", "mode=%s needs a model-relay URL", mode),
+						"pass --model-relay-url, or re-run without --yes for the interactive prompt")
 				}
 				cfg.Relay.Endpoint = url
+				token := relayTokenFlag
+				loggedIn := false
+				if token == "" && !nonInteractive {
+					// C10（方案 D8）：浏览器登录优先——token 进 OS
+					// keychain，不落 config。开浏览器失败/超时回落
+					// 手贴 token。
+					if promptYesNo("Sign in via browser now? (recommended — token goes to the OS keychain)", true) {
+						if lerr := initBrowserLogin(cmd.Context(), url); lerr != nil {
+							fmt.Fprintf(os.Stderr, "[biu] browser login unavailable: %v — falling back to paste-token\n", lerr)
+						} else {
+							loggedIn = true
+						}
+					}
+					if !loggedIn {
+						token = promptSecret("model-relay auth token: ")
+					}
+				}
+				if token == "" && !loggedIn {
+					return clierr.WithHint(
+						clierr.Newf("init", "mode=%s needs model-relay URL + token", mode),
+						"pass --model-relay-url and --model-relay-token, run `biu auth login` first, or re-run without --yes for the interactive prompt")
+				}
 				cfg.Relay.VirtualKey = token
 			}
 
@@ -199,6 +219,35 @@ func smokeTest(ctx context.Context, cfg *config.Config) error {
 	}
 }
 
+// initBrowserLogin 跑与 `biu auth login` 相同的浏览器 PKCE flow
+// （C10）。[auth] 覆盖从磁盘上的既有 config 读（init 还没写入新
+// config），端点从用户刚输入的 relay URL 推导。
+func initBrowserLogin(ctx context.Context, relayEndpoint string) error {
+	disk, _, err := config.Load("")
+	if err != nil {
+		return err
+	}
+	oc, err := oauth.ConfigFromSources(oauth.Config{
+		AuthorizeURL:      disk.Auth.AuthorizeURL,
+		TokenURL:          disk.Auth.TokenURL,
+		RevokeURL:         disk.Auth.RevokeURL,
+		ClientID:          disk.Auth.ClientID,
+		Scopes:            disk.Auth.Scopes,
+		CallbackPort:      disk.Auth.CallbackPort,
+		ManualRedirectURL: disk.Auth.ManualRedirectURL,
+	}, relayEndpoint)
+	if err != nil {
+		return err
+	}
+	store, err := oauth.Open("")
+	if err != nil {
+		return err
+	}
+	lctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	return oauth.BrowserLogin(lctx, oc, store, os.Stderr)
+}
+
 // writeConfig serialises cfg as TOML and atomically replaces cfgPath.
 // We avoid pulling in a full TOML encoder for one config write — the
 // shape is small enough to do by hand.
@@ -209,8 +258,13 @@ func writeConfig(cfgPath string, cfg *config.Config) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[default]\nmode = %q\nprovider = %q\nmodel = %q\n\n",
 		cfg.Default.Mode, cfg.Default.Provider, cfg.Default.Model)
-	fmt.Fprintf(&b, "[model-relay]\nendpoint = %q\nvirtual_key = %q\n\n",
-		cfg.Relay.Endpoint, cfg.Relay.VirtualKey)
+	fmt.Fprintf(&b, "[model-relay]\nendpoint = %q\n", cfg.Relay.Endpoint)
+	// virtual_key 为空（浏览器登录，token 在 keychain）时不落配置 —
+	// 对齐方案 §6.4：登录后用户的 config.toml 不含 virtual_key。
+	if cfg.Relay.VirtualKey != "" {
+		fmt.Fprintf(&b, "virtual_key = %q\n", cfg.Relay.VirtualKey)
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "[permissions]\nmode = %q\n\n",
 		cfg.Permissions.Mode)
 	fmt.Fprintf(&b, "[search]\nmode = %q\n", cfg.Search.Mode)
@@ -338,11 +392,18 @@ func promptString(q, fallback string) string {
 	return line
 }
 
+// promptSecret 读敏感输入。stdin 是 TTY 时用 term.ReadPassword 不回
+// 显（C11）；管道输入（CI provisioning）对调用方本就可见，退回逐
+// 行读。
 func promptSecret(q string) string {
-	// We don't gate on a TTY here — if stdin is a pipe the input is
-	// already private to whoever piped it. Production version could
-	// switch to golang.org/x/term ReadPassword.
 	fmt.Fprint(os.Stderr, q)
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr) // ReadPassword 不回显换行
+		if err == nil {
+			return strings.TrimSpace(string(raw))
+		}
+	}
 	r := bufio.NewReader(os.Stdin)
 	line, _ := r.ReadString('\n')
 	return strings.TrimSpace(line)

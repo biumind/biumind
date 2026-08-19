@@ -145,12 +145,17 @@ func newDoctorCmd(f *rootFlags) *cobra.Command {
 			// ── Auth backend ────────────────────────
 			// Prefers OS keychain when available; reports the
 			// fallback so users know where their tokens land.
+			var storeTokens oauth.Tokens
+			var storeHasTokens bool
 			if store, err := oauth.Open(""); err == nil {
+				t, _ := store.Load()
+				storeTokens = t
+				storeHasTokens = t.AccessToken != ""
 				switch store.Backend() {
 				case "file":
 					// Suggest migration when the file backend is in
 					// use AND the legacy file already has tokens.
-					if t, _ := store.Load(); t.AccessToken != "" {
+					if storeHasTokens {
 						report.warn("auth backend",
 							fmt.Sprintf("file (%s) — run `biu auth migrate` to move into the OS keychain", store.Path()))
 					} else {
@@ -159,6 +164,43 @@ func newDoctorCmd(f *rootFlags) *cobra.Command {
 				default:
 					report.ok("auth backend", store.Backend()+" — "+store.Path())
 				}
+				// C12（方案 D8）：OAuth token 的过期状态 + refresh
+				// 能力，排查 "明明登录过却 401" 的关键信息。
+				if storeHasTokens {
+					detail := "access_token present"
+					if !storeTokens.ExpiresAt.IsZero() {
+						detail += fmt.Sprintf(", expires %s", storeTokens.ExpiresAt.Local().Format(time.RFC3339))
+						if storeTokens.Expired() {
+							detail += " (expired — will refresh on next API call)"
+						}
+					}
+					if storeTokens.RefreshToken != "" {
+						detail += ", refresh_token present"
+					} else {
+						detail += ", NO refresh_token — re-login required at expiry"
+					}
+					report.ok("oauth token", detail)
+				}
+			}
+
+			// ── Auth token source ───────────────────
+			// 与 cloud 请求链路的解析优先级一致（方案 D5）：
+			// --token > BIUMIND_TOKEN > virtual_key > OAuth store。
+			tokenSource := "none"
+			switch {
+			case f.token != "":
+				tokenSource = "flag (--token)"
+			case os.Getenv("BIUMIND_TOKEN") != "":
+				tokenSource = "env (BIUMIND_TOKEN)"
+			case cfg.Relay.VirtualKey != "":
+				tokenSource = "config ([model-relay].virtual_key)"
+			case storeHasTokens:
+				tokenSource = "oauth-store"
+			}
+			if tokenSource == "none" && client.Mode(mode) != client.ModeDirect {
+				report.warn("auth token source", "none — run `biu auth login` to sign in via browser")
+			} else {
+				report.ok("auth token source", tokenSource)
 			}
 
 			// ── Agent-plane secrets backend (R6.4) ──

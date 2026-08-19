@@ -37,6 +37,10 @@ type Config struct {
 	// {access_token, refresh_token, expires_in}.
 	TokenURL string
 
+	// RevokeURL is the RFC 7009 revocation endpoint. Optional — only
+	// `biu auth logout` uses it; empty means "skip upstream revoke".
+	RevokeURL string
+
 	// ClientID identifies this CLI to the provider.
 	ClientID string
 
@@ -69,13 +73,15 @@ type Tokens struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// Expired reports whether ExpiresAt has passed (with a 30s leeway so
-// we proactively refresh before the upstream rejects).
+// Expired reports whether ExpiresAt has passed (with a 5min leeway so
+// we proactively refresh well before the upstream rejects — 对齐
+// claude / pi / kimi-code 的缓冲；access token TTL 15min 量级下 30s
+// 太容易在服务端先过期).
 func (t Tokens) Expired() bool {
 	if t.ExpiresAt.IsZero() {
 		return false
 	}
-	return time.Now().Add(30 * time.Second).After(t.ExpiresAt)
+	return time.Now().Add(5 * time.Minute).After(t.ExpiresAt)
 }
 
 // Authorization returns the value to set in `Authorization:`. Empty

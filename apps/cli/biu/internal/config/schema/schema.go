@@ -302,7 +302,7 @@ func ValidateConfig(cfg *config.Config) []string {
 			out = append(out, "mode="+mode+" but [model-relay].endpoint is missing")
 		}
 		if cfg.Relay.VirtualKey == "" {
-			out = append(out, "mode="+mode+" but [model-relay].virtual_key is missing")
+			out = append(out, "mode="+mode+" but [model-relay].virtual_key is missing — OK if signed in via `biu auth login` (OAuth store), otherwise set BIUMIND_TOKEN")
 		}
 	}
 	if cfg.Search.Mode != "" && !inEnum(cfg.Search.Mode, validSearchModes) {
