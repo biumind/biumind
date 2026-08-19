@@ -25,13 +25,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS oauth_clients_client_alias_uidx
     ON identity.oauth_clients (client_alias)
     WHERE client_alias IS NOT NULL;
 
--- 固定 uuid (尾段 6269752d636c69 = "biu-cli" 的 hex) 保证全环境同一行,
--- ON CONFLICT 幂等.
+-- 固定 uuid (尾段 626975636c69 = "biucli" 的 hex, 恰好 12 hex = 6 字节)
+-- 保证全环境同一行, ON CONFLICT 幂等.
 INSERT INTO identity.oauth_clients
     (client_id, client_alias, client_name, redirect_uris,
      grant_types, response_types, token_endpoint_auth_method, scope)
 VALUES
-    ('00000000-0000-4000-8000-6269752d636c69', 'biu-cli', 'BiuMind CLI',
+    ('00000000-0000-4000-8000-626975636c69', 'biu-cli', 'BiuMind CLI',
      ARRAY['http://127.0.0.1/callback', 'http://localhost/callback']::text[],
      ARRAY['authorization_code', 'refresh_token']::text[],
      ARRAY['code']::text[],
@@ -45,7 +45,7 @@ ON CONFLICT (client_id) DO NOTHING;
 -- +goose StatementBegin
 
 DELETE FROM identity.oauth_clients
- WHERE client_id = '00000000-0000-4000-8000-6269752d636c69';
+ WHERE client_id = '00000000-0000-4000-8000-626975636c69';
 
 DROP INDEX IF EXISTS identity.oauth_clients_client_alias_uidx;
 
