@@ -218,6 +218,8 @@ export const en: Translation = {
       body: 'Chat, run agents and query your knowledge base from the terminal. CLI and GUI share the same kernel; sessions are interchangeable.',
       install: 'Install (Homebrew)',
       manual: 'Or download a binary from GitHub Releases',
+      login: 'Sign in',
+      loginHint: 'Authorize once in your browser; credentials are stored in the system keychain',
       verify: 'Verify install',
     },
     requirements: {
