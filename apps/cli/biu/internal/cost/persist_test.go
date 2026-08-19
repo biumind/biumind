@@ -47,7 +47,10 @@ func TestLoadAllMissingFile(t *testing.T) {
 }
 
 func TestAggregateByDay(t *testing.T) {
-	now := time.Now().UTC()
+	// 锚定到当天 UTC 正午：直接取 time.Now() 时，若测试在 UTC 日界
+	// 后一小时内运行，now.Add(-time.Hour) 会落到前一天，today 桶只有
+	// 1 条记录导致失败（2026-08-19 CI 实测复现）。
+	now := time.Now().UTC().Truncate(24*time.Hour).Add(12 * time.Hour)
 	records := []UsageRecord{
 		{TS: now, Model: "opus", Input: 100, Output: 10, USD: 0.1},
 		{TS: now.Add(-time.Hour), Model: "opus", Input: 200, Output: 20, USD: 0.2},
