@@ -139,7 +139,7 @@ jobs:
       # 同时发 4 平台裸二进制进 releases.json (biu-* platform 枚举,
       # schema/release/v1),供 client 在本机没装 biu 时自动下载安装到
       # ~/.local/bin/biu。文件名对齐 biumind-{version}-{platform} 约定,
-      # upload-release.sh 的 biumind-${VER}* glob 发布 OSS 时会自动带上。
+      # mirror-oss job 的 biumind-${VERSION}* glob 发布 OSS 时会自动带上。
       - name: Set up Go (biu CLI build)
         uses: actions/setup-go@v7
         with:
@@ -733,7 +733,7 @@ jobs:
   # ── 镜像 stable releases.json + 产物到阿里云 OSS ──────────────
   # 官网 /downloads/releases.json (客户端稳定版更新检测 SoT) 来源。
   # 与 release-client-nightly.yml 的 OSS 上传同模式 (mc 经 docker, presence-gated)。
-  # 布局 (同 tools/scripts/upload-release.sh, 稳定 url):
+  # 布局 (稳定 url):
   #   <bucket>/<filename>          根 (新版覆盖, url 永远指向最新)
   #   <bucket>/<version>/<filename> 版本归档 (历史不丢)
   #   <bucket>/releases.json       根 (nginx RELEASES_UPSTREAM/releases.json 直取)

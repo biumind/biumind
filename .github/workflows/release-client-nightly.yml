@@ -381,8 +381,7 @@ jobs:
       # stable 根 + stable releases.json 绝不碰。
       # presence-gated: 未配 OSS 凭证则 skip, 不 fail
       # (照搬 release-images.yml 多 registry opt-in 风格)。
-      # mc (S3 兼容) 经 docker 跑 — 与 tools/scripts/upload-release.sh 同模式,
-      # 不引第三方 action (供应链面)。
+      # mc (S3 兼容) 经 docker 跑,不引第三方 action (供应链面)。
       - name: Upload to Aliyun OSS
         if: vars.OSS_BUCKET != '' && env.HAVE_OSS_KEY == 'true'
         env:
