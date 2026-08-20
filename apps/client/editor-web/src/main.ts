@@ -81,6 +81,14 @@ interface EditorState {
   lastSentMarkdown: string
   /** 防抖窗口内待发送的 markdown（WYSIWYG 与源码模式共用） */
   pendingMarkdown: string | null
+  /**
+   * 文档纪元 = 最近一次 setDoc 的 revision（host 每次 setDoc 递增）。
+   * 切换笔记 = 新纪元。docChanged 携带变更发生时的纪元，host 对不上
+   * 即丢弃 —— 防止切换瞬间防抖/在途的旧笔记内容存进新笔记。
+   */
+  docEpoch: number
+  /** scheduleDocChanged 时捕获的纪元，随 pendingMarkdown 一起等防抖 */
+  pendingEpoch: number | null
   applyingExternalEdit: boolean
   docChangeTimer: ReturnType<typeof setTimeout> | null
 }
@@ -93,6 +101,8 @@ const state: EditorState = {
   revision: 0,
   lastSentMarkdown: '',
   pendingMarkdown: null,
+  docEpoch: 0,
+  pendingEpoch: null,
   applyingExternalEdit: false,
   docChangeTimer: null,
 }
@@ -124,11 +134,23 @@ function bootstrap(): void {
 }
 
 async function handleInit(payload: InitPayload): Promise<void> {
+  // 纪元与 host 对齐（含 webview 重载后再 ready 的场景）。
+  state.docEpoch = payload.epoch ?? 0
   await mountEditor(payload)
 }
 
 async function handleSetDoc(payload: SetDocPayload): Promise<void> {
   if (!state.crepe) return
+  // 换文档 = 旧文档的防抖队列作废：pending 里的内容属于上一篇，若放它
+  // 发出会被 host 记到新笔记头上（跨笔记串内容的根因）。纪元无条件跟
+  // 进（即使内容相同跳过替换），保持与 host 的 _hostRevision 同步。
+  if (state.docChangeTimer) {
+    clearTimeout(state.docChangeTimer)
+    state.docChangeTimer = null
+  }
+  state.pendingMarkdown = null
+  state.pendingEpoch = null
+  state.docEpoch = payload.revision
   if (payload.markdown === state.lastSentMarkdown) return
   if (state.sourceMode?.active) {
     // 源码模式：直接更新 textarea，不动隐藏的 Crepe —— replaceAll 进隐藏编辑器
@@ -404,6 +426,9 @@ function updateToolbarActive(ctx: Ctx): void {
 
 function scheduleDocChanged(markdown: string): void {
   state.pendingMarkdown = markdown
+  // 变更发生当下的纪元随内容一起入队 —— flush 时 setDoc 可能已换文档，
+  // 用此刻的 state.docEpoch 会把旧内容标成新纪元，host 就丢不掉了。
+  state.pendingEpoch = state.docEpoch
   if (state.docChangeTimer) clearTimeout(state.docChangeTimer)
   state.docChangeTimer = setTimeout(flushDocChanged, DOC_CHANGED_DEBOUNCE_MS)
 }
@@ -415,11 +440,13 @@ function flushDocChanged(): void {
   }
   const markdown = state.pendingMarkdown
   if (markdown === null) return
+  const epoch = state.pendingEpoch ?? state.docEpoch
   state.pendingMarkdown = null
+  state.pendingEpoch = null
   if (markdown === state.lastSentMarkdown) return
   state.lastSentMarkdown = markdown
   state.revision += 1
-  bridge.sendDocChanged({ markdown, revision: state.revision })
+  bridge.sendDocChanged({ markdown, revision: state.revision, epoch })
 }
 
 function applyTheme(theme: 'light' | 'dark'): void {

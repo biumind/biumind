@@ -128,6 +128,7 @@ class EditorBridgeController extends ChangeNotifier {
         readOnly: readOnly,
         locale: locale,
         features: features,
+        epoch: _hostRevision,
       ),
     );
     if (!_readyCompleter.isCompleted) _readyCompleter.complete();
@@ -137,8 +138,18 @@ class EditorBridgeController extends ChangeNotifier {
     final revision = msg.payload['revision'];
     final markdown = msg.payload['markdown'];
     if (revision is! num || markdown is! String) return;
-    // Out-of-order guard: drop anything older than the last host write.
-    if (revision.toInt() < _hostRevision) return;
+    // 纪元校验（跨笔记防串内容）：编辑器复用同一个 webview，切换笔记
+    // 瞬间上一篇的 docChanged 可能还在防抖队列/在途 postMessage 里。
+    // setDoc 即新纪元（_hostRevision 递增随 setDoc 下发），迟到的旧
+    // 纪元变更一律丢弃 —— 否则会存进新笔记。无 epoch 字段 = 旧版编辑
+    // 器 bundle，退回 revision 守卫。
+    final epoch = msg.payload['epoch'];
+    if (epoch is num) {
+      if (epoch.toInt() != _hostRevision) return;
+    } else if (revision.toInt() < _hostRevision) {
+      // Out-of-order guard: drop anything older than the last host write.
+      return;
+    }
     _lastEditorMarkdown = markdown;
     onMarkdownChanged?.call(markdown);
   }
@@ -203,9 +214,13 @@ class EditorBridgeController extends ChangeNotifier {
   /// freshly-fetched version).
   Future<void> setDoc(String markdown, {bool preserveSelection = true}) async {
     if (_lastEditorMarkdown == markdown) return;
+    // 未 attach 时不推进纪元：消息本来也发不出去，推进了只会让编辑器
+    // （纪元还停留在旧值）后续 docChanged 全被 epoch 校验误杀。
+    final send = _send;
+    if (send == null) return;
     _hostRevision += 1;
     _lastEditorMarkdown = markdown;
-    await _send?.call(
+    await send(
       setDocMessage(
         markdown: markdown,
         revision: _hostRevision,

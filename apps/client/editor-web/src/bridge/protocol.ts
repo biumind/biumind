@@ -24,6 +24,8 @@ export interface InitPayload {
   readOnly: boolean
   locale: string
   features: BridgeFeatures
+  /** 文档纪元初值：编辑器以此初始化 docEpoch，与 host 的 setDoc 计数对齐。 */
+  epoch?: number
 }
 
 export interface SetDocPayload {
@@ -80,6 +82,13 @@ export interface ReadyPayload {
 export interface DocChangedPayload {
   markdown: string
   revision: number
+  /**
+   * 文档纪元：本条变更发生时，编辑器最近一次 setDoc 的 revision
+   * （切换笔记 = host 发新 setDoc = 新纪元）。host 据此丢弃上一篇
+   * 笔记迟到/在途的 docChanged（防抖队列、异步 postMessage），
+   * 防止旧内容存进新笔记。缺省 = 旧版编辑器，host 退回 revision 守卫。
+   */
+  epoch?: number
 }
 
 export interface WikilinkQueryPayload {

@@ -79,4 +79,65 @@ void main() {
       expect(sent, isEmpty);
     });
   });
+
+  group('docEpoch（跨笔记防串内容）', () {
+    late EditorBridgeController controller;
+    late List<BridgeMessage> sent;
+    late List<String> changed;
+
+    setUp(() {
+      sent = <BridgeMessage>[];
+      changed = <String>[];
+      controller = EditorBridgeController(
+        initialMarkdown: 'A',
+        theme: BridgeTheme.light,
+      );
+      controller.attach((msg) async => sent.add(msg));
+      controller.onMarkdownChanged = changed.add;
+    });
+
+    BridgeMessage docChanged(String md, int revision, [int? epoch]) {
+      return BridgeMessage(
+        type: 'docChanged',
+        payload: {
+          'markdown': md,
+          'revision': revision,
+          'epoch': ?epoch,
+        },
+      );
+    }
+
+    test('当前纪元的 docChanged 放行', () async {
+      await controller.onIncomingMessage(docChanged('A edit', 1, 0));
+      expect(changed, ['A edit']);
+    });
+
+    test('setDoc 后旧纪元的迟到 docChanged 被丢弃，新纪元放行', () async {
+      await controller.setDoc('B'); // _hostRevision → 1，纪元切换
+      // 上一篇笔记的迟到变更（防抖/在途 postMessage，epoch 0）——即使
+      // revision 计数很大也丢。
+      await controller.onIncomingMessage(docChanged('A 的内容', 99, 0));
+      expect(changed, isEmpty);
+      // 新笔记上的正常编辑（epoch 1）放行。
+      await controller.onIncomingMessage(docChanged('B edit', 100, 1));
+      expect(changed, ['B edit']);
+    });
+
+    test('旧版编辑器（无 epoch 字段）退回 revision 守卫', () async {
+      await controller.setDoc('B'); // _hostRevision → 1
+      await controller.onIncomingMessage(docChanged('stale', 0));
+      expect(changed, isEmpty);
+      await controller.onIncomingMessage(docChanged('fresh', 1));
+      expect(changed, ['fresh']);
+    });
+
+    test('未 attach 时 setDoc 不推进纪元（防纪元失配误杀）', () async {
+      controller.detach();
+      await controller.setDoc('B');
+      expect(sent, isEmpty);
+      // 纪元仍是 0，编辑器的 epoch 0 变更应照常放行。
+      await controller.onIncomingMessage(docChanged('edit', 1, 0));
+      expect(changed, ['edit']);
+    });
+  });
 }

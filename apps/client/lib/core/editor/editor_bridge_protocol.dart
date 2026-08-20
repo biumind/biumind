@@ -73,6 +73,7 @@ BridgeMessage initMessage({
   required bool readOnly,
   required String locale,
   BridgeFeatures features = const BridgeFeatures(),
+  int epoch = 0,
 }) {
   return BridgeMessage(
     type: 'init',
@@ -82,6 +83,9 @@ BridgeMessage initMessage({
       'readOnly': readOnly,
       'locale': locale,
       'features': features.toJson(),
+      // 文档纪元初值：编辑器（重）初始化后与 host 的 _hostRevision 对齐，
+      // 否则后续 docChanged 会被 epoch 校验误杀。
+      'epoch': epoch,
     },
   );
 }
