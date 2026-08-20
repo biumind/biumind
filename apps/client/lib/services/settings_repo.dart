@@ -504,7 +504,8 @@ class SecureSettingsRepo implements SettingsRepo {
       // 存在则读它一次(下次 save 自然写到新位置)。
       final legacy = File(_resolveLegacyFallbackPath());
       if (legacy.path != f.path && await legacy.exists()) {
-        return _parseFile(legacy);
+        // await 必须：直接 return Future 会逃出 try，异步异常进不了 catch。
+        return await _parseFile(legacy);
       }
       return const AppSettings();
     } catch (e) {

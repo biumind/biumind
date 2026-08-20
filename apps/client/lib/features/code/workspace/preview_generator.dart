@@ -63,12 +63,14 @@ class PreviewGenerator {
     try {
       switch (art.kind) {
         case ArtifactKind.image:
-          return _imagePreview(art);
+          // await 必须：不 await 直接 return Future 会逃出 try，
+          // 异步异常进不了下面的 catch（lint unawaited_return_in_try_block）。
+          return await _imagePreview(art);
         case ArtifactKind.codeFile:
           if (baseCommit == null) return const PreviewBundle();
-          return _codeDiffPreview(art, baseCommit: baseCommit);
+          return await _codeDiffPreview(art, baseCommit: baseCommit);
         case ArtifactKind.document:
-          return _documentPreview(art);
+          return await _documentPreview(art);
         case ArtifactKind.audio:
         case ArtifactKind.video:
         case ArtifactKind.dataset:
