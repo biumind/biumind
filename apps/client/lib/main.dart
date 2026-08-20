@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logging/logging.dart';
@@ -38,6 +39,20 @@ void main() {
   // 没有 binding 时这些调用直接抛 "Binding has not yet been initialized",
   // settings load 静默返回空 → 已登录会话被"藏"住并被启动写入覆盖。
   WidgetsFlutterBinding.ensureInitialized();
+
+  // macOS 焦点桥：原生侧（MainFlutterWindow）监视到点击落在平台视图
+  // （笔记编辑器 WKWebView）区域时通知这里。落在平台视图上的点击进不了
+  // 框架手势体系，文本框 FocusNode 不会自动 unfocus，其原生文本会话
+  // （FlutterTextInputPlugin 的隐藏输入框）就一直占着第一响应者，导致
+  // 编辑器点击后无法编辑 —— 收到通知主动收敛框架焦点。
+  if (!kIsWeb && io.Platform.isMacOS) {
+    const MethodChannel('biumind/focus').setMethodCallHandler((call) async {
+      if (call.method == 'platformViewTapped') {
+        FocusManager.instance.primaryFocus?.unfocus();
+      }
+      return null;
+    });
+  }
 
   Logger.root.level = Level.INFO;
   Logger.root.onRecord.listen((rec) {

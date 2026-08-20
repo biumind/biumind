@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import WebKit
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -16,6 +17,28 @@ class MainFlutterWindow: NSWindow {
     styleMask.insert(.fullSizeContentView)
     titlebarAppearsTransparent = true
     titleVisibility = .hidden
+
+    // 平台视图点击的焦点接管：落在 WKWebView（笔记编辑器 / apps 面板）
+    // 上的点击进不了 Flutter 手势体系 —— 文本框 FocusNode 不会自动
+    // unfocus，FlutterTextInputPlugin 的隐藏输入框握着第一响应者不放
+    // （编辑会话未结束拒绝 resign），表现为点击编辑器后无法编辑。
+    // 这里：通知 Dart 侧 unfocus 收敛框架焦点，并在点击落定后（若原生
+    // 层未能自行移交）结束编辑会话、强制移交第一响应者。
+    let focusChannel = FlutterMethodChannel(
+      name: "biumind/focus",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] ev in
+      guard let w = self, ev.window === w,
+            let wv = w.webView(at: ev.locationInWindow) else { return ev }
+      focusChannel.invokeMethod("platformViewTapped", arguments: nil)
+      DispatchQueue.main.async {
+        if w.firstResponder !== wv {
+          w.endEditing(for: nil)
+          w.makeFirstResponder(wv)
+        }
+      }
+      return ev
+    }
 
     let windowChannel = FlutterMethodChannel(
       name: "biumind/window",
@@ -59,32 +82,52 @@ class MainFlutterWindow: NSWindow {
     super.awakeFromNib()
   }
 
-  // Workaround for flutter/flutter#123961 — when the user switches
-  // away from the app and back (Cmd-Tab, clicking the dock icon,
-  // alt-clicking from another window), Flutter's text input client
-  // sometimes doesn't re-engage. Visually the TextField still shows
-  // a blinking cursor but key events go nowhere — only certain
-  // keystrokes (notably bare letters via the Cocoa fallback
-  // text-insertion path) make it through; numbers, punctuation, and
-  // IME events get swallowed.
+  // 窗口（重新）激活时的焦点恢复：捕获此刻的第一响应者，等 Flutter
+  // 引擎自己的激活处理落定后强制归还。
   //
-  // Forcing the FlutterView back to first responder every time the
-  // window becomes key restores the NSTextInputClient binding that
-  // FlutterTextInputPlugin relies on. The cost is O(1) per focus
-  // gain, which is invisible.
+  // 一举两得：
+  //   * Flutter 文本框：切走再切回后 NSTextInputClient 绑定可能已断开
+  //     （光标还闪但按键被吞，实测 Flutter 3.47 仍存在），恢复
+  //     FlutterView 即重建绑定 —— 与最初那版「无条件抢回 FlutterView」
+  //     的 workaround 等效；
+  //   * 平台视图（笔记编辑器 WKWebView）：焦点归还 webview —— 引擎的
+  //     激活处理会把 FR 抢回 FlutterView，导致编辑器间歇性键盘失效
+  //     （打字/Cmd+A 全无，再点一次才恢复）。
+  //
+  // 第一响应者不是本窗口的 view（为窗口本身/nil）时退回 FlutterView，
+  // 与系统默认一致。
+  // becomeMain 不处理：sheet 关闭等路径随后都会伴随 becomeKey。
   override func becomeKey() {
     super.becomeKey()
-    if let view = contentViewController?.view {
-      makeFirstResponder(view)
+    let target: NSView? = {
+      if let fr = firstResponder as? NSView, fr.window === self { return fr }
+      return contentViewController?.view
+    }()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+      guard let self, let target, target.window === self, self.isKeyWindow else { return }
+      // makeFirstResponder(已是 FR 的对象) 是 no-op，先撤再设强制完整
+      // resign/become 周期 —— WebKit 需要真正的 becomeFirstResponder
+      // （且窗口已是 key）才恢复页面焦点（document.hasFocus）。
+      self.makeFirstResponder(nil)
+      self.makeFirstResponder(target)
     }
   }
 
-  // Same fix for the rarer "becomes main without becoming key" path
-  // (e.g. when a sheet was on top and then gets dismissed).
-  override func becomeMain() {
-    super.becomeMain()
-    if let view = contentViewController?.view {
-      makeFirstResponder(view)
+  /// 命中测试窗口内所有可见 WKWebView（笔记编辑器、apps 面板可能同时
+  /// 存在），返回包含该窗口坐标点的那个。
+  private func webView(at windowPoint: NSPoint) -> WKWebView? {
+    guard let root = contentViewController?.view else { return nil }
+    return findWebViews(in: root).first {
+      !$0.isHidden && $0.convert($0.bounds, to: nil).contains(windowPoint)
     }
+  }
+
+  private func findWebViews(in view: NSView) -> [WKWebView] {
+    var out: [WKWebView] = []
+    if let wv = view as? WKWebView { out.append(wv) }
+    for sub in view.subviews {
+      out.append(contentsOf: findWebViews(in: sub))
+    }
+    return out
   }
 }
