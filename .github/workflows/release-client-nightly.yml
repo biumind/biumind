@@ -407,6 +407,7 @@ jobs:
           OSS_BUCKET: ${{ vars.OSS_BUCKET }}
           DOWNLOAD_BASE: ${{ vars.RELEASES_DOWNLOAD_BASE }}
           RUN: ${{ github.run_number }}
+          BUILD: ${{ needs.stamp.outputs.build }}
           VERSION: ${{ steps.ver.outputs.version }}
           ANDROID: ${{ steps.ver.outputs.android_asset }}
           MACOS: ${{ steps.ver.outputs.macos_asset }}
