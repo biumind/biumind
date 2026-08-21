@@ -183,7 +183,7 @@ jobs:
       aigc-worker: ${{ steps.detect.outputs.aigc-worker }}
       worker-wiki-llm: ${{ steps.detect.outputs.worker-wiki-llm }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # need github.event.before in the local history
 
@@ -351,7 +351,7 @@ jobs:
             context: workers/wiki-llm
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Skip rules:
       #   1. workflow_dispatch with a `service` input that doesn't match

@@ -95,7 +95,7 @@ jobs:
         working-directory: apps/client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # client-v0.1.0 / client-macos-v0.1.0 → 0.1.0 (strip 平台前缀 + v)。
       # releases.json 契约要求 version 无 v 无 build (见 schema/release/v1)。
@@ -318,7 +318,7 @@ jobs:
         working-directory: apps/client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # client-v0.1.0 / client-android-v0.1.0 → 0.1.0 (见 releases.json 契约)
       # build = epoch 秒: APK/AAB versionCode 与 nightly 共用时间轴 (见
@@ -462,7 +462,7 @@ jobs:
         working-directory: apps/client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -654,7 +654,7 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version
         id: ver
