@@ -250,7 +250,10 @@ jobs:
           draft: true
           files: |
             ${{ env.DMG_PATH }}
-            biumind-${{ steps.ver.outputs.version }}-biu-*
+            # softprops 的 glob 相对 GITHUB_WORKSPACE(仓库根)解析，与 job 的
+            # working-directory(apps/client) 无关 —— 裸写 biumind-*-biu-* 会
+            # 静默匹配不到，biu 裸二进制永远传不上 release（v0.1.0/v0.1.1 均中招）。
+            apps/client/biumind-${{ steps.ver.outputs.version }}-biu-*
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           generate_release_notes: true
@@ -794,8 +797,10 @@ jobs:
               set -eu
               mc alias set oss "$EP" "$AK" "$SK"
               cd /artefacts
-              # 产物放根 (稳定 url) + 版本目录 (归档)
-              for f in biumind-*.apk biumind-*.dmg biumind-*.ipa; do
+              # 产物放根 (稳定 url) + 版本目录 (归档)。
+              # 注意 biu 裸二进制无扩展名 (biumind-<ver>-biu-<platform>)，
+              # 只 glob apk/dmg/ipa 会漏掉它们，releases.json 里的 biu-* url 全 404。
+              for f in biumind-*.apk biumind-*.dmg biumind-*.ipa biumind-*-biu-*; do
                 [ -f "$f" ] || continue
                 mc cp "$f" "oss/$BUCKET/"
                 mc cp "$f" "oss/$BUCKET/$VER/"
