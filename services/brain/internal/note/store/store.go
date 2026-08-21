@@ -387,10 +387,11 @@ func (s *Store) UpdateNotebook(ctx context.Context, in UpdateNotebookInput) (*No
 	return nb, nil
 }
 
-// SoftDeleteNotebook —— 软删笔记本；挂在它下面的笔记不动
-// （还原时父已删则置根，见 RestoreNote）。子笔记本的 parent_id 同事务
+// SoftDeleteNotebook —— 软删笔记本；本内活笔记同事务连带软删进回收站
+// （还原时父本已删则置根，见 RestoreNote），并逐条发 note.deleted 事件
+// 让其他端经 changes 增量同步进回收站。子笔记本的 parent_id 同事务
 // 上移一层（指向被删本自己的父本，根级的子本变根），保证活本树里
-// 不会挂着已删的祖先。
+// 不会挂着已删的祖先；子本内的笔记不受影响（不连带）。
 func (s *Store) SoftDeleteNotebook(ctx context.Context, id, userID uuid.UUID, actorID string) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -408,6 +409,36 @@ func (s *Store) SoftDeleteNotebook(ctx context.Context, id, userID uuid.UUID, ac
 	}
 	if err != nil {
 		return err
+	}
+	// 连带软删本内活笔记；逐条发 note.deleted（与 SoftDeleteNote 同形态），
+	// 客户端 changes 的 note.deleted 分支据此把本地笔记标进回收站。
+	rows, err := tx.Query(ctx, `
+		UPDATE brain.note_notes SET deleted_at = now(), version = version + 1, updated_at = now()
+		WHERE notebook_id = $1 AND user_id = $2 AND deleted_at IS NULL
+		RETURNING id
+	`, id, userID)
+	if err != nil {
+		return fmt.Errorf("trash notes in notebook: %w", err)
+	}
+	defer rows.Close()
+	var trashedNoteIDs []uuid.UUID
+	for rows.Next() {
+		var noteID uuid.UUID
+		if err := rows.Scan(&noteID); err != nil {
+			return err
+		}
+		trashedNoteIDs = append(trashedNoteIDs, noteID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, noteID := range trashedNoteIDs {
+		if err := emitEvent(ctx, tx, userID, "user", actorID, "note.deleted", map[string]any{
+			"note_id": noteID,
+		}); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE brain.note_notebooks SET parent_id = $3, updated_at = now()

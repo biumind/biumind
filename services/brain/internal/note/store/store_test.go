@@ -519,3 +519,109 @@ func TestNotebookHierarchy_SoftDeletePromotesChildren(t *testing.T) {
 		t.Fatalf("after deleting root A, C parent_id should be nil, got %v", got.ParentID)
 	}
 }
+
+// 删除笔记本时本内活笔记连带进回收站；子本上移但其内笔记不连带；
+// 逐条发 note.deleted 事件供其他端同步；还原回本内笔记时置根。
+func TestNotebookHierarchy_SoftDeleteCascadesNotesToTrash(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+
+	parent := createNotebook(t, h, uid, "父", nil)
+	child := createNotebook(t, h, uid, "子", &parent.ID)
+	inParent1 := createNote(t, h, uid, "父内笔记一", "x")
+	inParent2 := createNote(t, h, uid, "父内笔记二", "y")
+	inChild := createNote(t, h, uid, "子本笔记", "z")
+	// createNote helper 不支持指定笔记本，直接 UPDATE 归位。
+	if _, err := h.pool.Exec(ctx,
+		`UPDATE brain.note_notes SET notebook_id = $2 WHERE id = ANY($1) AND user_id = $3`,
+		[]uuid.UUID{inParent1.ID, inParent2.ID}, parent.ID, uid); err != nil {
+		t.Fatalf("assign notes to parent: %v", err)
+	}
+	if _, err := h.pool.Exec(ctx,
+		`UPDATE brain.note_notes SET notebook_id = $2 WHERE id = $1 AND user_id = $3`,
+		inChild.ID, child.ID, uid); err != nil {
+		t.Fatalf("assign note to child: %v", err)
+	}
+
+	if err := h.st.SoftDeleteNotebook(ctx, parent.ID, uid, uid.String()); err != nil {
+		t.Fatalf("SoftDeleteNotebook: %v", err)
+	}
+
+	// 本内活笔记进回收站（ListTrash 只看 deleted_at 非空）。
+	trash, err := h.st.ListTrash(ctx, uid, 100)
+	if err != nil {
+		t.Fatalf("ListTrash: %v", err)
+	}
+	trashed := map[uuid.UUID]bool{}
+	for _, n := range trash {
+		trashed[n.ID] = true
+	}
+	if !trashed[inParent1.ID] || !trashed[inParent2.ID] {
+		t.Fatalf("notes in deleted notebook should be trashed, got %v", trashed)
+	}
+	if trashed[inChild.ID] {
+		t.Fatalf("note in promoted child notebook must NOT be cascaded")
+	}
+
+	// 子本上移到根（被删本无父本）。
+	gotChild := getNotebook(t, h, uid, child.ID)
+	if gotChild.ParentID != nil {
+		t.Fatalf("child should be promoted to root, got parent %v", gotChild.ParentID)
+	}
+
+	// 事件：2 条 note.deleted + 1 条 notebook.deleted（不含子本笔记）。
+	events, err := h.st.EventsSince(ctx, uid, 0, 1000)
+	if err != nil {
+		t.Fatalf("EventsSince: %v", err)
+	}
+	var noteDeleted, notebookDeleted int
+	for _, e := range events {
+		switch e.EventType {
+		case "note.deleted":
+			noteDeleted++
+		case "notebook.deleted":
+			notebookDeleted++
+		}
+	}
+	if noteDeleted != 2 || notebookDeleted != 1 {
+		t.Fatalf("events: note.deleted=%d notebook.deleted=%d, want 2/1", noteDeleted, notebookDeleted)
+	}
+
+	// 还原本内笔记：父本已删 → 置根。
+	restored, err := h.st.RestoreNote(ctx, inParent1.ID, uid, uid.String())
+	if err != nil {
+		t.Fatalf("RestoreNote: %v", err)
+	}
+	if restored.NotebookID != nil {
+		t.Fatalf("restored note should be unfiled (notebook deleted), got %v", restored.NotebookID)
+	}
+
+	// 重复删除 → ErrNotFound。
+	if err := h.st.SoftDeleteNotebook(ctx, parent.ID, uid, uid.String()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("re-delete should be ErrNotFound, got %v", err)
+	}
+}
+
+// 空笔记本删除：无 note.deleted 事件。
+func TestNotebookHierarchy_SoftDeleteEmptyNotebookNoNoteEvents(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+
+	nb := createNotebook(t, h, uid, "空本", nil)
+	if err := h.st.SoftDeleteNotebook(ctx, nb.ID, uid, uid.String()); err != nil {
+		t.Fatalf("SoftDeleteNotebook: %v", err)
+	}
+	events, err := h.st.EventsSince(ctx, uid, 0, 1000)
+	if err != nil {
+		t.Fatalf("EventsSince: %v", err)
+	}
+	for _, e := range events {
+		if e.EventType == "note.deleted" {
+			t.Fatalf("empty notebook should not emit note.deleted")
+		}
+	}
+}
