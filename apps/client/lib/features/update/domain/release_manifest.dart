@@ -49,8 +49,9 @@ class ReleaseManifest {
 /// nightly/index.json 顶层清单 (canary 通道)。
 ///
 /// 与 [ReleaseManifest] (v1 releases.json) 不同 envelope:channel 固定 nightly,
-/// 多一个 [run] (CI run number, 单调递增, 用于跨重启去重)。Asset 对象沿用
-/// [ReleaseAsset] (与 v1 同形状), 客户端 asset 解析代码可复用。
+/// 多 [run] (CI run number, 仅展示 #N + dismiss 去重) 与 [build] (stamp job 的
+/// epoch 秒 = 本次产物的 versionCode/CFBundleVersion, 已装去重以它为准)。
+/// Asset 对象沿用 [ReleaseAsset] (与 v1 同形状), 客户端 asset 解析代码可复用。
 /// 额外 [releaseUrl] 指向 GH release 页, 作为"当前平台无对应 asset"(intel mac /
 /// web / iOS)时的下载 fallback。
 ///
@@ -58,7 +59,11 @@ class ReleaseManifest {
 /// 上传到 `<bucket>/nightly/index.json` (根, 每次覆盖 = 最新夜版)。
 class NightlyManifest {
   final Version version;
-  final int run; // CI run number, 单调递增
+  final int run; // CI run number, 单调递增 (展示 + dismiss 去重)
+  /// epoch 秒构建戳, 与产物 versionCode 同值; stable 与 nightly 共用这条
+  /// 时间轴, 双向覆盖安装不产生 versionCode 降级 (-25)。
+  /// 旧清单无此字段时回退 run (旧夜版 versionCode 就是 run)。
+  final int build;
   final DateTime releasedAt;
   final String notes;
   final String releaseUrl; // GH release 页 (无平台 asset 时的 fallback)
@@ -67,6 +72,7 @@ class NightlyManifest {
   const NightlyManifest({
     required this.version,
     required this.run,
+    required this.build,
     required this.releasedAt,
     required this.notes,
     required this.releaseUrl,
@@ -75,9 +81,11 @@ class NightlyManifest {
 
   factory NightlyManifest.fromJson(Map<String, dynamic> j) {
     final list = (j['assets'] as List?) ?? const [];
+    final run = (j['run'] as num?)?.toInt() ?? 0;
     return NightlyManifest(
       version: _parseVersion(j['version']),
-      run: (j['run'] as num?)?.toInt() ?? 0,
+      run: run,
+      build: (j['build'] as num?)?.toInt() ?? run,
       releasedAt:
           DateTime.tryParse(j['releasedAt'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),

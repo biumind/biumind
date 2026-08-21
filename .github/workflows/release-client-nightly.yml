@@ -54,8 +54,24 @@ permissions:
   contents: write     # create nightly tags + releases; prune old ones
 
 jobs:
+  # versionCode 时间戳: stable 与 nightly 共用一条单调轴 (epoch 秒, 构建时刻
+  # 大的覆盖小的), 任何方向 (nightly↔stable) 覆盖安装都不再触发
+  # INSTALL_FAILED_VERSION_DOWNGRADE (-25)。一次 run 只取一个戳, 下游三个 job
+  # 共用 —— APK versionCode / CFBundleVersion / index.json build 必须同值,
+  # 否则客户端"已装去重"会因几秒误差误判。
+  stamp:
+    name: Build timestamp
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      build: ${{ steps.stamp.outputs.build }}
+    steps:
+      - id: stamp
+        run: echo "build=$(date +%s)" >> "$GITHUB_OUTPUT"
+
   android-apk:
     name: Android nightly .apk
+    needs: stamp
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
@@ -140,12 +156,11 @@ jobs:
           EOF
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
-      # --build-number=run_number: 把 nightly 号注入 APK versionCode
-      # (versionName 仍是 pubspec 的 0.1.0)。客户端 _checkNightly 用
-      # PackageInfo.buildNumber 识别"已装的就是这号", 不再重复提示;
-      # versionCode 单调递增也符合 Android 覆盖安装语义。
+      # --build-number=stamp 的 epoch 秒: APK versionCode 与 stable 共用时间轴
+      # (versionName 仍是 pubspec 的 X.Y.Z)。客户端 checkNightly 用
+      # PackageInfo.buildNumber 对照 index.json 的 build 字段做已装去重。
       - name: Build .apk
-        run: flutter build apk --release --build-number="${{ github.run_number }}"
+        run: flutter build apk --release --build-number="${{ needs.stamp.outputs.build }}"
 
       - name: Stage artefact
         env:
@@ -164,6 +179,7 @@ jobs:
 
   macos-dmg:
     name: macOS nightly .dmg
+    needs: stamp
     runs-on: macos-14
     timeout-minutes: 30
     defaults:
@@ -197,10 +213,10 @@ jobs:
       - name: pub get
         run: flutter pub get
 
-      # --build-number=run_number: CFBundleVersion 带 nightly 号, 与 Android 对齐
-      # (客户端 _checkNightly 靠 PackageInfo.buildNumber 判断已装夜版)。
+      # --build-number=stamp 的 epoch 秒: CFBundleVersion 与 Android 对齐
+      # (客户端 checkNightly 靠 PackageInfo.buildNumber 判断已装夜版)。
       - name: Build release
-        run: flutter build macos --release --build-number="${{ github.run_number }}"
+        run: flutter build macos --release --build-number="${{ needs.stamp.outputs.build }}"
 
       # biu CLI sidecar into .app Resources (daemon auto-start). Nightly
       # builds only the host-arch (arm64) sidecar, not the 4 standalone
@@ -253,7 +269,7 @@ jobs:
   # present (no partial nightly).
   nightly-release:
     name: Publish nightly pre-release
-    needs: [android-apk, macos-dmg]
+    needs: [stamp, android-apk, macos-dmg]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always() && !cancelled()
@@ -416,12 +432,15 @@ jobs:
           # 时作下载 fallback。GITHUB_SERVER_URL/GITHUB_REPOSITORY 是 Actions 自动 env。
           REL_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY}/releases/tag/client-nightly.${RUN}"
           # nightly/index.json — 夜版 canary 清单。非 v1 releases.json:
-          # envelope 不同 (channel=nightly + run + releaseUrl); Asset 对象沿用 v1 Asset
-          # 形状 (platform enum/url/filename/size/sha256/signed/arch),
+          # envelope 不同 (channel=nightly + run + build + releaseUrl); Asset 对象沿用
+          # v1 Asset 形状 (platform enum/url/filename/size/sha256/signed/arch),
           # 客户端 asset 解析代码可复用。客户端开"每日构建"开关后才读。
+          # build = stamp 的 epoch 秒 = 本次 APK versionCode / CFBundleVersion,
+          # 客户端已装去重以它为准; run 仅用于展示 #N 与 dismiss 去重。
           jq -n \
             --arg version "$VERSION" \
             --argjson run "$RUN" \
+            --argjson build "$BUILD" \
             --arg releasedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg releaseUrl "$REL_URL" \
             --arg apk "$ANDROID" --arg dmg "$MACOS" \
@@ -434,6 +453,7 @@ jobs:
               channel: "nightly",
               version: $version,
               run: $run,
+              build: $build,
               releasedAt: $releasedAt,
               releaseUrl: $releaseUrl,
               notes: "Automated nightly build — not for production. See release notes for signing status.",

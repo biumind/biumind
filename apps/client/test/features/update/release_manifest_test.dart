@@ -97,12 +97,13 @@ void main() {
   });
 
   group('NightlyManifest.fromJson', () {
-    test('解析完整 canary 清单 (run + releaseUrl + assets)', () {
+    test('解析完整 canary 清单 (run + build + releaseUrl + assets)', () {
       const j = {
         'manifest': 'nightly-canary-v1',
         'channel': 'nightly',
         'version': '0.1.13',
         'run': 42,
+        'build': 1787000000,
         'releasedAt': '2026-08-08T00:00:00Z',
         'releaseUrl':
             'https://github.com/biumind/biumind/releases/tag/client-nightly.42',
@@ -122,18 +123,25 @@ void main() {
       final m = NightlyManifest.fromJson(j);
       expect(m.version, Version(0, 1, 13));
       expect(m.run, 42);
+      expect(m.build, 1787000000);
       expect(m.releaseUrl, startsWith('https://github.com'));
       expect(m.assets, hasLength(1));
       expect(m.assets.first.platform, 'android-apk');
       expect(m.assets.first.url, contains('client-nightly.42'));
     });
 
-    test('缺字段用防御性默认值 (run=0 / releaseUrl="" / assets=[])', () {
+    test('缺字段用防御性默认值 (run=0 / build=0 / releaseUrl="" / assets=[])', () {
       final m = NightlyManifest.fromJson({'version': '0.1.0', 'channel': 'nightly'});
       expect(m.run, 0);
+      expect(m.build, 0);
       expect(m.releaseUrl, '');
       expect(m.assets, isEmpty);
       expect(m.version, Version(0, 1, 0));
+    });
+
+    test('旧清单无 build 字段 → 回退 run (旧夜版 versionCode 即 run)', () {
+      final m = NightlyManifest.fromJson({'version': '0.1.0', 'run': 36});
+      expect(m.build, 36);
     });
   });
 }

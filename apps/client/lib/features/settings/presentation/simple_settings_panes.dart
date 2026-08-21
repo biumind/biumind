@@ -262,8 +262,9 @@ class _CredentialsPaneState extends ConsumerState<CredentialsPane> {
 
 // ─── About ─────────────────────────────────────────────
 
-/// 运行时包信息 (version/buildNumber 来自 PackageInfo, nightly 包的
-/// buildNumber 即 CI run 号)。仅 AboutPane 用, autoDispose 随页释放。
+/// 运行时包信息 (version/buildNumber 来自 PackageInfo, buildNumber 是 CI
+/// 构建时刻的 epoch 秒, stable 与 nightly 共用时间轴)。仅 AboutPane 用,
+/// autoDispose 随页释放。
 final _packageInfoProvider =
     FutureProvider.autoDispose<PackageInfo>((ref) => PackageInfo.fromPlatform());
 

@@ -100,6 +100,8 @@ jobs:
       # client-v0.1.0 / client-macos-v0.1.0 → 0.1.0 (strip 平台前缀 + v)。
       # releases.json 契约要求 version 无 v 无 build (见 schema/release/v1)。
       # 产物文件名也用此 version: biumind-{version}-macos-arm64.dmg。
+      # build = epoch 秒: versionCode/CFBundleVersion 与 nightly 共用时间轴,
+      # nightly↔stable 双向覆盖安装不再触发 -25 降级拒绝。
       - name: Resolve version
         id: ver
         run: |
@@ -107,6 +109,7 @@ jobs:
           v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
           v="${v#v}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=$(date +%s)" >> "$GITHUB_OUTPUT"
           echo "resolved version: $v"
 
       - name: Set up Flutter
@@ -130,7 +133,7 @@ jobs:
         run: flutter pub get
 
       - name: Build release
-        run: flutter build macos --release
+        run: flutter build macos --release --build-number="${{ steps.ver.outputs.build }}"
 
       # ── biu CLI sidecar + 独立产物 ───────────────────────────
       # biu 是 desktop 本机 daemon(见 deploy/desktop/macos/build_dmg.sh 头部
@@ -318,6 +321,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # client-v0.1.0 / client-android-v0.1.0 → 0.1.0 (见 releases.json 契约)
+      # build = epoch 秒: APK/AAB versionCode 与 nightly 共用时间轴 (见
+      # release-client-nightly.yml stamp job), 双向覆盖安装不再 -25。
       - name: Resolve version
         id: ver
         run: |
@@ -325,6 +330,7 @@ jobs:
           v="${v#macos-}"; v="${v#android-}"; v="${v#ios-}"
           v="${v#v}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=$(date +%s)" >> "$GITHUB_OUTPUT"
           echo "resolved version: $v"
 
       - name: Set up JDK 17
@@ -386,10 +392,10 @@ jobs:
           EOF
 
       - name: Build .aab (release)
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --build-number="${{ steps.ver.outputs.build }}"
 
       - name: Build .apk (release, for sideload)
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number="${{ steps.ver.outputs.build }}"
 
       - name: Rename + collect artefacts
         run: |
@@ -498,7 +504,7 @@ jobs:
       # ── Unsigned path: archive-as-CI-artifact ───────────────
       - name: Build (unsigned)
         if: steps.ios_signing.outputs.ready != 'true'
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --build-number="$(date +%s)"
 
       - name: Tarball unsigned .app
         if: steps.ios_signing.outputs.ready != 'true'
@@ -589,7 +595,7 @@ jobs:
 
       - name: Build iOS (no codesign)
         if: steps.ios_signing.outputs.ready == 'true'
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --build-number="$(date +%s)"
 
       - name: Archive
         if: steps.ios_signing.outputs.ready == 'true'

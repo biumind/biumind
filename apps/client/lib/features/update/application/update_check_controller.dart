@@ -58,24 +58,23 @@ final updateAvailableProvider =
   if (origin.isEmpty) return null; // 未配置服务器地址, 不查
 
   Version current;
-  // 已装 nightly 号: nightly workflow 以 --build-number=run_number 构建,
-  // buildNumber 即 CI run。stable/旧夜版 buildNumber 很小 (+1 之类),
-  // 对 nightly run 恒 <, 不影响提示。解析失败按 0 (总视为更旧)。
-  int installedRun;
+  // 已装构建戳: CI 以 --build-number=epoch秒 构建 (stable 与 nightly 共用
+  // 时间轴), buildNumber 即构建时刻。解析失败按 0 (总视为更旧)。
+  int installedBuild;
   try {
     final info = await PackageInfo.fromPlatform();
     current = _normalizeVersion(info.version);
-    installedRun = int.tryParse(info.buildNumber) ?? 0;
+    installedBuild = int.tryParse(info.buildNumber) ?? 0;
   } catch (_) {
     return null;
   }
 
-  // 1. nightly canary — envelope 非 v1 (channel=nightly + run), 单独 fetch/parse。
+  // 1. nightly canary — envelope 非 v1 (channel=nightly + run + build), 单独 fetch/parse。
   //    nightly 优先:开了开关的用户要 bleeding edge, 同一 banner 位不叠 stable。
   if (settings.fetchNightly) {
     final nightly = await checkNightly(
       origin: origin,
-      installedRun: installedRun,
+      installedBuild: installedBuild,
       lastNotifiedRun: settings.lastNotifiedNightlyRun,
     );
     if (nightly != null) return nightly;
@@ -118,8 +117,9 @@ Future<UpdateInfo?> _checkStable({
 }
 
 /// nightly/index.json 检查 (canary 通道)。两级去重:
-///   1. 已装去重:APK versionCode = CI run number, manifest.run <= installedRun
-///      说明装的已是这号或更新, 不再弹;
+///   1. 已装去重:APK versionCode = 构建时刻 epoch 秒 (stable/nightly 共用
+///      时间轴), manifest.build <= installedBuild 说明装的已是这版或更新,
+///      不再弹;
 ///   2. 提示去重:dismiss 回写的 lastNotifiedRun 单调递增, 已提示过的 run 不再弹。
 /// nightly 清单始终是"最新构建", 两级都未命中即提示 (用户已 opt-in)。
 /// 下载 url:当前平台匹配的 asset.url (OSS CNAME 直链, 经 site nginx
@@ -127,7 +127,7 @@ Future<UpdateInfo?> _checkStable({
 @visibleForTesting
 Future<UpdateInfo?> checkNightly({
   required String origin,
-  required int installedRun,
+  required int installedBuild,
   required int? lastNotifiedRun,
 }) async {
   try {
@@ -140,8 +140,8 @@ Future<UpdateInfo?> checkNightly({
     final decoded = jsonDecode(body);
     if (decoded is! Map<String, dynamic>) return null;
     final manifest = NightlyManifest.fromJson(decoded);
-    // 已装去重:装的就是这号 (或回退装了更新号), 无需提示。
-    if (manifest.run <= installedRun) return null;
+    // 已装去重:装的就是这次构建 (或回退装了更新构建), 无需提示。
+    if (manifest.build <= installedBuild) return null;
     // 提示去重:已提示过的 run 不再弹 (跨重启), 直到更新的 run。
     if (lastNotifiedRun != null && manifest.run <= lastNotifiedRun) {
       return null;
