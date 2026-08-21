@@ -349,13 +349,19 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
     ];
   }
 
-  /// 右键 / 长按弹上下文菜单（锚定指针位置）。
+  /// 右键 / 长按弹上下文菜单（锚定指针位置）。对标原生菜单（Joplin /
+  /// macOS）：无弹出动画、大圆角（Material showMenu 默认 300ms 渐出 +
+  /// 小圆角）。
   Future<void> _showNotebookMenu(
       NotebookTreeNode node, Offset globalPos, List<RepoNotebook> flat) async {
     final action = await showMenu<String>(
       context: context,
       position: popupPositionAt(context, globalPos),
       items: _notebookMenuItems(node.notebook),
+      popUpAnimationStyle: AnimationStyle.noAnimation,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
     );
     if (action == null || !mounted) return;
     await _onNotebookAction(node.notebook, action, flat);
