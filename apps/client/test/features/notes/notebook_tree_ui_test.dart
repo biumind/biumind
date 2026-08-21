@@ -24,6 +24,7 @@ import 'package:biumind/data/notes_providers.dart';
 import 'package:biumind/data/notes_repository.dart';
 import 'package:biumind/features/notes/application/notes_ui_providers.dart';
 import 'package:biumind/features/notes/presentation/notes_home_page.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,13 +94,12 @@ void main() {
     await tester.pump();
   }
 
-  /// 某笔记本行内的行尾菜单按钮（按行文本定位，与行排序无关）。
-  Finder menuIconOf(String name) => find.descendant(
-        of: find
-            .ancestor(of: find.text(name), matching: find.byType(InkWell))
-            .first,
-        matching: find.byIcon(Icons.more_horiz),
-      );
+  /// 右键（鼠标次键）点开某笔记本行的上下文菜单（按行文本定位，与行
+  /// 排序无关）。
+  Future<void> openMenu(WidgetTester tester, String name) async {
+    await tester.tap(find.text(name), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+  }
 
   testWidgets('嵌套笔记本渲染成树：父子行都在，子行有缩进', (tester) async {
     await seedTree();
@@ -140,23 +140,22 @@ void main() {
     expect(find.text('孙目录'), findsOneWidget);
   });
 
-  testWidgets('行尾菜单：新建子目录/移动到…；非根节点还有升到根级',
+  testWidgets('右键菜单：新建子目录/移动到…/删除笔记本；非根节点还有升到根级',
       (tester) async {
     await seedTree();
     await pumpColumn(tester);
 
     // 根节点「父目录」的菜单：无「升到根级」。
-    await tester.tap(menuIconOf('父目录'));
-    await tester.pumpAndSettle();
+    await openMenu(tester, '父目录');
     expect(find.text('新建子目录'), findsOneWidget);
     expect(find.text('移动到…'), findsOneWidget);
+    expect(find.text('删除笔记本'), findsOneWidget);
     expect(find.text('升到根级'), findsNothing, reason: '根节点不显示升根');
     await tester.tapAt(const Offset(10, 10)); // 点空白关掉菜单
     await tester.pumpAndSettle();
 
     // 非根节点「子目录」的菜单：有「升到根级」。
-    await tester.tap(menuIconOf('子目录'));
-    await tester.pumpAndSettle();
+    await openMenu(tester, '子目录');
     expect(find.text('新建子目录'), findsOneWidget);
     expect(find.text('移动到…'), findsOneWidget);
     expect(find.text('升到根级'), findsOneWidget);
@@ -168,8 +167,7 @@ void main() {
     await seed('P', '父目录');
     await pumpColumn(tester);
 
-    await tester.tap(menuIconOf('父目录'));
-    await tester.pumpAndSettle();
+    await openMenu(tester, '父目录');
     await tester.tap(find.text('新建子目录'));
     await tester.pumpAndSettle();
 
@@ -198,9 +196,8 @@ void main() {
     await seedTree();
     await pumpColumn(tester);
 
-    // 「子目录」行的菜单 → 升到根级。
-    await tester.tap(menuIconOf('子目录'));
-    await tester.pumpAndSettle();
+    // 「子目录」行的右键菜单 → 升到根级。
+    await openMenu(tester, '子目录');
     await tester.tap(find.text('升到根级'));
     await tester.pumpAndSettle();
 

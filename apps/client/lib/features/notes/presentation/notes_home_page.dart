@@ -9,10 +9,10 @@
 ///
 /// 笔记本多级目录（PR4）：左栏按 parentId 组装成树渲染（缩进 + 展开/收起，
 /// 收起集合 SharedPreferences 持久化，key `notes_notebooks_tree_collapsed`），
-/// 右键 / 长按 / 行尾「⋯」共用操作菜单（新建子目录 / 移动到… / 升到根级 /
-/// 删除笔记本——连带软删：本内活笔记进回收站，子本上移一层，笔记本不可
-/// 恢复）。树组装纯函数见 application/notebook_tree.dart（悬空 parent /
-/// 环防御，不丢节点）。
+/// 右键 / 长按弹上下文菜单（新建子目录 / 移动到… / 升到根级 / 删除笔记本
+/// ——连带软删：本内活笔记进回收站，子本上移一层，笔记本不可恢复）。
+/// 树组装纯函数见 application/notebook_tree.dart（悬空 parent / 环防御，
+/// 不丢节点）。
 ///
 /// 手机形态（<600px，core/layout/form_factor.dart）退化为列表 ↔ 详情：
 /// 笔记本收进 bottom sheet，点笔记 push NoteEditorPage。
@@ -332,8 +332,8 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
     }
   }
 
-  /// 笔记本操作菜单项 —— 右键 / 长按 / 行尾「⋯」三入口共用。删除项放
-  /// 分隔线后用危险色（threads_shell_page 删除项同款惯例）。
+  /// 笔记本操作菜单项 —— 右键 / 长按上下文菜单（删除项放分隔线后用
+  /// 危险色，threads_shell_page 删除项同款惯例）。
   List<PopupMenuEntry<String>> _notebookMenuItems(RepoNotebook nb) {
     final error = Theme.of(context).colorScheme.error;
     return <PopupMenuEntry<String>>[
@@ -482,10 +482,6 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
                     onToggle: () => _toggleCollapsed(node.notebook.id),
                     onContextMenu: (pos) =>
                         _showNotebookMenu(node, pos, notebooks),
-                    menuItemsBuilder: () =>
-                        _notebookMenuItems(node.notebook),
-                    onAction: (action) =>
-                        _onNotebookAction(node.notebook, action, notebooks),
                   ),
                 Divider(height: 1, color: BiuTokens.borderSubtle),
                 _TagsSectionHeader(
@@ -519,10 +515,9 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
   }
 }
 
-/// 树形笔记本行：缩进 + 展开/收起箭头 + 行尾操作菜单（新建子目录 /
-/// 移动到… / 升到根级 / 删除笔记本）。桌面右键、触屏长按弹同一菜单
-/// （锚定指针位置，见 popup_position.dart）。选中态/灰显语义与
-/// _FilterTile 一致。
+/// 树形笔记本行：缩进 + 展开/收起箭头。桌面右键、触屏长按弹上下文菜单
+/// （新建子目录 / 移动到… / 升到根级 / 删除笔记本；锚定指针位置，见
+/// popup_position.dart）。选中态/灰显语义与 _FilterTile 一致。
 class _NotebookTile extends StatelessWidget {
   const _NotebookTile({
     required this.node,
@@ -531,8 +526,6 @@ class _NotebookTile extends StatelessWidget {
     required this.onTap,
     required this.onToggle,
     required this.onContextMenu,
-    required this.menuItemsBuilder,
-    required this.onAction,
   });
 
   final NotebookTreeNode node;
@@ -543,13 +536,6 @@ class _NotebookTile extends StatelessWidget {
 
   /// 右键 / 长按（参数为指针屏幕坐标，父级用 popupPositionAt 锚定弹菜单）。
   final ValueChanged<Offset> onContextMenu;
-
-  /// 菜单项构建（与右键/长按菜单共用，由父级注入保证三入口一致）。
-  final List<PopupMenuEntry<String>> Function() menuItemsBuilder;
-
-  /// 行尾菜单动作：'child'（新建子目录）/ 'move'（移动到…）/ 'root'
-  /// （升根）/ 'delete'（删除笔记本）。
-  final ValueChanged<String> onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -599,19 +585,6 @@ class _NotebookTile extends StatelessWidget {
                           selected ? FontWeight.w600 : FontWeight.normal,
                     ),
                     overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: PopupMenuButton<String>(
-                    tooltip: '笔记本操作',
-                    icon: Icon(Icons.more_horiz,
-                        size: 14, color: BiuTokens.textSecondary),
-                    padding: EdgeInsets.zero,
-                    iconSize: 14,
-                    itemBuilder: (ctx) => menuItemsBuilder(),
-                    onSelected: onAction,
                   ),
                 ),
                 const SizedBox(width: 8),
