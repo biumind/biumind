@@ -371,8 +371,9 @@ class NotesRepository {
   /// 把 GET /v1/notes/changes 拉到的增量事件应用到 Drift。
   ///
   /// tombstone：note.deleted → 本地置 trashed；note.purged → 删行；
-  /// notebook.deleted → 删行（挂着的笔记由服务端还原逻辑置根，后续
-  /// note.updated 事件会刷成 notebook_id=NULL）。
+  /// notebook.deleted → 删行（本内笔记由服务端 SoftDeleteNotebook
+  /// 同事务发出的 note.deleted 事件标 trashed，本分支不再处理笔记；
+  /// 子本上移不发事件，hardDeleteNotebook 本地重放）。
   ///
   /// 回声抑制（简化版）：本机 flush 出去的变更会经事件流回显。对仍有
   /// 未冲刷 update_note op 的笔记跳过 payload 覆盖，避免用旧的回声
@@ -547,9 +548,14 @@ class NotesRepository {
     ));
   }
 
+  /// 删除笔记本：本内活笔记连带进回收站（服务端 SoftDeleteNotebook
+  /// 同事务连带软删并逐条发 note.deleted，这里先做本地乐观标记，
+  /// 事件回流幂等确认）。子笔记本上移一层（hardDeleteNotebook 本地
+  /// 重放）。笔记本本身软删、无回收站 —— 不可恢复。
   Future<void> deleteNotebook(String id) async {
-    await dao.hardDeleteNotebook(id);
     final now = DateTime.now().toUtc();
+    await dao.trashNotesByNotebook(id, now);
+    await dao.hardDeleteNotebook(id);
     await dao.enqueueOutbox(NoteOutboxCompanion.insert(
       op: NoteOutboxOp.deleteNotebook,
       entityId: id,

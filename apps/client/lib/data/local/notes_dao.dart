@@ -103,8 +103,9 @@ class NotesDao {
     });
   }
 
-  /// 服务端软删笔记本后本地直接删行（本地表无软删列）；挂着的笔记
-  /// 由服务端还原逻辑置根，changes 增量会把它们刷成 notebook_id=NULL。
+  /// 服务端软删笔记本后本地直接删行（本地表无软删列）；本内活笔记
+  /// 由服务端同事务连带软删（SoftDeleteNotebook 逐条发 note.deleted），
+  /// 本地经 deleteNotebook 乐观标记 + changes 事件标 trashed 进回收站。
   /// 子笔记本同步上移一层（parentId := 被删本的 parentId，根级的子本
   /// 变根）—— 服务端 SoftDeleteNotebook 子本上移不发事件（PR1 语义），
   /// 客户端必须在 deleted 分支本地重放，否则本地树挂着已删节点。
@@ -121,6 +122,25 @@ class NotesDao {
             ..where((t) => t.id.equals(id) & t.ownerKey.equals(scope)))
           .go();
     });
+  }
+
+  /// 本内活笔记批量进回收站（删除笔记本的本地乐观写；服务端在
+  /// SoftDeleteNotebook 事务内连带软删，note.deleted 事件随后回流
+  /// 逐条确认，与 markNoteTrashed 幂等重叠）。
+  Future<void> trashNotesByNotebook(
+      String notebookId, DateTime trashedAt) async {
+    await (_db.update(_db.noteNotes)
+          ..where((t) =>
+              t.notebookId.equals(notebookId) &
+              t.ownerKey.equals(scope) &
+              t.trashed.equals(false)))
+        .write(
+      NoteNotesCompanion(
+        trashed: const Value(true),
+        trashedAt: Value(trashedAt),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ),
+    );
   }
 
   // ─── notes ────────────────────────────────────────────────

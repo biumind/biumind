@@ -9,8 +9,10 @@
 ///
 /// 笔记本多级目录（PR4）：左栏按 parentId 组装成树渲染（缩进 + 展开/收起，
 /// 收起集合 SharedPreferences 持久化，key `notes_notebooks_tree_collapsed`），
-/// 行尾菜单提供「新建子目录 / 移动到… / 升到根级」。树组装纯函数见
-/// application/notebook_tree.dart（悬空 parent / 环防御，不丢节点）。
+/// 右键 / 长按 / 行尾「⋯」共用操作菜单（新建子目录 / 移动到… / 升到根级 /
+/// 删除笔记本——连带软删：本内活笔记进回收站，子本上移一层，笔记本不可
+/// 恢复）。树组装纯函数见 application/notebook_tree.dart（悬空 parent /
+/// 环防御，不丢节点）。
 ///
 /// 手机形态（<600px，core/layout/form_factor.dart）退化为列表 ↔ 详情：
 /// 笔记本收进 bottom sheet，点笔记 push NoteEditorPage。
@@ -34,6 +36,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../app/theme.dart';
 import '../../../core/editor/editor_native_view.dart';
 import '../../../core/layout/form_factor.dart';
+import '../../../core/ui/popup_position.dart';
 import '../../../data/api/notes_client.dart' as api;
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
@@ -329,6 +332,75 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
     }
   }
 
+  /// 笔记本操作菜单项 —— 右键 / 长按 / 行尾「⋯」三入口共用。删除项放
+  /// 分隔线后用危险色（threads_shell_page 删除项同款惯例）。
+  List<PopupMenuEntry<String>> _notebookMenuItems(RepoNotebook nb) {
+    final error = Theme.of(context).colorScheme.error;
+    return <PopupMenuEntry<String>>[
+      const PopupMenuItem(value: 'child', child: Text('新建子目录')),
+      const PopupMenuItem(value: 'move', child: Text('移动到…')),
+      if (nb.parentId != null)
+        const PopupMenuItem(value: 'root', child: Text('升到根级')),
+      const PopupMenuDivider(height: 8),
+      PopupMenuItem(
+        value: 'delete',
+        child: Text('删除笔记本', style: TextStyle(color: error)),
+      ),
+    ];
+  }
+
+  /// 右键 / 长按弹上下文菜单（锚定指针位置）。
+  Future<void> _showNotebookMenu(
+      NotebookTreeNode node, Offset globalPos, List<RepoNotebook> flat) async {
+    final action = await showMenu<String>(
+      context: context,
+      position: popupPositionAt(context, globalPos),
+      items: _notebookMenuItems(node.notebook),
+    );
+    if (action == null || !mounted) return;
+    await _onNotebookAction(node.notebook, action, flat);
+  }
+
+  /// 「删除笔记本」：二次确认 → 连带软删（本内活笔记进回收站，子本上移
+  /// 一层；笔记本本身无回收站、不可恢复）。删完清理选中态 —— 当前过滤
+  /// 指向被删本或其子树时重置为「全部笔记」（_trashThisNote 同款模式）。
+  Future<void> _confirmDeleteNotebook(
+      RepoNotebook nb, List<RepoNotebook> flat) async {
+    final repo = ref.read(notesRepositoryProvider);
+    if (repo == null) return;
+    final noteCount =
+        (await repo.watchNotes(notebookId: nb.id).first).length;
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除笔记本'),
+        content: Text('删除笔记本「${nb.name}」？'
+            '${noteCount > 0 ? '本内 $noteCount 条笔记将移入回收站，' : ''}'
+            '子笔记本将上移一层。笔记本删除后不可恢复'
+            '${noteCount > 0 ? '（笔记可在回收站还原）' : ''}。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final filter = ref.read(notesFilterProvider);
+    if (filter.kind == NotesListKind.notebook &&
+        notebookSubtreeIds(flat, nb.id).contains(filter.notebookId)) {
+      ref.read(notesFilterProvider.notifier).state = const NotesFilter.all();
+      ref.read(selectedNoteIdProvider.notifier).state = null;
+    }
+    await repo.deleteNotebook(nb.id);
+  }
+
   Future<void> _onNotebookAction(
       RepoNotebook nb, String action, List<RepoNotebook> flat) async {
     switch (action) {
@@ -339,6 +411,8 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
       case 'root':
         final repo = ref.read(notesRepositoryProvider);
         await repo?.updateNotebook(nb.id, moveToRoot: true);
+      case 'delete':
+        await _confirmDeleteNotebook(nb, flat);
     }
   }
 
@@ -406,6 +480,10 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
                     onTap: () =>
                         select(NotesFilter.notebook(node.notebook.id)),
                     onToggle: () => _toggleCollapsed(node.notebook.id),
+                    onContextMenu: (pos) =>
+                        _showNotebookMenu(node, pos, notebooks),
+                    menuItemsBuilder: () =>
+                        _notebookMenuItems(node.notebook),
                     onAction: (action) =>
                         _onNotebookAction(node.notebook, action, notebooks),
                   ),
@@ -442,7 +520,9 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
 }
 
 /// 树形笔记本行：缩进 + 展开/收起箭头 + 行尾操作菜单（新建子目录 /
-/// 移动到… / 升到根级）。选中态/灰显语义与 _FilterTile 一致。
+/// 移动到… / 升到根级 / 删除笔记本）。桌面右键、触屏长按弹同一菜单
+/// （锚定指针位置，见 popup_position.dart）。选中态/灰显语义与
+/// _FilterTile 一致。
 class _NotebookTile extends StatelessWidget {
   const _NotebookTile({
     required this.node,
@@ -450,6 +530,8 @@ class _NotebookTile extends StatelessWidget {
     required this.collapsed,
     required this.onTap,
     required this.onToggle,
+    required this.onContextMenu,
+    required this.menuItemsBuilder,
     required this.onAction,
   });
 
@@ -459,7 +541,14 @@ class _NotebookTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggle;
 
-  /// 行尾菜单动作：'child'（新建子目录）/ 'move'（移动到…）/ 'root'（升根）。
+  /// 右键 / 长按（参数为指针屏幕坐标，父级用 popupPositionAt 锚定弹菜单）。
+  final ValueChanged<Offset> onContextMenu;
+
+  /// 菜单项构建（与右键/长按菜单共用，由父级注入保证三入口一致）。
+  final List<PopupMenuEntry<String>> Function() menuItemsBuilder;
+
+  /// 行尾菜单动作：'child'（新建子目录）/ 'move'（移动到…）/ 'root'
+  /// （升根）/ 'delete'（删除笔记本）。
   final ValueChanged<String> onAction;
 
   @override
@@ -468,69 +557,66 @@ class _NotebookTile extends StatelessWidget {
     final color = selected ? BiuTokens.purple : BiuTokens.text;
     return Opacity(
       opacity: nb.pendingCreate ? 0.5 : 1,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          height: 34,
-          padding: EdgeInsets.only(left: 12 + node.depth * 14),
-          color: selected ? BiuTokens.purpleLight : null,
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: 16,
-                child: node.children.isEmpty
-                    ? null
-                    : InkWell(
-                        onTap: onToggle,
-                        child: Icon(
-                          collapsed
-                              ? Icons.chevron_right
-                              : Icons.expand_more,
-                          size: 14,
-                          color: BiuTokens.textSecondary,
+      child: GestureDetector(
+        onSecondaryTapDown: (d) => onContextMenu(d.globalPosition),
+        onLongPressStart: (d) => onContextMenu(d.globalPosition),
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            height: 34,
+            padding: EdgeInsets.only(left: 12 + node.depth * 14),
+            color: selected ? BiuTokens.purpleLight : null,
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  width: 16,
+                  child: node.children.isEmpty
+                      ? null
+                      : InkWell(
+                          onTap: onToggle,
+                          child: Icon(
+                            collapsed
+                                ? Icons.chevron_right
+                                : Icons.expand_more,
+                            size: 14,
+                            color: BiuTokens.textSecondary,
+                          ),
                         ),
-                      ),
-              ),
-              Icon(Icons.folder_outlined,
-                  size: 15,
-                  color:
-                      selected ? BiuTokens.purple : BiuTokens.textSecondary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  nb.name,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: color,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
+                ),
+                Icon(Icons.folder_outlined,
+                    size: 15,
+                    color: selected
+                        ? BiuTokens.purple
+                        : BiuTokens.textSecondary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    nb.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: color,
+                      fontWeight:
+                          selected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              SizedBox(
-                width: 24,
-                height: 24,
-                child: PopupMenuButton<String>(
-                  tooltip: '笔记本操作',
-                  icon: Icon(Icons.more_horiz,
-                      size: 14, color: BiuTokens.textSecondary),
-                  padding: EdgeInsets.zero,
-                  iconSize: 14,
-                  itemBuilder: (ctx) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem(
-                        value: 'child', child: Text('新建子目录')),
-                    const PopupMenuItem(
-                        value: 'move', child: Text('移动到…')),
-                    if (nb.parentId != null)
-                      const PopupMenuItem(
-                          value: 'root', child: Text('升到根级')),
-                  ],
-                  onSelected: onAction,
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: PopupMenuButton<String>(
+                    tooltip: '笔记本操作',
+                    icon: Icon(Icons.more_horiz,
+                        size: 14, color: BiuTokens.textSecondary),
+                    padding: EdgeInsets.zero,
+                    iconSize: 14,
+                    itemBuilder: (ctx) => menuItemsBuilder(),
+                    onSelected: onAction,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-            ],
+                const SizedBox(width: 8),
+              ],
+            ),
           ),
         ),
       ),
