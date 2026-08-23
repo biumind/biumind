@@ -404,7 +404,7 @@ func newRootCmd() *cobra.Command {
 		newMCPCmd(&f), newBridgeCmd(&f), newAgentCmd(&f), newServeCmd(&f), newPairCmd(&f), newSessionsCmd(),
 		newAuthCmd(&f), newInitCmd(&f), newUsageCmd(&f),
 		newConfigCmd(&f), newPlanCmd(&f), newSkillCmd(&f),
-		newAppCmd(&f))
+		newAppCmd(&f), newRepoAppCmd(&f))
 
 	// Make root flags also visible on subcommands (Cobra's "persistent"
 	// semantics). Recursive so 2-level subcommands like `biu mcp list`

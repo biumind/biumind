@@ -44,6 +44,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/client"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/gitassist"
+	"github.com/biumind/biumind/apps/cli/biu/internal/procmgmt"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/exechost"
 	"github.com/biumind/biumind/packages/go-sdk/biu/llm"
@@ -281,32 +282,11 @@ func healthzHandler(w http.ResponseWriter, _ *http.Request) {
 //     语义恰是 daemon 泄漏后新实例报「未就绪」的根因。pid 文件在 app 私有
 //     support 目录、由本 daemon 写,持有者几乎必是自家遗留 daemon。
 //   - 存活但不是 biu serve(pid 被无关进程复用)→ 保守拒绝,绝不误杀。
+//
+// 实现在 internal/procmgmt(与 repo-app runner 共用);这里只做
+// biu serve 专属的 reclaim 判定注入。
 func acquirePIDFile(path string) error {
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		_ = os.MkdirAll(dir, 0o755)
-	}
-	if existing, err := os.ReadFile(path); err == nil {
-		pidStr := strings.TrimSpace(string(existing))
-		if pid, perr := strconv.Atoi(pidStr); pidStr != "" && perr == nil {
-			switch {
-			case !processAlive(pid):
-				fmt.Fprintf(os.Stderr, "[biu] serve: clearing stale pid file %s (pid=%d not running)\n",
-					path, pid)
-			case processIsBiuServe(pid):
-				fmt.Fprintf(os.Stderr,
-					"[biu] serve: reclaiming pid file %s from live biu serve pid=%d (likely leaked from a prior app session)\n",
-					path, pid)
-				terminatePID(pid)
-				if processAlive(pid) {
-					return fmt.Errorf("biu serve: pid file %s held by pid=%d which did not exit after SIGTERM/SIGKILL", path, pid)
-				}
-			default:
-				return fmt.Errorf("biu serve: pid file %s held by live pid=%d that is not a biu serve; refusing to kill", path, pid)
-			}
-		}
-	}
-	pid := os.Getpid()
-	return os.WriteFile(path, []byte(strconv.Itoa(pid)+"\n"), 0o644)
+	return procmgmt.AcquirePIDFile(path, processIsBiuServe, "a biu serve")
 }
 
 // processIsBiuServe 尽力判断 pid 是否一个 biu serve 进程(决定能否安全接管锁)。
@@ -321,19 +301,9 @@ func processIsBiuServe(pid int) bool {
 }
 
 // terminatePID 优雅终止 pid:先 SIGTERM 等最多 ~2s,仍在则 SIGKILL。
+// 实现已提升到 internal/procmgmt。
 func terminatePID(pid int) {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return
-	}
-	_ = p.Signal(syscall.SIGTERM)
-	for i := 0; i < 20; i++ {
-		if !processAlive(pid) {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	_ = p.Signal(syscall.SIGKILL)
+	procmgmt.TerminatePID(pid)
 }
 
 // watchParentDeath 监视父进程(spawn 本 daemon 的 app 引擎进程):父进程死亡后
@@ -357,28 +327,17 @@ func watchParentDeath(cancel context.CancelFunc) {
 }
 
 // releasePIDFile 删 PID 文件。defer 调用；err 仅 log。
+// 实现已提升到 internal/procmgmt。
 func releasePIDFile(path string) {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "[biu] serve: failed to remove pid file: %v\n", err)
-	}
+	procmgmt.ReleasePIDFile(path)
 }
 
 // processAlive 用 syscall 0 信号探活（不发实际信号，只查权限）。Unix-only
 // 语义；Windows 上 Process 接口同样支持但语义不同 —— 当前只在桌面 macOS /
 // Linux 部署，Windows 通过 launchd 等价物处理。
+// 实现已提升到 internal/procmgmt。
 func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// signal 0 不实际发，只做权限/存在性检查。
-	if err := p.Signal(syscall.Signal(0)); err != nil {
-		return false
-	}
-	return true
+	return procmgmt.ProcessAlive(pid)
 }
 
 // setupDaemonLog 把 slog 默认 handler 指向 stderr + ~/.biu/logs/daemon.log。

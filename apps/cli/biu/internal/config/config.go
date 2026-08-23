@@ -25,6 +25,16 @@ type Config struct {
 	Search      SearchSection              `toml:"search"`
 	MCPServers  []MCPServerSection         `toml:"mcp_servers"`
 	Auth        AuthSection                `toml:"auth"`
+	RepoApp     RepoAppSection             `toml:"repo-app"`
+}
+
+// RepoAppSection configures `biu repo-app` (local runner for GitHub
+// repo apps). Everything is optional — empty fields fall back to the
+// defaults under ~/.biumind/.
+type RepoAppSection struct {
+	// CacheDir overrides the instance registry root
+	// (default ~/.biumind/repo-apps, or $BIU_REPOAPP_ROOT).
+	CacheDir string `toml:"cache_dir"`
 }
 
 // AuthSection configures OAuth (PKCE) for `biu auth login`. Provider-
