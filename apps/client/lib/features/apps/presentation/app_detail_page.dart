@@ -20,6 +20,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/layout/phone_nav.dart';
+import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/apps_client.dart';
 import '../../../data/api/sidebar_client.dart';
 import '../../../data/apps_providers.dart';
@@ -52,6 +53,13 @@ String? resolveAppHomeViewId(Map<String, dynamic> manifest) {
   return firstId is String && firstId.isNotEmpty ? firstId : null;
 }
 
+/// 防御性判定 repo app（M1.14）：manifest 带 `repo_meta` 对象或
+/// `tier == 'repo'`。老服务端没有这两个字段 → false，走原 view 逻辑。
+bool _isRepoApp(Map<String, dynamic> manifest) {
+  if (RepoMeta.tryParse(manifest['repo_meta']) != null) return true;
+  return (manifest['tier'] as String?) == 'repo';
+}
+
 class AppDetailPage extends ConsumerWidget {
   const AppDetailPage({super.key, required this.identifier});
   final String identifier;
@@ -77,6 +85,13 @@ class AppDetailPage extends ConsumerWidget {
           final creds = ref.watch(hubCredentialsProvider);
           final iconRaw = (m['icon'] as String?) ?? '';
           final (iconUrl, iconHeaders) = resolveAppIcon(iconRaw, creds);
+          // Repo App（M1.14）：manifest 带 repo_meta / tier=='repo' 时
+          // "打开"跳进伪独立窗口而非 view host；平台无 runner（Windows
+          // / 移动端）不给入口。
+          final isRepo = _isRepoApp(m);
+          final canOpenRepo = isRepo &&
+              install != null &&
+              ref.watch(platformCapsProvider).hasRepoAppRunner;
           return _Body(
             manifest: m,
             install: install,
@@ -86,7 +101,13 @@ class AppDetailPage extends ConsumerWidget {
             onInstall: () => _install(context, ref, m),
             onUninstall: () => _uninstall(context, ref, install),
             onToggle: (enabled) => _toggle(context, ref, install, enabled),
-            onOpen: install == null ? null : () => _open(context, install, m),
+            onOpen: install == null
+                ? null
+                : canOpenRepo
+                    ? () => context.push('/apps/repo-window/${install.id}')
+                    : isRepo
+                        ? null
+                        : () => _open(context, install, m),
           );
         },
       ),
@@ -400,6 +421,15 @@ class _Body extends StatelessWidget {
           ),
           const SizedBox(height: BiuTokens.space3),
           if (desc.isNotEmpty) Text(desc),
+          // Repo App（M1.14）：GitHub 信息区 —— 有 repo_meta 才显示。
+          if (RepoMeta.tryParse(manifest['repo_meta'])
+              case final repoMeta?) ...[
+            const SizedBox(height: BiuTokens.space5),
+            _Section(
+              title: 'GitHub',
+              child: _RepoInfoList(repoMeta: repoMeta, version: version),
+            ),
+          ],
           const SizedBox(height: BiuTokens.space5),
           _Section(title: l10n.appsSectionPermissions, child: _PermsList(permissions)),
           if (views.isNotEmpty) ...[
@@ -543,6 +573,48 @@ class _Section extends StatelessWidget {
   }
 }
 
+/// Repo App 的 GitHub 信息区（M1.14）：stars / license / 当前版本 /
+/// 最新版本 / 仓库地址。所有字段防御性渲染（空则跳过该行）。
+class _RepoInfoList extends StatelessWidget {
+  const _RepoInfoList({required this.repoMeta, required this.version});
+
+  final RepoMeta repoMeta;
+  final String version;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 72,
+                child: Text(label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant)),
+              ),
+              Expanded(
+                child: SelectableText(value,
+                    style: theme.textTheme.bodySmall),
+              ),
+            ],
+          ),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (repoMeta.url.isNotEmpty) row('仓库', repoMeta.url),
+        if (repoMeta.stars > 0) row('Stars', '★ ${repoMeta.stars}'),
+        if (repoMeta.license.isNotEmpty) row('许可证', repoMeta.license),
+        if (version.isNotEmpty) row('当前版本', 'v$version'),
+        if (repoMeta.latestRef.isNotEmpty) row('最新版本', repoMeta.latestRef),
+      ],
+    );
+  }
+}
+
 class _PermsList extends StatelessWidget {
   const _PermsList(this.perms);
   final List<String> perms;
@@ -629,7 +701,10 @@ Future<void> _clearWebViewStorageIfApplicable(WidgetRef ref, Installation instal
         .firstWhere((u) => u != null && u.isNotEmpty, orElse: () => null);
     if (firstUrl == null) return;
     final origin = Uri.parse(firstUrl);
-    await WebViewPanel.clearForOrigin(origin);
+    await WebViewPanel.clearForOrigin(
+      origin,
+      caps: ref.read(platformCapsProvider),
+    );
   } catch (e) {
     debugPrint('webview storage cleanup skipped: $e');
   }

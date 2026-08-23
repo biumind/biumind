@@ -13,6 +13,11 @@
 //   GET    /v1/apps/installs/{id}/agents         list agent grants
 //   POST   /v1/apps/installs/{id}/agents         grant
 //   DELETE /v1/apps/installs/{id}/agents/{aid}   revoke
+//   POST   /v1/apps/repo/analyze                 analyze a GitHub repo (Repo Apps)
+//   POST   /v1/apps/repo/installs                install from a GitHub repo
+//   GET    /v1/apps/installs/{id}/runtime        repo app runtime status
+//   GET    /v1/apps/installs/{id}/builds         repo app build history
+//   POST   /v1/apps/installs/{id}/redeploy       redeploy (new build)
 //
 // Bearer JWT carries the org claim; the client just passes the token
 // through. JSON keys must match the Go server 1:1 — pinned by
@@ -36,6 +41,11 @@ class AppCatalogEntry {
   final String kind;        // 'backend'|'view'|'hybrid'|'webview'|'container'
   final List<String> permissions;
 
+  /// Repo Apps (M1): optional fields, present only for GitHub-sourced
+  /// apps. Parsed defensively — absent/null on every non-repo row.
+  final String tier;        // '' | 'repo' | ... (server-defined)
+  final RepoMeta? repoMeta;
+
   const AppCatalogEntry({
     required this.identifier,
     required this.name,
@@ -46,6 +56,8 @@ class AppCatalogEntry {
     this.category = 'utility',
     this.kind = 'backend',
     this.permissions = const [],
+    this.tier = '',
+    this.repoMeta,
   });
 
   factory AppCatalogEntry.fromJson(Map<String, dynamic> j) {
@@ -65,6 +77,8 @@ class AppCatalogEntry {
       category:    j['category'] as String? ?? 'utility',
       kind:        j['kind'] as String? ?? 'backend',
       permissions: perms,
+      tier:        j['tier'] as String? ?? '',
+      repoMeta:    RepoMeta.tryParse(j['repo_meta']),
     );
   }
 }
@@ -209,6 +223,241 @@ DateTime _parseTime(Object? v) {
     return DateTime.tryParse(v)?.toLocal() ?? DateTime.fromMillisecondsSinceEpoch(0);
   }
   return DateTime.fromMillisecondsSinceEpoch(0);
+}
+
+// ─── Repo Apps (M1) — POST /v1/apps/repo/* + installs/{id}/runtime|builds ───
+//
+// 服务端是全新 struct, 一律带 snake_case json tag —— 这里只写 snake_case
+// 解析, 不复制 Installation.fromJson 的双 key fallback 债。所有字段防御性
+// 解析 (缺字段给默认值), 服务端加字段向前兼容。
+
+/// RepoManifestDraft — analyze 返回的 manifest 草稿（identifier/title/...）。
+class RepoManifestDraft {
+  final String identifier;
+  final String title;
+  final String description;
+  final String icon;
+  final String version;
+  final String category;
+
+  const RepoManifestDraft({
+    this.identifier = '',
+    this.title = '',
+    this.description = '',
+    this.icon = '',
+    this.version = '',
+    this.category = 'utility',
+  });
+
+  factory RepoManifestDraft.fromJson(Map<String, dynamic>? j) {
+    if (j == null) return const RepoManifestDraft();
+    return RepoManifestDraft(
+      identifier:  j['identifier'] as String? ?? '',
+      title:       j['title'] as String? ?? '',
+      description: j['description'] as String? ?? '',
+      icon:        j['icon'] as String? ?? '',
+      version:     j['version'] as String? ?? '',
+      category:    j['category'] as String? ?? 'utility',
+    );
+  }
+}
+
+/// RepoRuntimeReq — 运行时依赖要求（python3 / nodejs ...）。
+class RepoRuntimeReq {
+  final String name;
+  final String version;
+  final bool autoInstall;
+
+  const RepoRuntimeReq({
+    this.name = '',
+    this.version = '',
+    this.autoInstall = false,
+  });
+
+  factory RepoRuntimeReq.fromJson(Map<String, dynamic> j) => RepoRuntimeReq(
+        name:        j['name'] as String? ?? '',
+        version:     j['version'] as String? ?? '',
+        autoInstall: j['auto_install'] as bool? ?? false,
+      );
+}
+
+/// RepoStack — analyze 探测出的技术栈与启动方式。
+class RepoStack {
+  final String kind;
+  final String installCmd;
+  final String startCmd;
+  final int port;
+  final String healthPath;
+  final List<RepoRuntimeReq> runtimeReqs;
+
+  const RepoStack({
+    this.kind = '',
+    this.installCmd = '',
+    this.startCmd = '',
+    this.port = 0,
+    this.healthPath = '',
+    this.runtimeReqs = const [],
+  });
+
+  factory RepoStack.fromJson(Map<String, dynamic>? j) {
+    if (j == null) return const RepoStack();
+    return RepoStack(
+      kind:       j['kind'] as String? ?? '',
+      installCmd: j['install_cmd'] as String? ?? '',
+      startCmd:   j['start_cmd'] as String? ?? '',
+      port:       (j['port'] as num?)?.toInt() ?? 0,
+      healthPath: j['health_path'] as String? ?? '',
+      runtimeReqs: ((j['runtime_reqs'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(RepoRuntimeReq.fromJson)
+          .toList(growable: false),
+    );
+  }
+}
+
+/// EnvField — analyze 返回的配置项 schema。`system` 字段由 CLI 注入，
+/// 客户端表单不展示。
+class EnvField {
+  final String name;
+  final String label;
+  final bool secret;
+  final String defaultValue;
+  final bool optional;
+  final bool system;
+
+  const EnvField({
+    required this.name,
+    this.label = '',
+    this.secret = false,
+    this.defaultValue = '',
+    this.optional = false,
+    this.system = false,
+  });
+
+  factory EnvField.fromJson(Map<String, dynamic> j) => EnvField(
+        name:         j['name'] as String? ?? '',
+        label:        j['label'] as String? ?? '',
+        secret:       j['secret'] as bool? ?? false,
+        defaultValue: j['default'] as String? ?? '',
+        optional:     j['optional'] as bool? ?? false,
+        system:       j['system'] as bool? ?? false,
+      );
+}
+
+/// RepoMeta — 仓库元信息（stars / license / 最新 release）。
+class RepoMeta {
+  final String url;
+  final String defaultBranch;
+  final String latestRef;
+  final String latestSha;
+  final int stars;
+  final String license;
+
+  const RepoMeta({
+    this.url = '',
+    this.defaultBranch = '',
+    this.latestRef = '',
+    this.latestSha = '',
+    this.stars = 0,
+    this.license = '',
+  });
+
+  factory RepoMeta.fromJson(Map<String, dynamic> j) => RepoMeta(
+        url:           j['url'] as String? ?? '',
+        defaultBranch: j['default_branch'] as String? ?? '',
+        latestRef:     j['latest_ref'] as String? ?? '',
+        latestSha:     j['latest_sha'] as String? ?? '',
+        stars:         (j['stars'] as num?)?.toInt() ?? 0,
+        license:       j['license'] as String? ?? '',
+      );
+
+  /// 防御性入口：catalog/manifest JSON 里的可选字段，缺失/类型不符 → null。
+  static RepoMeta? tryParse(Object? v) {
+    if (v is Map<String, dynamic>) return RepoMeta.fromJson(v);
+    if (v is Map) return RepoMeta.fromJson(Map<String, dynamic>.from(v));
+    return null;
+  }
+}
+
+/// RepoAnalysis — POST /v1/apps/repo/analyze 的完整响应。
+class RepoAnalysis {
+  final RepoManifestDraft manifestDraft;
+  final RepoStack stack;
+  final List<EnvField> envSchema;
+  final RepoMeta repoMeta;
+  final List<String> warnings;
+
+  const RepoAnalysis({
+    this.manifestDraft = const RepoManifestDraft(),
+    this.stack = const RepoStack(),
+    this.envSchema = const [],
+    this.repoMeta = const RepoMeta(),
+    this.warnings = const [],
+  });
+
+  factory RepoAnalysis.fromJson(Map<String, dynamic> j) => RepoAnalysis(
+        manifestDraft:
+            RepoManifestDraft.fromJson(j['manifest_draft'] as Map<String, dynamic>?),
+        stack: RepoStack.fromJson(j['stack'] as Map<String, dynamic>?),
+        envSchema: ((j['env_schema'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(EnvField.fromJson)
+            .toList(growable: false),
+        repoMeta: RepoMeta.tryParse(j['repo_meta']) ?? const RepoMeta(),
+        warnings: ((j['warnings'] as List?) ?? const [])
+            .whereType<String>()
+            .toList(growable: false),
+      );
+}
+
+/// RepoRuntimeStatus — GET /v1/apps/installs/{id}/runtime。
+class RepoRuntimeStatus {
+  final String mode;    // 'local' | ...
+  final String status;  // 'stopped'|'starting'|'running'|'failed'
+  final String url;     // running 时的 http://127.0.0.1:<port>
+
+  const RepoRuntimeStatus({
+    this.mode = '',
+    this.status = '',
+    this.url = '',
+  });
+
+  bool get isRunning => status == 'running' && url.isNotEmpty;
+
+  factory RepoRuntimeStatus.fromJson(Map<String, dynamic> j) =>
+      RepoRuntimeStatus(
+        mode:   j['mode'] as String? ?? '',
+        status: j['status'] as String? ?? '',
+        url:    j['url'] as String? ?? '',
+      );
+}
+
+/// RepoBuild — GET /v1/apps/installs/{id}/builds 里的一条构建记录。
+class RepoBuild {
+  final String id;
+  final String ref;
+  final String sha;
+  final String status; // 'queued'|'building'|'live'|'failed' (server-defined)
+  final int durationMs;
+  final DateTime createdAt;
+
+  const RepoBuild({
+    this.id = '',
+    this.ref = '',
+    this.sha = '',
+    this.status = '',
+    this.durationMs = 0,
+    required this.createdAt,
+  });
+
+  factory RepoBuild.fromJson(Map<String, dynamic> j) => RepoBuild(
+        id:         j['id'] as String? ?? '',
+        ref:        j['ref'] as String? ?? '',
+        sha:        j['sha'] as String? ?? '',
+        status:     j['status'] as String? ?? '',
+        durationMs: (j['duration_ms'] as num?)?.toInt() ?? 0,
+        createdAt:  _parseTime(j['created_at']),
+      );
 }
 
 /// AppsClient is the thin transport layer. Construct once with the
@@ -460,5 +709,93 @@ class AppsClient {
       bearerToken: token,
       expectNoBody: true,
     );
+  }
+
+  /// POST /v1/apps/repo/analyze — 分析一个 GitHub 仓库，返回 manifest
+  /// 草稿 + 技术栈 + env schema。服务端对不支持的仓库类型返回 4xx +
+  /// {"error":{"code","message"}}，UI 层直接展示 message（"不支持"原因）。
+  Future<RepoAnalysis> analyzeRepo({
+    required String repoUrl,
+    required String token,
+  }) async {
+    final j = await apiRequest(
+      method: 'POST',
+      url: baseUrl.replace(path: '${baseUrl.path}/v1/apps/repo/analyze'),
+      bearerToken: token,
+      body: {'repo_url': repoUrl},
+    );
+    return RepoAnalysis.fromJson(j);
+  }
+
+  /// POST /v1/apps/repo/installs — 从 GitHub 仓库安装。refType 为
+  /// 'release' | 'branch'。config 只放非机密配置（D9：机密不上服务端，
+  /// 由客户端经本机 CLI ensure 通道下发写入实例 .env）。
+  Future<Installation> installRepo({
+    required String repoUrl,
+    required String refType,
+    Map<String, dynamic> config = const {},
+    required String token,
+  }) async {
+    final j = await apiRequest(
+      method: 'POST',
+      url: baseUrl.replace(path: '${baseUrl.path}/v1/apps/repo/installs'),
+      bearerToken: token,
+      body: {
+        'repo_url': repoUrl,
+        'ref_type': refType,
+        'config': config,
+      },
+    );
+    return Installation.fromJson(j);
+  }
+
+  /// GET /v1/apps/installs/{id}/runtime — repo app 的运行时状态。
+  Future<RepoRuntimeStatus> getRepoRuntime({
+    required String installId,
+    required String token,
+  }) async {
+    final j = await apiRequest(
+      method: 'GET',
+      url: baseUrl.replace(
+        path: '${baseUrl.path}/v1/apps/installs/$installId/runtime',
+      ),
+      bearerToken: token,
+    );
+    return RepoRuntimeStatus.fromJson(j);
+  }
+
+  /// GET /v1/apps/installs/{id}/builds — repo app 构建历史。
+  Future<List<RepoBuild>> listRepoBuilds({
+    required String installId,
+    required String token,
+  }) async {
+    final j = await apiRequest(
+      method: 'GET',
+      url: baseUrl.replace(
+        path: '${baseUrl.path}/v1/apps/installs/$installId/builds',
+      ),
+      bearerToken: token,
+    );
+    final list = (j['builds'] as List?) ?? const [];
+    return list
+        .whereType<Map<String, dynamic>>()
+        .map(RepoBuild.fromJson)
+        .toList(growable: false);
+  }
+
+  /// POST /v1/apps/installs/{id}/redeploy — 触发一次新构建，返回 build_id。
+  Future<String> redeployRepo({
+    required String installId,
+    required String token,
+  }) async {
+    final j = await apiRequest(
+      method: 'POST',
+      url: baseUrl.replace(
+        path: '${baseUrl.path}/v1/apps/installs/$installId/redeploy',
+      ),
+      bearerToken: token,
+      body: const {},
+    );
+    return j['build_id'] as String? ?? '';
   }
 }

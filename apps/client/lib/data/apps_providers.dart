@@ -110,9 +110,10 @@ final installationByIdentifierProvider =
 ///   - toggle / 单条 install 状态变化:
 ///       ref.invalidateInstall(installId);  // 单条 + 升级状态
 ///       ref.invalidateInstallScope(scope); // 列表 derived 状态
-///   - upgrade 完成:
+///   - upgrade / redeploy 完成:
 ///       ref.invalidateInstall(installId);
 ///       ref.invalidateInstallScope(scope);
+///       ref.invalidateRepoBuilds(installId);  // repo app 构建历史
 extension AppsRefresh on WidgetRef {
   /// 失效单条 installation 的 detail provider + 它的 upgrade 状态。
   void invalidateInstall(String installId) {
@@ -124,6 +125,11 @@ extension AppsRefresh on WidgetRef {
   /// 精准 —— 不会把另一个 scope 的缓存也清掉。
   void invalidateInstallScope(String scope) {
     invalidate(installationsProvider(scope));
+  }
+
+  /// 失效单个 repo app 的构建历史（redeploy / upgrade 后调用）。
+  void invalidateRepoBuilds(String installId) {
+    invalidate(repoAppBuildsProvider(installId));
   }
 
   /// 全量刷新 —— 仅在 sign-in / 切换组织等 broad context 切换时使用。
@@ -143,6 +149,11 @@ extension AppsRefreshOnRef on Ref {
 
   void invalidateInstallScope(String scope) {
     invalidate(installationsProvider(scope));
+  }
+
+  /// 失效单个 repo app 的构建历史（redeploy / upgrade 后调用）。
+  void invalidateRepoBuilds(String installId) {
+    invalidate(repoAppBuildsProvider(installId));
   }
 }
 
@@ -180,3 +191,40 @@ class UpgradeRow {
   final UpgradeStatus status;
   const UpgradeRow({required this.install, required this.status});
 }
+
+// ─── Repo Apps (M1) ───────────────────────────────────────────────
+
+/// Per-URL 仓库分析结果。family key = repoUrl。确认页 watch 它渲染
+/// 三态（loading / 错误+重试 / 确认表单）。
+final repoAnalyzeProvider = FutureProvider.family<RepoAnalysis?, String>(
+  (ref, repoUrl) async {
+    // select(baseUrl): token 轮换不重拉 (App Center 列表不闪); token 现读保新鲜.
+    ref.watch(appsClientProvider.select((c) => c?.baseUrl));
+    final client = ref.read(appsClientProvider);
+    final token = ref.read(appsBearerProvider);
+    if (client == null || token == null) return null;
+    return client.analyzeRepo(repoUrl: repoUrl, token: token);
+  },
+);
+
+/// Per-installation repo app 构建历史。family key = installId。
+final repoAppBuildsProvider = FutureProvider.family<List<RepoBuild>, String>(
+  (ref, installId) async {
+    // select(baseUrl): token 轮换不重拉 (App Center 列表不闪); token 现读保新鲜.
+    ref.watch(appsClientProvider.select((c) => c?.baseUrl));
+    final client = ref.read(appsClientProvider);
+    final token = ref.read(appsBearerProvider);
+    if (client == null || token == null) return const [];
+    return client.listRepoBuilds(installId: installId, token: token);
+  },
+);
+
+/// repo app 机密配置的内存接力（D9）：确认页安装成功后把 secret env
+/// 值暂存这里（key = installId），伪独立窗口首次 `biu repo-app ensure`
+/// 时取出下发给 CLI（CLI 写实例 .env），随后立即清除。
+///
+/// 红线：机密不上服务端、不进 keychain、不写任何持久化 —— 进程内存
+/// 仅限本次安装会话，app 重启即丢（届时 ensure 用空 .env 起，用户经
+/// "配置"入口重新下发，二期再补）。
+final repoAppPendingEnvProvider =
+    StateProvider<Map<String, Map<String, String>>>((ref) => const {});

@@ -53,6 +53,8 @@ import '../features/apps/host/app_view_host.dart';
 import '../features/apps/presentation/app_detail_page.dart';
 import '../features/apps/presentation/app_settings_page.dart';
 import '../features/apps/presentation/apps_page.dart';
+import '../features/apps/presentation/repo_install_page.dart';
+import '../features/apps/presentation/repo_window_page.dart';
 import '../features/apps/presentation/sidebar_customize_page.dart';
 import '../features/membership/presentation/pages/checkout_page.dart';
 import '../features/membership/presentation/pages/coupon_redeem_page.dart';
@@ -178,6 +180,17 @@ GoRouter buildRouter(ProviderContainer container) {
           final ar = state.uri.queryParameters['ar'] ?? '';
           return MaterialPage<void>(child: OAuthConnectPage(ar: ar));
         },
+      ),
+      // /apps/repo-window/:installId —— Repo App 伪独立窗口（M1.14）。
+      // 在 ShellRoute 之外：无侧边栏的全屏页（先例 /suggestions，
+      // MaterialPage 挂 rootNavigatorKey）。
+      GoRoute(
+        path: '/apps/repo-window/:installId',
+        pageBuilder: (_, state) => MaterialPage<void>(
+          child: RepoWindowPage(
+            installId: state.pathParameters['installId'] ?? '',
+          ),
+        ),
       ),
       ShellRoute(
         builder: (ctx, state, child) => _AppShell(child: child),
@@ -344,6 +357,15 @@ GoRouter buildRouter(ProviderContainer container) {
             path: '/apps/detail/:slug',
             pageBuilder: (_, state) => subPage(
               AppDetailPage(identifier: state.pathParameters['slug'] ?? ''),
+            ),
+          ),
+          // Repo App 安装确认页（M1.14）—— /apps/repo-install?url=<repo>
+          GoRoute(
+            path: '/apps/repo-install',
+            pageBuilder: (_, state) => subPage(
+              RepoInstallPage(
+                repoUrl: state.uri.queryParameters['url'] ?? '',
+              ),
             ),
           ),
           // App view host —— /apps/host/:installId/:viewId

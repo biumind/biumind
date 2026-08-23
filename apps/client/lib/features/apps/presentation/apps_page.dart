@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/platform/platform_caps.dart';
 import '../../../core/ui/popup_position.dart';
 import '../../../data/api/apps_client.dart';
 import '../../../data/api/sidebar_client.dart';
@@ -59,6 +60,7 @@ class _AppsPageState extends ConsumerState<AppsPage> {
     final catalogAsync = ref.watch(appsCatalogProvider);
     final installs = ref.watch(installationsProvider('user')).valueOrNull ?? const [];
     final devApps = ref.watch(devAppsProvider).valueOrNull ?? const [];
+    final caps = ref.watch(platformCapsProvider);
 
     // Dev events feed — when the SSE stream emits any event, refresh the
     // dev apps list so manifest hot-reloads land in the UI within ~1s.
@@ -80,6 +82,14 @@ class _AppsPageState extends ConsumerState<AppsPage> {
           },
           icon: const Icon(Icons.add_link),
         ),
+        // Repo Apps（M1.14）：仅桌面端显示入口；Windows 点进去由确认页
+        // 给"macOS/Linux 可用"的降级说明（hasRepoAppRunner=false）。
+        if (caps.hasLocalPty)
+          IconButton(
+            tooltip: '安装 GitHub 应用',
+            onPressed: () => context.push('/apps/repo-install'),
+            icon: const Icon(Icons.cloud_download_outlined),
+          ),
         IconButton(
           tooltip: l10n.appsRefresh,
           onPressed: () {

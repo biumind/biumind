@@ -44,12 +44,28 @@ class PlatformCaps {
   /// P6.3.5 wires up persistent WASM + IndexedDB.
   final bool hasPersistentSqlite;
 
+  /// True when webview_flutter has a working embedded engine on this
+  /// platform (macOS / iOS / Android per pubspec's wkwebview + android
+  /// implementations). Windows / Linux / Web are false — calling
+  /// `WebViewController()` there throws MissingPluginException, so UI
+  /// must branch on this cap and render the external-browser fallback
+  /// instead (M1.14, Repo Apps).
+  final bool hasEmbeddedWebView;
+
+  /// True when the local repo-app runner (`biu repo-app ensure`) is
+  /// supported: macOS / Linux. Windows is false (PID/signal code in the
+  /// CLI is Unix-only, TechPlan §3.3); mobile / web false. Gates the
+  /// "安装 GitHub 应用" entry and the repo window page.
+  final bool hasRepoAppRunner;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
     required this.hasNotifications,
     required this.supportsBackgroundIsolates,
     required this.hasPersistentSqlite,
+    required this.hasEmbeddedWebView,
+    required this.hasRepoAppRunner,
   });
 
   factory PlatformCaps.detect() {
@@ -66,6 +82,8 @@ class PlatformCaps {
         hasNotifications: false,
         supportsBackgroundIsolates: true,
         hasPersistentSqlite: true,
+        hasEmbeddedWebView: false,
+        hasRepoAppRunner: false,
       );
     }
     final desktop = switch (defaultTargetPlatform) {
@@ -80,6 +98,17 @@ class PlatformCaps {
       hasNotifications: true,
       supportsBackgroundIsolates: true,
       hasPersistentSqlite: true,
+      hasEmbeddedWebView: switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.iOS ||
+        TargetPlatform.android =>
+          true,
+        _ => false,
+      },
+      hasRepoAppRunner: switch (defaultTargetPlatform) {
+        TargetPlatform.macOS || TargetPlatform.linux => true,
+        _ => false,
+      },
     );
   }
 
@@ -87,7 +116,8 @@ class PlatformCaps {
   String toString() =>
       'PlatformCaps(pty=$hasLocalPty, fs=$hasFileSystem, '
       'notif=$hasNotifications, isolate=$supportsBackgroundIsolates, '
-      'sqlite=$hasPersistentSqlite)';
+      'sqlite=$hasPersistentSqlite, webview=$hasEmbeddedWebView, '
+      'repoRunner=$hasRepoAppRunner)';
 }
 
 /// Riverpod provider — detected once at startup. Override in tests with

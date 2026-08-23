@@ -484,6 +484,10 @@ class BiuDaemonManager {
   }
 
   /// 找 biu binary 路径。返 null 表示找不到。
+  Future<String?> _resolveBinary() => resolveBiuBinary(shellEnv: shellEnv);
+
+  /// 找 biu binary 路径（静态版，供 BiuDaemonManager 与 repo-app
+  /// launcher 等一次性调用方共用）。返 null 表示找不到。
   ///
   /// 顺序：
   ///   1. BIU_BIN env（用户 / dev 显式指定）
@@ -493,7 +497,7 @@ class BiuDaemonManager {
   ///
   /// 不再用 `Process.run('which', ['biu'])` —— GUI app 的 spawn 子进程
   /// 仍然继承短 PATH，which 永远查不到 ~/.local/bin/biu。
-  Future<String?> _resolveBinary() async {
+  static Future<String?> resolveBiuBinary({LoginShellEnv? shellEnv}) async {
     final envPath = Platform.environment['BIU_BIN'];
     if (envPath != null && envPath.isNotEmpty && await File(envPath).exists()) {
       return envPath;

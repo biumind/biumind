@@ -21,6 +21,8 @@ void main() {
       hasNotifications: false,
       supportsBackgroundIsolates: true,
       hasPersistentSqlite: false,
+      hasEmbeddedWebView: false,
+      hasRepoAppRunner: false,
     );
     expect(web.hasLocalPty, isFalse);
     expect(web.hasPersistentSqlite, isFalse);
