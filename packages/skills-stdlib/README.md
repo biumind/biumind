@@ -8,19 +8,29 @@ Each top-level folder is one skill, named with its identifier (kebab-case, match
 
 ```
 skills-stdlib/
-├── skill-creator/
+├── biumind/               platform map + task router (start here)
 │   └── SKILL.md
-├── biumind/                 (planned — PS4.1)
+├── wiki/                  knowledge base tools
 │   └── SKILL.md
-├── wiki/                    (planned — PS4.1)
-└── …
+├── memory/                long-term memory tools
+│   └── SKILL.md
+├── graph/                 knowledge graph tools
+│   └── SKILL.md
+├── sandbox/               cloud workstation tools
+│   └── SKILL.md
+├── app-center/            BiuApp tools
+│   └── SKILL.md
+├── artifacts/             user-facing file exports
+│   └── SKILL.md
+└── skill-creator/         author new skills
+    └── SKILL.md
 ```
 
 ## Loading
 
-`services/runtime/internal/skills/builtin.go` (PS4.1) walks this tree at startup and upserts each skill into `runtime.skills` with `source='bundled', owner_id=NULL` (org-shared). Idempotent — re-running on a fresh DB or an existing one yields the same rows.
+`services/runtime/internal/skills/builtin.go` walks this tree at startup and upserts each skill into `runtime.skills` with `source='bundled', owner_id=NULL` (org-shared). Idempotent — re-running on a fresh DB or an existing one yields the same rows.
 
-For now (PS3.3), `skill-creator` is the only one bundled. Other 7 land via PS4.1 once the loader exists.
+All 8 skills are bundled; the loader ships with the runtime.
 
 ## Authoring
 
