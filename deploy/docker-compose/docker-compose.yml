@@ -460,6 +460,8 @@ services:
       RSS_DIGEST_MODEL: anthropic.claude-opus-4-8
       BRAIN_URL: http://brain:7003
       TASKS_STORE_PATH: /var/lib/biumind/app_center/tasks.json
+      # Repo Apps（M1.4）GitHub 只读 token；空 = 匿名 60 req/h，启动 WARN 降级
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     ports:
       - "${APP_CENTER_PORT:-7011}:7011"
     networks: [biu-net]

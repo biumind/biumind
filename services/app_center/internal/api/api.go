@@ -3,6 +3,11 @@
 //	GET    /v1/apps                       list registered apps (manifests)
 //	GET    /v1/apps/{name}                get one manifest
 //	POST   /v1/apps/{name}/invoke         {action, input}: invoke an app action
+//	POST   /v1/apps/repo/analyze          {repo_url}: analyse a GitHub repo (M1.4)
+//	POST   /v1/apps/repo/installs         {repo_url, ref_type, config}: install a repo app
+//	GET    /v1/apps/installs/{id}/runtime repo-app runtime status
+//	GET    /v1/apps/installs/{id}/builds  repo-app build history
+//	POST   /v1/apps/installs/{id}/redeploy queue a repo-app redeploy
 //
 // All routes JWT-gated. The invoke path additionally runs Authz against
 // the caller's installation row (lookup by scope=user + sub + identifier),
@@ -23,6 +28,7 @@ import (
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
 	"github.com/biumind/biumind/packages/go-sdk/biu/biuapp"
 	"github.com/biumind/biumind/services/app_center/internal/installs"
+	"github.com/biumind/biumind/services/app_center/internal/repoanalyze"
 	"github.com/biumind/biumind/services/app_center/internal/sidebar"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -56,6 +62,11 @@ type Server struct {
 	// invokeAuth — 可选 invoke 鉴权 override; nil = fallback 到
 	// Installer。测试用 WithInvokeAuthorizer 注入 stub 隔离 DB。
 	invokeAuth InvokeAuthorizer
+
+	// RepoAnalyzer — GitHub client behind the /v1/apps/repo/* endpoints
+	// (M1.4). Constructed unconditionally in main (empty GITHUB_TOKEN =
+	// anonymous access); nil here means the endpoints 503 repo_disabled.
+	RepoAnalyzer *repoanalyze.Client
 }
 
 // WithInvokeAuthorizer 注入 invoke 鉴权 stub (单测用)。生产通过
@@ -92,6 +103,13 @@ func (s *Server) WithInstaller(i *installs.Installer) *Server {
 	return s
 }
 
+// WithRepoAnalyzer wires the GitHub analysis client for the repo-app
+// endpoints (M1.4).
+func (s *Server) WithRepoAnalyzer(c *repoanalyze.Client) *Server {
+	s.RepoAnalyzer = c
+	return s
+}
+
 func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/apps", s.requireAuth(s.handleList))
 	mux.HandleFunc("GET /v1/apps/{name}", s.requireAuth(s.handleGet))
@@ -115,10 +133,48 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	// Upgrade flow (M15).
 	mux.HandleFunc("GET /v1/apps/installs/{id}/upgrade", s.requireAuth(s.handleCheckUpgrade))
 	mux.HandleFunc("POST /v1/apps/installs/{id}/upgrade", s.requireAuth(s.handleUpgrade))
+
+	// Repo Apps (M1.4) — analyse / install / runtime / builds / redeploy.
+	mux.HandleFunc("POST /v1/apps/repo/analyze", s.requireAuth(s.handleRepoAnalyze))
+	mux.HandleFunc("POST /v1/apps/repo/installs", s.requireAuth(s.handleRepoInstall))
+	mux.HandleFunc("GET /v1/apps/installs/{id}/runtime", s.requireAuth(s.handleRepoRuntime))
+	mux.HandleFunc("GET /v1/apps/installs/{id}/builds", s.requireAuth(s.handleRepoBuilds))
+	mux.HandleFunc("POST /v1/apps/installs/{id}/redeploy", s.requireAuth(s.handleRepoRedeploy))
+}
+
+// catalogApp is the catalogue wire shape: the manifest fields plus the
+// repo-app columns (tier / repo_meta) merged in from app_center.apps for
+// gh_*-source rows. The client identifies a repo app by repo_meta != null.
+type catalogApp struct {
+	biuapp.Manifest
+	Tier     string          `json:"tier,omitempty"`
+	RepoMeta json.RawMessage `json:"repo_meta,omitempty"`
+}
+
+// repoCatalogExtras holds the per-identifier repo columns fetched from
+// the catalogue table.
+type repoCatalogExtras struct {
+	tier     string
+	repoMeta json.RawMessage
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"apps": s.Reg.List()})
+	manifests := s.Reg.List()
+	ids := make([]string, 0, len(manifests))
+	for _, m := range manifests {
+		ids = append(ids, m.Slug())
+	}
+	extras := s.fetchRepoCatalogExtras(r.Context(), ids)
+	apps := make([]catalogApp, 0, len(manifests))
+	for _, m := range manifests {
+		entry := catalogApp{Manifest: m}
+		if e, ok := extras[m.Slug()]; ok {
+			entry.Tier = e.tier
+			entry.RepoMeta = e.repoMeta
+		}
+		apps = append(apps, entry)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"apps": apps})
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +183,54 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "not_found", "")
 		return
 	}
-	writeJSON(w, http.StatusOK, app.Manifest())
+	entry := catalogApp{Manifest: app.Manifest()}
+	if extras := s.fetchRepoCatalogExtras(r.Context(), []string{entry.Slug()}); extras != nil {
+		if e, ok := extras[entry.Slug()]; ok {
+			entry.Tier = e.tier
+			entry.RepoMeta = e.repoMeta
+		}
+	}
+	writeJSON(w, http.StatusOK, entry)
+}
+
+// fetchRepoCatalogExtras batch-loads tier / repo_meta for the gh_*-source
+// catalogue rows among identifiers. Stateless mode (nil pool) and query
+// failures degrade to "no extras" — the catalogue must keep serving
+// bundled apps even when the repo columns can't be read.
+func (s *Server) fetchRepoCatalogExtras(ctx context.Context, identifiers []string) map[string]repoCatalogExtras {
+	if s.Pool == nil || len(identifiers) == 0 {
+		return nil
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT DISTINCT ON (identifier) identifier, COALESCE(tier, ''), repo_meta
+		  FROM app_center.apps
+		 WHERE source LIKE 'gh\_%' AND identifier = ANY($1)
+		 ORDER BY identifier, created_at DESC
+	`, identifiers)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.WarnContext(ctx, "app_center: repo catalog extras lookup failed", "err", err)
+		}
+		return nil
+	}
+	defer rows.Close()
+
+	out := map[string]repoCatalogExtras{}
+	for rows.Next() {
+		var (
+			id   string
+			tier string
+			meta []byte
+		)
+		if err := rows.Scan(&id, &tier, &meta); err != nil {
+			if s.Logger != nil {
+				s.Logger.WarnContext(ctx, "app_center: repo catalog extras scan failed", "err", err)
+			}
+			return nil
+		}
+		out[id] = repoCatalogExtras{tier: tier, repoMeta: meta}
+	}
+	return out
 }
 
 type invokeReq struct {

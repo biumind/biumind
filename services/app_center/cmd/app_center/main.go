@@ -40,6 +40,7 @@ import (
 	"github.com/biumind/biumind/services/app_center/internal/radar"
 	"github.com/biumind/biumind/services/app_center/internal/radar/actions"
 	"github.com/biumind/biumind/services/app_center/internal/rankings"
+	"github.com/biumind/biumind/services/app_center/internal/repoanalyze"
 	rssbriefing "github.com/biumind/biumind/services/app_center/internal/rss/briefing"
 	rsscopilot "github.com/biumind/biumind/services/app_center/internal/rss/copilot"
 	"github.com/biumind/biumind/services/app_center/internal/rss/digest"
@@ -141,6 +142,11 @@ type Config struct {
 	// Must be an audio_transcription-mode model in the model-relay catalog;
 	// if unprovisioned, transcription degrades to a per-entry ai_error.
 	RSSTranscribeModel string `env:"RSS_TRANSCRIBE_MODEL" default:""`
+
+	// GitHubToken — platform read-only token for the repo-app analyzer
+	// (M1.4). Empty falls back to anonymous GitHub API access (60 req/h
+	// per IP); a startup WARN flags the degraded rate limit.
+	GitHubToken string `env:"GITHUB_TOKEN" default:""`
 }
 
 func main() {
@@ -311,6 +317,14 @@ func run() error {
 	verifier := bauth.SelectVerifier(cfg.IdentityJWKSURL, cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience)
 	apiSrv := api.NewServer(reg, verifier, logger)
 
+	// Repo Apps (M1.4): the analyzer client is wired unconditionally —
+	// /v1/apps/repo/analyze works even in stateless mode. Empty token =
+	// anonymous GitHub API (60 req/h), warn so operators notice.
+	if cfg.GitHubToken == "" {
+		logger.Warn("GITHUB_TOKEN unset; repo analyze runs anonymously (GitHub 60 req/h rate limit)")
+	}
+	apiSrv = apiSrv.WithRepoAnalyzer(repoanalyze.NewClient("", cfg.GitHubToken))
+
 	// Installer is only available when the DB is wired. Without it,
 	// the v1.5 install endpoints return 503 (graceful degradation —
 	// the v1.0 invoke surface still works for stateless deployments).
@@ -322,6 +336,18 @@ func run() error {
 		// Webhook receiver needs pool + registry references.
 		apiSrv.SetPool(pool)
 		apiSrv.SetBiuappRegistry(reg)
+
+		// M1.5: restore dynamic apps (user_webview, gh_*) persisted in
+		// app_center.apps into the in-memory registry. Without this the
+		// stubs only existed in the process that handled the create POST,
+		// so a restart / replica change made the apps 404.
+		restored, err := installs.RestoreDynamicApps(ctx, pool, reg)
+		if err != nil {
+			return fmt.Errorf("restore dynamic apps: %w", err)
+		}
+		if restored > 0 {
+			logger.Info("dynamic apps restored into registry", "count", restored)
+		}
 		logger.Info("installer enabled")
 
 		// Cron dispatcher (M4.3 / M4.6). Background goroutine — owns
@@ -741,8 +767,11 @@ func run() error {
 
 	// RSS active-user / feeds gauge poller. Cheap SELECTs every 60s; the
 	// distinct-user one is the closest thing to a true DAU until we wire
-	// real engagement events (M14).
-	go pollRSSGauges(ctx, pool, logger)
+	// real engagement events (M14). Skipped in stateless mode — the
+	// poller would panic on a nil pool.
+	if pool != nil {
+		go pollRSSGauges(ctx, pool, logger)
+	}
 
 	mux := http.NewServeMux()
 	hz.Mount(mux)
