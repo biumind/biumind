@@ -555,7 +555,15 @@ func (in *Installer) Uninstall(ctx context.Context, installID string, callerUser
 	}); err != nil {
 		return fmt.Errorf("uninstall: events: %w", err)
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	// Drop dynamic apps (user_webview etc.) from the in-memory registry
+	// so they vanish from the catalogue right away. No-op for bundled
+	// apps — see unregisterIfDynamic.
+	in.unregisterIfDynamic(ctx, row.Identifier)
+	return nil
 }
 
 // Toggle flips the enabled flag on an installation.
