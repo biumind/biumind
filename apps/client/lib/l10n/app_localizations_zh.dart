@@ -2424,6 +2424,26 @@ class AppLocalizationsZh extends AppLocalizations {
   String get upgradeAppliedToast => '已升级。';
 
   @override
+  String get repoUpgradeConfirmTitle => '更新 GitHub 应用';
+
+  @override
+  String repoUpgradeConfirmBody(Object version) {
+    return '将更新到 $version，更新期间应用会短暂不可用。';
+  }
+
+  @override
+  String get repoUpgradeLatestVersion => '最新版本';
+
+  @override
+  String get repoUpgradeUnsupportedPlatform =>
+      '当前平台暂不支持更新 GitHub 应用（macOS / Linux 客户端可用）。';
+
+  @override
+  String repoUpgradeBadRepoUrl(Object url) {
+    return '无法从仓库地址推导应用标识：$url';
+  }
+
+  @override
   String get heroGreetingMorning => '早上好';
 
   @override

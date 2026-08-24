@@ -460,6 +460,29 @@ class RepoBuild {
       );
 }
 
+/// RepoRedeployResult — POST /v1/apps/installs/{id}/redeploy 的响应。
+/// M2 服务端在 build_id 之外补 ref/sha（本次构建锁定的 git 引用与
+/// commit，客户端透传给 `biu repo-app update --ref`）；老服务端只有
+/// build_id —— 全部防御性解析，缺字段给空串。
+class RepoRedeployResult {
+  final String buildId;
+  final String ref;
+  final String sha;
+
+  const RepoRedeployResult({
+    this.buildId = '',
+    this.ref = '',
+    this.sha = '',
+  });
+
+  factory RepoRedeployResult.fromJson(Map<String, dynamic> j) =>
+      RepoRedeployResult(
+        buildId: j['build_id'] as String? ?? '',
+        ref:     j['ref'] as String? ?? '',
+        sha:     j['sha'] as String? ?? '',
+      );
+}
+
 /// AppsClient is the thin transport layer. Construct once with the
 /// service base URL; pass the bearer token per-call so logout /
 /// token rotation flows don't have to rebuild the client.
@@ -783,8 +806,9 @@ class AppsClient {
         .toList(growable: false);
   }
 
-  /// POST /v1/apps/installs/{id}/redeploy — 触发一次新构建，返回 build_id。
-  Future<String> redeployRepo({
+  /// POST /v1/apps/installs/{id}/redeploy — 触发一次新构建，返回
+  /// build_id（M2 起另带 ref/sha，见 [RepoRedeployResult]）。
+  Future<RepoRedeployResult> redeployRepo({
     required String installId,
     required String token,
   }) async {
@@ -796,6 +820,6 @@ class AppsClient {
       bearerToken: token,
       body: const {},
     );
-    return j['build_id'] as String? ?? '';
+    return RepoRedeployResult.fromJson(j);
   }
 }

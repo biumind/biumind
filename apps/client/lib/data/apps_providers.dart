@@ -10,6 +10,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/auth_service.dart';
+import '../services/login_shell_env.dart';
+import 'agent_plane/repo_app_launcher.dart';
 import 'api/apps_client.dart';
 
 final appsClientProvider = Provider<AppsClient?>((ref) {
@@ -174,6 +176,9 @@ final upgradeStatusProvider = FutureProvider.family<UpgradeStatus?, String>(
 /// settings page renders a "升级中 (N)" badge from this. We compute
 /// it by mapping each install's upgradeStatusProvider — the family
 /// caches per id so re-renders don't re-fetch.
+// TODO(M2.5, Repo Apps DevPlan §3): N+1 —— N 个 install 各发一个
+// GET /installs/{id}/upgrade。服务端暂无批量端点；待加批量
+// /v1/apps/upgrades 后改单次拉取。
 final pendingUpgradesProvider = Provider<List<UpgradeRow>>((ref) {
   final installs = ref.watch(installationsProvider('user')).valueOrNull
       ?? const <Installation>[];
@@ -228,3 +233,13 @@ final repoAppBuildsProvider = FutureProvider.family<List<RepoBuild>, String>(
 /// "配置"入口重新下发，二期再补）。
 final repoAppPendingEnvProvider =
     StateProvider<Map<String, Map<String, String>>>((ref) => const {});
+
+/// 本机 repo-app runner 通道（ensure / update）。provider 形式是为了
+/// 升级流 repo 分支与 widget 测试可 override 成 fake。
+final repoAppLauncherProvider = Provider<RepoAppLauncher>((ref) {
+  return RepoAppLauncher(
+    // login shell env 带给子进程完整 PATH（GUI app 的
+    // Platform.environment 找不到 git/node/uv）。
+    shellEnv: ref.watch(loginShellEnvProvider).valueOrNull,
+  );
+});

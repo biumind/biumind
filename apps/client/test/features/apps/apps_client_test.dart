@@ -212,14 +212,27 @@ void main() {
     expect(builds.last.status, 'failed');
   });
 
-  test('redeployRepo: POST /v1/apps/installs/{id}/redeploy → build_id',
+  test('redeployRepo: POST /v1/apps/installs/{id}/redeploy → build_id + ref/sha',
+      () async {
+    // M2 服务端：build_id 之外带 ref/sha。
+    routes['/v1/apps/installs/ins-1/redeploy'] =
+        (200, '{"build_id":"b2","ref":"v1.3.0","sha":"cafe0123"}');
+    final r = await client.redeployRepo(installId: 'ins-1', token: 't');
+    expect(hits.single.$1, 'POST');
+    expect(hits.single.$2, '/v1/apps/installs/ins-1/redeploy');
+    expect(r.buildId, 'b2');
+    expect(r.ref, 'v1.3.0');
+    expect(r.sha, 'cafe0123');
+  });
+
+  test('redeployRepo: 老服务端只有 build_id → ref/sha 空串（向后兼容）',
       () async {
     routes['/v1/apps/installs/ins-1/redeploy'] =
         (200, '{"build_id":"b2"}');
-    final buildId = await client.redeployRepo(installId: 'ins-1', token: 't');
-    expect(hits.single.$1, 'POST');
-    expect(hits.single.$2, '/v1/apps/installs/ins-1/redeploy');
-    expect(buildId, 'b2');
+    final r = await client.redeployRepo(installId: 'ins-1', token: 't');
+    expect(r.buildId, 'b2');
+    expect(r.ref, '');
+    expect(r.sha, '');
   });
 
   test('AppCatalogEntry: 可选 repo_meta / tier 防御性解析', () {

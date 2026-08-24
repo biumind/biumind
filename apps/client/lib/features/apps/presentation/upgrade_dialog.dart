@@ -70,9 +70,11 @@ class _BodyState extends State<_Body> {
     final diff = widget.status.permsDiff;
 
     return AlertDialog(
+      // gen-l10n 按字母序生成参数（from, name, to）—— 别按 arb 占位符
+      // 出现顺序传参（曾渲染成 "Upgrade 1.2.0: vrss → v1.3.0"）。
       title: Text(l10n.upgradeTitle(
-        widget.appName,
         widget.status.currentVersion,
+        widget.appName,
         widget.status.targetVersion,
       )),
       content: SizedBox(

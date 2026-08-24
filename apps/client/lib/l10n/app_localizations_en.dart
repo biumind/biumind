@@ -2500,6 +2500,26 @@ class AppLocalizationsEn extends AppLocalizations {
   String get upgradeAppliedToast => 'Upgraded.';
 
   @override
+  String get repoUpgradeConfirmTitle => 'Update GitHub app';
+
+  @override
+  String repoUpgradeConfirmBody(Object version) {
+    return 'Will update to $version. The app will be briefly unavailable while updating.';
+  }
+
+  @override
+  String get repoUpgradeLatestVersion => 'the latest version';
+
+  @override
+  String get repoUpgradeUnsupportedPlatform =>
+      'Updating GitHub apps is not supported on this platform (available in the macOS / Linux client).';
+
+  @override
+  String repoUpgradeBadRepoUrl(Object url) {
+    return 'Cannot derive the app name from the repo URL: $url';
+  }
+
+  @override
   String get heroGreetingMorning => 'Good morning';
 
   @override

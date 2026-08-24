@@ -4607,6 +4607,36 @@ abstract class AppLocalizations {
   /// **'Upgraded.'**
   String get upgradeAppliedToast;
 
+  /// No description provided for @repoUpgradeConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update GitHub app'**
+  String get repoUpgradeConfirmTitle;
+
+  /// No description provided for @repoUpgradeConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Will update to {version}. The app will be briefly unavailable while updating.'**
+  String repoUpgradeConfirmBody(Object version);
+
+  /// No description provided for @repoUpgradeLatestVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'the latest version'**
+  String get repoUpgradeLatestVersion;
+
+  /// No description provided for @repoUpgradeUnsupportedPlatform.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating GitHub apps is not supported on this platform (available in the macOS / Linux client).'**
+  String get repoUpgradeUnsupportedPlatform;
+
+  /// No description provided for @repoUpgradeBadRepoUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Cannot derive the app name from the repo URL: {url}'**
+  String repoUpgradeBadRepoUrl(Object url);
+
   /// No description provided for @heroGreetingMorning.
   ///
   /// In en, this message translates to:
