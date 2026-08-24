@@ -25,6 +25,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/biumind/biumind/apps/cli/biu/cmd/biu/wiring"
 	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/repoapp"
@@ -421,7 +422,7 @@ func newRepoAppLogsCmd(f *rootFlags) *cobra.Command {
 // ─── update / remove ──────────────────────────────────────
 
 func newRepoAppUpdateCmd(f *rootFlags) *cobra.Command {
-	var ref string
+	var ref, installID, buildID, reportURL string
 	cmd := &cobra.Command{
 		Use:   "update <name>",
 		Short: "Fetch a new ref, reinstall dependencies, restart",
@@ -434,45 +435,15 @@ func newRepoAppUpdateCmd(f *rootFlags) *cobra.Command {
 			if err != nil {
 				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
 			}
+			reporter, report, err := resolveRepoAppReporter(cmd.Context(), f, installID, buildID, reportURL)
+			if err != nil {
+				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
+			}
 			slug := args[0]
-			inst := store.Instance(slug)
-			ri, err := repoapp.LoadRuntime(inst.Dir)
-			if err != nil {
-				return clierr.Newf("biu repo-app update", "%s",
-					fmt.Sprintf("%q is not installed", slug))
+			sha, url, err := runRepoAppUpdate(cmd.Context(), store, slug, ref)
+			if report {
+				reportRepoAppBuild(cmd.Context(), reporter, installID, buildID, err == nil, sha)
 			}
-			targetRef := ref
-			if targetRef == "" {
-				targetRef = ri.Ref
-			}
-			runner := &repoapp.Runner{Store: store}
-			if err := runner.Stop(slug); err != nil {
-				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
-			}
-			repoAppLogf("updating to ref=%s ...", orDefault(targetRef, "default branch"))
-			sha, err := repoapp.CloneOrFetch(cmd.Context(), ri.RepoURL, targetRef, inst.RepoDir())
-			if err != nil {
-				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
-			}
-			plan, err := repoapp.PlanStack(inst.RepoDir(), slug)
-			if err != nil {
-				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
-			}
-			// Keep the recorded ref/sha current before deps install.
-			ri.Ref = targetRef
-			ri.InstalledSHA = sha
-			ri.Stack = string(plan.Stack)
-			ri.PackageManager = plan.PackageManager
-			ri.StartCmd = plan.StartCmd
-			extras, err := repoAppBootstrapAndDeps(cmd.Context(), inst, plan)
-			if err != nil {
-				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
-			}
-			ri.PathExtra = extras
-			if err := repoapp.SaveRuntime(inst.Dir, ri); err != nil {
-				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
-			}
-			url, err := runner.Start(cmd.Context(), slug, repoapp.StartOptions{})
 			if err != nil {
 				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
 			}
@@ -482,7 +453,112 @@ func newRepoAppUpdateCmd(f *rootFlags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&ref, "ref", "", "git branch/tag to move to (default: the installed ref)")
+	cmd.Flags().StringVar(&installID, "install-id", "", "app_center install id — with --build-id, report the outcome to the server")
+	cmd.Flags().StringVar(&buildID, "build-id", "", "app_center build id from the redeploy call — with --install-id, report the outcome to the server")
+	cmd.Flags().StringVar(&reportURL, "report-url", "", "app_center base URL for build reporting (default: [model-relay].endpoint — the single-origin server address)")
 	return cmd
+}
+
+// runRepoAppUpdate performs stop → fetch → detect → deps → save → start
+// and returns the new HEAD sha ("" when the fetch never ran) plus the
+// announced URL. Start only returns after the health check passes, so a
+// nil error means the instance is actually serving.
+func runRepoAppUpdate(ctx context.Context, store *repoapp.Store, slug, ref string) (string, string, error) {
+	inst := store.Instance(slug)
+	ri, err := repoapp.LoadRuntime(inst.Dir)
+	if err != nil {
+		return "", "", fmt.Errorf("%q is not installed", slug)
+	}
+	targetRef := ref
+	if targetRef == "" {
+		targetRef = ri.Ref
+	}
+	runner := &repoapp.Runner{Store: store}
+	if err := runner.Stop(slug); err != nil {
+		return "", "", err
+	}
+	repoAppLogf("updating to ref=%s ...", orDefault(targetRef, "default branch"))
+	sha, err := repoapp.CloneOrFetch(ctx, ri.RepoURL, targetRef, inst.RepoDir())
+	if err != nil {
+		return "", "", err
+	}
+	plan, err := repoapp.PlanStack(inst.RepoDir(), slug)
+	if err != nil {
+		return sha, "", err
+	}
+	// Keep the recorded ref/sha current before deps install.
+	ri.Ref = targetRef
+	ri.InstalledSHA = sha
+	ri.Stack = string(plan.Stack)
+	ri.PackageManager = plan.PackageManager
+	ri.StartCmd = plan.StartCmd
+	extras, err := repoAppBootstrapAndDeps(ctx, inst, plan)
+	if err != nil {
+		return sha, "", err
+	}
+	ri.PathExtra = extras
+	if err := repoapp.SaveRuntime(inst.Dir, ri); err != nil {
+		return sha, "", err
+	}
+	url, err := runner.Start(ctx, slug, repoapp.StartOptions{})
+	if err != nil {
+		return sha, "", err
+	}
+	return sha, url, nil
+}
+
+// buildReporter is the slice of repoapp.ReportClient the update command
+// depends on; tests substitute a fake.
+type buildReporter interface {
+	CompleteBuild(ctx context.Context, installID, buildID string, result repoapp.BuildResult) error
+}
+
+// resolveRepoAppReporter builds the app_center report client when the
+// caller opted into server reporting (--install-id + --build-id, as
+// handed out by the client's redeploy call). Reporting is off for plain
+// local updates: (nil, false, nil). The base URL falls back to
+// [model-relay].endpoint — the single-origin server address, under which
+// nginx routes /v1/apps/* to app_center.
+func resolveRepoAppReporter(ctx context.Context, f *rootFlags, installID, buildID, reportURL string) (buildReporter, bool, error) {
+	if installID == "" && buildID == "" {
+		return nil, false, nil
+	}
+	if installID == "" || buildID == "" {
+		return nil, false, fmt.Errorf("--install-id and --build-id must be given together")
+	}
+	cfg, _, err := config.Load(f.cfgPath)
+	if err != nil {
+		return nil, false, err
+	}
+	base := reportURL
+	if base == "" {
+		base = cfg.Relay.Endpoint
+	}
+	if base == "" {
+		return nil, false, fmt.Errorf("app_center base URL not configured — pass --report-url or set [model-relay].endpoint")
+	}
+	tp := wiring.TokenProviderFor(cfg, f.wiringFlags(), base)
+	token, err := tp.Token(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("build reporting requires a bearer token: %w", err)
+	}
+	return repoapp.NewReportClient(base, token), true, nil
+}
+
+// reportRepoAppBuild posts the update outcome to app_center. Best-effort:
+// a reporting failure warns on stderr but never changes the update's exit
+// code — the local runner stays the source of truth for its own result.
+func reportRepoAppBuild(ctx context.Context, r buildReporter, installID, buildID string, live bool, sha string) {
+	status := repoapp.BuildStatusLive
+	if !live {
+		status = repoapp.BuildStatusFailed
+	}
+	result := repoapp.BuildResult{Status: status, SHA: sha, LogRef: ""}
+	if err := r.CompleteBuild(ctx, installID, buildID, result); err != nil {
+		repoAppLogf("⚠ failed to report build %s as %s: %v", buildID, status, err)
+		return
+	}
+	repoAppLogf("reported build %s as %s", buildID, status)
 }
 
 func newRepoAppRemoveCmd(f *rootFlags) *cobra.Command {
