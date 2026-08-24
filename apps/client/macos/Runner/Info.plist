@@ -4,6 +4,15 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- 声明 App 支持的本地化：macOS 据此决定系统级 UI（菜单栏、
+	     WKWebView 右键菜单、系统对话框）的语言。缺这个 key 时系统
+	     认为 App 只支持英文，中文系统下 WKWebView 右键菜单也显示
+	     英文（笔记编辑器右键英文菜单的根因之一）。 -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>

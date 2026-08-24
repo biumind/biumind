@@ -6,6 +6,14 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- 声明 App 支持的本地化：macOS/iOS 据此决定系统级 UI（菜单栏、
+	     WKWebView 右键/长按菜单、系统对话框）的语言。缺这个 key 时
+	     系统认为 App 只支持英文，中文系统下系统 UI 也显示英文。 -->
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Biumind</string>
 	<key>CFBundleExecutable</key>
