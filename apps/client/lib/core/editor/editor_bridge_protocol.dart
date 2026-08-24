@@ -20,6 +20,7 @@ class BridgeFeatures {
     this.mermaid = true,
     this.contextMenu = 'custom',
     this.aiActions = false,
+    this.imageUpload = false,
   });
 
   final bool wikilink;
@@ -32,11 +33,16 @@ class BridgeFeatures {
   /// host 已接 AI 动作（选区询问/编辑 overlay）；false 时菜单不渲染 AI 组。
   final bool aiActions;
 
+  /// host 已接图片上传链路（选图 → presign 直传，notes 专属能力）；
+  /// false 时图片菜单不渲染「替换图片…」。
+  final bool imageUpload;
+
   Map<String, dynamic> toJson() => {
         'wikilink': wikilink,
         'mermaid': mermaid,
         'contextMenu': contextMenu,
         'aiActions': aiActions,
+        'imageUpload': imageUpload,
       };
 }
 
@@ -169,6 +175,20 @@ BridgeMessage clipboardReadReplyMessage({
     type: 'clipboardRead.reply',
     id: id,
     payload: {'text': text},
+  );
+}
+
+/// imageUpload.reply — 图片菜单「替换图片…」的应答。host 走既有上传链路
+/// （选图 → presign 直传）；`uri` = `biu-file://<uuid>` 规范 URI，
+/// null = 用户取消 / 上传失败（编辑器不改动图片节点）。
+BridgeMessage imageUploadReplyMessage({
+  required String id,
+  required String? uri,
+}) {
+  return BridgeMessage(
+    type: 'imageUpload.reply',
+    id: id,
+    payload: {'uri': uri},
   );
 }
 

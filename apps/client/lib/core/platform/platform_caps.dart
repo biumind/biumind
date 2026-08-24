@@ -64,6 +64,12 @@ class PlatformCaps {
   /// 自绘菜单（'custom'）。
   final bool isMobile;
 
+  /// True when the platform pasteboard supports multiple representations
+  /// (text + html) — 目前只有 macOS（NSPasteboard，经 biumind/clipboard
+  /// method channel 写）。编辑器「复制」双格式据此分流：true 走 channel，
+  /// false 回退 Clipboard.setData 纯文本。
+  final bool hasRichClipboard;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -73,6 +79,7 @@ class PlatformCaps {
     required this.hasEmbeddedWebView,
     required this.hasRepoAppRunner,
     this.isMobile = false,
+    this.hasRichClipboard = false,
   });
 
   factory PlatformCaps.detect() {
@@ -120,6 +127,7 @@ class PlatformCaps {
         TargetPlatform.iOS || TargetPlatform.android => true,
         _ => false,
       },
+      hasRichClipboard: defaultTargetPlatform == TargetPlatform.macOS,
     );
   }
 
@@ -128,7 +136,8 @@ class PlatformCaps {
       'PlatformCaps(pty=$hasLocalPty, fs=$hasFileSystem, '
       'notif=$hasNotifications, isolate=$supportsBackgroundIsolates, '
       'sqlite=$hasPersistentSqlite, webview=$hasEmbeddedWebView, '
-      'repoRunner=$hasRepoAppRunner, mobile=$isMobile)';
+      'repoRunner=$hasRepoAppRunner, mobile=$isMobile, '
+      'richClipboard=$hasRichClipboard)';
 }
 
 /// Riverpod provider — detected once at startup. Override in tests with

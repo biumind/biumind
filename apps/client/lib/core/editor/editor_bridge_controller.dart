@@ -19,6 +19,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
+import '../platform/rich_clipboard.dart';
 import 'editor_bridge_protocol.dart';
 
 typedef EditorSend = Future<void> Function(BridgeMessage message);
@@ -72,12 +73,23 @@ class EditorBridgeController extends ChangeNotifier {
   /// image and needs a presigned URL for the `<img>` tag.
   PresignGetResolver? resolvePresignGet;
 
-  /// 自绘右键菜单「剪切/复制」落到系统剪贴板。缺省实现直接写 Flutter
-  /// Clipboard；宿主页需要拦截（如埋点）时可覆盖。
-  Future<void> Function(String text)? onClipboardWrite;
+  /// 自绘右键菜单「剪切/复制」落到系统剪贴板。缺省实现：payload 带 html
+  /// 且平台支持时写双格式（macOS NSPasteboard），否则写 Flutter Clipboard
+  /// 纯文本；宿主页需要拦截（如埋点）时可覆盖。
+  Future<void> Function(String text, String? html)? onClipboardWrite;
+
+  /// 双格式剪贴板写入（macOS method channel）。返回 false = 平台不支持，
+  /// 回退纯文本。测试可注入 mock；默认走 lib/core/platform/rich_clipboard。
+  Future<bool> Function(String text, String html) richClipboardWriter =
+      writeRichClipboard;
 
   /// 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 渲染后才有真实流量）。
   void Function(EditorAiAction action)? onAiAction;
+
+  /// 图片菜单「替换图片…」：host 走既有上传链路（选图 → presign 直传），
+  /// 返回 `biu-file://<uuid>` 规范 URI；取消/失败返回 null（编辑器不动节点）。
+  /// 仅 notes 宿主页接线（wiki 无附件链路，features.imageUpload 保持 false）。
+  Future<String?> Function()? resolveImageUpload;
 
   EditorSend? _send;
   final Completer<void> _readyCompleter = Completer<void>();
@@ -129,6 +141,8 @@ class EditorBridgeController extends ChangeNotifier {
         await _onClipboardRead(msg);
       case 'aiAction':
         _onAiAction(msg);
+      case 'imageUpload':
+        await _onImageUpload(msg);
       default:
         debugPrint('[editor-bridge] unknown message type: ${msg.type}');
     }
@@ -226,15 +240,19 @@ class EditorBridgeController extends ChangeNotifier {
   }
 
   /// 自绘右键菜单「剪切/复制」：execCommand 在 WKWebView 常失败，编辑器
-  /// 把文本经 bridge 送过来，这里落系统剪贴板（P1 只纯文本，text+html
-  /// 双格式列 P2）。
+  /// 把文本经 bridge 送过来，这里落系统剪贴板。payload 带 html（P2 双格式）
+  /// 时优先写 text+html（macOS NSPasteboard），不支持/失败回退纯文本。
   Future<void> _onClipboardWrite(BridgeMessage msg) async {
     final text = msg.payload['text'];
     if (text is! String) return;
+    final html = msg.payload['html'];
     final handler = onClipboardWrite;
     if (handler != null) {
-      await handler(text);
+      await handler(text, html is String ? html : null);
       return;
+    }
+    if (html is String && html.isNotEmpty) {
+      if (await richClipboardWriter(text, html)) return;
     }
     await Clipboard.setData(ClipboardData(text: text));
   }
@@ -267,6 +285,23 @@ class EditorBridgeController extends ChangeNotifier {
       '[editor-bridge] aiAction ${action.action} '
       '[${action.from}, ${action.to}) 未接线（P2）',
     );
+  }
+
+  /// 图片菜单「替换图片…」（P2）：host 走既有上传链路换规范 URI。
+  /// resolver 未接线/取消/失败回 null —— 编辑器侧不改动图片节点。
+  Future<void> _onImageUpload(BridgeMessage msg) async {
+    final id = msg.id;
+    if (id == null) return;
+    String? uri;
+    final resolver = resolveImageUpload;
+    if (resolver != null) {
+      try {
+        uri = await resolver();
+      } catch (_) {
+        uri = null;
+      }
+    }
+    await _send?.call(imageUploadReplyMessage(id: id, uri: uri));
   }
 
   /// Push a server-authoritative markdown into the editor (used after

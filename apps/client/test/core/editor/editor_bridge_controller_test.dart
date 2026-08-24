@@ -174,13 +174,19 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null);
     });
 
-    test('clipboardWrite：宿主注入 handler 时走 handler', () async {
-      final received = <String>[];
-      controller.onClipboardWrite = (text) async => received.add(text);
+    test('clipboardWrite：宿主注入 handler 时走 handler（含 html）', () async {
+      final received = <List<String?>>[];
+      controller.onClipboardWrite =
+          (text, html) async => received.add([text, html]);
       await controller.onIncomingMessage(
-        BridgeMessage(type: 'clipboardWrite', payload: {'text': 'abc'}),
+        BridgeMessage(
+          type: 'clipboardWrite',
+          payload: {'text': 'abc', 'html': '<p>abc</p>'},
+        ),
       );
-      expect(received, ['abc']);
+      expect(received, [
+        ['abc', '<p>abc</p>'],
+      ]);
     });
 
     test('clipboardWrite：text 非字符串忽略', () async {
@@ -230,6 +236,123 @@ void main() {
       await controller.onIncomingMessage(
         BridgeMessage(type: 'clipboardRead', payload: const {}),
       );
+      expect(sent, isEmpty);
+    });
+
+    test('clipboardWrite 带 html + 双格式成功：走 channel，不写纯文本', () async {
+      var plainWritten = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') plainWritten = true;
+        return null;
+      });
+      final richCalls = <List<String>>[];
+      controller.richClipboardWriter = (text, html) async {
+        richCalls.add([text, html]);
+        return true;
+      };
+      await controller.onIncomingMessage(
+        BridgeMessage(
+          type: 'clipboardWrite',
+          payload: {'text': 'md **b**', 'html': '<p>md <strong>b</strong></p>'},
+        ),
+      );
+      expect(richCalls, [
+        ['md **b**', '<p>md <strong>b</strong></p>'],
+      ]);
+      expect(plainWritten, isFalse);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('clipboardWrite 带 html 但双格式失败/不支持：回退纯文本', () async {
+      String? plainText;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          plainText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      controller.richClipboardWriter = (_, _) async => false;
+      await controller.onIncomingMessage(
+        BridgeMessage(
+          type: 'clipboardWrite',
+          payload: {'text': 'md', 'html': '<p>md</p>'},
+        ),
+      );
+      expect(plainText, 'md');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('clipboardWrite 无 html：直接纯文本（不调 channel）', () async {
+      String? plainText;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          plainText = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      var richCalled = false;
+      controller.richClipboardWriter = (_, _) async {
+        richCalled = true;
+        return true;
+      };
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardWrite', payload: {'text': 'plain'}),
+      );
+      expect(plainText, 'plain');
+      expect(richCalled, isFalse);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+  });
+
+  group('imageUpload（替换图片 P2）', () {
+    late EditorBridgeController controller;
+    late List<BridgeMessage> sent;
+
+    setUp(() {
+      sent = <BridgeMessage>[];
+      controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      controller.attach((msg) async => sent.add(msg));
+    });
+
+    BridgeMessage imageUploadRequest({String? id = 'u1'}) {
+      return BridgeMessage(type: 'imageUpload', id: id, payload: const {});
+    }
+
+    test('resolver 返回规范 URI：reply 带同一 id 和 uri', () async {
+      controller.resolveImageUpload =
+          () async => 'biu-file://12345678-1234-1234-1234-123456789abc';
+      await controller.onIncomingMessage(imageUploadRequest());
+      expect(sent.single.type, 'imageUpload.reply');
+      expect(sent.single.id, 'u1');
+      expect(
+        sent.single.payload['uri'],
+        'biu-file://12345678-1234-1234-1234-123456789abc',
+      );
+    });
+
+    test('resolver 未接线：reply uri null（编辑器不动节点）', () async {
+      await controller.onIncomingMessage(imageUploadRequest());
+      expect(sent.single.payload['uri'], isNull);
+    });
+
+    test('resolver 抛异常：reply uri null（不崩）', () async {
+      controller.resolveImageUpload = () async => throw StateError('未连接');
+      await controller.onIncomingMessage(imageUploadRequest());
+      expect(sent.single.payload['uri'], isNull);
+    });
+
+    test('缺 id：不回复', () async {
+      controller.resolveImageUpload = () async => 'biu-file://x';
+      await controller.onIncomingMessage(imageUploadRequest(id: null));
       expect(sent, isEmpty);
     });
   });

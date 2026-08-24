@@ -79,6 +79,33 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
+    // 双格式剪贴板（编辑器右键菜单「复制」P2）：Flutter Clipboard 只支持
+    // 纯文本，text+html 双格式走这里写 NSPasteboard —— 粘到 Word/飞书/
+    // 邮件等外部应用保留格式（表格、代码块等）。
+    let clipboardChannel = FlutterMethodChannel(
+      name: "biumind/clipboard",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    clipboardChannel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "writeRich":
+        guard let args = call.arguments as? [String: Any],
+              let text = args["text"] as? String,
+              let html = args["html"] as? String else {
+          result(FlutterError(code: "bad_args",
+                              message: "writeRich needs {text, html}",
+                              details: nil))
+          return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        pb.setString(html, forType: .html)
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     super.awakeFromNib()
   }
 

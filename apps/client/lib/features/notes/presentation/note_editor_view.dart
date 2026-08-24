@@ -300,6 +300,37 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     }
   }
 
+  /// 右键菜单「替换图片…」（bridge imageUpload）：选图 → 与插入图片同一
+  /// 条 presign 直传链路 → 返回规范 URI；取消/失败返回 null（编辑器侧
+  /// 不改动图片节点）。只换 src，不涉及正文插入，故不复用插入的 SnackBar
+  /// 进度条（上传中编辑器菜单已关闭，静默完成）。
+  Future<String?> _pickAndUploadImage() async {
+    final filesClient = ref.read(filesClientProvider);
+    if (filesClient == null) {
+      _showSnack('未连接 hub，无法上传图片');
+      return null;
+    }
+    List<XFile> picked;
+    try {
+      picked = await _pickImages();
+    } on Exception catch (e) {
+      _showSnack('选择图片失败：$e');
+      return null;
+    }
+    if (picked.isEmpty || !mounted) return null;
+    final f = picked.first;
+    try {
+      return await _uploadAttachment(
+        filesClient,
+        f,
+        mime: f.mimeType ?? _guessImageMime(f.name),
+      );
+    } on Exception catch (e) {
+      _showSnack('图片上传失败：$e');
+      return null;
+    }
+  }
+
   /// 选任意文件 → 同一条 presign 直传通路 → 光标处插入
   /// `[文件名](biu-file://<uuid>)` 链接。
   Future<void> _insertAttachment() async {
@@ -613,8 +644,14 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 // 双链是 wiki 功能，笔记侧关掉 wikilink（mermaid 保留）。
                 // Milkdown = ProseMirror 连续 WYSIWYG（点哪编哪，整篇一个
                 // 可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
-                features: BridgeFeatures(wikilink: false, contextMenu: contextMenu),
+                // imageUpload：声明已接上传链路，右键菜单才渲染「替换图片…」。
+                features: BridgeFeatures(
+                  wikilink: false,
+                  contextMenu: contextMenu,
+                  imageUpload: true,
+                ),
                 resolvePresignGet: _presignGetAttachment,
+                resolveImageUpload: _pickAndUploadImage,
                 onMarkdownChanged: _contentAutosave.schedule,
                 controllerRef: (c) => _editorController = c,
               ),

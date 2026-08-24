@@ -33,6 +33,7 @@ class PageEditorView extends StatefulWidget {
     this.onWikilinkTap,
     this.resolveWikilinks,
     this.resolvePresignGet,
+    this.resolveImageUpload,
     this.controllerRef,
     this.features = const BridgeFeatures(),
     this.locale,
@@ -47,6 +48,11 @@ class PageEditorView extends StatefulWidget {
   /// 编辑器渲染 `biu-file://<uuid>` 图片时向 host 换 presigned URL 的
   /// 回调（笔记附件；wiki 侧暂不接，biu-file 图片在 wiki 里保持裂开）。
   final PresignGetResolver? resolvePresignGet;
+
+  /// 图片菜单「替换图片…」的上传链路回调（notes 专属：选图 → presign
+  /// 直传 → 返回 biu-file:// 规范 URI；取消/失败返回 null）。
+  /// 接线时 host 应同时在 features 里传 `imageUpload: true`。
+  final Future<String?> Function()? resolveImageUpload;
 
   /// Feature toggles sent in the init message (wikilink / mermaid).
   /// Defaults keep the historical behavior; hosts like the note editor
@@ -83,7 +89,8 @@ class _PageEditorViewState extends State<PageEditorView> {
       ..onMarkdownChanged = widget.onMarkdownChanged
       ..onWikilinkTap = widget.onWikilinkTap
       ..resolveWikilinks = widget.resolveWikilinks
-      ..resolvePresignGet = widget.resolvePresignGet;
+      ..resolvePresignGet = widget.resolvePresignGet
+      ..resolveImageUpload = widget.resolveImageUpload;
     widget.controllerRef?.call(_controller);
   }
 
@@ -94,7 +101,8 @@ class _PageEditorViewState extends State<PageEditorView> {
       ..onMarkdownChanged = widget.onMarkdownChanged
       ..onWikilinkTap = widget.onWikilinkTap
       ..resolveWikilinks = widget.resolveWikilinks
-      ..resolvePresignGet = widget.resolvePresignGet;
+      ..resolvePresignGet = widget.resolvePresignGet
+      ..resolveImageUpload = widget.resolveImageUpload;
     if (oldWidget.theme != widget.theme) {
       _controller.setOptions(newTheme: widget.theme);
     }
