@@ -54,4 +54,22 @@ export const zhHans: Record<string, string> = {
   'Inline code': '行内代码',
   'Inline math': '行内公式',
   Link: '链接',
+
+  // ── 自绘右键菜单（src/context-menu/model.ts 注册表）──
+  Cut: '剪切',
+  Paste: '粘贴',
+  'Paste as Plain Text': '粘贴为纯文本',
+  'Select All': '全选',
+  'Convert to': '转换为',
+  Insert: '插入',
+  Timestamp: '时间戳',
+  'Open Link': '打开链接',
+  'Copy Link': '复制链接',
+  'Remove Link': '移除链接',
+  'Delete Table': '删除表格',
+  'Edit Caption': '编辑说明',
+  Delete: '删除',
+  'Copy Code': '复制代码',
+  'Ask AI': '询问 AI',
+  'Edit with AI': '用 AI 编辑选区',
 }

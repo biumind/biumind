@@ -1,0 +1,71 @@
+/* 自绘右键菜单：颜色全部走 --kc-editor-* 主题变量，dark 模式切 class 即生效 */
+
+.kc-menu-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
+.kc-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 4px;
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-fg);
+  border: 1px solid var(--kc-editor-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 13px;
+  line-height: 20px;
+  user-select: none;
+}
+
+.kc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.kc-menu-item:hover {
+  background: var(--kc-editor-code-bg);
+}
+
+.kc-menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kc-menu-shortcut {
+  color: var(--kc-editor-muted);
+  font-size: 12px;
+}
+
+.kc-menu-arrow {
+  color: var(--kc-editor-muted);
+  font-size: 11px;
+}
+
+.kc-menu-danger {
+  color: var(--kc-editor-danger);
+}
+
+.kc-menu-disabled,
+.kc-menu-disabled:hover {
+  color: var(--kc-editor-muted);
+  background: transparent;
+  opacity: 0.6;
+}
+
+.kc-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--kc-editor-border);
+}

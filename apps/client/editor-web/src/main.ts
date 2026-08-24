@@ -52,6 +52,7 @@ import './theme/light.css'
 import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
+import { ContextMenuController } from './context-menu'
 import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
@@ -60,7 +61,7 @@ import { applyWikilinkRemark, wikilinkPlugins } from './plugins/wikilink'
 import { SourceModeController } from './source-mode'
 import { formatTimestamp } from './timestamp'
 import { computeActiveState } from './toolbar/active-state'
-import { createToolbar, type Toolbar } from './toolbar'
+import { createToolbar, type Toolbar, type ToolbarActions } from './toolbar'
 import type {
   CommandPayload,
   InitPayload,
@@ -76,7 +77,10 @@ interface EditorState {
   crepe: Crepe | null
   toolbar: Toolbar | null
   sourceMode: SourceModeController | null
+  contextMenu: ContextMenuController | null
   readOnly: boolean
+  /** 当前 UI 语言（init 定初值，setOptions.locale 可运行时切换） */
+  locale: string
   revision: number
   lastSentMarkdown: string
   /** 防抖窗口内待发送的 markdown（WYSIWYG 与源码模式共用） */
@@ -97,7 +101,9 @@ const state: EditorState = {
   crepe: null,
   toolbar: null,
   sourceMode: null,
+  contextMenu: null,
   readOnly: false,
+  locale: 'en',
   revision: 0,
   lastSentMarkdown: '',
   pendingMarkdown: null,
@@ -174,6 +180,11 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     state.toolbar?.setDisabled(payload.readOnly)
     state.sourceMode?.setReadOnly(payload.readOnly)
   }
+  if (payload.locale) {
+    state.locale = payload.locale
+    // 菜单每次打开现构建，换 translator 即刻生效；crepe 自身文案维持 init
+    state.contextMenu?.setLocale(payload.locale)
+  }
 }
 
 function handleCommand(payload: CommandPayload): void {
@@ -207,6 +218,8 @@ async function mountEditor(payload: InitPayload): Promise<void> {
 /** 重建前的公共清理 */
 async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
+  state.contextMenu?.destroy()
+  state.contextMenu = null
   state.sourceMode?.destroy()
   state.sourceMode = null
   state.toolbar = null
@@ -285,7 +298,8 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   state.lastSentMarkdown = payload.markdown
   state.pendingMarkdown = null
 
-  const toolbar = createToolbar({
+  // toolbar 与右键菜单共用的同一批命令（避免两套命令绑定，设计 §4.3）
+  const editorCommands: ToolbarActions = {
     undo: () => runCommand(undoCommand),
     redo: () => runCommand(redoCommand),
     toggleStrong: () => runCommand(toggleStrongCommand),
@@ -304,7 +318,8 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       state.crepe?.editor.action(insert(formatTimestamp(new Date())))
     },
     toggleSourceMode,
-  })
+  }
+  const toolbar = createToolbar(editorCommands)
   root.insertBefore(toolbar.element, editorWrap)
   toolbar.setDisabled(state.readOnly)
   state.toolbar = toolbar
@@ -317,6 +332,22 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     onEdit: (markdown) => scheduleDocChanged(markdown),
   })
   state.sourceMode.setReadOnly(state.readOnly)
+
+  // 自绘右键菜单：features.contextMenu = 'native'（移动端）时不挂，走系统菜单
+  state.locale = payload.locale
+  if (payload.features.contextMenu !== 'native') {
+    const menu = new ContextMenuController({
+      bridge,
+      commands: editorCommands,
+      getCrepe: () => state.crepe,
+      getSourceMode: () => state.sourceMode,
+      getReadOnly: () => state.readOnly,
+      aiActions: payload.features.aiActions === true,
+      locale: payload.locale,
+    })
+    menu.attach()
+    state.contextMenu = menu
+  }
 }
 
 /** 走 Milkdown 命令体系执行一个 $Command */

@@ -65,6 +65,32 @@ export class SourceModeController {
     if (this.textarea) this.textarea.readOnly = readOnly
   }
 
+  /** 自绘右键菜单用：textarea 当前选区（非源码模式返回 null） */
+  getSelection(): { start: number; end: number; text: string } | null {
+    if (!this.textarea) return null
+    const { selectionStart, selectionEnd, value } = this.textarea
+    return {
+      start: selectionStart,
+      end: selectionEnd,
+      text: value.slice(selectionStart, selectionEnd),
+    }
+  }
+
+  /** 自绘右键菜单用：替换 [start, end) 区间文本并触发 onEdit（粘贴/剪切） */
+  replaceRange(start: number, end: number, text: string): void {
+    if (!this.textarea) return
+    const value = this.textarea.value
+    this.textarea.value = value.slice(0, start) + text + value.slice(end)
+    const caret = start + text.length
+    this.textarea.setSelectionRange(caret, caret)
+    this.deps.onEdit(this.textarea.value)
+  }
+
+  /** 自绘右键菜单用：全选 textarea 内容 */
+  selectAll(): void {
+    this.textarea?.select()
+  }
+
   /** mountEditor 重建时调用，清掉残留 DOM 和状态 */
   destroy(): void {
     this.active = false

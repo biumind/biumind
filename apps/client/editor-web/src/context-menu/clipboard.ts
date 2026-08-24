@@ -1,0 +1,63 @@
+// 剪贴板抽象：execCommand('paste') 在 WKWebView 常失败、
+// navigator.clipboard.readText 权限不稳定 → native（inappwebview）走 bridge
+// 落到 Flutter Clipboard；web/standalone 走 navigator.clipboard。
+// P1 只写纯文本（text+html 双格式列 P2，Flutter Clipboard 本身只支持纯文本，
+// html 需 macOS method channel 扩展）。
+
+import type { BridgeClient } from '../bridge/client'
+
+export interface ClipboardData {
+  text: string
+}
+
+export interface ClipboardBackend {
+  write(data: ClipboardData): Promise<void>
+  /** null = 剪贴板为空 / 读取失败（调用方把粘贴项置灰，不崩） */
+  read(): Promise<ClipboardData | null>
+}
+
+/** native 实现：经 bridge 消息落到 host 的 Flutter Clipboard。 */
+export function createNativeClipboard(bridge: BridgeClient): ClipboardBackend {
+  return {
+    async write(data) {
+      bridge.sendClipboardWrite({ text: data.text })
+    },
+    async read() {
+      // 5s 超时回空对象（host 未实现 clipboardRead 的老版本）→ text undefined → null
+      const reply = await bridge.requestClipboardRead()
+      if (typeof reply.text !== 'string' || reply.text.length === 0) return null
+      return { text: reply.text }
+    },
+  }
+}
+
+/** web/standalone 实现：navigator.clipboard。readText 被拒绝时降级回 null +
+ *  sendLog 提示（localhost/127.0.0.1 是 secure context，一般可用）。 */
+export function createWebClipboard(
+  log: (msg: string) => void,
+): ClipboardBackend {
+  return {
+    async write(data) {
+      await navigator.clipboard.writeText(data.text)
+    },
+    async read() {
+      try {
+        const text = await navigator.clipboard.readText()
+        if (text.length === 0) return null
+        return { text }
+      } catch (error) {
+        log(`clipboard readText denied/failed: ${String(error)}`)
+        return null
+      }
+    },
+  }
+}
+
+/** 按运行环境选实现：inappwebview → bridge，否则 navigator.clipboard。 */
+export function createClipboard(
+  bridge: BridgeClient,
+  log: (msg: string) => void,
+): ClipboardBackend {
+  if (window.flutter_inappwebview) return createNativeClipboard(bridge)
+  return createWebClipboard(log)
+}

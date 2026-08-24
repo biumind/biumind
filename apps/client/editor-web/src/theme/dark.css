@@ -6,6 +6,7 @@
   --kc-editor-accent: #8b5cf6;
   --kc-editor-code-bg: #16161d;
   --kc-editor-link: #58a6ff;
+  --kc-editor-danger: #f85149;
 }
 
 :root.dark, :root.dark body {

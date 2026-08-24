@@ -14,6 +14,13 @@ export type Theme = 'light' | 'dark'
 export interface BridgeFeatures {
   wikilink: boolean
   mermaid: boolean
+  /**
+   * 右键菜单载体：custom = bundle 内自绘 HTML 菜单（默认，桌面/Web）；
+   * native = 平台系统菜单（iOS/Android 移动端，长按 callout 是强平台习惯）。
+   */
+  contextMenu?: 'custom' | 'native'
+  /** host 已接 AI 动作（选区询问/编辑 overlay）；缺省 false，菜单不渲染 AI 组 */
+  aiActions?: boolean
 }
 
 // Host → Editor
@@ -37,6 +44,8 @@ export interface SetDocPayload {
 export interface SetOptionsPayload {
   theme?: Theme
   readOnly?: boolean
+  /** 运行时切换 UI 语言（菜单等现构建的文案即刻生效；crepe 自身文案维持 init） */
+  locale?: string
 }
 
 export type CommandName =
@@ -70,6 +79,11 @@ export interface WikilinkQueryReplyPayload {
 export interface PresignGetReplyPayload {
   /** 可匿名 GET 的临时 URL；空串 = 换取失败（图片裂开但编辑器不崩）。 */
   url: string
+}
+
+/** clipboardRead 的应答：null = 剪贴板为空 / 读取失败（粘贴项置灰）。 */
+export interface ClipboardReadReplyPayload {
+  text: string | null
 }
 
 // Editor → Host
@@ -125,6 +139,23 @@ export interface SelectionChangedPayload {
   coords: { left: number; top: number; right: number; bottom: number }
 }
 
+/** 复制/剪切落系统剪贴板（execCommand 在 WKWebView 常失败，走 host）。 */
+export interface ClipboardWritePayload {
+  text: string
+}
+
+/** 读系统剪贴板（request/reply，应答见 ClipboardReadReplyPayload）。 */
+export type ClipboardReadPayload = Record<string, never>
+
+/** 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 才渲染，见 features.aiActions）。 */
+export interface AiActionPayload {
+  action: 'ask' | 'edit'
+  /** 打开菜单时快照的选区 */
+  from: number
+  to: number
+  text: string
+}
+
 // Discriminated union — exhaustive for safety.
 
 export type HostToEditorMessage =
@@ -134,6 +165,7 @@ export type HostToEditorMessage =
   | Msg<'command', CommandPayload>
   | Msg<'wikilinkQuery.reply', WikilinkQueryReplyPayload>
   | Msg<'presignGet.reply', PresignGetReplyPayload>
+  | Msg<'clipboardRead.reply', ClipboardReadReplyPayload>
 
 export type EditorToHostMessage =
   | Msg<'ready', ReadyPayload>
@@ -143,6 +175,9 @@ export type EditorToHostMessage =
   | Msg<'navigate', NavigatePayload>
   | Msg<'log', LogPayload>
   | Msg<'selectionChanged', SelectionChangedPayload>
+  | Msg<'clipboardWrite', ClipboardWritePayload>
+  | Msg<'clipboardRead', ClipboardReadPayload>
+  | Msg<'aiAction', AiActionPayload>
 
 export interface Msg<T extends string, P> {
   type: T

@@ -9,6 +9,9 @@ import {
   PROTOCOL_VERSION,
   isMessage,
   makeMessage,
+  type AiActionPayload,
+  type ClipboardReadReplyPayload,
+  type ClipboardWritePayload,
   type CommandPayload,
   type DocChangedPayload,
   type SelectionChangedPayload,
@@ -105,6 +108,24 @@ export class BridgeClient {
     )
   }
 
+  /** 复制/剪切：把文本写进系统剪贴板（native 走 host Flutter Clipboard）。 */
+  sendClipboardWrite(payload: ClipboardWritePayload): void {
+    this.send(makeMessage('clipboardWrite', payload))
+  }
+
+  /** 读系统剪贴板；host 未实现/超时（5s）时回空对象 → text undefined → 置灰粘贴。 */
+  requestClipboardRead(): Promise<ClipboardReadReplyPayload> {
+    return this.request<Record<string, never>, ClipboardReadReplyPayload>(
+      'clipboardRead',
+      {},
+    )
+  }
+
+  /** 右键菜单 AI 动作（P2 菜单组才渲染，协议先就位）。 */
+  sendAiAction(payload: AiActionPayload): void {
+    this.send(makeMessage('aiAction', payload))
+  }
+
   // Internal
 
   private request<Req, Resp>(type: string, payload: Req): Promise<Resp> {
@@ -186,6 +207,9 @@ export class BridgeClient {
         // already handled by request() id matching above; defensively no-op
         return
       case 'presignGet.reply':
+        // already handled by request() id matching above; defensively no-op
+        return
+      case 'clipboardRead.reply':
         // already handled by request() id matching above; defensively no-op
         return
     }
