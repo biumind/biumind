@@ -27,9 +27,9 @@ import (
 // must be downloaded / installed before dependencies can be resolved.
 // Kept side-effect free so the decision matrix is unit-testable.
 type BootstrapPlan struct {
-	DownloadUV   bool   // fetch the uv single binary into runtimes/bin
-	DownloadMise bool   // fetch the mise single binary into runtimes/bin
-	InstallPython bool  // run `uv python install` (system python missing/unsuitable)
+	DownloadUV    bool   // fetch the uv single binary into runtimes/bin
+	DownloadMise  bool   // fetch the mise single binary into runtimes/bin
+	InstallPython bool   // run `uv python install` (system python missing/unsuitable)
 	PythonInstall string // version for `uv python install` ("" = uv's default)
 	NodeInstall   string // version for `mise install node@<ver>` ("" = none needed)
 	DockerMissing bool   // caller must surface the "install Docker" error

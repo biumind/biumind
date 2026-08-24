@@ -19,7 +19,7 @@ func TestParseRepoArg(t *testing.T) {
 		{"https://github.com/owner/repo.git", "owner-repo", "https://github.com/owner/repo.git", false},
 		{"git@github.com:owner/repo.git", "owner-repo", "https://github.com/owner/repo.git", false},
 		{"https://github.com/my-org/my.repo", "my-org-my-repo", "https://github.com/my-org/my.repo.git", false},
-		{"https://gitlab.com/owner/repo", "", "", true},  // non-github host
+		{"https://gitlab.com/owner/repo", "", "", true},           // non-github host
 		{"https://github.com/owner/repo/tree/main", "", "", true}, // deep link, not a repo root
 		{"not-a-repo", "", "", true},
 		{"", "", "", true},
@@ -44,11 +44,11 @@ func TestParseRepoArg(t *testing.T) {
 
 func TestSanitiseForFS(t *testing.T) {
 	cases := map[string]string{
-		"owner/repo":        "owner-repo",
-		"a//b///c":          "a-b-c",
-		"--lead-trail--":    "lead-trail",
-		"under_score-ok":    "under_score-ok",
-		"spaces and.dots":   "spaces-and-dots",
+		"owner/repo":      "owner-repo",
+		"a//b///c":        "a-b-c",
+		"--lead-trail--":  "lead-trail",
+		"under_score-ok":  "under_score-ok",
+		"spaces and.dots": "spaces-and-dots",
 	}
 	for in, want := range cases {
 		if got := sanitiseForFS(in); got != want {

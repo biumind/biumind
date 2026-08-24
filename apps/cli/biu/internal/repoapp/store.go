@@ -225,18 +225,18 @@ func (s *Store) Remove(slug string) error {
 // RuntimeInfo is the runtime.json contract: everything the runner needs
 // to (re)start the app without re-detecting anything.
 type RuntimeInfo struct {
-	RepoURL      string    `json:"repo_url"`
-	Ref          string    `json:"ref"`
-	InstalledSHA string    `json:"installed_sha"`
-	Stack        string    `json:"stack"` // node | python | docker
-	PackageManager string  `json:"package_manager,omitempty"`
-	StartCmd     string    `json:"start_cmd"` // executed via `sh -c`
-	Port         int       `json:"port"`
-	HealthPath   string    `json:"health_path"` // empty = "/"
+	RepoURL        string `json:"repo_url"`
+	Ref            string `json:"ref"`
+	InstalledSHA   string `json:"installed_sha"`
+	Stack          string `json:"stack"` // node | python | docker
+	PackageManager string `json:"package_manager,omitempty"`
+	StartCmd       string `json:"start_cmd"` // executed via `sh -c`
+	Port           int    `json:"port"`
+	HealthPath     string `json:"health_path"` // empty = "/"
 	// PathExtra entries are prepended to the child's PATH (managed
 	// toolchains, the project venv, ...). Absolute paths only.
 	PathExtra []string  `json:"path_extra,omitempty"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // EffectiveHealthPath returns the configured health path, defaulting to
