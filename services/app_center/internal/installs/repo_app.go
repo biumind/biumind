@@ -42,6 +42,12 @@ var (
 	// redeploy (should not happen for rows written by CreateRepoApp;
 	// guards hand-migrated / legacy rows).
 	ErrNoRepoRef = errors.New("repo_app: no ref available to redeploy")
+	// ErrBuildAlreadyFinal — the build row is already live/failed; a
+	// repeated complete report is rejected so a retried runner callback
+	// can't resurrect or overwrite a terminal build.
+	ErrBuildAlreadyFinal = errors.New("repo_app: build already in terminal state")
+	// ErrInvalidBuildStatus — complete reports accept only live|failed.
+	ErrInvalidBuildStatus = errors.New("repo_app: build status must be live or failed")
 )
 
 // RepoAppRequest carries everything the API layer resolved for one
@@ -88,6 +94,16 @@ func (in *Installer) CreateRepoApp(ctx context.Context, req RepoAppRequest) (*In
 	repoMetaJSON, err := json.Marshal(req.Analysis.RepoMeta)
 	if err != nil {
 		return nil, fmt.Errorf("repo_app: marshal repo_meta: %w", err)
+	}
+	// M2.1: the release poller diffs latest_* against installed_* to
+	// raise update_available, and the complete endpoint rewinds these on
+	// a successful redeploy — pin both at install time.
+	repoMetaJSON, err = mergeJSONFields(repoMetaJSON, map[string]any{
+		"installed_ref": req.Analysis.RepoMeta.LatestRef,
+		"installed_sha": req.Analysis.RepoMeta.LatestSHA,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("repo_app: merge repo_meta installed fields: %w", err)
 	}
 	manifestHash := sha256Hex(manifestJSON)
 	appID := "app_" + identifier
@@ -165,6 +181,20 @@ func (in *Installer) CreateRepoApp(ctx context.Context, req RepoAppRequest) (*In
 		CallerUserID:       req.UserID,
 		CallerOrgID:        req.CallerOrgID,
 	})
+}
+
+// mergeJSONFields overlays extra keys onto an already-marshalled JSON
+// object (repo_meta gains poller-facing fields the RepoMeta struct
+// doesn't carry).
+func mergeJSONFields(raw []byte, extra map[string]any) ([]byte, error) {
+	m := map[string]any{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	return json.Marshal(m)
 }
 
 // rejectSecretConfig enforces the D9 boundary: a config key that matches
@@ -259,10 +289,20 @@ func (in *Installer) ListBuilds(ctx context.Context, installID string, limit int
 	return builds, rows.Err()
 }
 
+// QueuedRedeploy is the redeploy endpoint's response: the queued build
+// id plus the ref/sha it is pinned at. The client hands ref/sha to the
+// CLI (`biu repo-app update --ref`) so runner and server agree on the
+// target without a second lookup.
+type QueuedRedeploy struct {
+	BuildID string `json:"build_id"`
+	Ref     string `json:"ref"`
+	SHA     string `json:"sha"`
+}
+
 // QueueRedeploy records a queued build row pinned at the catalogue's
 // repo_meta.latest_ref/sha. The actual fetch+restart is the runner's
-// job (M2); this endpoint only persists intent + the audit event.
-func (in *Installer) QueueRedeploy(ctx context.Context, installID, identifier, callerUserID string) (string, error) {
+// job; this endpoint only persists intent + the audit event.
+func (in *Installer) QueueRedeploy(ctx context.Context, installID, identifier, callerUserID string) (*QueuedRedeploy, error) {
 	var ref, sha string
 	err := in.Pool.QueryRow(ctx, `
 		SELECT COALESCE(repo_meta->>'latest_ref', ''),
@@ -273,18 +313,18 @@ func (in *Installer) QueueRedeploy(ctx context.Context, installID, identifier, c
 		 LIMIT 1
 	`, identifier).Scan(&ref, &sha)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("repo_app: read repo_meta: %w", err)
+		return nil, fmt.Errorf("repo_app: read repo_meta: %w", err)
 	}
 	if ref == "" {
-		return "", fmt.Errorf("%w: %s", ErrNoRepoRef, identifier)
+		return nil, fmt.Errorf("%w: %s", ErrNoRepoRef, identifier)
 	}
 
 	tx, err := in.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return "", fmt.Errorf("repo_app: begin tx: %w", err)
+		return nil, fmt.Errorf("repo_app: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -294,7 +334,7 @@ func (in *Installer) QueueRedeploy(ctx context.Context, installID, identifier, c
 		VALUES ($1, $2, $3, 'queued')
 		RETURNING id
 	`, installID, ref, sha).Scan(&buildID); err != nil {
-		return "", fmt.Errorf("repo_app: insert build: %w", err)
+		return nil, fmt.Errorf("repo_app: insert build: %w", err)
 	}
 
 	if err := events.Write(ctx, tx, events.Event{
@@ -311,13 +351,133 @@ func (in *Installer) QueueRedeploy(ctx context.Context, installID, identifier, c
 			"sha":        sha,
 		},
 	}); err != nil {
-		return "", fmt.Errorf("repo_app: write redeploy event: %w", err)
+		return nil, fmt.Errorf("repo_app: write redeploy event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", fmt.Errorf("repo_app: commit build: %w", err)
+		return nil, fmt.Errorf("repo_app: commit build: %w", err)
 	}
-	return buildID, nil
+	return &QueuedRedeploy{BuildID: buildID, Ref: ref, SHA: sha}, nil
+}
+
+// ─── Build completion report (M2.3) ──────────────────────────────────
+
+// CompleteBuildRequest is the runner's build outcome, relayed by the
+// client (POST .../builds/{build_id}/complete).
+type CompleteBuildRequest struct {
+	// Status is "live" (runner is serving the new ref) or "failed"
+	// (runner rolled back to the old ref).
+	Status string
+	// SHA is the commit the runner actually checked out; empty falls
+	// back to the sha the build row was queued with.
+	SHA string
+	// LogRef points at the runner's local build log (instance dir path).
+	LogRef string
+	// CallerUserID is the JWT subject — recorded as the event actor.
+	CallerUserID string
+}
+
+// CompleteRepoBuild applies the runner's outcome in a single tx:
+//
+//   - live: repo_builds row → live (+ duration_ms), apps.repo_meta
+//     installed_ref/installed_sha advance to the build's ref/sha,
+//     update_available clears, next_poll_at resets to the base
+//     interval; app.upgraded{action:redeploy_completed} event (I4).
+//   - failed: repo_builds row → failed; repo_meta keeps the old
+//     installed_* (the runner rolled back), event marks the failure.
+//
+// The build must belong to the install and still be non-terminal —
+// "not this install's build" folds into ErrNotFound, a terminal build
+// into ErrBuildAlreadyFinal.
+func (in *Installer) CompleteRepoBuild(ctx context.Context, install *Installation, buildID string, req CompleteBuildRequest) error {
+	if req.Status != "live" && req.Status != "failed" {
+		return fmt.Errorf("%w: %q", ErrInvalidBuildStatus, req.Status)
+	}
+
+	tx, err := in.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("repo_app: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var buildStatus, buildRef, buildSHA string
+	err = tx.QueryRow(ctx, `
+		SELECT status, ref, sha FROM app_center.repo_builds
+		 WHERE id = $1 AND install_id = $2
+		 FOR UPDATE
+	`, buildID, install.ID).Scan(&buildStatus, &buildRef, &buildSHA)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("repo_app: lock build: %w", err)
+	}
+	if buildStatus == "live" || buildStatus == "failed" {
+		return fmt.Errorf("%w: %s", ErrBuildAlreadyFinal, buildID)
+	}
+
+	sha := req.SHA
+	if sha == "" {
+		sha = buildSHA
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE app_center.repo_builds
+		   SET status      = $2,
+		       log_ref     = NULLIF($3, ''),
+		       duration_ms = (EXTRACT(EPOCH FROM (now() - created_at)) * 1000)::int
+		 WHERE id = $1
+	`, buildID, req.Status, req.LogRef); err != nil {
+		return fmt.Errorf("repo_app: update build: %w", err)
+	}
+
+	action := "redeploy_failed"
+	if req.Status == "live" {
+		action = "redeploy_completed"
+		// Advance the installed pair + clear the banner; reset the poll
+		// schedule to the base interval (poll_interval_sec is written by
+		// the poller, default 6h when absent).
+		if _, err := tx.Exec(ctx, `
+			UPDATE app_center.apps
+			   SET repo_meta = repo_meta || jsonb_build_object(
+			           'installed_ref', $2::text,
+			           'installed_sha', $3::text,
+			           'update_available', false,
+			           'next_poll_at', now() + COALESCE(
+			               (repo_meta->>'poll_interval_sec')::int, 21600
+			           ) * interval '1 second'),
+			       updated_at = now()
+			 WHERE id = (
+			       SELECT id FROM app_center.apps
+			        WHERE identifier = $1
+			        ORDER BY created_at DESC
+			        LIMIT 1)
+		`, install.Identifier, buildRef, sha); err != nil {
+			return fmt.Errorf("repo_app: advance installed ref: %w", err)
+		}
+	}
+
+	if err := events.Write(ctx, tx, events.Event{
+		ScopeKind: "install",
+		ScopeID:   install.ID,
+		ActorType: events.ActorUser,
+		ActorID:   req.CallerUserID,
+		Type:      events.AppUpgraded,
+		Payload: map[string]any{
+			"action":     action,
+			"identifier": install.Identifier,
+			"build_id":   buildID,
+			"ref":        buildRef,
+			"sha":        sha,
+		},
+	}); err != nil {
+		return fmt.Errorf("repo_app: write complete event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("repo_app: commit complete: %w", err)
+	}
+	return nil
 }
 
 // RuntimeStatusFor maps a repo_builds status onto the runtime endpoint's

@@ -23,9 +23,11 @@ package installs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/biumind/biumind/services/app_center/internal/events"
@@ -81,8 +83,15 @@ type UpgradeStatus struct {
 // ─── CheckUpgradable ──────────────────────────────────────────────
 
 // CheckUpgradable returns whether the installation has a newer
-// version in the registry, plus the perm diff so the client can
-// render a Modal pre-emptively.
+// version, plus the perm diff so the client can render a Modal
+// pre-emptively.
+//
+// Dispatch by catalogue source (Repo Apps M2.2, tech plan §2.6 path
+// A): gh_* rows resolve versions from repo_meta (the release poller
+// maintains latest_ref / update_available); every other source diffs
+// against the registry's current manifest. The wire contract is
+// identical either way — repo apps report ref strings as versions and
+// never carry a perms diff.
 //
 // We don't gate on Authz here — the caller already authenticated
 // via the outer HTTP handler (and the row scope_id is the caller).
@@ -91,6 +100,11 @@ func (in *Installer) CheckUpgradable(ctx context.Context, installID string) (*Up
 	row, err := in.Get(ctx, installID)
 	if err != nil {
 		return nil, err
+	}
+	if status, ok, err := in.checkRepoUpgradable(ctx, row); err != nil {
+		return nil, err
+	} else if ok {
+		return status, nil
 	}
 	app, ok := in.Registry.Get(row.Identifier)
 	if !ok {
@@ -125,6 +139,58 @@ func (in *Installer) CheckUpgradable(ctx context.Context, installID string) (*Up
 		Pinned:           row.PinnedVersion != "",
 		PermsDiff:        diff,
 	}, nil
+}
+
+// ─── Repo-app branch (gh_* sources) ─────────────────────────────────
+
+// checkRepoUpgradable is the gh_*-source branch of CheckUpgradable.
+// ok=false means the install's catalogue row is missing or not a repo
+// app — the caller falls through to the registry diff.
+func (in *Installer) checkRepoUpgradable(ctx context.Context, row *Installation) (*UpgradeStatus, bool, error) {
+	var source string
+	var meta []byte
+	err := in.Pool.QueryRow(ctx, `
+		SELECT source, repo_meta FROM app_center.apps
+		 WHERE identifier = $1
+		 ORDER BY created_at DESC
+		 LIMIT 1
+	`, row.Identifier).Scan(&source, &meta)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("upgrade: repo source lookup: %w", err)
+	}
+	if !strings.HasPrefix(source, "gh_") {
+		return nil, false, nil
+	}
+
+	var m struct {
+		InstalledRef    string `json:"installed_ref"`
+		LatestRef       string `json:"latest_ref"`
+		UpdateAvailable bool   `json:"update_available"`
+	}
+	if len(meta) > 0 {
+		if err := json.Unmarshal(meta, &m); err != nil {
+			return nil, false, fmt.Errorf("upgrade: decode repo_meta: %w", err)
+		}
+	}
+	current := m.InstalledRef
+	if current == "" {
+		// Legacy row without installed_* — fall back to the install's
+		// semver so the client still shows something sensible.
+		current = row.Version
+	}
+	return &UpgradeStatus{
+		Available:      m.UpdateAvailable && m.LatestRef != "",
+		CurrentVersion: current,
+		TargetVersion:  m.LatestRef,
+		// Repo-app updates carry no permission changes (path A):
+		// approval never required, diff always empty.
+		RequiresApproval: false,
+		Pinned:           row.PinnedVersion != "",
+		PermsDiff:        PermsDiff{},
+	}, true, nil
 }
 
 // ─── DiffPermissions ──────────────────────────────────────────────

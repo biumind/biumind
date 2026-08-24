@@ -147,6 +147,11 @@ type Config struct {
 	// (M1.4). Empty falls back to anonymous GitHub API access (60 req/h
 	// per IP); a startup WARN flags the degraded rate limit.
 	GitHubToken string `env:"GITHUB_TOKEN" default:""`
+
+	// RepoPollInterval — base cadence of the repo-app release poller
+	// (M2.1). Per-row backoff derives from it; tests / dev set small
+	// values (e.g. 30s) to watch polls live.
+	RepoPollInterval time.Duration `env:"REPO_POLL_INTERVAL" default:"6h"`
 }
 
 func main() {
@@ -323,7 +328,8 @@ func run() error {
 	if cfg.GitHubToken == "" {
 		logger.Warn("GITHUB_TOKEN unset; repo analyze runs anonymously (GitHub 60 req/h rate limit)")
 	}
-	apiSrv = apiSrv.WithRepoAnalyzer(repoanalyze.NewClient("", cfg.GitHubToken))
+	repoClient := repoanalyze.NewClient("", cfg.GitHubToken)
+	apiSrv = apiSrv.WithRepoAnalyzer(repoClient)
 
 	// Installer is only available when the DB is wired. Without it,
 	// the v1.5 install endpoints return 503 (graceful degradation —
@@ -384,6 +390,46 @@ func run() error {
 			}
 		}()
 		logger.Info("outbox poller started")
+
+		// Repo Apps release poller (M2.1, tech plan §2.5). Ticker +
+		// immediate first run + ctx exit, same driver shape as the
+		// rankings scheduler below. The due query gates per-row, so the
+		// tick only needs to be "often enough": the base interval when
+		// it's short (tests/dev), capped at 5min in production.
+		repoPoller := repoanalyze.NewPoller(pool, repoClient)
+		repoPoller.Interval = cfg.RepoPollInterval
+		repoPoller.Logger = logger
+		go func() {
+			tickEvery := cfg.RepoPollInterval
+			if tickEvery <= 0 || tickEvery > 5*time.Minute {
+				tickEvery = 5 * time.Minute
+			}
+			tick := time.NewTicker(tickEvery)
+			defer tick.Stop()
+			runOnce := func() {
+				stats, err := repoPoller.PollAll(ctx)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("repo poller: poll failed", "err", err)
+					return
+				}
+				if stats.Considered > 0 {
+					logger.Info("repo poller: tick",
+						"considered", stats.Considered,
+						"ok", stats.OK, "errors", stats.Errors,
+						"updates", stats.Updates)
+				}
+			}
+			runOnce()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					runOnce()
+				}
+			}
+		}()
+		logger.Info("repo release poller started", "interval", cfg.RepoPollInterval)
 	}
 
 	// Radar pipeline — wires the matcher between fetcher hooks and

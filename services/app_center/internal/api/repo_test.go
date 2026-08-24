@@ -153,6 +153,7 @@ func TestRepoEndpoints_Stateless503(t *testing.T) {
 		{"GET", "/v1/apps/installs/some-id/runtime", ""},
 		{"GET", "/v1/apps/installs/some-id/builds", ""},
 		{"POST", "/v1/apps/installs/some-id/redeploy", ""},
+		{"POST", "/v1/apps/installs/some-id/builds/some-build/complete", `{"status":"live"}`},
 	}
 	for _, c := range cases {
 		rr := httptest.NewRecorder()

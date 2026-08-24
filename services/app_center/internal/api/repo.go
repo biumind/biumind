@@ -4,7 +4,9 @@
 //	POST /v1/apps/repo/installs             {repo_url, ref_type, config} → Installation
 //	GET  /v1/apps/installs/{id}/runtime     → {mode:"local", status, url:null}
 //	GET  /v1/apps/installs/{id}/builds      → {builds:[...]} (newest first, max 20)
-//	POST /v1/apps/installs/{id}/redeploy    → {build_id} (queued row; execution is M2)
+//	POST /v1/apps/installs/{id}/redeploy    → {build_id, ref, sha} (queued row; the CLI runs the update)
+//	POST /v1/apps/installs/{id}/builds/{build_id}/complete
+//	                                        {status, sha, log_ref} → runner outcome report (M2.3)
 //
 // All responses use explicit snake_case json tags — the Installation
 // dual-key fallback debt (installer.go:141-156) must not spread here.
@@ -192,12 +194,56 @@ func (s *Server) handleRepoRedeploy(w http.ResponseWriter, r *http.Request) {
 		mapRepoError(w, err)
 		return
 	}
-	buildID, err := s.Installer.QueueRedeploy(r.Context(), row.ID, row.Identifier, claims.UserID)
+	queued, err := s.Installer.QueueRedeploy(r.Context(), row.ID, row.Identifier, claims.UserID)
 	if err != nil {
 		mapRepoError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"build_id": buildID})
+	writeJSON(w, http.StatusCreated, queued)
+}
+
+// ─── Build completion (M2.3) ────────────────────────────────────────
+
+type repoCompleteReq struct {
+	Status string `json:"status"` // "live" | "failed"
+	SHA    string `json:"sha,omitempty"`
+	LogRef string `json:"log_ref,omitempty"`
+}
+
+// handleRepoBuildComplete receives the runner's outcome after
+// `biu repo-app update` finishes. Ownership folds to 404; a terminal
+// build rejects repeats with 409.
+func (s *Server) handleRepoBuildComplete(w http.ResponseWriter, r *http.Request) {
+	if s.Installer == nil || s.Pool == nil {
+		writeErr(w, http.StatusServiceUnavailable, "repo_disabled", "App Center running in stateless mode (no DATABASE_URL)")
+		return
+	}
+	claims, _ := bauth.ClaimsFrom(r.Context())
+	if claims == nil {
+		writeErr(w, http.StatusUnauthorized, "no_claims", "")
+		return
+	}
+	var req repoCompleteReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	row, err := s.Installer.OwnedRepoInstall(r.Context(), r.PathValue("id"), claims.UserID)
+	if err != nil {
+		mapRepoError(w, err)
+		return
+	}
+	buildID := r.PathValue("build_id")
+	if err := s.Installer.CompleteRepoBuild(r.Context(), row, buildID, installs.CompleteBuildRequest{
+		Status:       req.Status,
+		SHA:          req.SHA,
+		LogRef:       req.LogRef,
+		CallerUserID: claims.UserID,
+	}); err != nil {
+		mapRepoError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"build_id": buildID, "status": req.Status})
 }
 
 // ─── Error mapping ──────────────────────────────────────────────────
@@ -218,6 +264,10 @@ func mapRepoError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, "secret_field_rejected", err.Error())
 	case errors.Is(err, installs.ErrNoRepoRef):
 		writeErr(w, http.StatusConflict, "no_ref", err.Error())
+	case errors.Is(err, installs.ErrBuildAlreadyFinal):
+		writeErr(w, http.StatusConflict, "build_already_final", err.Error())
+	case errors.Is(err, installs.ErrInvalidBuildStatus):
+		writeErr(w, http.StatusBadRequest, "invalid_status", err.Error())
 	case errors.Is(err, installs.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "not_found", err.Error())
 	default:
