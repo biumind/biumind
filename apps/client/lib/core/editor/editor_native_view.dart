@@ -69,8 +69,15 @@ class _EditorNativeViewState extends State<EditorNativeView> {
   @override
   void initState() {
     super.initState();
+    // ?v= 防 WKWebView 缓存：bundle URL 恒定，而 sync 脚本往 assets/editor
+    // 追加新 hash 文件后旧 hash 文件仍在——一旦 index.html 被缓存，旧入口
+    // 会完整加载旧 bundle（菜单能跑但缺新功能，极难排查）。每次开编辑器
+    // 换 query 强制回源；localhost 服务，无性能代价。
     _bundleUri = _LocalhostServer.ensureStarted().then(
-      (port) => Uri.parse('http://127.0.0.1:$port/${widget.bundlePath}'),
+      (port) => Uri.parse(
+        'http://127.0.0.1:$port/${widget.bundlePath}'
+        '?v=${DateTime.now().millisecondsSinceEpoch}',
+      ),
     );
   }
 
