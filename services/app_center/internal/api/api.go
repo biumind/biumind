@@ -8,6 +8,8 @@
 //	GET    /v1/apps/installs/{id}/runtime repo-app runtime status
 //	GET    /v1/apps/installs/{id}/builds  repo-app build history
 //	POST   /v1/apps/installs/{id}/redeploy queue a repo-app redeploy
+//	POST   /v1/apps/installs/{id}/builds/{build_id}/complete
+//	       repo-app build outcome report (M2.3)
 //
 // All routes JWT-gated. The invoke path additionally runs Authz against
 // the caller's installation row (lookup by scope=user + sub + identifier),
@@ -134,12 +136,14 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/apps/installs/{id}/upgrade", s.requireAuth(s.handleCheckUpgrade))
 	mux.HandleFunc("POST /v1/apps/installs/{id}/upgrade", s.requireAuth(s.handleUpgrade))
 
-	// Repo Apps (M1.4) — analyse / install / runtime / builds / redeploy.
+	// Repo Apps (M1.4/M2) — analyse / install / runtime / builds /
+	// redeploy / build-complete.
 	mux.HandleFunc("POST /v1/apps/repo/analyze", s.requireAuth(s.handleRepoAnalyze))
 	mux.HandleFunc("POST /v1/apps/repo/installs", s.requireAuth(s.handleRepoInstall))
 	mux.HandleFunc("GET /v1/apps/installs/{id}/runtime", s.requireAuth(s.handleRepoRuntime))
 	mux.HandleFunc("GET /v1/apps/installs/{id}/builds", s.requireAuth(s.handleRepoBuilds))
 	mux.HandleFunc("POST /v1/apps/installs/{id}/redeploy", s.requireAuth(s.handleRepoRedeploy))
+	mux.HandleFunc("POST /v1/apps/installs/{id}/builds/{build_id}/complete", s.requireAuth(s.handleRepoBuildComplete))
 }
 
 // catalogApp is the catalogue wire shape: the manifest fields plus the
@@ -250,6 +254,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := r.PathValue("name")
+	invokeStart := time.Now() // request start; denied audits get ~0ms, invoke audits real latency
 
 	// Authz 链路 (P0 — invoke 之前曾经只过 Bearer 校验, 任何登录 user
 	// 都能调任意 app 的任意 action; 现已对齐 Install/Toggle/Uninstall):
@@ -260,6 +265,12 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	//
 	// Stateless v1.0 模式 (Installer/InvokeAuthorizer 都没挂, e.g. dev /
 	// 单测) 跳过这层并打 WARN。生产部署必挂 Installer。
+	// Audit capture: only filled when the auth chain ran and the install
+	// was found (not_installed has no row to reference).
+	var (
+		auditInstall *installs.Installation
+		auditUserID  string
+	)
 	if auth := s.currentInvokeAuth(); auth != nil {
 		claims, _ := bauth.ClaimsFrom(r.Context())
 		if claims == nil {
@@ -276,9 +287,11 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "lookup_failed", err.Error())
 			return
 		}
+		auditInstall, auditUserID = install, claims.UserID
 		if !install.Enabled {
 			writeErr(w, http.StatusForbidden, "install_disabled",
 				"this installation is currently disabled")
+			s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "denied", "install_disabled", invokeStart)
 			return
 		}
 		if err := auth.AuthorizeInvoke(
@@ -286,6 +299,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		); err != nil {
 			if errors.Is(err, installs.ErrPermissionDenied) {
 				writeErr(w, http.StatusForbidden, "permission_denied", err.Error())
+				s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "denied", "permission_denied", invokeStart)
 				return
 			}
 			writeErr(w, http.StatusInternalServerError, "authz_failed", err.Error())
@@ -296,7 +310,6 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 			"app", name, "action", req.Action)
 	}
 
-	invokeStart := time.Now()
 	out, err := s.Reg.Invoke(r.Context(), name, req.Action, req.Input)
 	if err != nil {
 		// Map common cases to right status code; everything else is 500.
@@ -310,10 +323,13 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case stringContains(msg, "unknown app"):
 			writeErr(w, http.StatusNotFound, "not_found", msg)
+			s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "error", "not_found", invokeStart)
 		case stringContains(msg, "no action"):
 			writeErr(w, http.StatusBadRequest, "unknown_action", msg)
+			s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "error", "unknown_action", invokeStart)
 		default:
 			writeErr(w, http.StatusInternalServerError, "invoke_failed", msg)
+			s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "error", "invoke_failed", invokeStart)
 		}
 		return
 	}
@@ -322,7 +338,33 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 			"app", name, "action", req.Action,
 			"latency_ms", time.Since(invokeStart).Milliseconds())
 	}
+	s.auditInvoke(r.Context(), auditInstall, name, req.Action, auditUserID, "ok", "", invokeStart)
 	writeJSON(w, http.StatusOK, map[string]any{"result": out})
+}
+
+// auditInvoke appends a user-invoke row to app_center.invocations.
+// Best-effort by design: the audit ledger must never break or delay the
+// invoke path, so failures only log. Skipped in stateless mode (nil
+// pool) and whenever the auth chain didn't resolve an install (nothing
+// to reference — invocations.install_id is NOT NULL).
+func (s *Server) auditInvoke(ctx context.Context, install *installs.Installation, identifier, action, callerID, status, errCode string, started time.Time) {
+	if s.Pool == nil || install == nil {
+		return
+	}
+	if _, err := s.Pool.Exec(ctx, `
+		INSERT INTO app_center.invocations
+			(install_id, app_id, identifier, action,
+			 caller, caller_id, trace_id,
+			 duration_ms, status, error_code)
+		VALUES ($1, $2, $3, $4,
+		        'user', $5, '',
+		        $6, $7, $8)
+	`, install.ID, "app_"+identifier, identifier, action,
+		callerID, time.Since(started).Milliseconds(), status, errCode); err != nil {
+		if s.Logger != nil {
+			s.Logger.WarnContext(ctx, "app_center: invoke audit insert failed", "err", err)
+		}
+	}
 }
 
 // ─── helpers ──────────────────────────────────────────────
