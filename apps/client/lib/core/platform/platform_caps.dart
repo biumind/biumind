@@ -58,6 +58,12 @@ class PlatformCaps {
   /// "安装 GitHub 应用" entry and the repo window page.
   final bool hasRepoAppRunner;
 
+  /// True on iOS / Android — 移动端平台习惯（长按系统 callout、触控热区
+  /// 等）与桌面/Web 不同的场景据此分流。编辑器右键菜单即一例：移动端
+  /// 维持系统菜单（features.contextMenu = 'native'），桌面/Web 用 bundle
+  /// 自绘菜单（'custom'）。
+  final bool isMobile;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -66,6 +72,7 @@ class PlatformCaps {
     required this.hasPersistentSqlite,
     required this.hasEmbeddedWebView,
     required this.hasRepoAppRunner,
+    this.isMobile = false,
   });
 
   factory PlatformCaps.detect() {
@@ -109,6 +116,10 @@ class PlatformCaps {
         TargetPlatform.macOS || TargetPlatform.linux => true,
         _ => false,
       },
+      isMobile: switch (defaultTargetPlatform) {
+        TargetPlatform.iOS || TargetPlatform.android => true,
+        _ => false,
+      },
     );
   }
 
@@ -117,7 +128,7 @@ class PlatformCaps {
       'PlatformCaps(pty=$hasLocalPty, fs=$hasFileSystem, '
       'notif=$hasNotifications, isolate=$supportsBackgroundIsolates, '
       'sqlite=$hasPersistentSqlite, webview=$hasEmbeddedWebView, '
-      'repoRunner=$hasRepoAppRunner)';
+      'repoRunner=$hasRepoAppRunner, mobile=$isMobile)';
 }
 
 /// Riverpod provider — detected once at startup. Override in tests with

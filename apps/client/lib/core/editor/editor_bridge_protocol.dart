@@ -18,14 +18,25 @@ class BridgeFeatures {
   const BridgeFeatures({
     this.wikilink = true,
     this.mermaid = true,
+    this.contextMenu = 'custom',
+    this.aiActions = false,
   });
 
   final bool wikilink;
   final bool mermaid;
 
+  /// 右键菜单载体：custom = bundle 内自绘 HTML 菜单（默认，桌面/Web）；
+  /// native = 平台系统菜单（iOS/Android 移动端，长按 callout 是强平台习惯）。
+  final String contextMenu;
+
+  /// host 已接 AI 动作（选区询问/编辑 overlay）；false 时菜单不渲染 AI 组。
+  final bool aiActions;
+
   Map<String, dynamic> toJson() => {
         'wikilink': wikilink,
         'mermaid': mermaid,
+        'contextMenu': contextMenu,
+        'aiActions': aiActions,
       };
 }
 
@@ -105,12 +116,14 @@ BridgeMessage setDocMessage({
   );
 }
 
-BridgeMessage setOptionsMessage({BridgeTheme? theme, bool? readOnly}) {
+BridgeMessage setOptionsMessage({BridgeTheme? theme, bool? readOnly, String? locale}) {
   return BridgeMessage(
     type: 'setOptions',
     payload: {
       if (theme != null) 'theme': theme.wire,
       'readOnly': ?readOnly,
+      // 运行时切换 UI 语言：菜单等现构建的文案即刻生效（crepe 文案维持 init）。
+      'locale': ?locale,
     },
   );
 }
@@ -144,6 +157,42 @@ BridgeMessage presignGetReplyMessage({
     id: id,
     payload: {'url': url},
   );
+}
+
+/// clipboardRead.reply — 编辑器读系统剪贴板的应答（自绘右键菜单「粘贴」）。
+/// `text` 为 null = 剪贴板为空 / 读取失败，编辑器侧把粘贴项置灰。
+BridgeMessage clipboardReadReplyMessage({
+  required String id,
+  required String? text,
+}) {
+  return BridgeMessage(
+    type: 'clipboardRead.reply',
+    id: id,
+    payload: {'text': text},
+  );
+}
+
+/// aiAction — 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 才渲染）。
+class EditorAiAction {
+  const EditorAiAction({
+    required this.action,
+    required this.from,
+    required this.to,
+    required this.text,
+  });
+
+  /// 'ask' | 'edit'
+  final String action;
+  final int from;
+  final int to;
+  final String text;
+
+  factory EditorAiAction.fromJson(Map<String, dynamic> j) => EditorAiAction(
+        action: (j['action'] as String?) ?? 'ask',
+        from: (j['from'] as num?)?.toInt() ?? 0,
+        to: (j['to'] as num?)?.toInt() ?? 0,
+        text: (j['text'] as String?) ?? '',
+      );
 }
 
 class WikilinkSuggestion {

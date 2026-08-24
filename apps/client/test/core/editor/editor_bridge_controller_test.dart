@@ -9,6 +9,8 @@
 
 import 'package:biumind/core/editor/editor_bridge_controller.dart';
 import 'package:biumind/core/editor/editor_bridge_protocol.dart';
+import 'package:biumind/core/editor/editor_locale.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -138,6 +140,174 @@ void main() {
       // 纪元仍是 0，编辑器的 epoch 0 变更应照常放行。
       await controller.onIncomingMessage(docChanged('edit', 1, 0));
       expect(changed, ['edit']);
+    });
+  });
+
+  group('clipboard（自绘右键菜单）', () {
+    late EditorBridgeController controller;
+    late List<BridgeMessage> sent;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      sent = <BridgeMessage>[];
+      controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      controller.attach((msg) async => sent.add(msg));
+    });
+
+    test('clipboardWrite：默认实现写系统剪贴板', () async {
+      String? written;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          written = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardWrite', payload: {'text': 'md **b**'}),
+      );
+      expect(written, 'md **b**');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('clipboardWrite：宿主注入 handler 时走 handler', () async {
+      final received = <String>[];
+      controller.onClipboardWrite = (text) async => received.add(text);
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardWrite', payload: {'text': 'abc'}),
+      );
+      expect(received, ['abc']);
+    });
+
+    test('clipboardWrite：text 非字符串忽略', () async {
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardWrite', payload: {'text': 42}),
+      );
+      // 不崩、无回复
+      expect(sent, isEmpty);
+    });
+
+    test('clipboardRead：reply 带同一 id 和剪贴板文本', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': 'pasted'};
+        }
+        return null;
+      });
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardRead', id: 'c1', payload: const {}),
+      );
+      expect(sent, hasLength(1));
+      expect(sent.single.type, 'clipboardRead.reply');
+      expect(sent.single.id, 'c1');
+      expect(sent.single.payload['text'], 'pasted');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('clipboardRead：剪贴板为空回 text null（粘贴置灰）', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          return <String, dynamic>{'text': ''};
+        }
+        return null;
+      });
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardRead', id: 'c2', payload: const {}),
+      );
+      expect(sent.single.payload['text'], isNull);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('clipboardRead：缺 id 不回复', () async {
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'clipboardRead', payload: const {}),
+      );
+      expect(sent, isEmpty);
+    });
+  });
+
+  group('aiAction（P2 预留）', () {
+    test('未接线时不崩', () async {
+      final controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      await controller.onIncomingMessage(
+        BridgeMessage(
+          type: 'aiAction',
+          payload: {'action': 'ask', 'from': 1, 'to': 5, 'text': '选区'},
+        ),
+      );
+    });
+
+    test('注入 onAiAction 时收到解析后的动作', () async {
+      final controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      EditorAiAction? got;
+      controller.onAiAction = (a) => got = a;
+      await controller.onIncomingMessage(
+        BridgeMessage(
+          type: 'aiAction',
+          payload: {'action': 'edit', 'from': 2, 'to': 8, 'text': '选区文本'},
+        ),
+      );
+      expect(got?.action, 'edit');
+      expect(got?.from, 2);
+      expect(got?.to, 8);
+      expect(got?.text, '选区文本');
+    });
+  });
+
+  group('setLocale（运行时语言跟随）', () {
+    test('推送 setOptions.locale 并更新 controller.locale', () async {
+      final sent = <BridgeMessage>[];
+      final controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      )..attach((msg) async => sent.add(msg));
+      await controller.setLocale('en');
+      expect(controller.locale, 'en');
+      expect(sent.single.type, 'setOptions');
+      expect(sent.single.payload['locale'], 'en');
+    });
+
+    test('同语言不重复推送', () async {
+      final sent = <BridgeMessage>[];
+      final controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+        locale: 'en',
+      )..attach((msg) async => sent.add(msg));
+      await controller.setLocale('en');
+      expect(sent, isEmpty);
+    });
+  });
+
+  group('resolveEditorLocale', () {
+    test('localeOverride 优先：zh 系归一到 zh-Hans', () {
+      expect(resolveEditorLocale('zh'), 'zh-Hans');
+      expect(resolveEditorLocale('zh-CN'), 'zh-Hans');
+      expect(resolveEditorLocale('zh-Hans'), 'zh-Hans');
+    });
+
+    test('非 zh override 落到 en', () {
+      expect(resolveEditorLocale('en'), 'en');
+      expect(resolveEditorLocale('fr'), 'en');
+    });
+
+    test('空 override 跟系统 locale（测试环境 en_US → en）', () {
+      expect(resolveEditorLocale(null), 'en');
+      expect(resolveEditorLocale(''), 'en');
     });
   });
 }

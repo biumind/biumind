@@ -8,9 +8,11 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
 import '../../../core/editor/editor_bridge_controller.dart';
 import '../../../core/editor/editor_bridge_protocol.dart';
+import '../../../core/editor/editor_locale.dart';
 import '../../../core/editor/page_autosave.dart';
 import '../../../core/editor/page_editor_view.dart';
 import '../../../core/layout/form_factor.dart';
+import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/relevance_client.dart';
 import '../../../data/api/wiki_client.dart' show WikiBacklink;
 import '../../../data/api/wiki_client.dart' as api;
@@ -19,6 +21,7 @@ import '../../../data/wiki_providers.dart';
 import '../../../data/wiki_repository.dart' show RepoProject;
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/page_scaffold.dart';
+import '../../chat/application/chat_preferences.dart';
 import '../application/wiki_controller.dart';
 import 'changelog_dialog.dart';
 import 'page_revisions_dialog.dart';
@@ -619,12 +622,21 @@ class _RightPaneState extends ConsumerState<_RightPane> {
     final theme = Theme.of(c).brightness == Brightness.dark
         ? BridgeTheme.dark
         : BridgeTheme.light;
+    // 编辑器 UI 语言跟随 App 内语言设置；右键菜单载体：移动端维持系统
+    // callout，桌面/Web 用 bundle 自绘菜单。
+    final editorLocale = resolveEditorLocale(
+      ref.watch(chatPreferencesProvider.select((p) => p.localeOverride)),
+    );
+    final contextMenu =
+        ref.watch(platformCapsProvider).isMobile ? 'native' : 'custom';
     return Stack(
       clipBehavior: Clip.none,
       children: [
         PageEditorView(
           initialMarkdown: '',
           theme: theme,
+          locale: editorLocale,
+          features: BridgeFeatures(contextMenu: contextMenu),
           onMarkdownChanged: _bodyAutosave.schedule,
           controllerRef: _onController,
         ),

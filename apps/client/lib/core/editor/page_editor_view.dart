@@ -35,6 +35,7 @@ class PageEditorView extends StatefulWidget {
     this.resolvePresignGet,
     this.controllerRef,
     this.features = const BridgeFeatures(),
+    this.locale,
   });
 
   final String initialMarkdown;
@@ -51,6 +52,12 @@ class PageEditorView extends StatefulWidget {
   /// Defaults keep the historical behavior; hosts like the note editor
   /// pass `BridgeFeatures(wikilink: false)` to disable `[[wikilink]]`.
   final BridgeFeatures features;
+
+  /// 编辑器 UI 语言（自绘右键菜单 / crepe 文案）。宿主页用
+  /// [resolveEditorLocale] 从 localeOverride + 系统 locale 解析传入；
+  /// null = 保持 controller 默认 'zh-Hans'。didUpdateWidget 时语言变化
+  /// 经 setLocale 推送（菜单现构建即刻生效，crepe 文案维持 init）。
+  final String? locale;
 
   /// Optional callback that hands the controller back to the caller, so
   /// the host can call `setDoc` after a 409 conflict overwrites the
@@ -71,6 +78,7 @@ class _PageEditorViewState extends State<PageEditorView> {
       initialMarkdown: widget.initialMarkdown,
       theme: widget.theme,
       features: widget.features,
+      locale: widget.locale ?? 'zh-Hans',
     )
       ..onMarkdownChanged = widget.onMarkdownChanged
       ..onWikilinkTap = widget.onWikilinkTap
@@ -89,6 +97,10 @@ class _PageEditorViewState extends State<PageEditorView> {
       ..resolvePresignGet = widget.resolvePresignGet;
     if (oldWidget.theme != widget.theme) {
       _controller.setOptions(newTheme: widget.theme);
+    }
+    final locale = widget.locale;
+    if (locale != null && oldWidget.locale != locale) {
+      _controller.setLocale(locale);
     }
   }
 

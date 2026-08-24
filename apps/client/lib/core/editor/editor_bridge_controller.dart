@@ -17,6 +17,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
 import 'editor_bridge_protocol.dart';
 
@@ -42,7 +43,9 @@ class EditorBridgeController extends ChangeNotifier {
   final String initialMarkdown;
   BridgeTheme theme;
   final bool readOnly;
-  final String locale;
+
+  /// 编辑器 UI 语言（默认 zh-Hans；宿主页可传参，setLocale 运行时切换）。
+  String locale;
   final BridgeFeatures features;
 
   /// Called for every authoritative `docChanged` from the editor (i.e.
@@ -68,6 +71,13 @@ class EditorBridgeController extends ChangeNotifier {
   /// Called by the controller when the editor renders a `biu-file://`
   /// image and needs a presigned URL for the `<img>` tag.
   PresignGetResolver? resolvePresignGet;
+
+  /// 自绘右键菜单「剪切/复制」落到系统剪贴板。缺省实现直接写 Flutter
+  /// Clipboard；宿主页需要拦截（如埋点）时可覆盖。
+  Future<void> Function(String text)? onClipboardWrite;
+
+  /// 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 渲染后才有真实流量）。
+  void Function(EditorAiAction action)? onAiAction;
 
   EditorSend? _send;
   final Completer<void> _readyCompleter = Completer<void>();
@@ -113,6 +123,12 @@ class EditorBridgeController extends ChangeNotifier {
         _onLog(msg);
       case 'selectionChanged':
         _onSelectionChanged(msg);
+      case 'clipboardWrite':
+        await _onClipboardWrite(msg);
+      case 'clipboardRead':
+        await _onClipboardRead(msg);
+      case 'aiAction':
+        _onAiAction(msg);
       default:
         debugPrint('[editor-bridge] unknown message type: ${msg.type}');
     }
@@ -209,6 +225,50 @@ class EditorBridgeController extends ChangeNotifier {
     onSelectionChange?.call(sel);
   }
 
+  /// 自绘右键菜单「剪切/复制」：execCommand 在 WKWebView 常失败，编辑器
+  /// 把文本经 bridge 送过来，这里落系统剪贴板（P1 只纯文本，text+html
+  /// 双格式列 P2）。
+  Future<void> _onClipboardWrite(BridgeMessage msg) async {
+    final text = msg.payload['text'];
+    if (text is! String) return;
+    final handler = onClipboardWrite;
+    if (handler != null) {
+      await handler(text);
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: text));
+  }
+
+  /// 右键菜单「粘贴」前的剪贴板读取。空/读不到回 null —— 编辑器侧置灰粘贴项。
+  Future<void> _onClipboardRead(BridgeMessage msg) async {
+    final id = msg.id;
+    if (id == null) return;
+    String? text;
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final value = data?.text;
+      if (value != null && value.isNotEmpty) text = value;
+    } catch (_) {
+      text = null;
+    }
+    await _send?.call(clipboardReadReplyMessage(id: id, text: text));
+  }
+
+  /// 协议 P1 预留：菜单组 P2 才渲染，先只记录日志；宿主页接 selection-edit
+  /// overlay 时注入 onAiAction。
+  void _onAiAction(BridgeMessage msg) {
+    final action = EditorAiAction.fromJson(msg.payload);
+    final handler = onAiAction;
+    if (handler != null) {
+      handler(action);
+      return;
+    }
+    debugPrint(
+      '[editor-bridge] aiAction ${action.action} '
+      '[${action.from}, ${action.to}) 未接线（P2）',
+    );
+  }
+
   /// Push a server-authoritative markdown into the editor (used after
   /// 409 conflict resolution to overwrite the local buffer with the
   /// freshly-fetched version).
@@ -232,6 +292,14 @@ class EditorBridgeController extends ChangeNotifier {
   Future<void> setOptions({BridgeTheme? newTheme, bool? readOnly}) async {
     if (newTheme != null) theme = newTheme;
     await _send?.call(setOptionsMessage(theme: newTheme, readOnly: readOnly));
+  }
+
+  /// 运行时切换编辑器 UI 语言（自绘右键菜单等现构建文案即刻生效；
+  /// crepe 自身文案维持 init 时的语言，见设计文档 §7）。
+  Future<void> setLocale(String newLocale) async {
+    if (newLocale == locale) return;
+    locale = newLocale;
+    await _send?.call(setOptionsMessage(locale: newLocale));
   }
 
   Future<void> command(String name, {Map<String, dynamic>? args}) async {

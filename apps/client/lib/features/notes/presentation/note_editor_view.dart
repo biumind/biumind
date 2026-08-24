@@ -30,13 +30,16 @@ import 'package:image_picker/image_picker.dart';
 import '../../../app/theme.dart';
 import '../../../core/editor/editor_bridge_controller.dart';
 import '../../../core/editor/editor_bridge_protocol.dart';
+import '../../../core/editor/editor_locale.dart';
 import '../../../core/editor/page_autosave.dart';
 import '../../../core/editor/page_editor_view.dart';
 import '../../../core/layout/form_factor.dart';
+import '../../../core/platform/platform_caps.dart';
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
 import '../../../data/outbox/note_outbox_flusher.dart';
 import '../../../services/auth_service.dart';
+import '../../chat/application/chat_preferences.dart';
 import '../../code/data/files_client.dart';
 import '../application/notes_ui_providers.dart';
 import '../data/note_attachment_presign.dart';
@@ -570,6 +573,13 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
         final theme = Theme.of(context).brightness == Brightness.dark
             ? BridgeTheme.dark
             : BridgeTheme.light;
+        // 编辑器 UI 语言跟随 App 内语言设置（localeOverride → 系统 locale）；
+        // 右键菜单载体：移动端维持系统 callout，桌面/Web 用 bundle 自绘菜单。
+        final editorLocale = resolveEditorLocale(
+          ref.watch(chatPreferencesProvider.select((p) => p.localeOverride)),
+        );
+        final contextMenu =
+            ref.watch(platformCapsProvider).isMobile ? 'native' : 'custom';
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -599,10 +609,11 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 // 不接触落库文本。
                 initialMarkdown: note.contentMd,
                 theme: theme,
+                locale: editorLocale,
                 // 双链是 wiki 功能，笔记侧关掉 wikilink（mermaid 保留）。
                 // Milkdown = ProseMirror 连续 WYSIWYG（点哪编哪，整篇一个
                 // 可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
-                features: const BridgeFeatures(wikilink: false),
+                features: BridgeFeatures(wikilink: false, contextMenu: contextMenu),
                 resolvePresignGet: _presignGetAttachment,
                 onMarkdownChanged: _contentAutosave.schedule,
                 controllerRef: (c) => _editorController = c,
