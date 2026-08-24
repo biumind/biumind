@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -45,7 +46,37 @@ func newRepoAppCmd(f *rootFlags) *cobra.Command {
 		newRepoAppUpdateCmd(f),
 		newRepoAppRemoveCmd(f),
 		newRepoAppDoctorCmd(f),
+		newRepoAppServeStaticCmd(),
 	)
+	return cmd
+}
+
+// newRepoAppServeStaticCmd is the built-in static file server used as
+// the StartCmd of static-site instances (see staticDocRoot): hidden
+// plumbing, not a user-facing command. It runs in the foreground — the
+// runner detaches it like any other start command.
+func newRepoAppServeStaticCmd() *cobra.Command {
+	var dir, addr string
+	cmd := &cobra.Command{
+		Use:    "serve-static",
+		Short:  "Serve a directory over HTTP (internal)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if dir == "" {
+				return clierr.Newf("biu repo-app serve-static", "--dir is required")
+			}
+			// #nosec G114 — addr is always 127.0.0.1:<port> by construction
+			// (see detect.go staticDocRoot); FileServer serves the instance
+			// doc root on loopback only.
+			if err := http.ListenAndServe(addr, http.FileServer(http.Dir(dir))); err != nil {
+				return clierr.Wrapf("biu repo-app serve-static", err, "serve %s on %s", dir, addr)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dir, "dir", "", "directory to serve")
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8080", "listen address")
 	return cmd
 }
 
@@ -127,7 +158,8 @@ func doRepoAppInstall(ctx context.Context, store *repoapp.Store, arg, ref string
 	}
 	repoAppLogf("detected stack=%s pm=%s entry=%s", plan.Stack, orDefault(plan.PackageManager, "—"), plan.Entry)
 
-	if err := repoAppBootstrapAndDeps(ctx, inst, plan); err != nil {
+	extras, err := repoAppBootstrapAndDeps(ctx, inst, plan)
+	if err != nil {
 		return "", err
 	}
 
@@ -139,6 +171,7 @@ func doRepoAppInstall(ctx context.Context, store *repoapp.Store, arg, ref string
 		PackageManager: plan.PackageManager,
 		StartCmd:       plan.StartCmd,
 		HealthPath:     "/",
+		PathExtra:      extras,
 	}
 	if err := repoapp.SaveRuntime(inst.Dir, ri); err != nil {
 		return "", err
@@ -150,34 +183,32 @@ func doRepoAppInstall(ctx context.Context, store *repoapp.Store, arg, ref string
 
 // repoAppBootstrapAndDeps probes runtimes, bootstraps whatever is
 // missing (uv/mise/toolchains), then installs project dependencies.
-// Path entries for managed toolchains are persisted into runtime.json.
-func repoAppBootstrapAndDeps(ctx context.Context, inst repoapp.Instance, plan repoapp.StackPlan) error {
+// It returns the PATH entries (managed toolchains, project venv) the
+// CALLER must persist into runtime.json — install writes runtime.json
+// only after this returns, so persisting inside here would be a no-op
+// (smoke-found bug: python instances started without .venv/bin on
+// PATH, `python: command not found`).
+func repoAppBootstrapAndDeps(ctx context.Context, inst repoapp.Instance, plan repoapp.StackPlan) ([]string, error) {
 	probes := map[string]repoapp.Probe{}
 	for _, p := range repoapp.Doctor(ctx) {
 		probes[p.Name] = p
 	}
 	boot := repoapp.DecideBootstrap(plan, probes)
 	if boot.DockerMissing {
-		return fmt.Errorf("this project ships a Dockerfile but Docker was not found — please install Docker first: https://docs.docker.com/get-docker/")
+		return nil, fmt.Errorf("this project ships a Dockerfile but Docker was not found — please install Docker first: https://docs.docker.com/get-docker/")
 	}
 	for _, note := range boot.Notes {
 		repoAppLogf("%s", note)
 	}
 	pathExtra, err := repoapp.Bootstrap(ctx, boot, repoAppLogf)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	depExtra, err := repoapp.InstallDeps(ctx, inst, plan, pathExtra, repoAppLogf)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Persist PATH entries so the runner finds managed toolchains and
-	// the project venv without re-probing.
-	if ri, err := repoapp.LoadRuntime(inst.Dir); err == nil {
-		ri.PathExtra = append(pathExtra, depExtra...)
-		return repoapp.SaveRuntime(inst.Dir, ri)
-	}
-	return nil
+	return append(pathExtra, depExtra...), nil
 }
 
 // ─── ensure ───────────────────────────────────────────────
@@ -203,11 +234,17 @@ func newRepoAppEnsureCmd(f *rootFlags) *cobra.Command {
 				return clierr.Wrapf("biu repo-app ensure", err, "%s", err.Error())
 			}
 			slug, _, parseErr := repoapp.ParseRepoArg(args[0])
-			if !store.Exists(slug) {
-				if parseErr != nil {
+			if parseErr != nil {
+				// Maybe the argument is the slug of an already-installed
+				// instance (bare `name` form). Guard against path
+				// traversal: store slugs never contain separators.
+				if strings.ContainsAny(args[0], `/\`) || strings.Contains(args[0], "..") ||
+					!store.Exists(args[0]) {
 					return clierr.Newf("biu repo-app ensure", "%s",
 						fmt.Sprintf("%q is not installed — run `biu repo-app install <github-url>` first", args[0]))
 				}
+				slug = args[0]
+			} else if !store.Exists(slug) {
 				if _, err := doRepoAppInstall(cmd.Context(), store, args[0], ""); err != nil {
 					return clierr.Wrapf("biu repo-app ensure", err, "%s", err.Error())
 				}
@@ -421,17 +458,18 @@ func newRepoAppUpdateCmd(f *rootFlags) *cobra.Command {
 			if err != nil {
 				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
 			}
-			// Keep the recorded ref/sha current before deps install so
-			// repoAppBootstrapAndDeps persists path_extra onto fresh data.
+			// Keep the recorded ref/sha current before deps install.
 			ri.Ref = targetRef
 			ri.InstalledSHA = sha
 			ri.Stack = string(plan.Stack)
 			ri.PackageManager = plan.PackageManager
 			ri.StartCmd = plan.StartCmd
-			if err := repoapp.SaveRuntime(inst.Dir, ri); err != nil {
+			extras, err := repoAppBootstrapAndDeps(cmd.Context(), inst, plan)
+			if err != nil {
 				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
 			}
-			if err := repoAppBootstrapAndDeps(cmd.Context(), inst, plan); err != nil {
+			ri.PathExtra = extras
+			if err := repoapp.SaveRuntime(inst.Dir, ri); err != nil {
 				return clierr.Wrapf("biu repo-app update", err, "%s", err.Error())
 			}
 			url, err := runner.Start(cmd.Context(), slug, repoapp.StartOptions{})

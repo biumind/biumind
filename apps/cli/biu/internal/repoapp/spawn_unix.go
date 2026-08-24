@@ -8,7 +8,9 @@
 package repoapp
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"syscall"
 )
 
@@ -25,7 +27,15 @@ func spawnDetached(dir string, logF *os.File, env []string, argv ...string) (int
 	}
 	defer devNull.Close()
 
-	proc, err := os.StartProcess(argv[0], argv, &os.ProcAttr{
+	// os.StartProcess does NOT search PATH (no execvp semantics), so a
+	// bare "sh"/"npm" argv[0] fails with ENOENT. Resolve it first using
+	// the caller's PATH (the child's env may carry a narrowed PATH).
+	bin, err := exec.LookPath(argv[0])
+	if err != nil {
+		return 0, fmt.Errorf("spawn: resolve %q: %w", argv[0], err)
+	}
+
+	proc, err := os.StartProcess(bin, argv, &os.ProcAttr{
 		Dir:   dir,
 		Env:   env,
 		Files: []*os.File{devNull, logF, logF},

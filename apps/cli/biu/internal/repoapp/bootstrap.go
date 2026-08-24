@@ -347,6 +347,11 @@ func InstallDeps(ctx context.Context, inst Instance, sp StackPlan, pathExtra []s
 	env := envWithPathExtra(os.Environ(), pathExtra)
 
 	switch sp.Stack {
+	case StackStatic:
+		// No dependencies to install — the CLI's built-in serve-static
+		// server needs nothing from the repo or the system.
+		logf("static site: nothing to install")
+		return pathExtra, nil
 	case StackPython:
 		uv := ProbeBinary(ctx, "uv")
 		if uv.Source == SourceMissing {

@@ -3,13 +3,18 @@ package repoapp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // writeFile is a tiny fixture helper for repo layouts.
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	full := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -45,6 +50,48 @@ func TestPlanStackNodeNoStartScript(t *testing.T) {
 	writeFile(t, dir, "package.json", `{"scripts": {"build": "tsc"}}`)
 	if _, err := PlanStack(dir, "a-b"); err == nil {
 		t.Error("node project without start/dev script must error with a hint")
+	}
+}
+
+func TestPlanStackStatic(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "index.html", "<!doctype html>\n")
+	plan, err := PlanStack(dir, "a-b")
+	if err != nil {
+		t.Fatalf("static site should plan: %v", err)
+	}
+	if plan.Stack != StackStatic {
+		t.Errorf("Stack = %q, want static", plan.Stack)
+	}
+	if !strings.Contains(plan.StartCmd, "serve-static") {
+		t.Errorf("StartCmd %q should use the built-in serve-static server", plan.StartCmd)
+	}
+}
+
+func TestPlanStackStaticDist(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "dist/index.html", "<!doctype html>\n")
+	plan, err := PlanStack(dir, "a-b")
+	if err != nil {
+		t.Fatalf("dist static site should plan: %v", err)
+	}
+	if plan.Stack != StackStatic || !strings.Contains(plan.StartCmd, "dist") {
+		t.Errorf("plan = %+v, want static serving dist/", plan)
+	}
+}
+
+// bower-era projects ship package.json with no start script — they are
+// effectively static sites, not broken node apps (smoke: tastejs/todomvc).
+func TestPlanStackNodeNoStartFallsBackToStatic(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "package.json", `{"scripts": {"build": "tsc"}}`)
+	writeFile(t, dir, "index.html", "<!doctype html>\n")
+	plan, err := PlanStack(dir, "a-b")
+	if err != nil {
+		t.Fatalf("node manifest without start + index.html should fall back to static: %v", err)
+	}
+	if plan.Stack != StackStatic {
+		t.Errorf("Stack = %q, want static fallback", plan.Stack)
 	}
 }
 
@@ -129,6 +176,13 @@ func TestVersionSatisfaction(t *testing.T) {
 		{"v16.0.0", ">=18", false, false},
 		{"v20.11.0", "20", true, true},
 		{"v20.11.0", "^18", false, false},
+		// OR alternatives ("||") must not fold into AND — smoke-found bug:
+		// "22.x || 24.x || 26.x" was unsatisfiable for any version.
+		{"v22.18.0", "22.x || 24.x || 26.x", true, true},
+		{"v24.1.0", "22.x || 24.x || 26.x", true, true},
+		{"v20.0.0", "22.x || 24.x", false, false},
+		{"v22.18.0", ">=20 || ^18", true, true},
+		{"v19.0.0", ">=20 || ^18", false, false},
 	}
 	for _, c := range cases {
 		if got := pythonSatisfies(c.found, c.req); got != c.py {

@@ -31,6 +31,7 @@ const (
 	StackNode    Stack = "node"
 	StackPython  Stack = "python"
 	StackDocker  Stack = "docker"
+	StackStatic  Stack = "static"
 	StackUnknown Stack = "unknown"
 )
 
@@ -75,23 +76,26 @@ func PlanStack(repoDir, slug string) (StackPlan, error) {
 		if cmd := node.Commands["start"]; cmd != "" {
 			plan.StartCmd = cmd
 			plan.Entry = "scripts.start"
-		} else if cmd := node.Commands["dev"]; cmd != "" {
+			return plan, nil
+		}
+		if cmd := node.Commands["dev"]; cmd != "" {
 			plan.StartCmd = cmd
 			plan.Entry = "scripts.dev"
-		} else {
-			return plan, fmt.Errorf("node project has no start/dev script in package.json — add one, or set start_cmd in runtime.json by hand")
+			return plan, nil
 		}
-		return plan, nil
+		// No runnable script: fall through — the repo may still be
+		// dockerisable or a plain static site (bower-era projects ship
+		// a package.json without any start script).
 	}
 
 	if python != nil {
-		plan := StackPlan{
-			Stack:          StackPython,
-			PackageManager: string(python.Manager),
-			PythonReq:      reqs.Python,
-		}
 		for _, cand := range []string{"app.py", "main.py", "server.py", "run.py", "wsgi.py", "manage.py"} {
 			if fileExists(filepath.Join(repoDir, cand)) {
+				plan := StackPlan{
+					Stack:          StackPython,
+					PackageManager: string(python.Manager),
+					PythonReq:      reqs.Python,
+				}
 				// The project venv's bin dir lands on PATH via
 				// runtime.json path_extra, so plain `python` resolves.
 				plan.StartCmd = "python " + cand
@@ -99,7 +103,7 @@ func PlanStack(repoDir, slug string) (StackPlan, error) {
 				return plan, nil
 			}
 		}
-		return plan, fmt.Errorf("python project has no recognisable entry file (app.py/main.py/server.py/...) — set start_cmd in runtime.json by hand")
+		// No recognisable entry file: fall through to docker/static.
 	}
 
 	if fileExists(filepath.Join(repoDir, "Dockerfile")) {
@@ -112,7 +116,34 @@ func PlanStack(repoDir, slug string) (StackPlan, error) {
 		}, nil
 	}
 
-	return StackPlan{Stack: StackUnknown}, fmt.Errorf("unsupported project: no package.json, python manifest, or Dockerfile found")
+	// Static site: serve the directory with the CLI's own built-in file
+	// server so no runtime (python/node) is required at all.
+	if dir := staticDocRoot(repoDir); dir != "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return StackPlan{}, fmt.Errorf("static site detected but cannot resolve own binary path: %w", err)
+		}
+		return StackPlan{
+			Stack: StackStatic,
+			// sh -c expands ${PORT} from the runner-injected env.
+			StartCmd: fmt.Sprintf("%q repo-app serve-static --dir %q --addr 127.0.0.1:${PORT}", exe, dir),
+			Entry:    "index.html",
+		}, nil
+	}
+
+	return StackPlan{Stack: StackUnknown}, fmt.Errorf("unsupported project: no runnable package.json script, python entry file, Dockerfile, or index.html found — set start_cmd in runtime.json by hand")
+}
+
+// staticDocRoot returns the directory to serve for a static site: the
+// repo root when it has index.html, else dist/ when that does, else "".
+func staticDocRoot(repoDir string) string {
+	if fileExists(filepath.Join(repoDir, "index.html")) {
+		return repoDir
+	}
+	if fileExists(filepath.Join(repoDir, "dist", "index.html")) {
+		return filepath.Join(repoDir, "dist")
+	}
+	return ""
 }
 
 // Requirements carries the runtime version constraints a repo declares.
@@ -334,8 +365,10 @@ func parseVersion(s string) (versionTuple, bool) {
 	return v, true
 }
 
-// splitClauses breaks a compound requirement (">=3.10,<3.13" /
-// ">=18 || ^20") into individual clauses.
+// splitClauses breaks a comma-joined AND group (">=3.10,<3.13") into
+// individual clauses. Callers split OR alternatives on "||" first (see
+// requirementSatisfies); a stray "||" reaching here is still tolerated
+// by treating it as a comma, but that path should not occur.
 func splitClauses(req string) []string {
 	req = strings.ReplaceAll(req, "||", ",")
 	parts := strings.Split(req, ",")
@@ -350,8 +383,9 @@ func splitClauses(req string) []string {
 
 // pythonSatisfies reports whether a found python3 version string
 // satisfies a requires-python / .python-version requirement. An empty
-// requirement is satisfied by any present version. Compound clauses
-// must all hold. Only major/minor precision is compared — patch-level
+// requirement is satisfied by any present version. "||" separates
+// alternative (OR) groups; comma-separated clauses inside a group must
+// all hold. Only major/minor precision is compared — patch-level
 // pinning beyond major.minor is treated as major.minor equality (M1
 // simplification; uv picks a concrete interpreter at install time).
 func pythonSatisfies(foundVersion, req string) bool {
@@ -359,35 +393,47 @@ func pythonSatisfies(foundVersion, req string) bool {
 	if !ok {
 		return false
 	}
-	req = strings.TrimSpace(req)
-	if req == "" {
-		return true
-	}
-	for _, clause := range splitClauses(req) {
-		if !versionClauseSatisfies(found, clause) {
-			return false
-		}
-	}
-	return true
+	return requirementSatisfies(found, req)
 }
 
 // nodeSatisfies reports whether a found node version string satisfies a
 // .nvmrc / engines.node requirement, comparing at major precision.
+// Same OR-group semantics as pythonSatisfies.
 func nodeSatisfies(foundVersion, req string) bool {
 	found, ok := parseVersion(foundVersion)
 	if !ok {
 		return false
 	}
+	return requirementSatisfies(found, req)
+}
+
+// requirementSatisfies evaluates a version requirement with OR-group
+// semantics: "22.x || 24.x" is satisfied by EITHER side, while commas
+// inside one side are AND (">=3.10,<3.13"). npm/pip both use || for
+// alternatives; folding it into comma-AND (an earlier bug) made any
+// multi-alternative requirement unsatisfiable.
+func requirementSatisfies(found versionTuple, req string) bool {
 	req = strings.TrimSpace(req)
 	if req == "" {
 		return true
 	}
-	for _, clause := range splitClauses(req) {
-		if !versionClauseSatisfies(found, clause) {
-			return false
+	for _, group := range strings.Split(req, "||") {
+		clauses := splitClauses(group)
+		if len(clauses) == 0 {
+			continue
+		}
+		ok := true
+		for _, clause := range clauses {
+			if !versionClauseSatisfies(found, clause) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // versionClauseSatisfies evaluates one comparator clause against a found
