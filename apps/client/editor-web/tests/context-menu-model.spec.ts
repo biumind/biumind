@@ -48,6 +48,8 @@ function makeDeps(): MenuDeps {
     copyCodeBlock: vi.fn(async () => {}),
     editImageCaption: vi.fn(),
     deleteNode: vi.fn(),
+    replaceImage: vi.fn(async () => {}),
+    copyImage: vi.fn(async () => {}),
     aiAction: vi.fn(),
     sourceCut: vi.fn(async () => {}),
     sourceCopy: vi.fn(async () => {}),
@@ -63,6 +65,7 @@ function ctx(overrides: Partial<MenuContext>): MenuContext {
     readOnly: false,
     canPaste: true,
     aiActions: false,
+    imageUpload: false,
     from: 1,
     to: 5,
     ...overrides,
@@ -119,16 +122,32 @@ describe('context-menu model 过滤', () => {
     ).toBe('copy,|,link-open,link-copy')
   })
 
-  it('image（可编辑）：P1 只有 编辑说明/删除', () => {
+  it('image（可编辑，无上传链路）：说明/复制/删除', () => {
     expect(
       ids(filterMenuEntries(registry, ctx({ itemType: 'image', nodePos: 3 }))),
-    ).toBe('image-caption,image-delete')
+    ).toBe('image-caption,image-copy,image-delete')
   })
 
-  it('image（readOnly）：无可见项（菜单不弹）', () => {
+  it('image（可编辑 + imageUpload 能力）：补「替换图片…」', () => {
     expect(
-      filterMenuEntries(registry, ctx({ itemType: 'image', readOnly: true })),
-    ).toEqual([])
+      ids(
+        filterMenuEntries(
+          registry,
+          ctx({ itemType: 'image', nodePos: 3, imageUpload: true }),
+        ),
+      ),
+    ).toBe('image-replace,image-caption,image-copy,image-delete')
+  })
+
+  it('image（readOnly）：只剩 复制图片', () => {
+    expect(
+      ids(
+        filterMenuEntries(
+          registry,
+          ctx({ itemType: 'image', nodePos: 3, readOnly: true, imageUpload: true }),
+        ),
+      ),
+    ).toBe('image-copy')
   })
 
   it('tableCell（可编辑）：crepe 手柄已覆盖行列/对齐，只补删除表格', () => {

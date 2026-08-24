@@ -343,6 +343,7 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       getSourceMode: () => state.sourceMode,
       getReadOnly: () => state.readOnly,
       aiActions: payload.features.aiActions === true,
+      imageUpload: payload.features.imageUpload === true,
       locale: payload.locale,
     })
     menu.attach()

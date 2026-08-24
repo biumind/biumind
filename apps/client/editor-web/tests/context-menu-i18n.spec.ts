@@ -46,6 +46,8 @@ function makeDeps(): MenuDeps {
     copyCodeBlock: asyncNoop,
     editImageCaption: noop,
     deleteNode: noop,
+    replaceImage: asyncNoop,
+    copyImage: asyncNoop,
     aiAction: noop,
     sourceCut: asyncNoop,
     sourceCopy: asyncNoop,

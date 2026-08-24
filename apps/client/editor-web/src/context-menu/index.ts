@@ -23,6 +23,7 @@ import type { SourceModeController } from '../source-mode'
 import type { ToolbarActions } from '../toolbar'
 import { createClipboard, type ClipboardBackend } from './clipboard'
 import { detectMenuContext } from './context'
+import { fragmentToHtml } from './html'
 import {
   buildMenuRegistry,
   filterMenuEntries,
@@ -41,6 +42,8 @@ export interface ContextMenuControllerDeps {
   getReadOnly: () => boolean
   /** init features.aiActions：host 声明已接 AI 动作才渲染 AI 组（P1 恒 false） */
   aiActions: boolean
+  /** init features.imageUpload：host 声明已接上传链路才渲染「替换图片…」 */
+  imageUpload: boolean
   locale: string
 }
 
@@ -108,6 +111,7 @@ export class ContextMenuController {
         readOnly: this.deps.getReadOnly(),
         canPaste: false,
         aiActions: false,
+        imageUpload: false,
         from: 0,
         to: 0,
       }
@@ -118,6 +122,7 @@ export class ContextMenuController {
         readOnly: this.deps.getReadOnly(),
         canPaste: false,
         aiActions: this.deps.aiActions,
+        imageUpload: this.deps.imageUpload,
       })
       if (!ctx) return
     }
@@ -180,6 +185,7 @@ export class ContextMenuController {
       copySelection: async (menuCtx, cut) => {
         if (cut && this.deps.getReadOnly()) return
         let markdown = ''
+        let html = ''
         this.deps.getCrepe()?.editor.action((ctx) => {
           const view = ctx.get(editorViewCtx)
           this.restoreSelection(view, menuCtx)
@@ -189,9 +195,14 @@ export class ContextMenuController {
           markdown = serializer(
             view.state.schema.topNodeType.create(null, slice.content),
           ).trim()
+          // P2 双格式：同一 slice 再出一份 HTML（macOS 写 NSPasteboard
+          // text+html，粘到 Word/飞书等外部应用保留格式）
+          html = fragmentToHtml(view.state.schema, slice.content)
           if (cut) view.dispatch(view.state.tr.deleteSelection())
         })
-        if (markdown) await clipboard.write({ text: markdown })
+        if (markdown) {
+          await clipboard.write(html ? { text: markdown, html } : { text: markdown })
+        }
       },
 
       pasteMarkdown: async () => {
@@ -273,6 +284,41 @@ export class ContextMenuController {
           if (!node) return
           view.dispatch(view.state.tr.delete(nodePos, nodePos + node.nodeSize))
         })
+      },
+
+      replaceImage: async (nodePos) => {
+        if (this.deps.getReadOnly()) return
+        // host 走既有上传链路（选图 → presign 直传）；取消/失败回 null 不动节点
+        const reply = await bridge.requestImageUpload()
+        const uri = reply.uri
+        if (typeof uri !== 'string' || uri.length === 0) return
+        withView((view) => {
+          const node = view.state.doc.nodeAt(nodePos)
+          if (!node) return
+          // 更新 attrs.src（保留 caption/alt），不新建节点 —— undo 一步可逆
+          view.dispatch(
+            view.state.tr.setNodeMarkup(nodePos, undefined, {
+              ...node.attrs,
+              src: uri,
+            }),
+          )
+        })
+      },
+
+      copyImage: async (nodePos) => {
+        let markdown = ''
+        withView((view) => {
+          const node = view.state.doc.nodeAt(nodePos)
+          if (!node) return
+          const src = (node.attrs.src as string | undefined) ?? ''
+          if (!src) return
+          const alt =
+            (node.attrs.alt as string | undefined) ??
+            (node.attrs.caption as string | undefined) ??
+            ''
+          markdown = `![${alt}](${src})`
+        })
+        if (markdown) await clipboard.write({ text: markdown })
       },
 
       aiAction: (action, menuCtx) => {

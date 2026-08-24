@@ -39,13 +39,14 @@ export interface Toolbar {
   setSourceMode: (active: boolean) => void
 }
 
-const svg = (body: string): string =>
+export const svg = (body: string): string =>
   `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
 
 const textIcon = (html: string, cls = ''): string =>
   `<span class="kc-tb-text ${cls}" aria-hidden="true">${html}</span>`
 
-const ICONS = {
+// 导出供右键菜单复用（格式/转换/插入组用同款图标，见 context-menu/model.ts）
+export const ICONS = {
   undo: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
   redo: svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
   strong: textIcon('<b>B</b>'),

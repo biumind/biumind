@@ -80,7 +80,7 @@ function imagePosFromDom(
 export function detectMenuContext(
   view: EditorView,
   coords: { x: number; y: number },
-  base: Pick<MenuContext, 'readOnly' | 'canPaste' | 'aiActions'>,
+  base: Pick<MenuContext, 'readOnly' | 'canPaste' | 'aiActions' | 'imageUpload'>,
 ): MenuContext | null {
   const { selection } = view.state
   const from = selection.from

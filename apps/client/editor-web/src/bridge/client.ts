@@ -14,6 +14,8 @@ import {
   type ClipboardWritePayload,
   type CommandPayload,
   type DocChangedPayload,
+  type ImageUploadPayload,
+  type ImageUploadReplyPayload,
   type SelectionChangedPayload,
   type HostToEditorMessage,
   type InitPayload,
@@ -126,6 +128,15 @@ export class BridgeClient {
     this.send(makeMessage('aiAction', payload))
   }
 
+  /** 图片菜单「替换图片…」：请 host 走既有上传链路，返回规范 URI。
+   *  取消/失败/老 host 超时（5s 回空对象）→ uri undefined → null。 */
+  requestImageUpload(): Promise<ImageUploadReplyPayload> {
+    return this.request<ImageUploadPayload, ImageUploadReplyPayload>(
+      'imageUpload',
+      {},
+    )
+  }
+
   // Internal
 
   private request<Req, Resp>(type: string, payload: Req): Promise<Resp> {
@@ -210,6 +221,9 @@ export class BridgeClient {
         // already handled by request() id matching above; defensively no-op
         return
       case 'clipboardRead.reply':
+        // already handled by request() id matching above; defensively no-op
+        return
+      case 'imageUpload.reply':
         // already handled by request() id matching above; defensively no-op
         return
     }

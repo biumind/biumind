@@ -4,9 +4,12 @@
 // tests/context-menu-i18n.spec.ts）。
 // 表格说明：crepe table-block 的行列手柄已覆盖 增删行列/列对齐/拖拽移动，
 // 菜单只补它没有「删除表格」，不建重复入口（设计 §11 决策点 2）。
+// 图标：格式/转换/插入组复用 toolbar ICONS，剪贴板/链接/图片等用
+// context-menu/icons.ts 补画的同款 SVG（P2 起配图标）。
 
-import type { ToolbarActions } from '../toolbar'
+import { ICONS, type ToolbarActions } from '../toolbar'
 import type { ClipboardBackend } from './clipboard'
+import { MENU_ICONS } from './icons'
 
 /** 上下文类型：context.ts 探测产物；source = 源码模式 textarea。 */
 export type MenuItemType =
@@ -26,6 +29,9 @@ export interface MenuContext {
   canPaste: boolean
   /** host 声明已接 AI 动作（init features.aiActions；P1 恒 false → AI 组隐藏） */
   aiActions: boolean
+  /** host 声明已接图片上传链路（init features.imageUpload，notes 专属）；
+   *  false 时图片菜单不渲染「替换图片…」 */
+  imageUpload: boolean
   /** 打开菜单时快照的选区（动作执行前恢复兜底，防焦点行为差异丢选区） */
   from: number
   to: number
@@ -39,6 +45,8 @@ export interface MenuItem {
   id: string
   /** i18n msgid（英文原文），渲染时过 translator */
   label: string
+  /** 内联 SVG（toolbar 同款手法），可选 —— 无图标项由 view 留占位对齐 */
+  icon?: string
   /** 展示用快捷键标注（不绑定按键） */
   shortcut?: string
   danger?: boolean
@@ -69,6 +77,10 @@ export interface MenuDeps {
   copyCodeBlock: (ctx: MenuContext) => Promise<void>
   editImageCaption: (nodePos: number) => void
   deleteNode: (nodePos: number) => void
+  /** 替换图片：经 bridge 请 host 走既有上传链路，成功后更新节点 src（不新建节点） */
+  replaceImage: (nodePos: number) => Promise<void>
+  /** 复制图片的 markdown 表示（![caption](uri)）到剪贴板纯文本 */
+  copyImage: (nodePos: number) => Promise<void>
   aiAction: (action: 'ask' | 'edit', ctx: MenuContext) => void
   /** 源码模式 textarea 操作 */
   sourceCut: () => Promise<void>
@@ -88,48 +100,56 @@ function convertChildren(deps: MenuDeps): MenuItem[] {
     {
       id: 'convert-h1',
       label: 'Heading 1',
+      icon: ICONS.h1,
       isActive: isText,
       run: () => commands.wrapInHeading(1),
     },
     {
       id: 'convert-h2',
       label: 'Heading 2',
+      icon: ICONS.h2,
       isActive: isText,
       run: () => commands.wrapInHeading(2),
     },
     {
       id: 'convert-h3',
       label: 'Heading 3',
+      icon: ICONS.h3,
       isActive: isText,
       run: () => commands.wrapInHeading(3),
     },
     {
       id: 'convert-quote',
       label: 'Quote',
+      icon: ICONS.blockquote,
       isActive: isText,
       run: () => commands.wrapInBlockquote(),
     },
     {
       id: 'convert-bullet-list',
       label: 'Bullet List',
+      icon: ICONS.bulletList,
       isActive: isText,
       run: () => commands.wrapInBulletList(),
     },
     {
       id: 'convert-ordered-list',
       label: 'Ordered List',
+      icon: ICONS.orderedList,
       isActive: isText,
       run: () => commands.wrapInOrderedList(),
     },
     {
       id: 'convert-task-list',
       label: 'Task List',
+      icon: ICONS.taskList,
       isActive: isText,
       run: () => commands.toggleTaskList(),
     },
     {
       id: 'convert-code-block',
       label: 'Code',
+      icon: ICONS.codeBlock,
       isActive: isText,
       run: () => commands.createCodeBlock(),
     },
@@ -143,6 +163,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
   const cut: MenuItem = {
     id: 'cut',
     label: 'Cut',
+    icon: MENU_ICONS.cut,
     shortcut: '⌘X',
     isActive: (ctx) =>
       editable(ctx) &&
@@ -158,6 +179,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
   const copy: MenuItem = {
     id: 'copy',
     label: 'Copy',
+    icon: MENU_ICONS.copy,
     shortcut: '⌘C',
     isActive: (ctx) =>
       (ctx.itemType === 'source' && ctx.hasSelection) ||
@@ -170,6 +192,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
   const paste: MenuItem = {
     id: 'paste',
     label: 'Paste',
+    icon: MENU_ICONS.paste,
     shortcut: '⌘V',
     isActive: (ctx) =>
       editable(ctx) && (ctx.itemType === 'source' || isText(ctx) || ctx.itemType === 'link'),
@@ -180,6 +203,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
   const pastePlain: MenuItem = {
     id: 'paste-plain',
     label: 'Paste as Plain Text',
+    icon: MENU_ICONS.pastePlain,
     shortcut: '⇧⌘V',
     isActive: (ctx) => editable(ctx) && (isText(ctx) || ctx.itemType === 'link'),
     disabled: pasteDisabled,
@@ -188,6 +212,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
   const selectAll: MenuItem = {
     id: 'select-all',
     label: 'Select All',
+    icon: MENU_ICONS.selectAll,
     shortcut: '⌘A',
     isActive: (ctx) =>
       editable(ctx) &&
@@ -209,24 +234,28 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'format-strong',
       label: 'Bold',
+      icon: ICONS.strong,
       isActive: (ctx) => editable(ctx) && isText(ctx) && ctx.hasSelection,
       run: () => commands.toggleStrong(),
     },
     {
       id: 'format-emphasis',
       label: 'Italic',
+      icon: ICONS.emphasis,
       isActive: (ctx) => editable(ctx) && isText(ctx) && ctx.hasSelection,
       run: () => commands.toggleEmphasis(),
     },
     {
       id: 'format-strikethrough',
       label: 'Strikethrough',
+      icon: ICONS.strikeThrough,
       isActive: (ctx) => editable(ctx) && isText(ctx) && ctx.hasSelection,
       run: () => commands.toggleStrikeThrough(),
     },
     {
       id: 'format-inline-code',
       label: 'Inline code',
+      icon: ICONS.inlineCode,
       isActive: (ctx) => editable(ctx) && isText(ctx) && ctx.hasSelection,
       run: () => commands.toggleInlineCode(),
     },
@@ -247,18 +276,21 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
         {
           id: 'insert-timestamp',
           label: 'Timestamp',
+          icon: ICONS.timestamp,
           isActive: (ctx) => isText(ctx) && !ctx.hasSelection,
           run: () => commands.insertTimestamp(),
         },
         {
           id: 'insert-divider',
           label: 'Divider',
+          icon: ICONS.hr,
           isActive: (ctx) => isText(ctx) && !ctx.hasSelection,
           run: () => commands.insertHr(),
         },
         {
           id: 'insert-table',
           label: 'Table',
+          icon: ICONS.table,
           isActive: (ctx) => isText(ctx) && !ctx.hasSelection,
           run: () => commands.insertTable(),
         },
@@ -269,6 +301,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'link-open',
       label: 'Open Link',
+      icon: MENU_ICONS.openLink,
       isActive: (ctx) => ctx.itemType === 'link',
       run: (ctx) => {
         if (ctx.linkHref) deps.openLink(ctx.linkHref)
@@ -277,6 +310,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'link-copy',
       label: 'Copy Link',
+      icon: MENU_ICONS.link,
       isActive: (ctx) => ctx.itemType === 'link',
       run: async (ctx) => {
         if (ctx.linkHref) await clipboard.write({ text: ctx.linkHref })
@@ -285,6 +319,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'link-remove',
       label: 'Remove Link',
+      icon: MENU_ICONS.unlink,
       isActive: (ctx) => editable(ctx) && ctx.itemType === 'link',
       run: (ctx) => deps.removeLink(ctx),
     },
@@ -293,23 +328,45 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'table-delete',
       label: 'Delete Table',
+      icon: MENU_ICONS.trash,
       danger: true,
       isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
       run: () => deps.deleteTable(),
     },
 
-    // ── 图片组（P1 只做 编辑说明/删除）──
+    // ── 图片组（P2 完整版：替换/说明/复制/删除）──
+    {
+      id: 'image-replace',
+      label: 'Replace Image...',
+      icon: MENU_ICONS.imageReplace,
+      isActive: (ctx) =>
+        editable(ctx) && ctx.itemType === 'image' && ctx.imageUpload,
+      run: (ctx) => {
+        if (ctx.nodePos !== undefined) return deps.replaceImage(ctx.nodePos)
+      },
+    },
     {
       id: 'image-caption',
       label: 'Edit Caption',
+      icon: MENU_ICONS.caption,
       isActive: (ctx) => editable(ctx) && ctx.itemType === 'image',
       run: (ctx) => {
         if (ctx.nodePos !== undefined) deps.editImageCaption(ctx.nodePos)
       },
     },
     {
+      id: 'image-copy',
+      label: 'Copy Image',
+      icon: MENU_ICONS.image,
+      isActive: (ctx) => ctx.itemType === 'image',
+      run: (ctx) => {
+        if (ctx.nodePos !== undefined) return deps.copyImage(ctx.nodePos)
+      },
+    },
+    {
       id: 'image-delete',
       label: 'Delete',
+      icon: MENU_ICONS.trash,
       danger: true,
       isActive: (ctx) => editable(ctx) && ctx.itemType === 'image',
       run: (ctx) => {
@@ -321,6 +378,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'code-copy',
       label: 'Copy Code',
+      icon: MENU_ICONS.copyCode,
       isActive: (ctx) => ctx.itemType === 'codeBlock',
       run: (ctx) => deps.copyCodeBlock(ctx),
     },
@@ -331,12 +389,14 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
     {
       id: 'ai-ask',
       label: 'Ask AI',
+      icon: MENU_ICONS.ai,
       isActive: (ctx) => ctx.aiActions && isText(ctx) && ctx.hasSelection,
       run: (ctx) => deps.aiAction('ask', ctx),
     },
     {
       id: 'ai-edit',
       label: 'Edit with AI',
+      icon: MENU_ICONS.ai,
       isActive: (ctx) => ctx.aiActions && isText(ctx) && ctx.hasSelection,
       run: (ctx) => deps.aiAction('edit', ctx),
     },

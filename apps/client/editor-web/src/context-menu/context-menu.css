@@ -33,8 +33,24 @@
   white-space: nowrap;
 }
 
-.kc-menu-item:hover {
+.kc-menu-item:hover,
+.kc-menu-item.kc-menu-active {
   background: var(--kc-editor-code-bg);
+}
+
+/* 图标列固定宽：无图标项留占位，label 对齐 */
+.kc-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--kc-editor-muted);
+}
+
+.kc-menu-danger .kc-menu-icon {
+  color: inherit;
 }
 
 .kc-menu-label {
@@ -58,7 +74,8 @@
 }
 
 .kc-menu-disabled,
-.kc-menu-disabled:hover {
+.kc-menu-disabled:hover,
+.kc-menu-disabled.kc-menu-active {
   color: var(--kc-editor-muted);
   background: transparent;
   opacity: 0.6;

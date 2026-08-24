@@ -8,6 +8,9 @@ import type { BridgeClient } from '../bridge/client'
 
 export interface ClipboardData {
   text: string
+  /** 同一选区的 HTML 序列化（P2 双格式复制）；web 实现忽略，native 经
+   *  bridge 带给 host（macOS 写 NSPasteboard 双格式，其余平台回退纯文本）。 */
+  html?: string
 }
 
 export interface ClipboardBackend {
@@ -20,7 +23,9 @@ export interface ClipboardBackend {
 export function createNativeClipboard(bridge: BridgeClient): ClipboardBackend {
   return {
     async write(data) {
-      bridge.sendClipboardWrite({ text: data.text })
+      const payload: { text: string; html?: string } = { text: data.text }
+      if (data.html) payload.html = data.html
+      bridge.sendClipboardWrite(payload)
     },
     async read() {
       // 5s 超时回空对象（host 未实现 clipboardRead 的老版本）→ text undefined → null

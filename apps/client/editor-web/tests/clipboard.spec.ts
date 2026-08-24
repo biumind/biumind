@@ -2,12 +2,14 @@
 // navigator.clipboard 成功/拒绝两路径。
 
 import { describe, expect, it, vi } from 'vitest'
+import { Fragment, Schema } from 'prosemirror-model'
 
 import type { BridgeClient } from '../src/bridge/client'
 import {
   createNativeClipboard,
   createWebClipboard,
 } from '../src/context-menu/clipboard'
+import { fragmentToHtml } from '../src/context-menu/html'
 
 function mockBridge(reply: { text?: string | null }) {
   const sendClipboardWrite = vi.fn()
@@ -25,6 +27,18 @@ describe('native clipboard（bridge 实现）', () => {
     const { bridge, sendClipboardWrite } = mockBridge({ text: null })
     await createNativeClipboard(bridge).write({ text: 'md **bold**' })
     expect(sendClipboardWrite).toHaveBeenCalledWith({ text: 'md **bold**' })
+  })
+
+  it('write 带 html → payload 透传双格式（P2）', async () => {
+    const { bridge, sendClipboardWrite } = mockBridge({ text: null })
+    await createNativeClipboard(bridge).write({
+      text: 'md **bold**',
+      html: '<p>md <strong>bold</strong></p>',
+    })
+    expect(sendClipboardWrite).toHaveBeenCalledWith({
+      text: 'md **bold**',
+      html: '<p>md <strong>bold</strong></p>',
+    })
   })
 
   it('read → clipboardRead.reply 有文本', async () => {
@@ -86,5 +100,39 @@ describe('web clipboard（navigator.clipboard 实现）', () => {
     await expect(createWebClipboard(log).read()).resolves.toBeNull()
     expect(log).toHaveBeenCalledOnce()
     expect(log.mock.calls[0][0]).toContain('denied')
+  })
+})
+
+describe('fragmentToHtml（P2 双格式复制的 HTML 序列化）', () => {
+  // 最小 schema：doc > paragraph+，text 带 strong mark
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'paragraph+' },
+      paragraph: {
+        content: 'text*',
+        toDOM: () => ['p', 0],
+      },
+      text: {},
+    },
+    marks: {
+      strong: { toDOM: () => ['strong', 0] },
+    },
+  })
+
+  it('段落 + 加粗 mark 序列化为 HTML', () => {
+    const p = schema.nodes.paragraph.create(null, [
+      schema.text('plain '),
+      schema.text('bold', [schema.marks.strong.create()]),
+    ])
+    const html = fragmentToHtml(schema, Fragment.from(p))
+    expect(html).toBe('<p>plain <strong>bold</strong></p>')
+  })
+
+  it('多个节点按顺序拼接', () => {
+    const p1 = schema.nodes.paragraph.create(null, schema.text('a'))
+    const p2 = schema.nodes.paragraph.create(null, schema.text('b'))
+    expect(fragmentToHtml(schema, Fragment.from([p1, p2]))).toBe(
+      '<p>a</p><p>b</p>',
+    )
   })
 })

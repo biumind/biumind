@@ -21,6 +21,9 @@ export interface BridgeFeatures {
   contextMenu?: 'custom' | 'native'
   /** host 已接 AI 动作（选区询问/编辑 overlay）；缺省 false，菜单不渲染 AI 组 */
   aiActions?: boolean
+  /** host 已接图片上传链路（选图 → presign 直传，notes 专属能力）；
+   *  缺省 false，图片菜单不渲染「替换图片…」 */
+  imageUpload?: boolean
 }
 
 // Host → Editor
@@ -139,9 +142,12 @@ export interface SelectionChangedPayload {
   coords: { left: number; top: number; right: number; bottom: number }
 }
 
-/** 复制/剪切落系统剪贴板（execCommand 在 WKWebView 常失败，走 host）。 */
+/** 复制/剪切落系统剪贴板（execCommand 在 WKWebView 常失败，走 host）。
+ *  text = markdown 序列化；html（P2 新增，可选）= 同一选区的 HTML 序列化，
+ *  host 在 macOS 上写 NSPasteboard 双格式，其他平台忽略该字段只写 text。 */
 export interface ClipboardWritePayload {
   text: string
+  html?: string
 }
 
 /** 读系统剪贴板（request/reply，应答见 ClipboardReadReplyPayload）。 */
@@ -156,6 +162,17 @@ export interface AiActionPayload {
   text: string
 }
 
+/** 图片菜单「替换图片…」（P2）：请 host 走既有上传链路（选图 → presign
+ *  直传），应答见 ImageUploadReplyPayload。上传能力为 notes 专属
+ *  （features.imageUpload 声明），wiki 等无链路场景菜单项不渲染。 */
+export type ImageUploadPayload = Record<string, never>
+
+/** imageUpload 的应答：uri = biu-file://<uuid> 规范 URI；null = 用户取消
+ *  / 上传失败（编辑器不改动图片节点）。 */
+export interface ImageUploadReplyPayload {
+  uri: string | null
+}
+
 // Discriminated union — exhaustive for safety.
 
 export type HostToEditorMessage =
@@ -166,6 +183,7 @@ export type HostToEditorMessage =
   | Msg<'wikilinkQuery.reply', WikilinkQueryReplyPayload>
   | Msg<'presignGet.reply', PresignGetReplyPayload>
   | Msg<'clipboardRead.reply', ClipboardReadReplyPayload>
+  | Msg<'imageUpload.reply', ImageUploadReplyPayload>
 
 export type EditorToHostMessage =
   | Msg<'ready', ReadyPayload>
@@ -178,6 +196,7 @@ export type EditorToHostMessage =
   | Msg<'clipboardWrite', ClipboardWritePayload>
   | Msg<'clipboardRead', ClipboardReadPayload>
   | Msg<'aiAction', AiActionPayload>
+  | Msg<'imageUpload', ImageUploadPayload>
 
 export interface Msg<T extends string, P> {
   type: T
