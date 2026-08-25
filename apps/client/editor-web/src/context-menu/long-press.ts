@@ -84,6 +84,12 @@ export class LongPressController {
     root.addEventListener('touchmove', this.onTouchMove, { passive: true })
     root.addEventListener('touchend', this.onTouchEnd, { passive: true })
     root.addEventListener('touchcancel', this.onTouchEnd, { passive: true })
+    // 防拖拽影子（实机 bug）：image-block 的 node view 显式
+    // draggable="true"（桌面拖块移动用），移动端长按 ≈ 触发 HTML5
+    // 拖拽 → 半透明放大的 drag ghost 跟手。mobile.css 的 user-drag:none
+    // 之外再加 dragstart preventDefault 双保险（非 passive 才能拦）。
+    // 桌面不经过本控制器（mobileCustom 才创建），拖块移动不受影响。
+    root.addEventListener('dragstart', this.onDragStart)
   }
 
   destroy(): void {
@@ -94,8 +100,19 @@ export class LongPressController {
       root.removeEventListener('touchmove', this.onTouchMove)
       root.removeEventListener('touchend', this.onTouchEnd)
       root.removeEventListener('touchcancel', this.onTouchEnd)
+      root.removeEventListener('dragstart', this.onDragStart)
     }
     this.cancelPress()
+  }
+
+  private onDragStart = (event: DragEvent): void => {
+    const target = event.target as HTMLElement | null
+    if (
+      target?.closest?.(IMAGE_BLOCK_SELECTOR) ||
+      target?.tagName === 'IMG'
+    ) {
+      event.preventDefault()
+    }
   }
 
   // ── DOM 事件 → 归一化 ─────────────────────────────────

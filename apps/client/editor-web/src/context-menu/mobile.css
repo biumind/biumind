@@ -104,3 +104,16 @@ html[data-platform='android'] .milkdown .ProseMirror.kc-lp-pressing {
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* 长按图片防拖拽影子（M2 实机 bug：菜单弹出同时出现半透明放大的
+   drag ghost）——image-block 的 node view 显式 draggable="true"（桌面
+   拖块移动用），移动端长按 ≈ 触发 HTML5 拖拽。CSS 关 user-drag +
+   long-press.ts 的 dragstart preventDefault 双保险。 */
+html[data-platform='ios'] .milkdown .milkdown-image-block,
+html[data-platform='android'] .milkdown .milkdown-image-block,
+html[data-platform='ios'] .milkdown .milkdown-image-inline,
+html[data-platform='android'] .milkdown .milkdown-image-inline,
+html[data-platform='ios'] .milkdown img,
+html[data-platform='android'] .milkdown img {
+  -webkit-user-drag: none;
+}

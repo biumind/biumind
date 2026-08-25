@@ -217,4 +217,34 @@ describe('手势状态机', () => {
     expect(h.opened).toHaveLength(0)
     expect(h.editorDom.classList.contains('kc-lp-pressing')).toBe(false)
   })
+
+  // 实机 bug：image-block 的 node view 显式 draggable="true"，移动端长按
+  // ≈ 触发 HTML5 拖拽 → 半透明放大的 drag ghost 跟手（截图"重影"）。
+  it('图片 dragstart 被 preventDefault（防拖拽影子）；destroy 后不再拦', () => {
+    const h = makeHarness()
+    h.controller.attach()
+    const img = h.imageEl.querySelector('img')!
+    const onImg = new Event('dragstart', { bubbles: true, cancelable: true })
+    img.dispatchEvent(onImg)
+    expect(onImg.defaultPrevented).toBe(true)
+    const onBlock = new Event('dragstart', { bubbles: true, cancelable: true })
+    h.imageEl.dispatchEvent(onBlock)
+    expect(onBlock.defaultPrevented).toBe(true)
+
+    h.controller.destroy()
+    const afterDestroy = new Event('dragstart', { bubbles: true, cancelable: true })
+    img.dispatchEvent(afterDestroy)
+    expect(afterDestroy.defaultPrevented).toBe(false)
+  })
+
+  it('非图片元素（文本）的 dragstart 不拦', () => {
+    const h = makeHarness()
+    h.controller.attach()
+    const text = document.createElement('p')
+    document.querySelector('.milkdown')!.appendChild(text)
+    const ev = new Event('dragstart', { bubbles: true, cancelable: true })
+    text.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(false)
+    h.controller.destroy()
+  })
 })
