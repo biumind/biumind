@@ -1,6 +1,7 @@
 ARG INFRA_REGISTRY=docker.io
 # BiuMind Web Client — multi-stage build.
 #
+# Stage 0: build editor-web (Milkdown WYSIWYG) bundle (node + vite).
 # Stage 1: build the Flutter Web app (debian-slim + 自装 Flutter SDK).
 # Stage 2: serve via tiny nginx with SPA fallback + asset caching.
 #
@@ -15,6 +16,20 @@ ARG INFRA_REGISTRY=docker.io
 #   docker build -f Dockerfile.web --build-arg BASE_HREF=/app/ -t biumind/web-client:dev .
 
 ARG BASE_HREF=/app/
+
+# ───── Stage 0: editor-web (Milkdown WYSIWYG) bundle ─────
+# `npm run build` = vite build + scripts/sync-to-flutter.ts, 后者把 dist/ 双写到
+#   /src/web/editor/    — Web 端 iframe (HtmlElementView) 加载, 打进 build/web/
+#   /src/assets/editor/ — 原生端 InAppLocalhostServer 加载, 打进 flutter assets
+# 两个目录都 gitignored (本地 dev 靠 `make editor-web-build` 生成), 镜像里必须
+# 自己构建, 否则产物没有 editor/ → 生产 /app/editor/index.html 404。
+# sync 脚本按 editor-web/ 的父目录定位 client root, 故 WORKDIR 保持 /src/editor-web。
+FROM ${INFRA_REGISTRY}/library/node:22-slim AS editor
+WORKDIR /src/editor-web
+COPY editor-web/ ./
+# npm ci 严格走 lockfile (editor-web/package-lock.json 已入仓); ci 先清空
+# node_modules, 本地 context 残留的 node_modules 不会污染镜像。
+RUN npm ci && npm run build
 
 FROM ${INFRA_REGISTRY}/library/debian:bookworm-slim AS build
 ARG BASE_HREF
@@ -67,6 +82,10 @@ RUN flutter pub get
 
 # 拷源码 + 构建 (BASE_HREF 注入 <base href="..."> 到 index.html)
 COPY . ./
+# editor bundle 从 editor stage 拷入 (gitignored, context 里没有;
+# 本地 context 若有残留旧产物也会被这里覆盖, 保证镜像内是本次新构建的)
+COPY --from=editor /src/web/editor/ web/editor/
+COPY --from=editor /src/assets/editor/ assets/editor/
 RUN flutter build web --release --base-href "$BASE_HREF"
 
 # ───── runtime: 静态文件由 nginx 提供 ─────
