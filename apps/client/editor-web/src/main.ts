@@ -53,6 +53,7 @@ import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
 import { ContextMenuController } from './context-menu'
+import { SelectionToolbar } from './context-menu/selection-toolbar'
 import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
@@ -78,6 +79,8 @@ interface EditorState {
   toolbar: Toolbar | null
   sourceMode: SourceModeController | null
   contextMenu: ContextMenuController | null
+  /** 移动端选区浮动工具条（M1；仅 platform = ios/android 时创建） */
+  selectionToolbar: SelectionToolbar | null
   readOnly: boolean
   /** 当前 UI 语言（init 定初值，setOptions.locale 可运行时切换） */
   locale: string
@@ -102,6 +105,7 @@ const state: EditorState = {
   toolbar: null,
   sourceMode: null,
   contextMenu: null,
+  selectionToolbar: null,
   readOnly: false,
   locale: 'en',
   revision: 0,
@@ -218,6 +222,8 @@ async function mountEditor(payload: InitPayload): Promise<void> {
 /** 重建前的公共清理 */
 async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
+  state.selectionToolbar?.destroy()
+  state.selectionToolbar = null
   state.contextMenu?.destroy()
   state.contextMenu = null
   state.sourceMode?.destroy()
@@ -232,6 +238,19 @@ async function teardownEditor(): Promise<void> {
 async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   await teardownEditor()
   applyTheme(payload.theme)
+  // 平台标记（M1）：<html data-platform> 供 CSS/动画/移动端裁剪分流；
+  // 缺省（老 host）不标注 = 非移动端行为。
+  const platform = payload.features.platform
+  if (platform) {
+    document.documentElement.dataset.platform = platform
+  } else {
+    delete document.documentElement.dataset.platform
+  }
+  // 移动端自绘选区工具条启用时，关掉 crepe 自带选区浮动工具栏（防双重 UI）；
+  // 桌面保持现状（crepe toolbar + 右键菜单各司其职）。
+  const mobileCustom =
+    (platform === 'ios' || platform === 'android') &&
+    payload.features.contextMenu !== 'native'
   const root = document.getElementById('root')
   if (!root) throw new Error('#root not found')
   root.innerHTML = ''
@@ -248,6 +267,7 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       // 关闭 latex：KaTeX (~586KB) 及其字体不随包分发（katex 本身被
       // crepe 静态 import，另由 vite alias 指向 stub 才能真正移出产物）
       [Crepe.Feature.Latex]: false,
+      ...(mobileCustom ? { [Crepe.Feature.Toolbar]: false } : {}),
     },
     featureConfigs: {
       // UI 文案本地化（字典 → featureConfigs，见 src/i18n）；宿主行为配置
@@ -280,6 +300,8 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       ctx.get(listenerCtx).selectionUpdated((updatedCtx) => {
         updateToolbarActive(updatedCtx)
         pushSelection(updatedCtx)
+        // 移动端选区浮动工具条（M1）：选区落定/塌缩驱动显隐
+        state.selectionToolbar?.onSelectionUpdated()
       })
     })
     .use(listener)
@@ -348,6 +370,13 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     })
     menu.attach()
     state.contextMenu = menu
+    // M1 场景 A：移动端选区浮动工具条（桌面端绝不创建 —— 桌面有右键菜单
+    // + crepe 自带选区工具栏，三重 UI 不可接受）
+    if (mobileCustom) {
+      state.selectionToolbar = new SelectionToolbar(
+        menu.selectionToolbarDeps(true),
+      )
+    }
   }
 }
 
@@ -431,6 +460,8 @@ function toggleSourceMode(): void {
   if (!state.crepe || !state.sourceMode || state.readOnly) return
   // 切模式前把防抖窗口里的变更先落掉，保证 getMarkdown / lastSentMarkdown 都是最新的
   flushDocChanged()
+  // 进源码模式收起选区工具条（textarea 场景不出 PM 工具条）
+  state.selectionToolbar?.hide()
   state.sourceMode.toggle()
   state.toolbar?.setSourceMode(state.sourceMode.active)
 }

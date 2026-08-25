@@ -50,6 +50,8 @@ export interface MenuItem {
   /** 展示用快捷键标注（不绑定按键） */
   shortcut?: string
   danger?: boolean
+  /** 执行后保持菜单打开（移动端「‹ 返回」等导航项用；普通动作缺省关闭） */
+  keepOpen?: boolean
   isActive: (ctx: MenuContext) => boolean
   /** 如「粘贴」在剪贴板为空时禁用 */
   disabled?: (ctx: MenuContext) => boolean

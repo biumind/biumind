@@ -1,12 +1,17 @@
 // 菜单视图：全屏透明 mask + 绝对定位菜单容器。
 // 定位：先渲染到屏外实测 getBoundingClientRect（不估常量），右/下空间不足
 // 向反方向翻转，四边钳制到视口内 4px；子菜单同算法（锚点 = 父项右缘）。
-// 关闭五件套：外部 mousedown（mask）/ Escape / 编辑器滚动（capture）/
+// 关闭五件套：外部 pointerdown（mask）/ Escape / 编辑器滚动（capture）/
 // 窗口 resize / 打开期间 keydown 拦截（字符键与 Ctrl/Cmd 组合吞掉并关闭）。
-// 菜单容器 mousedown preventDefault —— 点击菜单项不夺焦点、不丢 PM 选区。
+// 菜单容器 pointerdown preventDefault —— 点击菜单项不夺焦点、不丢 PM 选区
+// （pointerdown 同时覆盖 mouse/touch；取消它会连带抑制 mousedown 的焦点行为）。
 // 键盘导航（P2）：roving 高亮（↑/↓ 循环、跳过分隔线与禁用项）、Enter 执行、
 // → 展开子菜单、← 收起子菜单、Escape 关闭；焦点始终留在编辑器（keydown 在
 // document capture 拦截），高亮只是视觉态 + aria-activedescendant 标注。
+// 移动端裁剪（M1，mobileLayout = true，桌面零变化）：子菜单 hover/悬浮展开
+// 不存在，点按父项 → 当前级内容同级替换为子级 + 顶部「‹ 返回」项；
+// 44px 热区 / shortcut 隐藏 / max-height 内部滚动走 mobile.css 的
+// data-platform 分流。
 
 import './context-menu.css'
 
@@ -73,12 +78,23 @@ interface MenuLevel {
   items: RenderedItem[]
   /** 高亮索引（-1 = 无） */
   index: number
+  /** 当前级渲染的条目（移动端同级替换时回退用） */
+  entries: MenuEntry[]
+  /** 移动端同级替换的返回栈 */
+  stack: MenuEntry[][]
 }
 
 const SUBMENU_CLOSE_DELAY_MS = 200
 const ACTIVE_CLASS = 'kc-menu-active'
 
 export class MenuView {
+  /**
+   * 移动端布局（M1）：true 时子菜单改为同级替换式（点按父项替换当前级
+   * 内容 + 顶部「‹ 返回」），hover 悬浮展开关闭。由 controller 按
+   * data-platform = ios/android 设置；桌面恒 false，行为零变化。
+   */
+  mobileLayout = false
+
   private mask: HTMLDivElement | null = null
   private levels: MenuLevel[] = []
   private submenuCloseTimer: ReturnType<typeof setTimeout> | null = null
@@ -95,7 +111,7 @@ export class MenuView {
 
     const mask = document.createElement('div')
     mask.className = 'kc-menu-mask'
-    mask.addEventListener('mousedown', (event) => {
+    mask.addEventListener('pointerdown', (event) => {
       event.preventDefault()
       this.close()
     })
@@ -155,33 +171,38 @@ export class MenuView {
     const root = document.createElement('div')
     root.className = 'kc-context-menu'
     root.setAttribute('role', 'menu')
-    // 点击菜单不夺焦点，保住编辑器选区
-    root.addEventListener('mousedown', (event) => event.preventDefault())
+    // 点击菜单不夺焦点，保住编辑器选区（pointerdown 覆盖 mouse/touch）
+    root.addEventListener('pointerdown', (event) => event.preventDefault())
     return root
   }
 
   private renderLevel(root: HTMLDivElement, entries: MenuEntry[]): MenuLevel {
-    const deps = this.deps!
-    const level: MenuLevel = { root, items: [], index: -1 }
+    const level: MenuLevel = { root, items: [], index: -1, entries, stack: [] }
+    this.rerenderLevel(level, entries)
+    return level
+  }
+
+  /** 清空并重渲染某一级的内容（移动端同级替换复用） */
+  private rerenderLevel(level: MenuLevel, entries: MenuEntry[]): void {
+    level.entries = entries
+    level.items = []
+    level.index = -1
+    level.root.innerHTML = ''
     for (const entry of entries) {
       if (entry === 'separator') {
         const sep = document.createElement('div')
         sep.className = 'kc-menu-sep'
-        root.appendChild(sep)
+        level.root.appendChild(sep)
         continue
       }
-      const rendered = this.renderItem(level, entry, deps)
+      const rendered = this.renderItem(level, entry)
       level.items.push(rendered)
-      root.appendChild(rendered.el)
+      level.root.appendChild(rendered.el)
     }
-    return level
   }
 
-  private renderItem(
-    level: MenuLevel,
-    item: MenuItem,
-    deps: MenuViewDeps,
-  ): RenderedItem {
+  private renderItem(level: MenuLevel, item: MenuItem): RenderedItem {
+    const deps = this.deps!
     const el = document.createElement('div')
     el.className = 'kc-menu-item'
     el.setAttribute('role', 'menuitem')
@@ -222,6 +243,8 @@ export class MenuView {
     el.addEventListener('mouseenter', () => {
       this.clearSubmenuTimer()
       this.setHighlight(level, level.items.indexOf(rendered))
+      // hover 悬浮展开是桌面交互；移动端（mobileLayout）点按才展开
+      if (this.mobileLayout) return
       if (item.children) {
         this.openSubmenu(level, rendered)
       } else {
@@ -229,7 +252,7 @@ export class MenuView {
       }
     })
     el.addEventListener('mouseleave', () => {
-      if (item.children) this.scheduleSubmenuClose()
+      if (!this.mobileLayout && item.children) this.scheduleSubmenuClose()
     })
     if (!disabled && (item.run || item.children)) {
       el.addEventListener('click', () => this.activate(level, rendered))
@@ -274,20 +297,72 @@ export class MenuView {
     }
   }
 
-  /** 执行高亮项：有子菜单展开之，否则关菜单并 run。 */
+  /** 执行高亮项：有子菜单展开之（移动端同级替换），否则关菜单并 run。 */
   private activate(level: MenuLevel, rendered: RenderedItem): void {
     if (rendered.disabled) return
     if (rendered.item.children) {
-      this.openSubmenu(level, rendered)
+      if (this.mobileLayout) {
+        this.replaceWithChildren(level, rendered)
+      } else {
+        this.openSubmenu(level, rendered)
+      }
       return
     }
     const { item } = rendered
     const deps = this.deps
+    // keepOpen 项（移动端「‹ 返回」）不关菜单
+    if (item.keepOpen) {
+      if (deps && item.run) void item.run(deps.ctx)
+      return
+    }
     this.close()
     if (deps && item.run) void item.run(deps.ctx)
   }
 
   // ── 子菜单 ─────────────────────────────────────────────
+
+  /** 移动端同级替换：当前级内容替换为子级条目 + 顶部「‹ 返回」项 */
+  private replaceWithChildren(level: MenuLevel, parent: RenderedItem): void {
+    const deps = this.deps
+    if (!deps || !parent.item.children) return
+    const children = parent.item.children.filter((child) =>
+      child.isActive(deps.ctx),
+    )
+    level.stack.push(level.entries)
+    const back: MenuItem = {
+      id: '__back',
+      label: 'Back',
+      keepOpen: true,
+      isActive: () => true,
+      run: () => this.popLevel(level),
+    }
+    const backEl = this.renderItem(level, back)
+    backEl.el.classList.add('kc-menu-back')
+    // 重渲染：back + 分隔线 + 子级（renderItem 已注册事件，手工拼装）
+    level.items = []
+    level.index = -1
+    level.root.innerHTML = ''
+    level.items.push(backEl)
+    level.root.appendChild(backEl.el)
+    const sep = document.createElement('div')
+    sep.className = 'kc-menu-sep'
+    level.root.appendChild(sep)
+    for (const child of children) {
+      const rendered = this.renderItem(level, child)
+      level.items.push(rendered)
+      level.root.appendChild(rendered.el)
+    }
+    level.entries = [back, 'separator', ...children]
+    this.setHighlight(level, 1)
+  }
+
+  /** 移动端同级替换的回退 */
+  private popLevel(level: MenuLevel): void {
+    const entries = level.stack.pop()
+    if (!entries) return
+    this.rerenderLevel(level, entries)
+    this.setHighlight(level, 0)
+  }
 
   private openSubmenu(parentLevel: MenuLevel, parent: RenderedItem): void {
     const deps = this.deps
@@ -378,19 +453,32 @@ export class MenuView {
         if (current?.item.children) {
           event.preventDefault()
           event.stopPropagation()
-          this.openSubmenu(level, current)
-          // 键盘展开子菜单：高亮首个可用项
-          this.moveHighlight(1)
+          if (this.mobileLayout) {
+            this.replaceWithChildren(level, current)
+          } else {
+            this.openSubmenu(level, current)
+            // 键盘展开子菜单：高亮首个可用项
+            this.moveHighlight(1)
+          }
         }
         return
       }
-      case 'ArrowLeft':
+      case 'ArrowLeft': {
+        const level = this.currentLevel()
+        // 移动端同级替换：先出栈回上级，再考虑收子菜单层
+        if (this.mobileLayout && level.stack.length > 0) {
+          event.preventDefault()
+          event.stopPropagation()
+          this.popLevel(level)
+          return
+        }
         if (this.levels.length > 1) {
           event.preventDefault()
           event.stopPropagation()
           for (const l of this.levels.splice(1)) l.root.remove()
         }
         return
+      }
       case 'Enter': {
         const level = this.currentLevel()
         const current = level.items[level.index]

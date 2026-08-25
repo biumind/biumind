@@ -24,6 +24,10 @@ export interface BridgeFeatures {
   /** host 已接图片上传链路（选图 → presign 直传，notes 专属能力）；
    *  缺省 false，图片菜单不渲染「替换图片…」 */
   imageUpload?: boolean
+  /** 平台标记（M1 移动端）：bundle 据此在 <html data-platform> 标注，
+   *  分流 CSS（iOS callout 抑制）、入场动画与移动端裁剪；host 从
+   *  PlatformCaps 填。缺省 = 非移动端（不出选区浮动工具条，行为不变）。 */
+  platform?: 'ios' | 'android' | 'macos' | 'web'
 }
 
 // Host → Editor

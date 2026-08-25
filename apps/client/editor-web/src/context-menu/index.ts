@@ -24,6 +24,7 @@ import type { ToolbarActions } from '../toolbar'
 import { createClipboard, type ClipboardBackend } from './clipboard'
 import { detectMenuContext } from './context'
 import { fragmentToHtml } from './html'
+import type { SelectionToolbarDeps } from './selection-toolbar'
 import {
   buildMenuRegistry,
   filterMenuEntries,
@@ -50,6 +51,7 @@ export interface ContextMenuControllerDeps {
 export class ContextMenuController {
   private readonly deps: ContextMenuControllerDeps
   private readonly clipboard: ClipboardBackend
+  private readonly menuDeps: MenuDeps
   private readonly registry: MenuEntry[]
   private readonly view = new MenuView()
   private locale: string
@@ -61,7 +63,8 @@ export class ContextMenuController {
     this.clipboard = createClipboard(deps.bridge, (msg) =>
       deps.bridge.sendLog({ level: 'warn', msg: `[context-menu] ${msg}` }),
     )
-    this.registry = buildMenuRegistry(this.buildMenuDeps())
+    this.menuDeps = this.buildMenuDeps()
+    this.registry = buildMenuRegistry(this.menuDeps)
   }
 
   attach(): void {
@@ -81,6 +84,37 @@ export class ContextMenuController {
   /** setOptions.locale 推送：菜单每次打开现构建，换 translator 即可 */
   setLocale(locale: string): void {
     this.locale = locale
+  }
+
+  /** 移动端选区浮动工具条（M1）复用的依赖包：动作/注册表/渲染全部
+   *  与桌面右键菜单同源。mobile = true 时 MenuView 切同级替换式子菜单。 */
+  selectionToolbarDeps(mobile: boolean): SelectionToolbarDeps {
+    this.view.mobileLayout = mobile
+    return {
+      getView: () => this.pmView(),
+      isSourceMode: () => this.deps.getSourceMode()?.active === true,
+      getReadOnly: () => this.deps.getReadOnly(),
+      clipboard: this.clipboard,
+      menuDeps: this.menuDeps,
+      registry: this.registry,
+      menuView: this.view,
+      buildTextContext: () => {
+        const view = this.pmView()
+        if (!view) return null
+        const { from, to, empty } = view.state.selection
+        return {
+          itemType: 'text',
+          hasSelection: !empty,
+          readOnly: this.deps.getReadOnly(),
+          canPaste: true,
+          aiActions: this.deps.aiActions,
+          imageUpload: this.deps.imageUpload,
+          from,
+          to,
+        }
+      },
+      translator: () => createTranslator(this.locale),
+    }
   }
 
   private onContextMenu = (event: MouseEvent): void => {

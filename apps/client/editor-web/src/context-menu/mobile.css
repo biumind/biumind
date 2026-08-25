@@ -1,0 +1,97 @@
+/* 移动端（M1）：选区浮动工具条 + view.ts 移动端裁剪 + iOS 系统菜单抑制。
+   全部分流按 <html data-platform="ios|android">（init features.platform 标注），
+   桌面（macos/web/无标记）不受任何一条影响。 */
+
+/* ── iOS 系统 callout 抑制（设计 §5）：只关 callout 菜单；
+   user-select 必须保留 text —— 选择手柄/放大镜/双击选词全靠它。 ── */
+html[data-platform='ios'] .milkdown .ProseMirror {
+  -webkit-touch-callout: none;
+  -webkit-user-select: text;
+}
+
+/* ── 选区浮动工具条（场景 A） ── */
+.kc-selection-toolbar {
+  position: fixed;
+  z-index: 990; /* 菜单 mask(999) 之下：「更多」展开时工具条已收起 */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-fg);
+  border: 1px solid var(--kc-editor-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  user-select: none;
+}
+
+.kc-st-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 22px;
+  padding: 8px 12px; /* ≥44px 触控热区（含行高） */
+  border-radius: 7px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.kc-st-btn:active {
+  background: var(--kc-editor-code-bg);
+}
+
+.kc-st-disabled,
+.kc-st-disabled:active {
+  color: var(--kc-editor-muted);
+  background: transparent;
+  opacity: 0.6;
+}
+
+/* 入场动画按平台分流：iOS 从锚点缩放 ~200ms / Android 淡入+轻微上移 */
+@keyframes kc-st-zoom-in {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes kc-st-fade-up {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+html[data-platform='ios'] .kc-selection-toolbar {
+  animation: kc-st-zoom-in 200ms ease-out;
+  transform-origin: bottom center;
+}
+
+html[data-platform='android'] .kc-selection-toolbar {
+  animation: kc-st-fade-up 180ms ease-out;
+}
+
+/* ── view.ts 竖向菜单的移动端裁剪（设计 §7） ── */
+html[data-platform='ios'] .kc-context-menu,
+html[data-platform='android'] .kc-context-menu {
+  min-width: 220px;
+  max-height: 60vh; /* 工具条「更多」展开的长菜单内部滚动 */
+  overflow-y: auto;
+  font-size: 14px; /* 字号 +1 */
+}
+
+html[data-platform='ios'] .kc-menu-item,
+html[data-platform='android'] .kc-menu-item {
+  min-height: 44px; /* 触控热区 */
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
+html[data-platform='ios'] .kc-menu-shortcut,
+html[data-platform='android'] .kc-menu-shortcut {
+  display: none; /* 移动端无快捷键标注 */
+}
+
+/* 同级替换式子菜单的「‹ 返回」项 */
+.kc-menu-back .kc-menu-label::before {
+  content: '‹ ';
+  color: var(--kc-editor-muted);
+}

@@ -74,4 +74,6 @@ export const zhHans: Record<string, string> = {
   'Copy Code': '复制代码',
   'Ask AI': '询问 AI',
   'Edit with AI': '用 AI 编辑选区',
+  More: '更多',
+  Back: '返回',
 }
