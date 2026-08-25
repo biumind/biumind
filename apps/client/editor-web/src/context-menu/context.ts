@@ -54,6 +54,29 @@ function linkHrefAt(view: EditorView, pos: number): string | undefined {
   return (mark?.attrs.href as string | undefined) ?? undefined
 }
 
+/** 位置附近的 atom 图片节点解析。叶子 atom（image-block/inline image）
+ *  永远不是相邻位置的祖先 —— findNodeOnChain 只走祖先链，对它们必然失效
+ *  （实机 bug：长按/右键图片解析不到节点）。必须查 nodeAt/nodeAfter/nodeBefore。 */
+function imageNodeNear(view: EditorView, pos: number): number | null {
+  const { doc } = view.state
+  if (pos < 0 || pos > doc.content.size) return null
+  const direct = doc.nodeAt(pos)
+  if (direct && IMAGE_NODE_NAMES.has(direct.type.name)) return pos
+  try {
+    const $pos = doc.resolve(pos)
+    const after = $pos.nodeAfter
+    if (after && IMAGE_NODE_NAMES.has(after.type.name)) return pos
+    const before = $pos.nodeBefore
+    if (before && IMAGE_NODE_NAMES.has(before.type.name)) {
+      return pos - before.nodeSize
+    }
+  } catch {
+    // resolve 越界 —— 视为未命中
+  }
+  // 兜底：非 atom 情形（祖先链，理论覆盖不到，保险）
+  return findNodeOnChain(view, pos, IMAGE_NODE_NAMES)?.nodePos ?? null
+}
+
 /** 图片兜底：elementFromPoint 命中图片 DOM 时 posAtDOM。
  *  M2 长按手势的 nodePos 解析也走这里（导出复用，不复制逻辑）。 */
 export function imagePosFromDom(
@@ -66,13 +89,12 @@ export function imagePosFromDom(
   if (!el || !view.dom.contains(el)) return null
   try {
     const pos = view.posAtDOM(el, 0)
-    const found = findNodeOnChain(view, pos, IMAGE_NODE_NAMES)
-    if (found) return found.nodePos
-    // posAtDOM 可能落在图片节点之后（兄弟文本里），向前一探
-    if (pos > 0) {
-      const before = findNodeOnChain(view, pos - 1, IMAGE_NODE_NAMES)
-      if (before) return before.nodePos
-    }
+    // posAtDOM 对 atom 可能落在节点前/后/相邻兄弟文本里 —— 三点都探
+    return (
+      imageNodeNear(view, pos) ??
+      imageNodeNear(view, pos - 1) ??
+      imageNodeNear(view, pos + 1)
+    )
   } catch {
     // posAtDOM 对非编辑器 DOM 会抛 —— 视为未命中
   }
