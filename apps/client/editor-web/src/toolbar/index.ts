@@ -8,6 +8,12 @@ import { INACTIVE_STATE, type ToolbarActiveState } from './types'
 export interface ToolbarOptions {
   /** CM6 内核本身即源码编辑器，笔记页隐藏「源码切换」按钮 */
   hideSourceToggle?: boolean
+  /**
+   * 移动端浮动模式（F2）：position:fixed 贴可见视口底部（键盘上沿），
+   * 显隐/定位由 FloatingToolbarController 驱动；按钮定义/动作/禁用态/
+   * 选中态/源码模式逻辑与桌面完全同源。缺省 false = 顶部常驻（桌面现状）。
+   */
+  floating?: boolean
 }
 
 export interface ToolbarActions {
@@ -140,8 +146,15 @@ export function createToolbar(
   ]
 
   const element = document.createElement('div')
-  element.className = 'kc-toolbar'
+  element.className = options.floating
+    ? 'kc-toolbar kc-toolbar-floating'
+    : 'kc-toolbar'
   element.setAttribute('role', 'toolbar')
+  if (options.floating) {
+    // 浮动条整条 pointerdown preventDefault 保焦点（touch 等价路径，
+    // 与 M1 选区工具条一致；桌面按钮级 mousedown 路径不动）
+    element.addEventListener('pointerdown', (event) => event.preventDefault())
+  }
 
   const buttons: { def: ButtonDef; el: HTMLButtonElement }[] = []
   for (const item of groups) {

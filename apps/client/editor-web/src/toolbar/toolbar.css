@@ -100,3 +100,29 @@
   min-height: 0;
   overflow: auto;
 }
+
+/* 移动端浮动格式条（F2）：position:fixed 贴可见视口底部（键盘上沿），
+   显隐由 FloatingToolbarController 驱动（.kc-tb-visible 类）。
+   只在 floating 模式（mobileCustom）创建 —— 桌面 .kc-toolbar 不受影响。 */
+.kc-toolbar-floating {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 980; /* 选区工具条(990) / 菜单 mask(999) 之下 */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: none;
+  border-top: 1px solid var(--kc-editor-border);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.kc-toolbar-floating.kc-tb-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}

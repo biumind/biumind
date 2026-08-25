@@ -64,6 +64,7 @@ import { applyWikilinkRemark, wikilinkPlugins } from './plugins/wikilink'
 import { SourceModeController } from './source-mode'
 import { formatTimestamp } from './timestamp'
 import { computeActiveState } from './toolbar/active-state'
+import { FloatingToolbarController } from './toolbar/floating-controller'
 import { createToolbar, type Toolbar, type ToolbarActions } from './toolbar'
 import type {
   CommandPayload,
@@ -85,6 +86,8 @@ interface EditorState {
   selectionToolbar: SelectionToolbar | null
   /** 移动端输入法门控（选中不弹键盘，编辑才弹；仅移动端创建） */
   inputMode: InputModeController | null
+  /** 移动端浮动格式条控制器（F2；仅 mobileCustom 创建，桌面顶部常驻） */
+  floatingToolbar: FloatingToolbarController | null
   readOnly: boolean
   /** 当前 UI 语言（init 定初值，setOptions.locale 可运行时切换） */
   locale: string
@@ -111,6 +114,7 @@ const state: EditorState = {
   contextMenu: null,
   selectionToolbar: null,
   inputMode: null,
+  floatingToolbar: null,
   readOnly: false,
   locale: 'en',
   revision: 0,
@@ -188,6 +192,8 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     state.crepe?.setReadonly(payload.readOnly)
     state.toolbar?.setDisabled(payload.readOnly)
     state.sourceMode?.setReadOnly(payload.readOnly)
+    // F2：readOnly 恒隐浮动条
+    state.floatingToolbar?.refresh()
   }
   if (payload.locale) {
     state.locale = payload.locale
@@ -227,6 +233,8 @@ async function mountEditor(payload: InitPayload): Promise<void> {
 /** 重建前的公共清理 */
 async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
+  state.floatingToolbar?.destroy()
+  state.floatingToolbar = null
   state.selectionToolbar?.destroy()
   state.selectionToolbar = null
   state.inputMode?.destroy()
@@ -348,8 +356,17 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     },
     toggleSourceMode,
   }
-  const toolbar = createToolbar(editorCommands)
-  root.insertBefore(toolbar.element, editorWrap)
+  // F2：移动端顶部不再常驻 —— 浮动格式条贴可见视口底部（键盘上沿），
+  // 按钮定义与桌面完全同源（createToolbar floating 模式）；桌面保持
+  // 顶部常驻（硬要求，零变化）。
+  const toolbar = mobileCustom
+    ? createToolbar(editorCommands, { floating: true })
+    : createToolbar(editorCommands)
+  if (mobileCustom) {
+    root.appendChild(toolbar.element) // fixed 定位，挂哪都行；不进文档流
+  } else {
+    root.insertBefore(toolbar.element, editorWrap)
+  }
   toolbar.setDisabled(state.readOnly)
   state.toolbar = toolbar
 
@@ -400,6 +417,16 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       })
       inputMode.attach()
       state.inputMode = inputMode
+      // F2 浮动格式条：显隐（焦点驱动）+ 贴键盘上沿定位 + 编辑器底部留白
+      const floating = new FloatingToolbarController({
+        toolbar,
+        getEditorDom: () =>
+          document.querySelector<HTMLElement>('.milkdown .ProseMirror'),
+        getReadOnly: () => state.readOnly,
+        isSourceMode: () => state.sourceMode?.active === true,
+      })
+      floating.attach()
+      state.floatingToolbar = floating
     }
   }
 }
@@ -488,6 +515,8 @@ function toggleSourceMode(): void {
   state.selectionToolbar?.hide()
   state.sourceMode.toggle()
   state.toolbar?.setSourceMode(state.sourceMode.active)
+  // F2：源码模式切换后重判浮动条显隐（源码模式恒可见，退出后回焦点驱动）
+  state.floatingToolbar?.refresh()
 }
 
 /** replaceAll 灌入外部 markdown 并防回环（WYSIWYG setDoc 与源码模式退出共用） */
