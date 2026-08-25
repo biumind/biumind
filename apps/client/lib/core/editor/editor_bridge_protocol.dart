@@ -21,6 +21,7 @@ class BridgeFeatures {
     this.contextMenu = 'custom',
     this.aiActions = false,
     this.imageUpload = false,
+    this.platform,
   });
 
   final bool wikilink;
@@ -37,12 +38,18 @@ class BridgeFeatures {
   /// false 时图片菜单不渲染「替换图片…」。
   final bool imageUpload;
 
+  /// 平台标记（M1 移动端）：'ios' | 'android' | 'macos' | 'web'。
+  /// bundle 据此在 `<html data-platform>` 标注，分流 CSS（iOS callout
+  /// 抑制）、入场动画与移动端裁剪；null = 非移动端（行为不变）。
+  final String? platform;
+
   Map<String, dynamic> toJson() => {
         'wikilink': wikilink,
         'mermaid': mermaid,
         'contextMenu': contextMenu,
         'aiActions': aiActions,
         'imageUpload': imageUpload,
+        'platform': ?platform,
       };
 }
 

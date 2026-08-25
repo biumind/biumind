@@ -433,4 +433,22 @@ void main() {
       expect(resolveEditorLocale(''), 'en');
     });
   });
+
+  group('BridgeFeatures.platform（M1 平台标记）', () {
+    test('platform 序列化进 features', () {
+      final j = const BridgeFeatures(platform: 'ios').toJson();
+      expect(j['platform'], 'ios');
+      expect(const BridgeFeatures(platform: 'android').toJson()['platform'],
+          'android');
+    });
+
+    test('缺省 null：key 不下发（老 host 行为不变）', () {
+      final j = const BridgeFeatures().toJson();
+      expect(j.containsKey('platform'), isFalse);
+      // 既有字段默认值不变
+      expect(j['contextMenu'], 'custom');
+      expect(j['aiActions'], false);
+      expect(j['imageUpload'], false);
+    });
+  });
 }

@@ -605,12 +605,13 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
             ? BridgeTheme.dark
             : BridgeTheme.light;
         // 编辑器 UI 语言跟随 App 内语言设置（localeOverride → 系统 locale）；
-        // 右键菜单载体：移动端维持系统 callout，桌面/Web 用 bundle 自绘菜单。
+        // M1：notes 移动端也切自绘（选区浮动工具条 + 系统菜单抑制），
+        // contextMenu 恒 'custom' + platform 标记；wiki 维持 'native'
+        // （selection-edit overlay 会打架，移动版设计 §9 决策点 2）。
         final editorLocale = resolveEditorLocale(
           ref.watch(chatPreferencesProvider.select((p) => p.localeOverride)),
         );
-        final contextMenu =
-            ref.watch(platformCapsProvider).isMobile ? 'native' : 'custom';
+        final editorPlatform = ref.watch(platformCapsProvider).editorPlatform;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -645,10 +646,12 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 // Milkdown = ProseMirror 连续 WYSIWYG（点哪编哪，整篇一个
                 // 可编辑面，Joplin 式富文本）；与 wiki 同内核同 bundle。
                 // imageUpload：声明已接上传链路，右键菜单才渲染「替换图片…」。
+                // platform：M1 移动端标记（选区浮动工具条/系统菜单抑制分流）。
                 features: BridgeFeatures(
                   wikilink: false,
-                  contextMenu: contextMenu,
+                  contextMenu: 'custom',
                   imageUpload: true,
+                  platform: editorPlatform,
                 ),
                 resolvePresignGet: _presignGetAttachment,
                 resolveImageUpload: _pickAndUploadImage,

@@ -70,6 +70,11 @@ class PlatformCaps {
   /// false 回退 Clipboard.setData 纯文本。
   final bool hasRichClipboard;
 
+  /// 编辑器 bundle 的平台标记（init features.platform，M1 移动端）：
+  /// 'ios' | 'android' | 'macos' | 'web'。bundle 据此分流 CSS/动画/移动端
+  /// 裁剪。未发行的桌面平台（Windows/Linux）回落 'web'（非移动端行为）。
+  final String editorPlatform;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -80,6 +85,7 @@ class PlatformCaps {
     required this.hasRepoAppRunner,
     this.isMobile = false,
     this.hasRichClipboard = false,
+    this.editorPlatform = 'web',
   });
 
   factory PlatformCaps.detect() {
@@ -128,6 +134,12 @@ class PlatformCaps {
         _ => false,
       },
       hasRichClipboard: defaultTargetPlatform == TargetPlatform.macOS,
+      editorPlatform: switch (defaultTargetPlatform) {
+        TargetPlatform.iOS => 'ios',
+        TargetPlatform.android => 'android',
+        TargetPlatform.macOS => 'macos',
+        _ => 'web',
+      },
     );
   }
 

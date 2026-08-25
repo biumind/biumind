@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../platform/platform_caps.dart';
 import 'editor_bridge_controller.dart';
 import 'editor_bridge_protocol.dart';
 
@@ -106,6 +107,12 @@ class _EditorNativeViewState extends State<EditorNativeView> {
             // not strictly needed but explicit is friendlier.
             iframeAllow: 'clipboard-read; clipboard-write',
             iframeAllowFullscreen: false,
+            // M1 Android 系统菜单抑制（移动版设计 §5）：ActionMode 动作条
+            // 不再弹出 —— 插件源码确认该设置只在 action mode 创建回调里
+            // 清空并 finish 菜单，长按选词手势与选择手柄本身不受影响。
+            // Android-only 设置，桌面/iOS 显式 false 保持现状。
+            disableContextMenu:
+                PlatformCaps.detect().editorPlatform == 'android',
           ),
           onWebViewCreated: _onCreated,
           onLoadStop: (_, _) {
