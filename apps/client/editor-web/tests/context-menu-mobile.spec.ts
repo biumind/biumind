@@ -4,7 +4,10 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ContextMenuController } from '../src/context-menu/index'
 import type { MenuContext, MenuEntry, MenuItem } from '../src/context-menu/model'
+import type { ToolbarActions } from '../src/toolbar'
+import type { BridgeClient } from '../src/bridge/client'
 import { MenuView } from '../src/context-menu/view'
 
 const ctx: MenuContext = {
@@ -142,5 +145,56 @@ describe('菜单内部滚动不触发关闭（实机 bug：scroll capture 误捕
     outside.dispatchEvent(new Event('scroll', { bubbles: false }))
     expect(view.isOpen).toBe(false)
     expect(onClose).toHaveBeenCalledOnce()
+  })
+})
+
+// 实机 bug：Android WebView 长按选词完成时发 contextmenu，编辑器区域照常
+// 弹竖向菜单，与 selectionUpdated 驱动的选区浮动工具条同时出现（双菜单）。
+// 修复：mobile=true 时编辑器区域 contextmenu 只 swallow 不弹菜单（源码模式
+// 例外——选区工具条在源码模式不显示，此菜单是唯一编辑入口）。
+describe('移动端 contextmenu 只 swallow 不弹菜单（双菜单实机 bug）', () => {
+  function makeController(mobile: boolean) {
+    const getCrepe = vi.fn(() => null)
+    const controller = new ContextMenuController({
+      bridge: { sendLog: vi.fn() } as unknown as BridgeClient,
+      commands: {} as unknown as ToolbarActions,
+      getCrepe,
+      getSourceMode: () => null,
+      getReadOnly: () => false,
+      aiActions: false,
+      imageUpload: false,
+      locale: 'zh-Hans',
+      mobile,
+    })
+    controller.attach()
+    return { controller, getCrepe }
+  }
+
+  function fireContextMenuInEditor(): MouseEvent {
+    const editor = document.createElement('div')
+    editor.className = 'milkdown'
+    const target = document.createElement('p')
+    editor.appendChild(target)
+    document.body.appendChild(editor)
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    target.dispatchEvent(ev)
+    return ev
+  }
+
+  it('mobile=true：事件被 swallow（抑制系统 UI）但不进 openMenu', () => {
+    const { controller, getCrepe } = makeController(true)
+    const ev = fireContextMenuInEditor()
+    expect(ev.defaultPrevented).toBe(true)
+    expect(getCrepe).not.toHaveBeenCalled()
+    expect(document.querySelector('.kc-context-menu')).toBeNull()
+    controller.destroy()
+  })
+
+  it('mobile=false（桌面路径回归）：照常进 openMenu', () => {
+    const { controller, getCrepe } = makeController(false)
+    const ev = fireContextMenuInEditor()
+    expect(ev.defaultPrevented).toBe(true)
+    expect(getCrepe).toHaveBeenCalled()
+    controller.destroy()
   })
 })

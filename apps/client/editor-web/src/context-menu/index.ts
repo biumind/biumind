@@ -46,6 +46,15 @@ export interface ContextMenuControllerDeps {
   /** init features.imageUpload：host 声明已接上传链路才渲染「替换图片…」 */
   imageUpload: boolean
   locale: string
+  /**
+   * 移动端（M1）：Android WebView 长按选词完成时会发 contextmenu 事件——
+   * 若照常弹竖向菜单，会与 selectionUpdated 驱动的选区浮动工具条同时
+   * 出现（实机 bug：双菜单叠出）。true 时编辑器区域的 contextmenu 只
+   *  swallow（preventDefault 抑制系统 UI）不弹菜单；竖向菜单只能经工具条
+   *  「更多」打开。源码模式例外：选区工具条在源码模式不显示，此菜单是
+   *  唯一编辑入口，照常弹。桌面端一律 false（右键菜单走此路径）。
+   */
+  mobile?: boolean
 }
 
 export class ContextMenuController {
@@ -129,6 +138,8 @@ export class ContextMenuController {
 
     event.preventDefault()
     event.stopPropagation()
+    // 移动端编辑器区域：只 swallow 抑制系统 UI，不弹竖向菜单（见 deps.mobile）
+    if (this.deps.mobile === true && !inSource) return
     void this.openMenu(event, inSource ? sourceMode : null)
   }
 

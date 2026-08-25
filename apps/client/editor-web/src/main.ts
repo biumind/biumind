@@ -374,6 +374,8 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       aiActions: payload.features.aiActions === true,
       imageUpload: payload.features.imageUpload === true,
       locale: payload.locale,
+      // 移动端：contextmenu 只 swallow 不弹菜单，防与选区工具条双菜单叠出
+      mobile: mobileCustom,
     })
     menu.attach()
     state.contextMenu = menu
