@@ -81,9 +81,9 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
 
   Future<void> _pushEditor(String noteId) {
     ref.read(selectedNoteIdProvider.notifier).state = noteId;
-    return Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => NoteEditorPage(noteId: noteId),
-    ));
+    // F1 全屏编辑：走 /notes/edit/:noteId（ShellRoute 之外的路由，
+    // PhoneTabBar 消失；iOS 右滑/Android 返回键由 MaterialPage 自带）。
+    return context.push('/notes/edit/$noteId');
   }
 
   @override
@@ -182,7 +182,9 @@ class _NotesHomePageState extends ConsumerState<NotesHomePage> {
   }
 }
 
-/// 手机详情页包装 —— 桌面三栏右栏与手机 push 路由共用 NoteEditorView。
+/// 手机详情页包装 —— 桌面三栏右栏与手机 /notes/edit/:noteId 路由共用
+/// NoteEditorView。F1：去掉 AppBar（双层 chrome 合并），返回键并入
+/// NoteEditorView 的手机标题行；SafeArea 补状态栏/横条占位。
 class NoteEditorPage extends ConsumerWidget {
   const NoteEditorPage({super.key, required this.noteId});
 
@@ -192,14 +194,34 @@ class NoteEditorPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(notesSyncPollerProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('笔记'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+      body: SafeArea(child: NoteEditorView(noteId: noteId)),
+    );
+  }
+}
+
+/// /notes/edit/:noteId 深链兜底（F1）：noteId 解析失败/为空时的落地页 ——
+/// 提示 + 返回列表入口，不白屏不崩。public 以便 widget test 独立 pump。
+class NoteEditFallbackPage extends StatelessWidget {
+  const NoteEditFallbackPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Text('笔记不存在或已删除'),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => context.go('/notes'),
+                child: const Text('返回列表'),
+              ),
+            ],
+          ),
         ),
       ),
-      body: NoteEditorView(noteId: noteId),
     );
   }
 }

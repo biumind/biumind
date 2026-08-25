@@ -192,6 +192,23 @@ GoRouter buildRouter(ProviderContainer container) {
           ),
         ),
       ),
+      // /notes/edit/:noteId —— 移动端笔记全屏编辑（F1，方案 A 可深链）。
+      // 在 ShellRoute 之外（先例 /apps/repo-window）：无 PhoneTabBar 的
+      // 全屏页；Page 类型走 subPage 分流（手机 MaterialPage 拿转场 +
+      // 右滑返回）。桌面宽屏深链 → redirect /notes（三栏内嵌编辑，
+      // 无全屏形态；布局断点判定，不用平台 OS 判定）。
+      GoRoute(
+        path: '/notes/edit/:noteId',
+        redirect: (context, state) {
+          if (!isPhoneLayout(context)) return '/notes';
+          return null;
+        },
+        pageBuilder: (context, state) {
+          final noteId = state.pathParameters['noteId'] ?? '';
+          if (noteId.isEmpty) return subPage(const NoteEditFallbackPage());
+          return subPage(NoteEditorPage(noteId: noteId));
+        },
+      ),
       ShellRoute(
         builder: (ctx, state, child) => _AppShell(child: child),
         routes: [

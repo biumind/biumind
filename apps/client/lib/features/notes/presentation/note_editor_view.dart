@@ -25,6 +25,7 @@ import 'dart:async';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/theme.dart';
@@ -530,16 +531,50 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
       await repo.promoteNote(widget.noteId, projectId);
       if (!mounted) return;
       _showSnack('已转入知识库');
-      // 返回列表：桌面三栏清选中，手机 pop 详情页。
+      // 返回列表：桌面三栏清选中，手机 pop 详情页（深链直达无栈底 →
+      // go('/notes') 兜底，F1 全屏路由适配）。
       if (ref.read(selectedNoteIdProvider) == widget.noteId) {
         ref.read(selectedNoteIdProvider.notifier).state = null;
       }
-      if (isPhoneLayout(context) && Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
+      if (isPhoneLayout(context)) {
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/notes');
+        }
       }
     } on Exception catch (e) {
       _showSnack('转入失败：$e');
     }
+  }
+
+  // ─── 待办（N2）────────────────────────────────────────────
+
+  /// 手机全屏（F1）：标签收进 ⋯ 菜单的「编辑标签」—— bottom sheet 复用
+  /// 桌面标签选择面板的同一组件（NoteTagPickerPanel），保存走同一
+  /// setNoteTags + invalidate 链路。
+  Future<void> _showTagEditorSheet() async {
+    final current = ref.read(noteTagIdsProvider(widget.noteId)).valueOrNull ??
+        const <String>[];
+    final result = await showModalBottomSheet<List<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetCtx) => Padding(
+        // 键盘弹起时 sheet 上抬（新建标签输入框不被遮）
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom),
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheetCtx).height * 0.6,
+          child: NoteTagPickerPanel(initialSelected: current),
+        ),
+      ),
+    );
+    if (result == null) return;
+    final repo = ref.read(notesRepositoryProvider);
+    if (repo == null) return;
+    await repo.setNoteTags(widget.noteId, result);
+    ref.invalidate(noteTagIdsProvider(widget.noteId));
   }
 
   // ─── 待办（N2）────────────────────────────────────────────
@@ -597,6 +632,22 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
         // 在树上，webview 不卸载（加载完经 setDoc 换正文）。
         if (note == null) {
           if (snap.connectionState == ConnectionState.done) {
+            // 深链直达 / 打开期间被删（F1）：手机给返回列表入口，不白屏
+            if (isPhoneLayout(context)) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Text('笔记不存在或已删除'),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () => context.go('/notes'),
+                      child: const Text('返回列表'),
+                    ),
+                  ],
+                ),
+              );
+            }
             return const Center(child: Text('笔记不存在或已删除'));
           }
           return const Center(child: CircularProgressIndicator());
@@ -612,6 +663,12 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
           ref.watch(chatPreferencesProvider.select((p) => p.localeOverride)),
         );
         final editorPlatform = ref.watch(platformCapsProvider).editorPlatform;
+        // F1 手机全屏 chrome 收敛（全部以 isPhoneLayout 门控，桌面三栏零变化）：
+        //   标签行/常驻状态条不渲染（标签收进 ⋯ 菜单，保存指示并入标题行）；
+        //   键盘弹起（viewInsets > 0）隐藏待办完成条（标题行保留——用户拍板；
+        //   归档 banner 是重要提示，保留）。
+        final phone = isPhoneLayout(context);
+        final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -627,8 +684,18 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
               onShowHistory: _showHistory,
               onPromoteToWiki:
                   note.promotedPageId == null ? _promoteToWiki : null,
+              compact: phone,
+              onEditTags: phone ? _showTagEditorSheet : null,
+              saveIndicator: phone
+                  ? NoteSaveIndicator(
+                      contentStatus: _contentAutosave.status,
+                      titleStatus: _titleAutosave.status,
+                      errorMessage: _contentAutosave.errorMessage ??
+                          _titleAutosave.errorMessage,
+                    )
+                  : null,
             ),
-            if (note.isTodo)
+            if (note.isTodo && !(phone && keyboardOpen))
               _TodoCompletionBar(
                 completedAt: note.todoCompletedAt,
                 onToggle: _toggleTodoCompleted,
@@ -659,14 +726,16 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 controllerRef: (c) => _editorController = c,
               ),
             ),
-            Divider(height: 1, color: BiuTokens.borderSubtle),
-            _NoteTagsRow(noteId: widget.noteId),
-            _StatusBar(
-              contentStatus: _contentAutosave.status,
-              titleStatus: _titleAutosave.status,
-              errorMessage: _contentAutosave.errorMessage ??
-                  _titleAutosave.errorMessage,
-            ),
+            if (!phone) ...<Widget>[
+              Divider(height: 1, color: BiuTokens.borderSubtle),
+              _NoteTagsRow(noteId: widget.noteId),
+              _StatusBar(
+                contentStatus: _contentAutosave.status,
+                titleStatus: _titleAutosave.status,
+                errorMessage: _contentAutosave.errorMessage ??
+                    _titleAutosave.errorMessage,
+              ),
+            ],
           ],
         );
       },
@@ -685,6 +754,9 @@ class _TitleRow extends StatelessWidget {
     required this.onInsertAttachment,
     required this.onShowHistory,
     required this.onPromoteToWiki,
+    this.compact = false,
+    this.onEditTags,
+    this.saveIndicator,
   });
 
   final TextEditingController controller;
@@ -699,8 +771,32 @@ class _TitleRow extends StatelessWidget {
   /// null = 已转入知识库（归档），菜单里隐藏该入口。
   final VoidCallback? onPromoteToWiki;
 
+  /// 手机全屏形态（F1）：返回 + 标题 + 保存指示 + ⋯ 收敛菜单。
+  final bool compact;
+
+  /// 手机形态 ⋯ 菜单的「编辑标签」入口（bottom sheet）；null 不渲染该项。
+  final VoidCallback? onEditTags;
+
+  /// 手机形态标题行右侧的瞬时保存指示（NoteSaveIndicator）。
+  final Widget? saveIndicator;
+
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return NoteMobileTitleRow(
+        controller: controller,
+        onChanged: onChanged,
+        onTrash: onTrash,
+        note: note,
+        onToggleTodo: onToggleTodo,
+        onInsertImage: onInsertImage,
+        onInsertAttachment: onInsertAttachment,
+        onShowHistory: onShowHistory,
+        onPromoteToWiki: onPromoteToWiki,
+        onEditTags: onEditTags,
+        saveIndicator: saveIndicator,
+      );
+    }
     return Padding(
       padding: const EdgeInsets.only(left: 20, right: 8, top: 4),
       child: Row(
@@ -783,6 +879,276 @@ class _TitleRow extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 手机全屏标题行（F1）：返回 + 标题（可编辑）+ 瞬时保存指示 + ⋯ 菜单
+/// （插图/附件/待办/标签/历史/转知识库/删除全部收进菜单——用户拍板）。
+/// public 以便 widget test 独立 pump。
+class NoteMobileTitleRow extends StatelessWidget {
+  const NoteMobileTitleRow({
+    super.key,
+    required this.controller,
+    required this.onChanged,
+    required this.onTrash,
+    required this.note,
+    required this.onToggleTodo,
+    required this.onInsertImage,
+    required this.onInsertAttachment,
+    required this.onShowHistory,
+    required this.onPromoteToWiki,
+    this.onEditTags,
+    this.saveIndicator,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onTrash;
+  final RepoNote note;
+  final VoidCallback onToggleTodo;
+  final VoidCallback onInsertImage;
+  final VoidCallback onInsertAttachment;
+  final VoidCallback onShowHistory;
+  final VoidCallback? onPromoteToWiki;
+  final VoidCallback? onEditTags;
+  final Widget? saveIndicator;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, right: 8, top: 4),
+      child: Row(
+        children: <Widget>[
+          IconButton(
+            tooltip: '返回',
+            // 深链直达无栈底 → go('/notes') 兜底
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/notes');
+              }
+            },
+            icon: Icon(Icons.arrow_back,
+                size: 20, color: BiuTokens.textSecondary),
+          ),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              style: TextStyle(
+                color: BiuTokens.text,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: '无标题笔记',
+                hintStyle: TextStyle(color: BiuTokens.textMuted),
+              ),
+            ),
+          ),
+          ?saveIndicator,
+          PopupMenuButton<String>(
+            tooltip: '更多操作',
+            icon: Icon(Icons.more_vert,
+                size: 18, color: BiuTokens.textSecondary),
+            onSelected: (value) {
+              switch (value) {
+                case 'image':
+                  onInsertImage();
+                case 'attachment':
+                  onInsertAttachment();
+                case 'todo':
+                  onToggleTodo();
+                case 'tags':
+                  onEditTags?.call();
+                case 'history':
+                  onShowHistory();
+                case 'promote':
+                  onPromoteToWiki?.call();
+                case 'trash':
+                  onTrash();
+              }
+            },
+            itemBuilder: (context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'image',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.image_outlined, size: 18),
+                  title: Text('插入图片'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'attachment',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.attach_file, size: 18),
+                  title: Text('插入附件'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'todo',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(
+                    note.isTodo
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                    size: 18,
+                  ),
+                  title: Text(note.isTodo ? '取消待办' : '转为待办'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (onEditTags != null)
+                const PopupMenuItem<String>(
+                  value: 'tags',
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.sell_outlined, size: 18),
+                    title: Text('编辑标签'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuItem<String>(
+                value: 'history',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.history, size: 18),
+                  title: Text('历史版本'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (onPromoteToWiki != null)
+                const PopupMenuItem<String>(
+                  value: 'promote',
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.library_add_outlined, size: 18),
+                    title: Text('转入知识库'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuDivider(height: 8),
+              PopupMenuItem<String>(
+                value: 'trash',
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.delete_outline,
+                      size: 18, color: BiuTokens.error),
+                  title: Text('移入回收站',
+                      style: TextStyle(color: BiuTokens.error)),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 手机全屏的瞬时保存指示（F1，替代常驻 _StatusBar）：保存中…→已保存
+/// 2s 淡出；**失败常驻红色直到恢复**（失败绝不能静默）。状态源与桌面
+/// _StatusBar 相同（两个 AutoSaveController 合并）。
+class NoteSaveIndicator extends StatefulWidget {
+  const NoteSaveIndicator({
+    super.key,
+    required this.contentStatus,
+    required this.titleStatus,
+    this.errorMessage,
+  });
+
+  final AutoSaveStatus contentStatus;
+  final AutoSaveStatus titleStatus;
+  final String? errorMessage;
+
+  @override
+  State<NoteSaveIndicator> createState() => _NoteSaveIndicatorState();
+}
+
+class _NoteSaveIndicatorState extends State<NoteSaveIndicator> {
+  static const _savedHoldMs = 2000;
+
+  Timer? _fadeTimer;
+  late bool _visible;
+
+  AutoSaveStatus get _status => switch ((widget.contentStatus, widget.titleStatus)) {
+        (AutoSaveStatus.error, _) || (_, AutoSaveStatus.error) =>
+          AutoSaveStatus.error,
+        (AutoSaveStatus.saving, _) || (_, AutoSaveStatus.saving) =>
+          AutoSaveStatus.saving,
+        (AutoSaveStatus.saved, _) || (_, AutoSaveStatus.saved) =>
+          AutoSaveStatus.saved,
+        _ => AutoSaveStatus.idle,
+      };
+
+  @override
+  void initState() {
+    super.initState();
+    _visible = _status == AutoSaveStatus.saving ||
+        _status == AutoSaveStatus.error;
+  }
+
+  @override
+  void didUpdateWidget(covariant NoteSaveIndicator oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final status = _status;
+    switch (status) {
+      case AutoSaveStatus.saving:
+        _fadeTimer?.cancel();
+        setState(() => _visible = true);
+      case AutoSaveStatus.saved:
+        // 「已保存」停留 2s 后淡出
+        setState(() => _visible = true);
+        _fadeTimer?.cancel();
+        _fadeTimer = Timer(const Duration(milliseconds: _savedHoldMs), () {
+          if (mounted) setState(() => _visible = false);
+        });
+      case AutoSaveStatus.error:
+        // 失败常驻，直到恢复（saving/saved 路径解除）
+        _fadeTimer?.cancel();
+        setState(() => _visible = true);
+      case AutoSaveStatus.idle:
+      case AutoSaveStatus.conflict:
+        break;
+    }
+  }
+
+  @override
+  void dispose() {
+    _fadeTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _status;
+    final (label, color) = switch (status) {
+      AutoSaveStatus.saving => ('保存中…', BiuTokens.textMuted),
+      AutoSaveStatus.saved => ('已保存', BiuTokens.textMuted),
+      AutoSaveStatus.error => ('保存失败', BiuTokens.error),
+      _ => ('', BiuTokens.textMuted),
+    };
+    return AnimatedOpacity(
+      opacity: _visible ? 1 : 0,
+      duration: const Duration(milliseconds: 300),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 4),
+        child: Text(
+          status == AutoSaveStatus.error && widget.errorMessage != null
+              ? '$label：${widget.errorMessage}'
+              : label,
+          style: TextStyle(fontSize: 11, color: color),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -984,17 +1350,40 @@ class _NoteTagsRow extends ConsumerWidget {
   }
 }
 
-/// 标签选择弹窗 —— 已有标签多选 + 底部输入新标签名（保存时创建）。
-class _TagPickerDialog extends ConsumerStatefulWidget {
+/// 标签选择弹窗 —— 桌面 AlertDialog 壳；面板本体复用 NoteTagPickerPanel
+/// （手机全屏 F1 的 bottom sheet 用同一组件）。
+class _TagPickerDialog extends StatelessWidget {
   const _TagPickerDialog({required this.initialSelected});
 
   final List<String> initialSelected;
 
   @override
-  ConsumerState<_TagPickerDialog> createState() => _TagPickerDialogState();
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('编辑标签'),
+      content: SizedBox(
+        width: 320,
+        child: NoteTagPickerPanel(initialSelected: initialSelected),
+      ),
+    );
+  }
 }
 
-class _TagPickerDialogState extends ConsumerState<_TagPickerDialog> {
+/// 标签编辑面板 —— 已有标签多选 + 底部输入新标签名（保存时创建）。
+/// 桌面 AlertDialog（_TagPickerDialog）与手机 bottom sheet（F1
+/// 「编辑标签」菜单项）共用；确定经 onSubmit 回调，默认 pop 自身。
+/// public 以便 widget test 独立 pump。
+class NoteTagPickerPanel extends ConsumerStatefulWidget {
+  const NoteTagPickerPanel({super.key, required this.initialSelected});
+
+  final List<String> initialSelected;
+
+  @override
+  ConsumerState<NoteTagPickerPanel> createState() =>
+      _NoteTagPickerPanelState();
+}
+
+class _NoteTagPickerPanelState extends ConsumerState<NoteTagPickerPanel> {
   late final Set<String> _selected = {...widget.initialSelected};
   final _newTagController = TextEditingController();
   bool _saving = false;
@@ -1023,60 +1412,59 @@ class _TagPickerDialogState extends ConsumerState<_TagPickerDialog> {
   Widget build(BuildContext context) {
     final tags =
         ref.watch(notesTagsProvider).valueOrNull ?? const <RepoTag>[];
-    return AlertDialog(
-      title: const Text('编辑标签'),
-      content: SizedBox(
-        width: 320,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (tags.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              '暂无标签，可在下方新建',
+              style: TextStyle(fontSize: 12, color: BiuTokens.textMuted),
+            ),
+          )
+        else
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: <Widget>[
+                for (final tag in tags)
+                  CheckboxListTile(
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title:
+                        Text(tag.name, style: const TextStyle(fontSize: 13)),
+                    value: _selected.contains(tag.id),
+                    onChanged: (v) => setState(() {
+                      if (v ?? false) {
+                        _selected.add(tag.id);
+                      } else {
+                        _selected.remove(tag.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+        TextField(
+          controller: _newTagController,
+          decoration: const InputDecoration(hintText: '新标签名称（可选）'),
+          onSubmitted: (_) => _save(),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: <Widget>[
-            if (tags.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  '暂无标签，可在下方新建',
-                  style: TextStyle(fontSize: 12, color: BiuTokens.textMuted),
-                ),
-              )
-            else
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: <Widget>[
-                    for (final tag in tags)
-                      CheckboxListTile(
-                        dense: true,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: Text(tag.name,
-                            style: const TextStyle(fontSize: 13)),
-                        value: _selected.contains(tag.id),
-                        onChanged: (v) => setState(() {
-                          if (v ?? false) {
-                            _selected.add(tag.id);
-                          } else {
-                            _selected.remove(tag.id);
-                          }
-                        }),
-                      ),
-                  ],
-                ),
-              ),
-            TextField(
-              controller: _newTagController,
-              decoration: const InputDecoration(hintText: '新标签名称（可选）'),
-              onSubmitted: (_) => _save(),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: const Text('确定'),
             ),
           ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: const Text('确定'),
         ),
       ],
     );
