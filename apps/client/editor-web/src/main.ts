@@ -54,7 +54,9 @@ import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
 import { ContextMenuController } from './context-menu'
+import { imagePosFromDom } from './context-menu/context'
 import { InputModeController } from './context-menu/input-mode'
+import { LongPressController } from './context-menu/long-press'
 import { SelectionToolbar } from './context-menu/selection-toolbar'
 import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
@@ -88,6 +90,8 @@ interface EditorState {
   inputMode: InputModeController | null
   /** 移动端浮动格式条控制器（F2；仅 mobileCustom 创建，桌面顶部常驻） */
   floatingToolbar: FloatingToolbarController | null
+  /** 移动端图片长按对象菜单（M2；仅 mobileCustom 创建） */
+  longPress: LongPressController | null
   readOnly: boolean
   /** 当前 UI 语言（init 定初值，setOptions.locale 可运行时切换） */
   locale: string
@@ -115,6 +119,7 @@ const state: EditorState = {
   selectionToolbar: null,
   inputMode: null,
   floatingToolbar: null,
+  longPress: null,
   readOnly: false,
   locale: 'en',
   revision: 0,
@@ -233,6 +238,8 @@ async function mountEditor(payload: InitPayload): Promise<void> {
 /** 重建前的公共清理 */
 async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
+  state.longPress?.destroy()
+  state.longPress = null
   state.floatingToolbar?.destroy()
   state.floatingToolbar = null
   state.selectionToolbar?.destroy()
@@ -427,6 +434,54 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       })
       floating.attach()
       state.floatingToolbar = floating
+      // M2 场景 B：图片长按对象菜单（设计 §10）。事件委托挂 .milkdown；
+      // nodePos 复用 context.ts imagePosFromDom（导出复用不复制）；
+      // 菜单内容零新增 —— 注册表 image 组经 isActive 自动就位。
+      const milkdownRoot =
+        editorWrap.querySelector<HTMLElement>('.milkdown') ?? editorWrap
+      const longPress = new LongPressController({
+        root: milkdownRoot,
+        getReadOnly: () => state.readOnly,
+        aiActions: payload.features.aiActions === true,
+        imageUpload: payload.features.imageUpload === true,
+        inputMode,
+        selectionToolbar: state.selectionToolbar,
+        openAtPoint: (menuCtx, point) => menu.openAtPoint(menuCtx, point),
+        resolveImagePos: (point) => {
+          let pos: number | null = null
+          state.crepe?.editor.action((ctx) => {
+            pos = imagePosFromDom(ctx.get(editorViewCtx), point)
+          })
+          return pos
+        },
+        getEditorDom: () =>
+          document.querySelector<HTMLElement>('.milkdown .ProseMirror'),
+        hasNonEmptySelection: () => {
+          let nonEmpty = false
+          state.crepe?.editor.action((ctx) => {
+            nonEmpty = !ctx.get(editorViewCtx).state.selection.empty
+          })
+          return nonEmpty
+        },
+        collapseSelection: (nearPos) => {
+          state.crepe?.editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx)
+            if (view.state.selection.empty) return
+            try {
+              const pos = Math.min(nearPos, view.state.doc.content.size)
+              view.dispatch(
+                view.state.tr.setSelection(
+                  TextSelection.create(view.state.doc, pos),
+                ),
+              )
+            } catch {
+              // atom 边界塌陷失败放弃 —— 不阻塞菜单打开
+            }
+          })
+        },
+      })
+      longPress.attach()
+      state.longPress = longPress
     }
   }
 }

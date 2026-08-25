@@ -95,3 +95,12 @@ html[data-platform='android'] .kc-menu-shortcut {
   content: '‹ ';
   color: var(--kc-editor-muted);
 }
+
+/* 长按按压窗口防文本选择（M2 §10.3）：touchstart 命中图片即加
+   kc-lp-pressing，triggered/cancelled 移除 —— 只在按压窗口内关选择
+   （cumora 分层原则的反向应用），不影响正常文本选择。 */
+html[data-platform='ios'] .milkdown .ProseMirror.kc-lp-pressing,
+html[data-platform='android'] .milkdown .ProseMirror.kc-lp-pressing {
+  -webkit-user-select: none;
+  user-select: none;
+}

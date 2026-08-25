@@ -10,6 +10,11 @@ const IMAGE_NODE_NAMES = new Set(['image', 'image-block'])
 const TABLE_CELL_NODE_NAMES = new Set(['table_cell', 'table_header'])
 const CODE_BLOCK_NODE_NAMES = new Set(['code_block'])
 
+/** 图片节点的 DOM 选择器 —— M2 长按手势目标（long-press.ts）与
+ *  imagePosFromDom 的 DOM 兜底同源，提取共享常量不复制。 */
+export const IMAGE_BLOCK_SELECTOR =
+  '.milkdown-image-block, .milkdown-image-inline'
+
 /** 沿 $pos 链向上找第一个匹配类型名的节点位置（before 深度）。 */
 function findNodeOnChain(
   view: EditorView,
@@ -49,14 +54,15 @@ function linkHrefAt(view: EditorView, pos: number): string | undefined {
   return (mark?.attrs.href as string | undefined) ?? undefined
 }
 
-/** 图片兜底：elementFromPoint 命中 .milkdown-image-block / img 时 posAtDOM。 */
-function imagePosFromDom(
+/** 图片兜底：elementFromPoint 命中图片 DOM 时 posAtDOM。
+ *  M2 长按手势的 nodePos 解析也走这里（导出复用，不复制逻辑）。 */
+export function imagePosFromDom(
   view: EditorView,
   coords: { x: number; y: number },
 ): number | null {
   const el = document
     .elementFromPoint(coords.x, coords.y)
-    ?.closest('.milkdown-image-block, .milkdown-image-inline, img')
+    ?.closest(`${IMAGE_BLOCK_SELECTOR}, img`)
   if (!el || !view.dom.contains(el)) return null
   try {
     const pos = view.posAtDOM(el, 0)

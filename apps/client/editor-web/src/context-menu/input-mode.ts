@@ -45,9 +45,18 @@ export interface InputModeControllerDeps {
 export class InputModeController {
   private readonly deps: InputModeControllerDeps
   private dom: HTMLElement | null = null
+  /** 一次性抑制标记（M2 长按触发序列 §10.3-1）：下一次 applyIntent
+   *  消费并跳过 —— 防触发后 pointerup 判到折叠光标走编辑意图唤键盘
+   *  盖住已打开的长按菜单。 */
+  private suppressNext = false
 
   constructor(deps: InputModeControllerDeps) {
     this.deps = deps
+  }
+
+  /** M2 长按触发序列调用：下一次编辑意图判定直接跳过（消费一次） */
+  suppressNextEditIntent(): void {
+    this.suppressNext = true
   }
 
   /** mount 后调用：设 inputmode=none + 挂 pointerup 监听。
@@ -70,7 +79,13 @@ export class InputModeController {
     requestAnimationFrame(() => this.applyIntent())
   }
 
-  private applyIntent(): void {
+  /** 编辑意图判定（public 供单测直接驱动；内部由 pointerup rAF 调用） */
+  applyIntent(): void {
+    // 一次性抑制标记：先消费后跳过（M2 长按触发序列的键盘联动防线）
+    if (this.suppressNext) {
+      this.suppressNext = false
+      return
+    }
     const dom = this.dom
     const view = this.deps.getView()
     if (!dom || !view) return

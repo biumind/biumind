@@ -171,11 +171,20 @@ export class ContextMenuController {
       })
       if (!ctx) return
     }
-    // 开菜单前探测一次剪贴板：空/读不到 → 粘贴项置灰（readText 拒绝不崩）
+    await this.openAtPoint(ctx, { x: event.clientX, y: event.clientY })
+  }
+
+  /** 构建 ctx 之后的公共段落（M2 长按菜单复用，设计 §10.3-5）：
+   *  剪贴板探测（空/读不到 → 粘贴项置灰，不崩）→ 注册表 isActive
+   *  过滤 → MenuView.open。 */
+  async openAtPoint(
+    ctx: MenuContext,
+    point: { x: number; y: number },
+  ): Promise<void> {
     ctx.canPaste = (await this.clipboard.read()) !== null
     const entries = filterMenuEntries(this.registry, ctx)
     if (entries.length === 0) return
-    this.view.open(entries, { x: event.clientX, y: event.clientY }, {
+    this.view.open(entries, point, {
       ctx,
       t: createTranslator(this.locale),
       onClose: () => {},
