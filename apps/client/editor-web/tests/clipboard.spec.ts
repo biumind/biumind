@@ -101,6 +101,77 @@ describe('web clipboard（navigator.clipboard 实现）', () => {
     expect(log).toHaveBeenCalledOnce()
     expect(log.mock.calls[0][0]).toContain('denied')
   })
+
+  // P2 web 端双格式：ClipboardItem text/plain + text/html 一起写；
+  // 不支持（无 ClipboardItem / 无 write）或写入被拒 → 回退 writeText。
+  describe('write 双格式（ClipboardItem）', () => {
+    function stubClipboardItem() {
+      const instances: { types: readonly string[] }[] = []
+      class FakeClipboardItem {
+        readonly types: readonly string[]
+        constructor(items: Record<string, Blob>) {
+          this.types = Object.keys(items)
+          instances.push(this)
+        }
+      }
+      vi.stubGlobal('ClipboardItem', FakeClipboardItem)
+      return instances
+    }
+
+    it('有 html 且环境支持 → navigator.clipboard.write 双格式', async () => {
+      const instances = stubClipboardItem()
+      const write = vi.fn(async (_items: unknown[]) => {})
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ write, writeText } as never)
+      await createWebClipboard(vi.fn()).write({
+        text: 'md **bold**',
+        html: '<p>md <strong>bold</strong></p>',
+      })
+      expect(write).toHaveBeenCalledOnce()
+      expect(instances[0].types).toEqual(['text/plain', 'text/html'])
+      expect(writeText).not.toHaveBeenCalled()
+      vi.unstubAllGlobals()
+    })
+
+    it('无 ClipboardItem（老环境）→ 回退 writeText 纯文本', async () => {
+      vi.stubGlobal('ClipboardItem', undefined)
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ writeText })
+      await createWebClipboard(vi.fn()).write({
+        text: 'md **bold**',
+        html: '<p>md <strong>bold</strong></p>',
+      })
+      expect(writeText).toHaveBeenCalledWith('md **bold**')
+      vi.unstubAllGlobals()
+    })
+
+    it('write 被拒（Safari MIME 窄）→ 回退 writeText + sendLog，不崩', async () => {
+      stubClipboardItem()
+      const write = vi.fn(async (_items: unknown[]) => {
+        throw new DOMException('type not supported', 'NotAllowedError')
+      })
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ write, writeText } as never)
+      const log = vi.fn()
+      await createWebClipboard(log).write({
+        text: 'md **bold**',
+        html: '<p>md <strong>bold</strong></p>',
+      })
+      expect(writeText).toHaveBeenCalledWith('md **bold**')
+      expect(log).toHaveBeenCalledOnce()
+      vi.unstubAllGlobals()
+    })
+
+    it('无 html（纯文本复制）→ 直接 writeText，不走 ClipboardItem', async () => {
+      const instances = stubClipboardItem()
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ writeText })
+      await createWebClipboard(vi.fn()).write({ text: 'plain' })
+      expect(writeText).toHaveBeenCalledWith('plain')
+      expect(instances).toHaveLength(0)
+      vi.unstubAllGlobals()
+    })
+  })
 })
 
 describe('fragmentToHtml（P2 双格式复制的 HTML 序列化）', () => {

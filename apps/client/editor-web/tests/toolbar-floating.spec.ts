@@ -9,12 +9,16 @@ import {
 } from '../src/toolbar/floating-controller'
 
 describe('shouldShowFloatingToolbar（显隐决策）', () => {
+  /** 缺省给足视口高度，聚焦/模式维度与阈值维度分开测 */
+  const base = { viewportHeight: 800 }
+
   it('聚焦（光标或选区）→ 显示', () => {
     expect(
       shouldShowFloatingToolbar({
         focused: true,
         readOnly: false,
         sourceMode: false,
+        ...base,
       }),
     ).toBe(true)
   })
@@ -25,6 +29,7 @@ describe('shouldShowFloatingToolbar（显隐决策）', () => {
         focused: false,
         readOnly: false,
         sourceMode: false,
+        ...base,
       }),
     ).toBe(false)
   })
@@ -35,6 +40,7 @@ describe('shouldShowFloatingToolbar（显隐决策）', () => {
         focused: true,
         readOnly: true,
         sourceMode: false,
+        ...base,
       }),
     ).toBe(false)
     expect(
@@ -42,6 +48,7 @@ describe('shouldShowFloatingToolbar（显隐决策）', () => {
         focused: false,
         readOnly: true,
         sourceMode: true,
+        ...base,
       }),
     ).toBe(false)
   })
@@ -52,6 +59,37 @@ describe('shouldShowFloatingToolbar（显隐决策）', () => {
         focused: false,
         readOnly: false,
         sourceMode: true,
+        ...base,
+      }),
+    ).toBe(true)
+  })
+
+  it('极端小视口（横屏+键盘，<200px）→ 恒隐（即使聚焦/源码模式）', () => {
+    expect(
+      shouldShowFloatingToolbar({
+        focused: true,
+        readOnly: false,
+        sourceMode: false,
+        viewportHeight: 120,
+      }),
+    ).toBe(false)
+    expect(
+      shouldShowFloatingToolbar({
+        focused: false,
+        readOnly: false,
+        sourceMode: true,
+        viewportHeight: 199,
+      }),
+    ).toBe(false)
+  })
+
+  it('阈值边界（=200px）→ 恢复显示', () => {
+    expect(
+      shouldShowFloatingToolbar({
+        focused: true,
+        readOnly: false,
+        sourceMode: false,
+        viewportHeight: 200,
       }),
     ).toBe(true)
   })

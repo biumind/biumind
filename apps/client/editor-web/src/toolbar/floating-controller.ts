@@ -8,16 +8,24 @@
 
 import type { Toolbar } from './index'
 
-/** 显隐决策纯函数：readOnly 恒隐；源码模式恒可见（沿用 setSourceMode
- *  禁用逻辑，只有源码切换按钮可用，用户随时能切回）；其余跟焦点 ——
- *  光标或选区都算（inputmode=none 的选区态长按选词也已聚焦，条在
- *  方便直接点加粗；业界共识 5：焦点驱动显隐）。 */
+/** 极端小视口阈值（实机场景：横屏 + 软键盘——视口高仅 360–414、键盘占
+ *  250–300，可见区不足 100px，44px 的条会吃掉仅剩画布的大半）。
+ *  可见区低于此值恒隐（Joplin 容器高 <140px 收起工具条的同款策略）。 */
+export const MIN_VIEWPORT_HEIGHT_FOR_TOOLBAR = 200
+
+/** 显隐决策纯函数：readOnly 恒隐；极端小视口恒隐；源码模式恒可见（沿用
+ *  setSourceMode 禁用逻辑，只有源码切换按钮可用，用户随时能切回）；其余
+ *  跟焦点 —— 光标或选区都算（inputmode=none 的选区态长按选词也已聚焦，
+ *  条在方便直接点加粗；业界共识 5：焦点驱动显隐）。 */
 export function shouldShowFloatingToolbar(opts: {
   focused: boolean
   readOnly: boolean
   sourceMode: boolean
+  /** 可见视口高度（visualViewport.height，无 vv 时传 innerHeight） */
+  viewportHeight: number
 }): boolean {
   if (opts.readOnly) return false
+  if (opts.viewportHeight < MIN_VIEWPORT_HEIGHT_FOR_TOOLBAR) return false
   return opts.focused || opts.sourceMode
 }
 
@@ -66,12 +74,13 @@ export class FloatingToolbarController {
     this.refresh()
   }
 
-  /** 外部状态变化后重判显隐：源码模式切换 / readOnly 变更 */
+  /** 外部状态变化后重判显隐：源码模式切换 / readOnly 变更 / 视口变化 */
   refresh(): void {
     const show = shouldShowFloatingToolbar({
       focused: this.focused,
       readOnly: this.deps.getReadOnly(),
       sourceMode: this.deps.isSourceMode(),
+      viewportHeight: window.visualViewport?.height ?? window.innerHeight,
     })
     if (show === this.visible) return
     this.visible = show
@@ -110,6 +119,8 @@ export class FloatingToolbarController {
 
   private onViewportResize = (): void => {
     this.deps.toolbar.element.style.bottom = `${this.bottom()}px`
+    // 视口变化可能跨过小视口阈值（横屏+键盘）—— 重判显隐，不只重定位
+    this.refresh()
   }
 
   /** 编辑器底部留白：条显示时防最后一行被盖（AppFlowy 预留

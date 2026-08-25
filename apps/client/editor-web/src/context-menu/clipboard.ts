@@ -37,12 +37,33 @@ export function createNativeClipboard(bridge: BridgeClient): ClipboardBackend {
 }
 
 /** web/standalone 实现：navigator.clipboard。readText 被拒绝时降级回 null +
- *  sendLog 提示（localhost/127.0.0.1 是 secure context，一般可用）。 */
+ *  sendLog 提示（localhost/127.0.0.1 是 secure context，一般可用）。
+ *  写入走 text+html 双格式（ClipboardItem）：有 html 且环境支持时
+ *  text/plain + text/html 一起写，粘到外部应用（飞书/Word）保留格式；
+ *  Safari 对 ClipboardItem 的 MIME 支持比 Chrome 窄，不支持/被拒时
+ *  回退 writeText 纯文本，不崩。iframe 的 allow="clipboard-read;
+ *  clipboard-write" 已声明（editor_web_view.dart），权限通路现成。 */
 export function createWebClipboard(
   log: (msg: string) => void,
 ): ClipboardBackend {
   return {
     async write(data) {
+      if (
+        data.html &&
+        typeof ClipboardItem !== 'undefined' &&
+        typeof navigator.clipboard.write === 'function'
+      ) {
+        try {
+          const item = new ClipboardItem({
+            'text/plain': new Blob([data.text], { type: 'text/plain' }),
+            'text/html': new Blob([data.html], { type: 'text/html' }),
+          })
+          await navigator.clipboard.write([item])
+          return
+        } catch (error) {
+          log(`clipboard dual-format write failed, fallback to plain text: ${String(error)}`)
+        }
+      }
       await navigator.clipboard.writeText(data.text)
     },
     async read() {
