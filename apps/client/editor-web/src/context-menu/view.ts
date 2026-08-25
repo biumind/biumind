@@ -38,6 +38,64 @@ export interface PositionOptions {
   flipY?: number
 }
 
+export interface AnchorRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+/** visualViewport 坐标箱：width/height + 相对布局视口的偏移。
+ *  position:fixed 相对布局视口，coordsAtPos 给的也是布局视口坐标，
+ *  可见区域 = [offset, offset+size]（键盘弹起时 offsetTop/height 变化）。 */
+export interface ViewportBox {
+  width: number
+  height: number
+  offsetLeft: number
+  offsetTop: number
+}
+
+/** 当前可见视口（优先 visualViewport —— 键盘弹起时 innerHeight 会算出
+ *  被键盘遮挡的位置；老 WebView 回退 innerWidth/Height）。
+ *  桌面 visualViewport 与 innerWidth/Height 等价，无回归风险。 */
+export function currentViewport(): ViewportBox {
+  const vv = window.visualViewport
+  if (vv) {
+    return {
+      width: vv.width,
+      height: vv.height,
+      offsetLeft: vv.offsetLeft,
+      offsetTop: vv.offsetTop,
+    }
+  }
+  return { width: window.innerWidth, height: window.innerHeight, offsetLeft: 0, offsetTop: 0 }
+}
+
+/** 避让锚点矩形的纵向定位（工具条/「更多」菜单 vs 选区）：
+ *  上方优先、不足翻下；两侧都放不下选空闲更大的一侧再钳制 ——
+ *  极端情况（键盘压缩视口 + 选区占满半屏）允许与锚点部分重叠，
+ *  保证元素留在可见视口内（注释即设计意图，勿“优化”掉）。 */
+export function computeAvoidingY(
+  anchor: AnchorRect,
+  menuHeight: number,
+  vp: ViewportBox,
+  gap = 8,
+): number {
+  const margin = 4
+  const need = menuHeight + gap
+  const topSpace = anchor.top - vp.offsetTop
+  const bottomSpace = vp.offsetTop + vp.height - anchor.bottom
+  if (topSpace >= need) return anchor.top - gap - menuHeight
+  if (bottomSpace >= need) return anchor.bottom + gap
+  if (topSpace >= bottomSpace) {
+    return Math.max(vp.offsetTop + margin, anchor.top - gap - menuHeight)
+  }
+  return Math.min(
+    vp.offsetTop + vp.height - menuHeight - margin,
+    anchor.bottom + gap,
+  )
+}
+
 /** 定位纯函数（测试直接注入尺寸）。 */
 export function computeMenuPosition(
   anchor: Point,
@@ -105,7 +163,12 @@ export class MenuView {
     return this.levels.length > 0
   }
 
-  open(entries: MenuEntry[], anchor: Point, deps: MenuViewDeps): void {
+  open(
+    entries: MenuEntry[],
+    anchor: Point,
+    deps: MenuViewDeps,
+    options: { avoidRect?: AnchorRect } = {},
+  ): void {
     this.close()
     this.deps = deps
 
@@ -131,10 +194,32 @@ export class MenuView {
     document.body.appendChild(mask)
     document.body.appendChild(container)
     const rect = container.getBoundingClientRect()
-    const pos = computeMenuPosition(anchor, rect, {
-      width: window.innerWidth,
-      height: window.innerHeight,
-    })
+    const vp = currentViewport()
+    let pos: Point
+    if (options.avoidRect) {
+      // 避让锚点矩形（移动端「更多」菜单 vs 选区）：上方优先、不足翻下，
+      // 保证菜单矩形与选区矩形不相交（极端压缩场景例外，见 computeAvoidingY）
+      const margin = 4
+      const maxX = Math.max(
+        vp.offsetLeft + margin,
+        vp.offsetLeft + vp.width - rect.width - margin,
+      )
+      pos = {
+        x: Math.min(
+          Math.max(
+            (options.avoidRect.left + options.avoidRect.right) / 2 - rect.width / 2,
+            vp.offsetLeft + margin,
+          ),
+          maxX,
+        ),
+        y: computeAvoidingY(options.avoidRect, rect.height, vp),
+      }
+    } else {
+      pos = computeMenuPosition(anchor, rect, {
+        width: vp.width,
+        height: vp.height,
+      })
+    }
     container.style.left = `${pos.x}px`
     container.style.top = `${pos.y}px`
 
@@ -506,7 +591,17 @@ export class MenuView {
     }
   }
 
-  private onScroll = (): void => {
+  private onScroll = (event: Event): void => {
+    // 菜单内部滚动不关（capture 会捕获菜单自身容器的 scroll ——
+    // scrollIntoView 高亮、max-height 截断后用户滚动菜单看完整内容）；
+    // 只有菜单外部（编辑器/文档）的滚动才关菜单。
+    const target = event.target as Node | null
+    if (target) {
+      if (this.mask?.contains(target)) return
+      for (const level of this.levels) {
+        if (level.root.contains(target)) return
+      }
+    }
     this.close()
   }
 

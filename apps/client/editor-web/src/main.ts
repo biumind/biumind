@@ -30,6 +30,7 @@ import { liftListItem, wrapInList } from '@milkdown/kit/prose/schema-list'
 import type { Ctx } from '@milkdown/kit/ctx'
 import type { $Command } from '@milkdown/kit/utils'
 import { TextSelection } from 'prosemirror-state'
+import type { EditorView } from 'prosemirror-view'
 
 // 逐项引入 crepe 主题 css（替代整包 style.css），排除 latex.css ——
 // 它会 @import katex/dist/katex.min.css 并拖入全部 KaTeX 字体文件。
@@ -53,6 +54,7 @@ import './theme/dark.css'
 
 import { BridgeClient } from './bridge/client'
 import { ContextMenuController } from './context-menu'
+import { InputModeController } from './context-menu/input-mode'
 import { SelectionToolbar } from './context-menu/selection-toolbar'
 import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
@@ -81,6 +83,8 @@ interface EditorState {
   contextMenu: ContextMenuController | null
   /** 移动端选区浮动工具条（M1；仅 platform = ios/android 时创建） */
   selectionToolbar: SelectionToolbar | null
+  /** 移动端输入法门控（选中不弹键盘，编辑才弹；仅移动端创建） */
+  inputMode: InputModeController | null
   readOnly: boolean
   /** 当前 UI 语言（init 定初值，setOptions.locale 可运行时切换） */
   locale: string
@@ -106,6 +110,7 @@ const state: EditorState = {
   sourceMode: null,
   contextMenu: null,
   selectionToolbar: null,
+  inputMode: null,
   readOnly: false,
   locale: 'en',
   revision: 0,
@@ -224,6 +229,8 @@ async function teardownEditor(): Promise<void> {
   // 重建前清掉源码模式 DOM 状态，避免残留 textarea 指向旧容器
   state.selectionToolbar?.destroy()
   state.selectionToolbar = null
+  state.inputMode?.destroy()
+  state.inputMode = null
   state.contextMenu?.destroy()
   state.contextMenu = null
   state.sourceMode?.destroy()
@@ -376,6 +383,21 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       state.selectionToolbar = new SelectionToolbar(
         menu.selectionToolbarDeps(true),
       )
+      // 输入法门控（实机修复）：选中不弹键盘，pointerup 判编辑意图才弹。
+      // 挂 mount 流程 —— PM 重建后 DOM 换新，inputmode 每次重设。
+      const inputMode = new InputModeController({
+        getView: () => {
+          let view: EditorView | null = null
+          state.crepe?.editor.action((ctx) => {
+            view = ctx.get(editorViewCtx)
+          })
+          return view
+        },
+        getReadOnly: () => state.readOnly,
+        isSourceMode: () => state.sourceMode?.active === true,
+      })
+      inputMode.attach()
+      state.inputMode = inputMode
     }
   }
 }

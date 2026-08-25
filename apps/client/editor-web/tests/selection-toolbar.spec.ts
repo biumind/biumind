@@ -122,4 +122,41 @@ describe('computeSelectionToolbarPosition（定位翻转）', () => {
     // 上方 455-44-8=403 < 454 → 翻下 475+8=483
     expect(pos.y).toBe(483)
   })
+
+  it('选区占满半屏（两侧都不足）：上方空闲更大 → 放上方并钳制', () => {
+    const keyboard: ViewportBox = {
+      width: 390,
+      height: 350,
+      offsetLeft: 0,
+      offsetTop: 450,
+    }
+    // topSpace=50（500-450）< 52、bottomSpace=5（800-795）→ 上方：
+    // 500-8-44=448 → 钳到 454；454+44=498 ≤ 500 与选区不相交
+    const pos = computeSelectionToolbarPosition(
+      { left: 100, top: 500, right: 260, bottom: 795 },
+      BAR,
+      keyboard,
+    )
+    expect(pos.y).toBe(454)
+    expect(pos.y + BAR.height).toBeLessThanOrEqual(500)
+  })
+
+  it('两侧都不足且下方空闲更大：放下方钳制，允许部分遮挡选区', () => {
+    const keyboard: ViewportBox = {
+      width: 390,
+      height: 350,
+      offsetLeft: 0,
+      offsetTop: 450,
+    }
+    // topSpace=5、bottomSpace=40（800-760）均 < need(52)，下方更大 →
+    // 下方 760+8=768 → 钳到 752；752 < 760 与选区底部 8px 重叠 —— 这是
+    // 设计允许的极端行为（键盘压缩 + 半屏选区），工具条完整留在视口内
+    const pos = computeSelectionToolbarPosition(
+      { left: 100, top: 455, right: 260, bottom: 760 },
+      BAR,
+      keyboard,
+    )
+    expect(pos.y).toBe(752)
+    expect(pos.y + BAR.height).toBeLessThanOrEqual(450 + 350 - 4)
+  })
 })

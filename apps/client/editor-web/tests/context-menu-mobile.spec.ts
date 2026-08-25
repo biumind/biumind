@@ -113,3 +113,34 @@ describe('mask 关菜单统一 pointerdown（桌面回归）', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 })
+
+describe('菜单内部滚动不触发关闭（实机 bug：scroll capture 误捕菜单自身）', () => {
+  it('菜单内部元素 scroll → 保持打开（scrollIntoView/用户滚动菜单）', () => {
+    const view = new MenuView()
+    view.open([item('a'), item('b')], { x: 10, y: 10 }, { ctx, t: (s) => s, onClose: () => {} })
+    const inner = document.querySelector('.kc-menu-item')!
+    // scroll 不冒泡，但 capture 监听在 document 上能收到（沿捕获链下行）
+    inner.dispatchEvent(new Event('scroll', { bubbles: false }))
+    expect(view.isOpen).toBe(true)
+  })
+
+  it('菜单容器自身 scroll（max-height 截断后滚动查看）→ 保持打开', () => {
+    const view = new MenuView()
+    view.open([item('a')], { x: 10, y: 10 }, { ctx, t: (s) => s, onClose: () => {} })
+    document
+      .querySelector('.kc-context-menu')!
+      .dispatchEvent(new Event('scroll', { bubbles: false }))
+    expect(view.isOpen).toBe(true)
+  })
+
+  it('菜单外部 scroll → 关闭', () => {
+    const view = new MenuView()
+    const onClose = vi.fn()
+    view.open([item('a')], { x: 10, y: 10 }, { ctx, t: (s) => s, onClose })
+    const outside = document.createElement('div')
+    document.body.appendChild(outside)
+    outside.dispatchEvent(new Event('scroll', { bubbles: false }))
+    expect(view.isOpen).toBe(false)
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+})

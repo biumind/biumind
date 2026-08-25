@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { computeMenuPosition } from '../src/context-menu/view'
+import { computeAvoidingY, computeMenuPosition } from '../src/context-menu/view'
 
 const VIEWPORT = { width: 800, height: 600 }
 const MENU = { width: 200, height: 150 }
@@ -72,5 +72,40 @@ describe('computeMenuPosition', () => {
     expect(
       computeMenuPosition({ x: 1, y: 1 }, MENU, VIEWPORT, { margin: 10 }),
     ).toEqual({ x: 10, y: 10 })
+  })
+})
+
+describe('computeAvoidingY（避让锚点矩形纵向定位）', () => {
+  const VP = { width: 390, height: 800, offsetLeft: 0, offsetTop: 0 }
+  const KEYBOARD = { width: 390, height: 350, offsetLeft: 0, offsetTop: 450 }
+  const H = 200 // 菜单高
+
+  it('上方空间充足 → 放上方（菜单底 = 锚点顶 - gap）', () => {
+    const anchor = { left: 100, top: 400, right: 260, bottom: 420 }
+    expect(computeAvoidingY(anchor, H, VP)).toBe(400 - 8 - 200)
+  })
+
+  it('上方不足、下方充足 → 翻下方', () => {
+    const anchor = { left: 100, top: 100, right: 260, bottom: 120 }
+    expect(computeAvoidingY(anchor, H, VP)).toBe(120 + 8)
+  })
+
+  it('两侧都不足：上方空闲更大 → 放上方并钳制（允许部分遮挡）', () => {
+    // 键盘压缩视口 [450, 800]；选区占满半屏
+    const anchor = { left: 100, top: 600, right: 260, bottom: 795 }
+    // topSpace=150、bottomSpace=5，need=208 都不够 → 上方：600-8-200=392 → 钳到 454
+    expect(computeAvoidingY(anchor, H, KEYBOARD)).toBe(454)
+  })
+
+  it('两侧都不足：下方空闲更大 → 放下方并钳制（允许部分遮挡）', () => {
+    const anchor = { left: 100, top: 455, right: 260, bottom: 700 }
+    // topSpace=5、bottomSpace=100，都不够 → 下方：700+8=708 → 钳到 450+350-200-4=596
+    expect(computeAvoidingY(anchor, H, KEYBOARD)).toBe(596)
+  })
+
+  it('两侧恰好相等 → 上方优先', () => {
+    // topSpace=100 == bottomSpace=100（均不足 need=208）→ 上方
+    const anchor = { left: 100, top: 550, right: 260, bottom: 700 }
+    expect(computeAvoidingY(anchor, H, KEYBOARD)).toBe(454)
   })
 })
