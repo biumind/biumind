@@ -95,19 +95,24 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
     return noteShareUrl(creds.endpoint, share.token);
   }
 
-  Future<void> _run(
+  /// 统一动作执行：防连点 + 失败 toast + 成功后失效刷新。
+  /// 返回是否成功 —— 调用方有后续本地状态更新（如记录刚设的密码）时
+  /// 必须据此判断，失败不能落本地态。
+  Future<bool> _run(
     Future<void> Function(api.NotesClient client) action, {
     String? doneToast,
   }) async {
     final client = ref.read(noteShareClientProvider);
-    if (client == null || _acting) return;
+    if (client == null || _acting) return false;
     setState(() => _acting = true);
     try {
       await action(client);
       invalidateNoteShareProviders(ref, widget.noteId);
       if (doneToast != null) _toast(doneToast);
+      return true;
     } on Exception catch (e) {
       _toast('操作失败：$e');
+      return false;
     } finally {
       if (mounted) setState(() => _acting = false);
     }
@@ -144,7 +149,7 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
       _toast('密码需为 4–8 位');
       return;
     }
-    await _run(
+    final ok = await _run(
       (client) => client
           .putShare(
             widget.noteId,
@@ -154,7 +159,9 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
           .then((_) {}),
       doneToast: '访问密码已设置',
     );
-    if (mounted) {
+    // 只有服务端真的改成功才记录密码本体（合并复制文案用）—— 失败时
+    // 若落了 _lastSetPassword，复制出来的密码与服务端不一致（交互 bug）。
+    if (ok && mounted) {
       setState(() {
         _lastSetPassword = pwd;
         _passwordController.clear();
