@@ -65,7 +65,7 @@ func TestShareCreateAndIdempotentUpsert(t *testing.T) {
 
 	// 幂等更新：同一篇重复 PUT → 同 id 同 token，只改配置
 	exp := time.Now().Add(7 * 24 * time.Hour)
-	sh2 := upsertShare(t, h, n.ID, uid, UpsertShareInput{Token: "ignored-on-update", ExpiresAt: &exp})
+	sh2 := upsertShare(t, h, n.ID, uid, UpsertShareInput{Token: "ignored-on-update", ExpiresSet: true, ExpiresAt: &exp})
 	if sh2.ID != sh.ID || sh2.Token != sh.Token {
 		t.Fatalf("upsert should keep id/token: %+v vs %+v", sh2, sh)
 	}
@@ -73,11 +73,14 @@ func TestShareCreateAndIdempotentUpsert(t *testing.T) {
 		t.Fatalf("expires_at not updated: %+v", sh2)
 	}
 
-	// 设置密码 → credential_version+1
+	// 设置密码（expires_in 缺省）→ credential_version+1 且 expires_at 原值不动
 	hash := "$2a$10$fakehashfakehashfakehashfakehashfakehashfakehashf"
 	sh3 := upsertShare(t, h, n.ID, uid, UpsertShareInput{PasswordSet: true, PasswordHash: &hash})
 	if sh3.CredentialVersion != 2 || sh3.PasswordHash == nil || *sh3.PasswordHash != hash {
 		t.Fatalf("password set: cv=%d hash=%v", sh3.CredentialVersion, sh3.PasswordHash)
+	}
+	if sh3.ExpiresAt == nil || sh3.ExpiresAt.Unix() != exp.Unix() {
+		t.Fatalf("expires_at should be kept when expires_in omitted: %v want ~%v", sh3.ExpiresAt, exp)
 	}
 
 	// 密码缺省 = 保持不变
@@ -91,6 +94,51 @@ func TestShareCreateAndIdempotentUpsert(t *testing.T) {
 	sh5 := upsertShare(t, h, n.ID, uid, UpsertShareInput{PasswordSet: true, PasswordHash: nil})
 	if sh5.PasswordHash != nil || sh5.CredentialVersion != 2 {
 		t.Fatalf("password remove: cv=%d hash=%v", sh5.CredentialVersion, sh5.PasswordHash)
+	}
+}
+
+// TestShareExpiresTriState —— expires_in 三态（契约修订：允许缺省）：
+// 更新缺省 = 保持原值；显式 never = 置 NULL；停用恢复缺省 = 保持原值。
+func TestShareExpiresTriState(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupShares(t, uid)
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+	n := createNote(t, h, uid, "有效期三态", "正文")
+
+	// 新建缺省 → never
+	sh := upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+	if sh.ExpiresAt != nil {
+		t.Fatalf("create with omitted expires_in should be never: %+v", sh)
+	}
+	// 显式设 7d → 更新缺省 → 原值不动
+	exp := time.Now().Add(7 * 24 * time.Hour)
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{ExpiresSet: true, ExpiresAt: &exp})
+	if sh.ExpiresAt == nil {
+		t.Fatalf("expires_at not set: %+v", sh)
+	}
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+	if sh.ExpiresAt == nil || sh.ExpiresAt.Unix() != exp.Unix() {
+		t.Fatalf("omitted expires_in should keep value: %v", sh.ExpiresAt)
+	}
+	// 显式 never → NULL
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{ExpiresSet: true, ExpiresAt: nil})
+	if sh.ExpiresAt != nil {
+		t.Fatalf("explicit never should null expires_at: %+v", sh)
+	}
+	// 停用后恢复缺省 → 保持原 expires_at（先设回 7d 再停用）
+	exp2 := time.Now().Add(7 * 24 * time.Hour)
+	upsertShare(t, h, n.ID, uid, UpsertShareInput{ExpiresSet: true, ExpiresAt: &exp2})
+	if err := h.st.DisableShare(ctx, n.ID, uid, uid.String()); err != nil {
+		t.Fatalf("DisableShare: %v", err)
+	}
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{Token: "must-not-be-used"})
+	if sh.DisabledAt != nil {
+		t.Fatalf("restore should clear disabled_at: %+v", sh)
+	}
+	if sh.ExpiresAt == nil || sh.ExpiresAt.Unix() != exp2.Unix() {
+		t.Fatalf("restore with omitted expires_in should keep original: %v", sh.ExpiresAt)
 	}
 }
 

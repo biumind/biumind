@@ -111,8 +111,9 @@ type putShareReq struct {
 	// Password —— 字段缺省 = 保持不变；"" = 移除密码；有值 = 重设
 	// （bcrypt + credential_version+1）。
 	Password *string `json:"password"`
-	// ExpiresIn —— 每次必传："1d" | "7d" | "30d" | "never"。
-	ExpiresIn string `json:"expires_in"`
+	// ExpiresIn —— 字段缺省 = 保持现有 expires_at 不变（新建时视为
+	// never）；有值时 "1d" | "7d" | "30d" | "never"，非法值 400。
+	ExpiresIn *string `json:"expires_in"`
 }
 
 func (s *Server) handlePutShare(w http.ResponseWriter, r *http.Request) {
@@ -126,30 +127,32 @@ func (s *Server) handlePutShare(w http.ResponseWriter, r *http.Request) {
 		writeShareErr(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	var expiresAt *time.Time
-	switch req.ExpiresIn {
-	case "1d":
-		t := time.Now().Add(24 * time.Hour)
-		expiresAt = &t
-	case "7d":
-		t := time.Now().Add(7 * 24 * time.Hour)
-		expiresAt = &t
-	case "30d":
-		t := time.Now().Add(30 * 24 * time.Hour)
-		expiresAt = &t
-	case "never":
-		// expires_at = NULL
-	default:
-		writeShareErr(w, http.StatusBadRequest, "bad_expires_in")
-		return
-	}
 	uid := mustUserID(r)
 	if !s.getOwnedNote(w, r, id) {
 		return
 	}
 
 	in := store.UpsertShareInput{
-		NoteID: id, UserID: uid, ExpiresAt: expiresAt, ActorID: uid.String(),
+		NoteID: id, UserID: uid, ActorID: uid.String(),
+	}
+	if req.ExpiresIn != nil {
+		in.ExpiresSet = true
+		switch *req.ExpiresIn {
+		case "1d":
+			t := time.Now().Add(24 * time.Hour)
+			in.ExpiresAt = &t
+		case "7d":
+			t := time.Now().Add(7 * 24 * time.Hour)
+			in.ExpiresAt = &t
+		case "30d":
+			t := time.Now().Add(30 * 24 * time.Hour)
+			in.ExpiresAt = &t
+		case "never":
+			// expires_at = NULL
+		default:
+			writeShareErr(w, http.StatusBadRequest, "bad_expires_in")
+			return
+		}
 	}
 	if req.Password != nil {
 		in.PasswordSet = true

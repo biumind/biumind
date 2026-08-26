@@ -245,6 +245,46 @@ func TestShareManagementFlow(t *testing.T) {
 	}
 }
 
+// TestSharePutExpiresInOptional —— 契约修订：expires_in 允许缺省。
+// 核心场景：改密码时 expires_in 缺省 → expires_at 原值不动。
+func TestSharePutExpiresInOptional(t *testing.T) {
+	h := newShareHarness(t)
+	uid := uuid.New()
+	defer h.cleanupUser(t, uid)
+	tok := h.mintUserToken(uid)
+	noteID := h.createNote(t, uid, "有效期缺省", "正文")
+
+	// 新建缺省 → 视为 never（expires_at=null）
+	_, sh := h.putShare(t, tok, noteID, map[string]any{})
+	if sh["expires_at"] != nil {
+		t.Fatalf("create with omitted expires_in should be never: %v", sh)
+	}
+
+	// 显式 7d → 改密码时缺省 → expires_at 原值不动
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"expires_in": "7d"})
+	exp := sh["expires_at"].(string)
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"password": "1234"})
+	if sh["expires_at"] != exp {
+		t.Fatalf("password reset must keep expires_at: %v want %v", sh["expires_at"], exp)
+	}
+	if sh["credential_version"] != float64(2) {
+		t.Fatalf("password reset should bump credential_version: %v", sh)
+	}
+
+	// 显式 never → 回到 null
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"expires_in": "never"})
+	if sh["expires_at"] != nil {
+		t.Fatalf("explicit never should null expires_at: %v", sh)
+	}
+
+	// 非法值仍 400 bad_expires_in
+	st, body, _ := h.do(t, "PUT", "/v1/notes/"+noteID.String()+"/share", tok,
+		map[string]any{"expires_in": "3d"})
+	if st != 400 || shareErrCode(body) != "bad_expires_in" {
+		t.Fatalf("bad expires_in: %d %v", st, body)
+	}
+}
+
 func TestShareListEndpoint(t *testing.T) {
 	h := newShareHarness(t)
 	uid := uuid.New()

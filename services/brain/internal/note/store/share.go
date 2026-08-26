@@ -124,8 +124,11 @@ type UpsertShareInput struct {
 	UserID uuid.UUID
 	// Token —— 仅新建时使用（crypto/rand 24B → 32 字符 base64url）。
 	Token string
-	// ExpiresAt —— nil = 永久（expires_in=never）。
-	ExpiresAt *time.Time
+	// ExpiresSet —— true 表示本次要改有效期：ExpiresAt 非 nil = 截止
+	// 时间，nil = 永久（never）。false = 保持现有 expires_at 不变
+	// （新建时没有"现有值"，落 NULL 即 never，与 PasswordSet 同型三态）。
+	ExpiresSet bool
+	ExpiresAt  *time.Time
 	// PasswordSet —— true 表示本次要改密码：PasswordHash 非 nil = 重设
 	// （credential_version+1），nil = 移除密码。false = 密码保持不变。
 	PasswordSet  bool
@@ -151,7 +154,7 @@ func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, e
 	}
 
 	if errors.Is(err, ErrNotFound) {
-		// 新建
+		// 新建（expires_in 缺省 → ExpiresAt 零值 nil = never）
 		var hash *string
 		if in.PasswordSet {
 			hash = in.PasswordHash
@@ -187,6 +190,12 @@ func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, e
 	if bumpCred {
 		newCred++
 	}
+	// expires_in 缺省 = 保持现有 expires_at（含停用恢复：原值已过期则
+	// 恢复后仍是 expired，由客户端显式传值续期，服务端不特殊处理）。
+	newExpiresAt := cur.ExpiresAt
+	if in.ExpiresSet {
+		newExpiresAt = in.ExpiresAt
+	}
 	restored := cur.DisabledAt != nil
 	sh, err := scanShare(tx.QueryRow(ctx, `
 		UPDATE brain.note_shares
@@ -194,7 +203,7 @@ func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, e
 		    disabled_at = NULL, updated_at = now()
 		WHERE id = $1 AND user_id = $2
 		RETURNING `+shareColumns,
-		cur.ID, in.UserID, newHash, in.ExpiresAt, newCred))
+		cur.ID, in.UserID, newHash, newExpiresAt, newCred))
 	if err != nil {
 		return nil, fmt.Errorf("update note share: %w", err)
 	}
