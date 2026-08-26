@@ -328,13 +328,17 @@ void main() {
 
       expect(conflicts, isEmpty, reason: '非重叠段静默自动合并，不弹冲突');
       expect(autoMerged, 'P1\n\nP2L\n\nP3R');
-      // 本地行：merge 后 applyMerged 覆盖为合并文。
+      // 本地行：merge 后 applyMerged 覆盖为合并文（随后的补冲 flush 又经
+      // _upsertFromDto 回写服务端确认态，内容相同）。
       expect((await dao.noteById('n1'))!.contentMd, 'P1\n\nP2L\n\nP3R');
-      // 新 op 入队 baseVersion=11（remote），原 op 已删。
-      final pending = await dao.allOutbox();
-      expect(pending, hasLength(1));
-      expect(pending.single.op, 'update_note');
-      expect(pending.single.baseVersion, 11);
+      // flusher 的补冲轮（autoMergedPending → await flushOnce）已把合并文
+      // 落库：两次 PUT —— 第一次 If-Match=10 触 409 自动合并，第二次
+      // If-Match=11（base=remote）成功，outbox 清空。
+      expect(brain.requests, hasLength(2));
+      expect(brain.requests[0], contains('If-Match=10'));
+      expect(brain.requests[1], contains('If-Match=11'));
+      expect(await dao.allOutbox(), isEmpty,
+          reason: '合并文补冲成功，新 op 也已落库删除');
     });
 
     test('同段冲突 → emit merge bundle（带 segments），op 删，本地行=remote',

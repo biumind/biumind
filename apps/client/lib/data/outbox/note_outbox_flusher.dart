@@ -170,11 +170,14 @@ class NoteOutboxFlusher {
       _flushing = false;
     }
     // 三方合并「无冲突」时 onAutoMergeResolved 入队了新 update_note
-    // （baseVersion=remote），当前 _flushing 守卫挡递归；微任务里守卫已
-    // 释放，立刻再冲一轮把合并结果落库。每轮 base 前进，无死循环。
+    // （baseVersion=remote），立刻再冲一轮把合并结果落库。每轮 base 前进，
+    // 无死循环。**必须 await**（finally 已释放 _flushing 守卫，可直接调）：
+    // 之前用 delayed+unawaited 逃逸守卫，留下一个无法被调用方追踪的后台
+    // flush —— 它会读写 Drift/HTTP，而调用方（测试 tearDown、登出清库）
+    // 不知道它还在跑，待它失败时 db 已关闭（全量测试的 "test failed
+    // after it had already completed" 根因）。
     if (autoMergedPending) {
-      await Future<void>.delayed(Duration.zero);
-      unawaited(flushOnce());
+      await flushOnce();
     }
     if (flushedAny) {
       try {
