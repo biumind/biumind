@@ -119,6 +119,13 @@ func (h *shareHarness) do(t *testing.T, method, path, token string, body any) (i
 	return resp.StatusCode, out, string(bb)
 }
 
+// shareErrCode —— 从嵌套错误体 {"error":{"code","message"}} 取 code。
+func shareErrCode(body map[string]any) string {
+	e, _ := body["error"].(map[string]any)
+	c, _ := e["code"].(string)
+	return c
+}
+
 // noRedirect —— files 代理断言 302 用，不跟随跳转。
 var noRedirect = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
@@ -158,9 +165,9 @@ func TestShareManagementFlow(t *testing.T) {
 	tok := h.mintUserToken(uid)
 	noteID := h.createNote(t, uid, "管理流", "正文")
 
-	// 无分享 → GET 404 {"error":"not_found"}（契约扁平错误体）
+	// 无分享 → GET 404 {"error":{"code":"not_found"}}（与 note 域一致的嵌套错误体）
 	st, body, raw := h.do(t, "GET", "/v1/notes/"+noteID.String()+"/share", tok, nil)
-	if st != 404 || body["error"] != "not_found" {
+	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("GET no share: %d %s", st, raw)
 	}
 
@@ -201,12 +208,12 @@ func TestShareManagementFlow(t *testing.T) {
 
 	// 参数校验：bad_expires_in / bad_password / 未鉴权 401
 	st, body, _ = h.do(t, "PUT", "/v1/notes/"+noteID.String()+"/share", tok, map[string]any{"expires_in": "3d"})
-	if st != 400 || body["error"] != "bad_expires_in" {
+	if st != 400 || shareErrCode(body) != "bad_expires_in" {
 		t.Fatalf("bad expires_in: %d %v", st, body)
 	}
 	st, body, _ = h.do(t, "PUT", "/v1/notes/"+noteID.String()+"/share", tok,
 		map[string]any{"expires_in": "1d", "password": "123"})
-	if st != 400 || body["error"] != "bad_password" {
+	if st != 400 || shareErrCode(body) != "bad_password" {
 		t.Fatalf("short password: %d %v", st, body)
 	}
 	st, _, _ = h.do(t, "PUT", "/v1/notes/"+noteID.String()+"/share", "", map[string]any{"expires_in": "1d"})
@@ -292,13 +299,13 @@ func TestSharePublicPasswordFlow(t *testing.T) {
 
 	// ① 有密码未解锁 → 401 password_required
 	st, body, _ := h.getPublic(t, "/v1/shares/"+token)
-	if st != 401 || body["error"] != "password_required" {
+	if st != 401 || shareErrCode(body) != "password_required" {
 		t.Fatalf("locked share: %d %v", st, body)
 	}
 
 	// unlock 密码错误 → 401 invalid_password（并写审计事件）
 	st, body, _ = h.do(t, "POST", "/v1/shares/"+token+"/unlock", "", map[string]any{"password": "0000"})
-	if st != 401 || body["error"] != "invalid_password" {
+	if st != 401 || shareErrCode(body) != "invalid_password" {
 		t.Fatalf("wrong password: %d %v", st, body)
 	}
 	var audit int
@@ -339,7 +346,7 @@ func TestSharePublicPasswordFlow(t *testing.T) {
 	// 重设密码 → credential_version+1 → 旧访问 JWT 立即失效
 	h.putShare(t, tok, noteID, map[string]any{"expires_in": "never", "password": "5678"})
 	st, body, _ = h.do(t, "GET", "/v1/shares/"+token, access, nil)
-	if st != 401 || body["error"] != "password_required" {
+	if st != 401 || shareErrCode(body) != "password_required" {
 		t.Fatalf("stale access JWT must fail after password reset: %d %v", st, body)
 	}
 	st, body, _ = h.do(t, "POST", "/v1/shares/"+token+"/unlock", "", map[string]any{"password": "5678"})
@@ -372,7 +379,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 		t.Fatalf("force expire: %v", err)
 	}
 	st, body, _ := h.getPublic(t, "/v1/shares/"+tok1)
-	if st != 410 || body["error"] != "expired" {
+	if st != 410 || shareErrCode(body) != "expired" {
 		t.Fatalf("expired share: %d %v", st, body)
 	}
 
@@ -388,7 +395,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 		t.Fatalf("disable: %d", st)
 	}
 	st, body, _ = h.getPublic(t, "/v1/shares/"+tok2)
-	if st != 404 || body["error"] != "not_found" {
+	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("disabled share: %d %v", st, body)
 	}
 
@@ -400,7 +407,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 		t.Fatalf("trash note: %d", st)
 	}
 	st, body, _ = h.getPublic(t, "/v1/shares/"+tok3)
-	if st != 410 || body["error"] != "note_deleted" {
+	if st != 410 || shareErrCode(body) != "note_deleted" {
 		t.Fatalf("trashed note share: %d %v", st, body)
 	}
 
@@ -423,7 +430,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 
 	// 不存在的 token → 404
 	st, body, _ = h.getPublic(t, "/v1/shares/no-such-token")
-	if st != 404 || body["error"] != "not_found" {
+	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("unknown token: %d %v", st, body)
 	}
 }
@@ -444,7 +451,7 @@ func TestSharePublicFileGuards(t *testing.T) {
 
 	// ③ 附件未挂在笔记上 → 404（防随机 ID 盗链）
 	st, body, _ := h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, uuid.New()))
-	if st != 404 || body["error"] != "not_found" {
+	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("stranger attachment: %d %v", st, body)
 	}
 
@@ -462,7 +469,7 @@ func TestSharePublicFileGuards(t *testing.T) {
 		t.Fatalf("insert note_attachments: %v", err)
 	}
 	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, fileID))
-	if st != 503 || body["error"] != "files_unavailable" {
+	if st != 503 || shareErrCode(body) != "files_unavailable" {
 		t.Fatalf("no-blob files route: %d %v", st, body)
 	}
 

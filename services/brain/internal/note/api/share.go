@@ -26,10 +26,27 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// writeShareErr —— 分享接口契约错误体：{"error":"<code>"}（扁平字符串，
-// §7.6 冻结形态，Flutter / Astro 按此解析）。
+// shareErrMessages —— 分享接口错误码 → 英文消息（对齐 note 域 writeErr 风格）。
+var shareErrMessages = map[string]string{
+	"not_found":         "share not found or disabled",
+	"expired":           "share expired",
+	"note_deleted":      "note deleted",
+	"password_required": "password required",
+	"invalid_password":  "invalid password",
+	"bad_request":       "bad request",
+	"bad_expires_in":    "invalid expires_in, expect 1d/7d/30d/never",
+	"bad_password":      "password must be 4-8 characters",
+	"files_unavailable": "files storage unavailable",
+	"internal":          "internal error",
+}
+
+// writeShareErr —— 分享接口错误体，与 note 域既有 writeErr 同风格：
+// {"error":{"code":"<code>","message":"<msg>"}}（Flutter / Astro 仅按
+// HTTP 状态码分支，不解析 body；§7.6 契约以此为准）。
 func writeShareErr(w http.ResponseWriter, status int, code string) {
-	writeJSON(w, status, map[string]any{"error": code})
+	writeJSON(w, status, map[string]any{
+		"error": map[string]any{"code": code, "message": shareErrMessages[code]},
+	})
 }
 
 // generateShareToken —— crypto/rand 24 字节 → 32 字符 base64url
