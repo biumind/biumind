@@ -56,6 +56,12 @@ void main() {
       // Nav items present (active + greyed all rendered)
       expect(find.text('模型服务'), findsOneWidget);
       expect(find.text('Statistics'), findsOneWidget);
+      // 「我的分享」加入后左栏变长，About 滚出首屏 —— 先滚到可见再断言。
+      await tester.dragUntilVisible(
+        find.text('About'),
+        find.byType(ListView).first,
+        const Offset(0, -200),
+      );
       expect(find.text('About'), findsOneWidget);
     },
   );

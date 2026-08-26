@@ -46,6 +46,7 @@ import '../application/notes_ui_providers.dart';
 import '../data/note_attachment_presign.dart';
 import 'note_merge_dialog.dart';
 import 'note_revisions_dialog.dart';
+import 'note_share_sheet.dart';
 import 'notes_home_page.dart' show relativeTime;
 
 class NoteEditorView extends ConsumerStatefulWidget {
@@ -513,6 +514,11 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     unawaited(NoteRevisionsDialog.show(context, noteId: widget.noteId));
   }
 
+  /// 分享（S1）：弹分享面板（桌面 dialog / 手机 bottom sheet）。
+  void _showShare() {
+    unawaited(NoteShareSheet.show(context, noteId: widget.noteId));
+  }
+
   /// 转入知识库：选 wiki project → promote（服务端归档笔记 + 建 page，
   /// 幂等）→ toast → 返回列表。归档 note 落库后 archivedAt 置位，自动
   /// 从默认列表消失。
@@ -682,6 +688,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
               onInsertImage: _insertImage,
               onInsertAttachment: _insertAttachment,
               onShowHistory: _showHistory,
+              onShare: _showShare,
               onPromoteToWiki:
                   note.promotedPageId == null ? _promoteToWiki : null,
               compact: phone,
@@ -753,6 +760,7 @@ class _TitleRow extends StatelessWidget {
     required this.onInsertImage,
     required this.onInsertAttachment,
     required this.onShowHistory,
+    required this.onShare,
     required this.onPromoteToWiki,
     this.compact = false,
     this.onEditTags,
@@ -767,6 +775,7 @@ class _TitleRow extends StatelessWidget {
   final VoidCallback onInsertImage;
   final VoidCallback onInsertAttachment;
   final VoidCallback onShowHistory;
+  final VoidCallback onShare;
 
   /// null = 已转入知识库（归档），菜单里隐藏该入口。
   final VoidCallback? onPromoteToWiki;
@@ -792,6 +801,7 @@ class _TitleRow extends StatelessWidget {
         onInsertImage: onInsertImage,
         onInsertAttachment: onInsertAttachment,
         onShowHistory: onShowHistory,
+        onShare: onShare,
         onPromoteToWiki: onPromoteToWiki,
         onEditTags: onEditTags,
         saveIndicator: saveIndicator,
@@ -837,6 +847,12 @@ class _TitleRow extends StatelessWidget {
               size: 18,
               color: note.isTodo ? BiuTokens.purple : BiuTokens.textSecondary,
             ),
+          ),
+          IconButton(
+            tooltip: '分享',
+            onPressed: onShare,
+            icon: Icon(Icons.share_outlined,
+                size: 18, color: BiuTokens.textSecondary),
           ),
           IconButton(
             tooltip: '移入回收站',
@@ -899,6 +915,7 @@ class NoteMobileTitleRow extends StatelessWidget {
     required this.onInsertAttachment,
     required this.onShowHistory,
     required this.onPromoteToWiki,
+    this.onShare,
     this.onEditTags,
     this.saveIndicator,
   });
@@ -912,6 +929,9 @@ class NoteMobileTitleRow extends StatelessWidget {
   final VoidCallback onInsertAttachment;
   final VoidCallback onShowHistory;
   final VoidCallback? onPromoteToWiki;
+
+  /// 分享入口（S1）；null 时 ⋯ 菜单不渲染该项（widget test 兼容）。
+  final VoidCallback? onShare;
   final VoidCallback? onEditTags;
   final Widget? saveIndicator;
 
@@ -967,6 +987,8 @@ class NoteMobileTitleRow extends StatelessWidget {
                   onEditTags?.call();
                 case 'history':
                   onShowHistory();
+                case 'share':
+                  onShare?.call();
                 case 'promote':
                   onPromoteToWiki?.call();
                 case 'trash':
@@ -1025,6 +1047,16 @@ class NoteMobileTitleRow extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
+              if (onShare != null)
+                const PopupMenuItem<String>(
+                  value: 'share',
+                  child: ListTile(
+                    dense: true,
+                    leading: Icon(Icons.share_outlined, size: 18),
+                    title: Text('分享'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
               if (onPromoteToWiki != null)
                 const PopupMenuItem<String>(
                   value: 'promote',

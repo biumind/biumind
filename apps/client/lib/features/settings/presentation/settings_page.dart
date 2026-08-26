@@ -32,6 +32,7 @@ import 'appearance_pane.dart';
 import 'chat_settings_pane.dart';
 import '../../code/code_module.dart';
 import 'data_statistics_pane.dart';
+import 'my_shares_pane.dart';
 import 'search_settings_pane.dart';
 import 'security_pane.dart';
 import 'simple_settings_panes.dart' hide AppearancePane;
@@ -49,6 +50,7 @@ enum SettingsTab {
   activity,
   codingWorkbench,
   search,
+  myShares,
   about,
 }
 
@@ -104,6 +106,8 @@ class _Body extends StatelessWidget {
         return buildCodingWorkbenchPane();
       case SettingsTab.search:
         return const SearchSettingsPane();
+      case SettingsTab.myShares:
+        return const MySharesPane();
       case SettingsTab.about:
         return const AboutPane();
     }
@@ -160,6 +164,12 @@ class _NavColumn extends ConsumerWidget {
             icon: Icons.search_outlined,
             selected: active == SettingsTab.search,
             onTap: () => go(SettingsTab.search),
+          ),
+          _NavItem(
+            label: '我的分享',
+            icon: Icons.share_outlined,
+            selected: active == SettingsTab.myShares,
+            onTap: () => go(SettingsTab.myShares),
           ),
 
           // ─── 智能体 ───────────────────────────────
@@ -400,6 +410,8 @@ String _tabLabel(AppLocalizations t, SettingsTab tab) {
       return t.settingsNavCodingWorkbench;
     case SettingsTab.search:
       return '搜索';
+    case SettingsTab.myShares:
+      return '我的分享';
     case SettingsTab.about:
       return t.settingsNavAbout;
   }

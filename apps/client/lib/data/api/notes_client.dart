@@ -28,6 +28,11 @@
 //	POST   /v1/notes/{id}/revisions/{rid}/save-as-copy 以该版本新建笔记
 //	POST   /v1/notes/{id}/promote         转入知识库（归档笔记 + 建 wiki page，幂等）
 //	POST   /v1/notes/{id}/unarchive       取消归档
+//	PUT    /v1/notes/{id}/share           创建/更新分享（幂等；恢复已停用分享）
+//	GET    /v1/notes/{id}/share           当前分享状态（无分享 → 404）
+//	DELETE /v1/notes/{id}/share           停用分享（可恢复）
+//	POST   /v1/notes/{id}/share/rotate    重置 token（旧链接作废）
+//	GET    /v1/notes/shares               我的分享列表（设置页管理 + 列表徽标）
 
 import '_http_helpers.dart';
 
@@ -264,6 +269,105 @@ class NotePromoteResult {
   final NoteNote note;
 
   const NotePromoteResult({required this.page, required this.note});
+}
+
+/// 分享状态机（S1 契约：active / disabled / expired）。
+/// 推导规则与 brain 服务端一致：disabled_at 非空 → disabled（停用优先于
+/// 过期，恢复后按 expires_at 重新判定）；否则 expires_at 已过 → expired；
+/// 否则 active。[now] 显式传入以便单测。
+enum NoteShareStatus { active, disabled, expired }
+
+NoteShareStatus noteShareStatusOf({
+  required DateTime? disabledAt,
+  required DateTime? expiresAt,
+  required DateTime now,
+}) {
+  if (disabledAt != null) return NoteShareStatus.disabled;
+  if (expiresAt != null && !expiresAt.isAfter(now)) {
+    return NoteShareStatus.expired;
+  }
+  return NoteShareStatus.active;
+}
+
+NoteShareStatus noteShareStatusFromString(String s) => switch (s) {
+      'disabled' => NoteShareStatus.disabled,
+      'expired' => NoteShareStatus.expired,
+      _ => NoteShareStatus.active,
+    };
+
+/// 管理端 share 对象 —— S1 冻结契约（docs/BiuMind-Technical-Architecture.md
+/// §7.6「API 契约」）：所有管理端接口的返回体。**服务端不返回 url 字段**，
+/// 分享 URL 由客户端用 origin 自行拼接 `${origin}/s/${token}`。
+class NoteShare {
+  final String token;
+  final bool passwordSet;
+  final DateTime? expiresAt;
+  final int credentialVersion;
+  final int viewCount;
+  final DateTime? disabledAt;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const NoteShare({
+    required this.token,
+    required this.passwordSet,
+    this.expiresAt,
+    required this.credentialVersion,
+    required this.viewCount,
+    this.disabledAt,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory NoteShare.fromJson(Map<String, dynamic> j) => NoteShare(
+        token: j['token'] as String? ?? '',
+        passwordSet: j['password_set'] as bool? ?? false,
+        expiresAt:
+            DateTime.tryParse(j['expires_at'] as String? ?? '')?.toUtc(),
+        credentialVersion: (j['credential_version'] as num? ?? 1).toInt(),
+        viewCount: (j['view_count'] as num? ?? 0).toInt(),
+        disabledAt:
+            DateTime.tryParse(j['disabled_at'] as String? ?? '')?.toUtc(),
+        createdAt: DateTime.tryParse(j['created_at'] as String? ?? '')
+                ?.toUtc() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        updatedAt: DateTime.tryParse(j['updated_at'] as String? ?? '')
+                ?.toUtc() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+      );
+
+  /// 单篇分享状态（GET /v1/notes/{id}/share 响应不带 status 字段，客户端
+  /// 按同一状态机推导；列表接口直接用服务端给的 status，见
+  /// [NoteShareListItem]）。
+  NoteShareStatus status(DateTime now) => noteShareStatusOf(
+        disabledAt: disabledAt,
+        expiresAt: expiresAt,
+        now: now,
+      );
+}
+
+/// GET /v1/notes/shares 列表项 = share 对象 + note_id / note_title /
+/// status（status 由服务端计算，客户端直接用，不重复推导）。
+class NoteShareListItem {
+  final NoteShare share;
+  final String noteId;
+  final String noteTitle;
+  final NoteShareStatus status;
+
+  const NoteShareListItem({
+    required this.share,
+    required this.noteId,
+    required this.noteTitle,
+    required this.status,
+  });
+
+  factory NoteShareListItem.fromJson(Map<String, dynamic> j) =>
+      NoteShareListItem(
+        share: NoteShare.fromJson(j),
+        noteId: j['note_id'] as String? ?? '',
+        noteTitle: j['note_title'] as String? ?? '',
+        status: noteShareStatusFromString(j['status'] as String? ?? ''),
+      );
 }
 
 class NotesClient {
@@ -544,6 +648,49 @@ class NotesClient {
     final list =
         (raw['results'] as List? ?? const []).cast<Map<String, dynamic>>();
     return list.map(NoteSearchResult.fromJson).toList();
+  }
+
+  // ─── Share (笔记分享，S1) ────────────────────────────────
+
+  /// 创建或更新分享（幂等，一篇笔记一条；对已停用分享 = 以原 token 恢复
+  /// 并更新配置）。契约：`expires_in` 每次必传（1d/7d/30d/never）；
+  /// [password] presence 语义：null = 字段缺省（保持不变），'' = 移除密码，
+  /// 有值 = 重设（服务端 bcrypt + credential_version+1）。
+  Future<NoteShare> putShare(
+    String noteId, {
+    String? password,
+    required String expiresIn,
+  }) async {
+    final body = <String, dynamic>{'expires_in': expiresIn};
+    if (password != null) body['password'] = password; // '' = 移除密码
+    final raw = await _put('/v1/notes/$noteId/share', body);
+    return NoteShare.fromJson(raw);
+  }
+
+  /// 当前分享状态。无分享 → 服务端 404（NotesApiError.isNotFound），
+  /// 由调用方归一为 null。
+  Future<NoteShare> getShare(String noteId) async {
+    final raw = await _get('/v1/notes/$noteId/share');
+    return NoteShare.fromJson(raw);
+  }
+
+  /// 停用分享（链接立即 404，可经 putShare 恢复）。服务端 204。
+  Future<void> deleteShare(String noteId) async {
+    await _delete('/v1/notes/$noteId/share');
+  }
+
+  /// 重置 token：旧链接立即作废，credential_version+1，返回新 share 对象。
+  Future<NoteShare> rotateShare(String noteId) async {
+    final raw = await _post('/v1/notes/$noteId/share/rotate', const {});
+    return NoteShare.fromJson(raw);
+  }
+
+  /// 我的分享列表（设置页管理列表 + 笔记列表徽标共用同一数据源）。
+  Future<List<NoteShareListItem>> listShares() async {
+    final raw = await _get('/v1/notes/shares');
+    final list =
+        (raw['shares'] as List? ?? const []).cast<Map<String, dynamic>>();
+    return list.map(NoteShareListItem.fromJson).toList();
   }
 
   // ─── HTTP plumbing ───────────────────────────────────────

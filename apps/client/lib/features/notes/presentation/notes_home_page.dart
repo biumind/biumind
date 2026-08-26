@@ -40,9 +40,11 @@ import '../../../core/ui/popup_position.dart';
 import '../../../data/api/notes_client.dart' as api;
 import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
+import '../application/note_share_providers.dart';
 import '../application/notebook_tree.dart';
 import '../application/notes_ui_providers.dart';
 import 'note_editor_view.dart';
+import 'note_share_sheet.dart';
 
 class NotesHomePage extends ConsumerStatefulWidget {
   const NotesHomePage({super.key});
@@ -1062,11 +1064,35 @@ class _NoteListView extends ConsumerWidget {
     }
   }
 
+  /// 列表项右键 / 长按菜单（S1 只有「分享」一项；交互模式对齐笔记本
+  /// 上下文菜单：锚定指针位置、无弹出动画）。
+  Future<void> _showNoteMenu(
+      BuildContext context, RepoNote note, Offset globalPos) async {
+    final action = await showMenu<String>(
+      context: context,
+      position: popupPositionAt(context, globalPos),
+      items: const <PopupMenuEntry<String>>[
+        PopupMenuItem(value: 'share', child: Text('分享')),
+      ],
+      popUpAnimationStyle: AnimationStyle.noAnimation,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
+    );
+    if (action == 'share' && context.mounted) {
+      await NoteShareSheet.show(context, noteId: note.id);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notesAsync = ref.watch(notesListProvider);
     final isTodoView =
         ref.watch(notesFilterProvider).kind == NotesListKind.todo;
+    // 活跃分享的 noteId 集合 —— 列表项外链徽标数据源（S1，实时拉取，
+    // 与「我的分享」管理列表同源）。
+    final sharedIds =
+        ref.watch(activeNoteShareMapProvider).valueOrNull ?? const {};
     final notes = notesAsync.valueOrNull;
     if (notes == null) {
       return const Center(child: CircularProgressIndicator());
@@ -1093,6 +1119,8 @@ class _NoteListView extends ConsumerWidget {
             onTap: () => onTap(note),
             todoMode: isTodoView,
             onToggleCompleted: () => _toggleTodoCompleted(ref, note),
+            shared: sharedIds.containsKey(note.id),
+            onContextMenu: (pos) => _showNoteMenu(context, note, pos),
           );
         },
       ),
@@ -1107,6 +1135,8 @@ class _NoteTile extends StatelessWidget {
     required this.onTap,
     this.todoMode = false,
     this.onToggleCompleted,
+    this.shared = false,
+    this.onContextMenu,
   });
 
   final RepoNote note;
@@ -1117,69 +1147,97 @@ class _NoteTile extends StatelessWidget {
   final bool todoMode;
   final VoidCallback? onToggleCompleted;
 
+  /// 已分享（活跃）—— 时间行显示外链小图标徽标（S1）。
+  final bool shared;
+
+  /// 右键 / 长按（参数为指针屏幕坐标，父级用 popupPositionAt 锚定弹菜单）。
+  final ValueChanged<Offset>? onContextMenu;
+
   @override
   Widget build(BuildContext context) {
     final completed = note.todoCompletedAt != null;
     return Opacity(
       opacity: note.pendingCreate ? 0.5 : 1,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          color: selected ? BiuTokens.purpleLight : null,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (todoMode) ...<Widget>[
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: Checkbox(
-                    value: completed,
-                    onChanged:
-                        onToggleCompleted == null ? null : (_) => onToggleCompleted!(),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
+      child: GestureDetector(
+        onSecondaryTapDown: onContextMenu == null
+            ? null
+            : (d) => onContextMenu!(d.globalPosition),
+        onLongPressStart: onContextMenu == null
+            ? null
+            : (d) => onContextMenu!(d.globalPosition),
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            color: selected ? BiuTokens.purpleLight : null,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                if (todoMode) ...<Widget>[
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: Checkbox(
+                      value: completed,
+                      onChanged: onToggleCompleted == null
+                          ? null
+                          : (_) => onToggleCompleted!(),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        note.title.isEmpty ? '无标题笔记' : note.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: completed
+                              ? BiuTokens.textMuted
+                              : BiuTokens.text,
+                          decoration:
+                              completed ? TextDecoration.lineThrough : null,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        noteExcerpt(note.contentMd),
+                        style: TextStyle(
+                            fontSize: 12, color: BiuTokens.textSecondary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: <Widget>[
+                          if (shared) ...<Widget>[
+                            Icon(Icons.link,
+                                size: 11, color: BiuTokens.textMuted),
+                            const SizedBox(width: 3),
+                          ],
+                          Expanded(
+                            child: Text(
+                              relativeTime(note.updatedAt),
+                              style: TextStyle(
+                                  fontSize: 11, color: BiuTokens.textMuted),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
               ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      note.title.isEmpty ? '无标题笔记' : note.title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: completed
-                            ? BiuTokens.textMuted
-                            : BiuTokens.text,
-                        decoration:
-                            completed ? TextDecoration.lineThrough : null,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      noteExcerpt(note.contentMd),
-                      style: TextStyle(
-                          fontSize: 12, color: BiuTokens.textSecondary),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      relativeTime(note.updatedAt),
-                      style:
-                          TextStyle(fontSize: 11, color: BiuTokens.textMuted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
