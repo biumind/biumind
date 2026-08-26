@@ -1,8 +1,9 @@
 ---
-// 笔记公开分享落地页 —— /s/{token}
+// 笔记公开分享落地页 —— /s/n/{token}
 // site 是纯静态构建（无 SSR adapter，见 Dockerfile：Astro → dist → nginx 托管），
 // 所有 /s/* 路径由 nginx try_files 兜底到本页，token 由客户端 JS 从
-// location.pathname 读取，再 fetch 同源 /v1/shares/{token} 渲染。
+// location.pathname 读取，再 fetch 同源 /v1/shares/n/{token} 渲染。
+// /s/ 是统一分享域：类型二级前缀（n=笔记，未来 c=chat / w=Wiki），本页按路径段分发。
 // og meta 只能用通用文案（爬虫不执行 JS），分享内容一律 noindex（设计 D3）。
 // API 契约见 docs/BiuMind-Technical-Architecture.md §7.6（S1 冻结）。
 import '../../styles/global.css';
@@ -151,9 +152,11 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         for (const [key, el] of Object.entries(states)) el.hidden = key !== name;
       }
 
-      // token：/s/{token}（允许后续子路径，取第一段）
-      const tokenMatch = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,})/);
-      const token = tokenMatch ? tokenMatch[1] : null;
+      // 路径：/s/{type}/{token}（类型二级前缀 + token；允许后续子路径忽略）。
+      // 当前仅 n=笔记；裸 /s/{token} 或未知类型前缀（未来 c/w 落地前）→ 链接无效，不发请求。
+      const pathMatch = window.location.pathname.match(/^\/s\/([a-z])\/([A-Za-z0-9_-]{8,})/);
+      const shareType = pathMatch ? pathMatch[1] : null;
+      const token = shareType === 'n' ? pathMatch![2] : null;
 
       // 访问计数会话级去重（S2 契约）：每浏览器会话一个 uuid，sessionStorage 持有，
       // 会话内不变，所有分享页共用；随公开 GET 上送 X-Share-Session，
@@ -247,7 +250,7 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         const metaParts = [updated ? S.updatedAt(updated) : '', data.author ?? ''].filter(Boolean);
         $('note-meta').textContent = metaParts.join(' · ');
 
-        // content_md 中 biu-file:// 已由服务端改写为 /v1/shares/{token}/files/<uuid>
+        // content_md 中 biu-file:// 已由服务端改写为 /v1/shares/n/{token}/files/<uuid>
         const rawHtml = marked.parse(data.content_md ?? '', { async: false });
         // 必须消毒：用户 markdown 可含内联 HTML
         $('note-body').innerHTML = DOMPurify.sanitize(rawHtml);
@@ -269,10 +272,10 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
         });
-        // 附件 URL（/v1/shares/{token}/files/<uuid>）追加 ?access_token=<jwt>：
+        // 附件 URL（/v1/shares/n/{token}/files/<uuid>）追加 ?access_token=<jwt>：
         // 浏览器 <img> 原生请求无法带 Authorization header，契约规定走 query 通道。
         if (accessToken && token) {
-          const prefix = `/v1/shares/${token}/files/`;
+          const prefix = `/v1/shares/n/${token}/files/`;
           container.querySelectorAll('img, a, source, video, audio').forEach((el) => {
             for (const attr of ['src', 'href'] as const) {
               const val = el.getAttribute(attr);
@@ -299,7 +302,7 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         if (sessionId) headers['X-Share-Session'] = sessionId;
         let res: Response;
         try {
-          res = await fetch(`/v1/shares/${encodeURIComponent(token)}`, { headers });
+          res = await fetch(`/v1/shares/n/${encodeURIComponent(token)}`, { headers });
         } catch {
           showError('failed');
           return;
@@ -342,7 +345,7 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
       $('pw-form').querySelector('button')!.textContent = S.pwSubmit;
       $('cta-download').textContent = S.cta;
 
-      // 密码解锁：POST /v1/shares/{token}/unlock {"password":"…"} → {"access_token","expires_in"}
+      // 密码解锁：POST /v1/shares/n/{token}/unlock {"password":"…"} → {"access_token","expires_in"}
       $('pw-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const errEl = $('pw-error');
@@ -350,7 +353,7 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         const password = ($('pw-input') as HTMLInputElement).value;
         let res: Response;
         try {
-          res = await fetch(`/v1/shares/${encodeURIComponent(token!)}/unlock`, {
+          res = await fetch(`/v1/shares/n/${encodeURIComponent(token!)}/unlock`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ password }),
