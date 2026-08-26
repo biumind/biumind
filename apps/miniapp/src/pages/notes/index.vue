@@ -2,6 +2,8 @@
 // 笔记速记 — 最小闭环: 顶部快速输入 (免选笔记本, 自动标题) + 列表 +
 // 点条目弹层编辑. 端点对齐 apps/client 的 notes data 层:
 //   GET /v1/notes?limit=50 · POST /v1/notes · PUT /v1/notes/{id} (If-Match 乐观锁)
+// 长按条目 → 分享: GET/PUT /v1/notes/{id}/share 拿 token, 拼 ${origin}/s/{token}
+// 复制到剪贴板 (微信场景主要传播方式就是粘贴链接).
 
 import { ref, onMounted } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
@@ -9,10 +11,13 @@ import {
   listNotes,
   createNote,
   updateNote,
+  ensureShare,
+  listShares,
   type NoteItem,
 } from '@/data/api/notes';
 import type { ApiError } from '@/data/api/client';
 import { isLoggedIn } from '@/core/token_manager';
+import { copyToClipboard } from '@/core/os_integration';
 import { formatChatTime } from '@/lib/time_format';
 
 const notes = ref<NoteItem[]>([]);
@@ -63,6 +68,9 @@ async function onSave() {
 }
 
 // ── 列表 ─────────────────────────────────────────────────────
+// 已分享笔记 id 集合 (徽标); 来自 GET /v1/notes/shares, 拉取失败不影响列表.
+const sharedIds = ref<Set<string>>(new Set());
+
 async function reload() {
   if (!isLoggedIn()) {
     uni.redirectTo({ url: '/pages/me/login' });
@@ -72,6 +80,16 @@ async function reload() {
   err.value = '';
   try {
     notes.value = await listNotes(50);
+    try {
+      const shares = await listShares();
+      sharedIds.value = new Set(
+        shares
+          .filter((s) => (s.status || 'active') === 'active')
+          .map((s) => s.note_id),
+      );
+    } catch {
+      // 分享列表失败只丢徽标, 不阻塞笔记列表
+    }
   } catch (e: unknown) {
     err.value = e instanceof Error ? e.message : String(e);
     uni.showToast({ title: err.value || '加载失败', icon: 'none' });
@@ -97,6 +115,43 @@ function excerpt(n: NoteItem): string {
 function fmtTime(iso: string): string {
   const ts = Date.parse(iso || '');
   return Number.isNaN(ts) ? '' : formatChatTime(ts);
+}
+
+// ── 分享 ─────────────────────────────────────────────────────
+// 长按条目 → 动作菜单 (对齐 threads 页交互) → 创建/获取分享链接 → 复制.
+// 小程序不做密码/有效期配置 UI (留给 App 端), 只创建默认分享.
+const sharing = ref(false);
+
+function onLongPress(n: NoteItem) {
+  uni.showActionSheet({
+    itemList: ['分享'],
+    success: (res) => {
+      if (res.tapIndex === 0) shareNote(n);
+    },
+  });
+}
+
+async function shareNote(n: NoteItem) {
+  if (sharing.value) return;
+  sharing.value = true;
+  try {
+    const share = await ensureShare(n.id);
+    // 单 origin 寻址: API baseURL 的 origin 即站点 origin, /s/ 由 nginx 反代
+    const origin = ((import.meta.env.VITE_BIU_API_BASE as string) || '').replace(
+      /\/$/,
+      '',
+    );
+    await copyToClipboard(origin + '/s/' + share.token);
+    uni.showToast({ title: '分享链接已复制', icon: 'none' });
+    sharedIds.value = new Set(sharedIds.value).add(n.id);
+  } catch (e: unknown) {
+    uni.showToast({
+      title: e instanceof Error ? e.message : '分享失败',
+      icon: 'none',
+    });
+  } finally {
+    sharing.value = false;
+  }
 }
 
 // ── 编辑弹层 ─────────────────────────────────────────────────
@@ -192,9 +247,11 @@ onShow(() => {
         class="card item"
         hover-class="item-hover"
         @tap="openEdit(n)"
+        @longpress="onLongPress(n)"
       >
         <view class="item-head">
           <text class="item-title">{{ displayTitle(n) }}</text>
+          <text v-if="sharedIds.has(n.id)" class="share-mark">已分享</text>
           <text class="item-time">{{ fmtTime(n.updated_at) }}</text>
         </view>
         <text v-if="excerpt(n)" class="item-excerpt">{{ excerpt(n) }}</text>
@@ -284,6 +341,16 @@ onShow(() => {
   font-size: 22rpx;
   color: #9ca3af;
   flex-shrink: 0;
+}
+.share-mark {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #3b82f6;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+  margin-right: 12rpx;
 }
 .item-excerpt {
   display: block;
