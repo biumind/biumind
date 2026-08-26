@@ -1,6 +1,7 @@
 // MessageListV2 —— Chat 重构 R4 + P0-3 多选包装。
 //
-// watch [messagesProvider]，反向 ListView（最新在底）+ 自动滚动到底。
+// watch [messagesProvider]，正序 ListView（最新在底）：首次进入 jumpTo 逐帧
+// 贴底直到 extent 稳定；之后新消息 animateTo 跟流。
 // 空消息渲染占位提示；error / loading 走 AsyncValue.when。
 //
 // 多选模式：watch selectionModeProvider；active 时用 _SelectionWrapper 包裹
@@ -48,6 +49,10 @@ class _MessageListV2State extends ConsumerState<MessageListV2> {
   /// 同时用于 streaming 时显示"回到 AI 正在打字"按钮。
   bool _scrolledAway = false;
 
+  /// 程序化滚动（初始贴底 / 跟流动画）进行中。_onScroll 借此只响应用户
+  /// 手动滚动，避免自己的动画被误判成"用户滚离底部"。
+  bool _autoScrolling = false;
+
   @override
   void initState() {
     super.initState();
@@ -62,21 +67,49 @@ class _MessageListV2State extends ConsumerState<MessageListV2> {
   }
 
   void _onScroll() {
-    if (!_ctrl.hasClients) return;
+    if (!_ctrl.hasClients || _autoScrolling) return;
     final near = _ctrl.position.maxScrollExtent - _ctrl.position.pixels < 200;
     if (near == _scrolledAway) {
       setState(() => _scrolledAway = !near);
     }
   }
 
+  /// 首次进入会话的初始定位：逐帧 jumpTo 贴底，直到 extent 稳定。
+  ///
+  /// 不能用 animateTo：正序 ListView.builder 无 itemExtent，首帧只懒构建了
+  /// 顶部少数 item，maxScrollExtent 是按短消息外推的低估值；animateTo 的
+  /// 目标 offset 在创建时固定，滚动途中新 item 撑高 extent 也不会更新终点，
+  /// 长回复会停在半路。jumpTo 逐帧重贴可随 extent 修正跟进，直到真正到底。
+  void _stickToBottom() {
+    var frames = 0;
+    void tick() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_ctrl.hasClients || _scrolledAway) return;
+        final pos = _ctrl.position;
+        // 上一帧贴底后 extent 未再增长 → 已稳定在底部，结束。
+        if (frames > 0 && pos.maxScrollExtent - pos.pixels < 1) return;
+        _autoScrolling = true;
+        _ctrl.jumpTo(pos.maxScrollExtent);
+        _autoScrolling = false;
+        // 上限 12 帧：防极端情况下 extent 持续抖动导致无限调度。
+        if (++frames < 12) tick();
+      });
+    }
+
+    tick();
+  }
+
   void _scheduleScrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_ctrl.hasClients) return;
-      _ctrl.animateTo(
-        _ctrl.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
+      if (!mounted || !_ctrl.hasClients) return;
+      _autoScrolling = true;
+      _ctrl
+          .animateTo(
+            _ctrl.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+          )
+          .whenComplete(() => _autoScrolling = false);
     });
   }
 
@@ -169,11 +202,18 @@ class _MessageListV2State extends ConsumerState<MessageListV2> {
     return async.when(
       data: (messages) {
         if (messages.length != _lastLen) {
+          // 首次数据到位（_lastLen 0→N）= 进入会话，走 jumpTo 贴底；
+          // 之后的长度变化 = 新消息，走 animateTo 跟流。
+          final firstLoad = _lastLen == 0;
           _lastLen = messages.length;
           // 流式中如果用户主动滚离底部 → 不抢用户焦点；非 streaming 状态
           // 维持原行为（每次新消息回底）。
           if (!selecting && !search.open && !_scrolledAway) {
-            _scheduleScrollToBottom();
+            if (firstLoad) {
+              _stickToBottom();
+            } else {
+              _scheduleScrollToBottom();
+            }
           }
         }
         if (messages.isEmpty) {
