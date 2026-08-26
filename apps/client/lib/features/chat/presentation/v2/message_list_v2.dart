@@ -38,7 +38,12 @@ class MessageListV2 extends ConsumerStatefulWidget {
 }
 
 class _MessageListV2State extends ConsumerState<MessageListV2> {
-  final _ctrl = ScrollController();
+  /// initialScrollOffset 给一个极大值：首帧布局时 RenderViewport 会 clamp 到
+  /// maxScrollExtent 并从末尾倒着布局，最后一个 item 一旦真实布局出来，
+  /// extent 末端就是精确值——首帧即停在真实底部。
+  /// 若从默认 0 开始，首帧会先画出会话顶部，postFrame 再 jumpTo 回底，
+  /// 用户会看到"顶部 → 底部"的明显跳动。
+  final _ctrl = ScrollController(initialScrollOffset: double.maxFinite);
 
   /// 每条 bubble 的高度估算（GlobalKey + RenderBox.size.height），
   /// 给 ChatMiniMap 跳转用。新消息到来时增量收集。
