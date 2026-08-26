@@ -23,9 +23,11 @@ import '../../../data/notes_providers.dart';
 import '../../../data/notes_repository.dart';
 import '../../../data/wiki_providers.dart';
 import '../../../data/wiki_repository.dart';
+import 'note_share_providers.dart';
 
-/// 左栏过滤选择。N2 起互斥单选：全部 / 未归档 / 待办 / 某笔记本 / 某标签。
-enum NotesListKind { all, unfiled, todo, notebook, tag }
+/// 左栏过滤选择。N2 起互斥单选：全部 / 未归档 / 待办 / 已分享 / 某笔记本 /
+/// 某标签。
+enum NotesListKind { all, unfiled, todo, shared, notebook, tag }
 
 class NotesFilter {
   const NotesFilter.all()
@@ -38,6 +40,12 @@ class NotesFilter {
         tagId = null;
   const NotesFilter.todo()
       : kind = NotesListKind.todo,
+        notebookId = null,
+        tagId = null;
+
+  /// 「已分享」智能视图（分享中心 P1，设计 D2）：只列有活跃分享的笔记。
+  const NotesFilter.shared()
+      : kind = NotesListKind.shared,
         notebookId = null,
         tagId = null;
   const NotesFilter.notebook(String id)
@@ -100,12 +108,25 @@ final notesListProvider = StreamProvider<List<RepoNote>>((ref) {
   if (filter.kind == NotesListKind.todo) {
     return repo.watchNotes(todoOnly: true).map(sortTodoNotes);
   }
+  // 「已分享」智能视图（P1）：活跃分享的 noteId 集合（activeNoteShareMapProvider，
+  // 与列表徽标/管理页同源的 GET /v1/notes/shares，不新增请求）∩ 本地笔记
+  // —— 列表项 UI（摘要/时间/外链徽标/分享菜单）全部自然复用。
+  if (filter.kind == NotesListKind.shared) {
+    final sharedIds = ref.watch(activeNoteShareMapProvider).valueOrNull ??
+        const <String, api.NoteShareListItem>{};
+    return repo.watchNotes().map((notes) => notes
+        .where((n) => sharedIds.containsKey(n.id))
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)));
+  }
   final stream = switch (filter.kind) {
     NotesListKind.all => repo.watchNotes(),
     NotesListKind.unfiled => repo.watchNotes(rootOnly: true),
     NotesListKind.notebook => repo.watchNotes(notebookId: filter.notebookId),
     NotesListKind.tag => repo.watchNotesForTag(filter.tagId ?? ''),
-    NotesListKind.todo => throw StateError('unreachable'),
+    NotesListKind.todo ||
+    NotesListKind.shared =>
+      throw StateError('unreachable'),
   };
   return stream.map((notes) => notes
     ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt)));

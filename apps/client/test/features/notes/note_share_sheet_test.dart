@@ -16,11 +16,14 @@ import 'package:biumind/core/platform/platform_caps.dart';
 import 'package:biumind/data/api/notes_client.dart';
 import 'package:biumind/features/notes/application/note_share_providers.dart';
 import 'package:biumind/features/notes/presentation/note_share_sheet.dart';
+import 'package:biumind/features/settings/presentation/settings_page.dart'
+    show SettingsTab, activeSettingsTabProvider;
 import 'package:biumind/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 /// 内存态假 client：5 个管理端方法全真实现（含契约 presence 语义），
 /// 记录请求日志供断言。
@@ -452,6 +455,50 @@ void main() {
     await pumpSheet(tester, systemShare: false);
     await pumpUntilFound(tester, find.byTooltip('复制链接'));
     expect(find.byTooltip('系统分享…'), findsNothing);
+  });
+
+  testWidgets('底部「管理全部分享 →」→ 切「我的分享」tab 并跳 /settings',
+      (tester) async {
+    client.seed();
+    final router = GoRouter(routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, _) =>
+            const Scaffold(body: NoteShareSheet(noteId: 'n1')),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (_, _) => const Scaffold(body: Text('SETTINGS_PAGE')),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          noteShareClientProvider.overrideWithValue(client),
+          hubCredentialsProvider.overrideWithValue(
+            HubCredentials(endpoint: Uri.parse(origin), bearerToken: 'tok'),
+          ),
+        ],
+        child: MaterialApp.router(
+          theme: buildTheme(
+            palette: PaletteId.inkblueOrange,
+            mode: Brightness.light,
+            fontSize: FontSize.small,
+          ),
+          routerConfig: router,
+        ),
+      ),
+    );
+    await pumpUntilFound(tester, find.text('管理全部分享 →'));
+
+    await tester.tap(find.text('管理全部分享 →'));
+    await pumpUntilFound(tester, find.text('SETTINGS_PAGE'));
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('SETTINGS_PAGE')),
+    );
+    expect(container.read(activeSettingsTabProvider), SettingsTab.myShares);
   });
 }
 

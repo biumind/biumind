@@ -12,6 +12,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../app/theme.dart';
@@ -19,6 +20,8 @@ import '../../../core/layout/form_factor.dart';
 import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/notes_client.dart' as api;
 import '../../../services/auth_service.dart';
+import '../../settings/presentation/settings_page.dart'
+    show SettingsTab, activeSettingsTabProvider;
 import '../application/note_share_providers.dart';
 import 'notes_home_page.dart' show relativeTime;
 
@@ -359,6 +362,24 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
             data: (share) => share == null
                 ? _buildCreatePrompt(c)
                 : _buildManagePanel(c, share),
+          ),
+          const SizedBox(height: 8),
+          // 「管理全部分享 →」（分享中心 P1，设计 D2）：切设置页「我的分享」
+          // tab 再跳 /settings（对齐 threads_shell 命令面板的跳转模式）。
+          // 弹层自身是 dialog/bottom sheet 路由，先关再跳，不压在新栈上。
+          Center(
+            child: TextButton(
+              onPressed: () {
+                ref.read(activeSettingsTabProvider.notifier).state =
+                    SettingsTab.myShares;
+                Navigator.of(context).maybePop();
+                GoRouter.of(context).go('/settings');
+              },
+              child: Text(
+                '管理全部分享 →',
+                style: TextStyle(fontSize: 12, color: c.text2),
+              ),
+            ),
           ),
         ],
       ),

@@ -453,6 +453,10 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
     final tags =
         ref.watch(notesTagsProvider).valueOrNull ?? const <RepoTag>[];
     final filter = ref.watch(notesFilterProvider);
+    // 「已分享」智能视图（分享中心 P1）：数量徽标 = 活跃分享数，数据源与
+    // 列表项外链徽标 /「我的分享」管理页同源（不新增请求）。
+    final sharedCount =
+        ref.watch(activeNoteShareMapProvider).valueOrNull?.length ?? 0;
     final collapsed = _collapsed ?? const <String>{};
     final visible =
         flattenNotebookTree(buildNotebookTree(notebooks), collapsed);
@@ -513,6 +517,17 @@ class NotebookColumnState extends ConsumerState<NotebookColumn> {
                     onContextMenu: (pos) =>
                         _showNotebookMenu(node, pos, notebooks),
                   ),
+                // 「已分享」智能视图（P1，设计 D2）：笔记本树下方，带活跃
+                // 分享数徽标；桌面侧栏与手机 bottom sheet 共用本列。
+                if (notebooks.isNotEmpty)
+                  Divider(height: 1, color: BiuTokens.borderSubtle),
+                _FilterTile(
+                  icon: Icons.share_outlined,
+                  label: '已分享',
+                  count: sharedCount,
+                  selected: filter.kind == NotesListKind.shared,
+                  onTap: () => select(const NotesFilter.shared()),
+                ),
                 Divider(height: 1, color: BiuTokens.borderSubtle),
                 _TagsSectionHeader(
                   onCreateTag: _createTag,
@@ -684,12 +699,16 @@ class _FilterTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.dimmed = false,
+    this.count = 0,
   });
 
   final IconData icon;
   final String label;
   final bool selected;
   final bool dimmed;
+
+  /// 数量徽标（如「已分享」的活跃分享数）；0 = 不显示。
+  final int count;
   final VoidCallback onTap;
 
   @override
@@ -720,6 +739,14 @@ class _FilterTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (count > 0)
+                Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: selected ? BiuTokens.purple : BiuTokens.textMuted,
+                  ),
+                ),
             ],
           ),
         ),
@@ -789,6 +816,7 @@ class _NoteListHeader extends ConsumerWidget {
       NotesListKind.all => '全部笔记',
       NotesListKind.unfiled => '未归档',
       NotesListKind.todo => '待办',
+      NotesListKind.shared => '已分享',
       NotesListKind.notebook => notebooks
               ?.where((nb) => nb.id == filter.notebookId)
               .firstOrNull
@@ -1100,7 +1128,7 @@ class _NoteListView extends ConsumerWidget {
     if (notes.isEmpty) {
       return Center(
         child: Text(
-          isTodoView ? '暂无待办' : '暂无笔记',
+          noteListEmptyLabel(ref.watch(notesFilterProvider).kind),
           style: TextStyle(color: BiuTokens.textMuted, fontSize: 13),
         ),
       );
@@ -1319,6 +1347,13 @@ class _NamePromptDialogState extends State<_NamePromptDialog> {
     );
   }
 }
+
+/// 中栏列表空态文案（按过滤源）。public 以便单测。
+String noteListEmptyLabel(NotesListKind kind) => switch (kind) {
+      NotesListKind.todo => '暂无待办',
+      NotesListKind.shared => '还没有分享的笔记',
+      _ => '暂无笔记',
+    };
 
 /// 摘要：取正文第一行非空文本，去掉行首 markdown 记号，截 60 字。
 String noteExcerpt(String contentMd) {
