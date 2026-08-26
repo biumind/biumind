@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -99,6 +100,11 @@ type Config struct {
 	RealtimeURL        string `env:"REALTIME_INTERNAL_URL" default:""`
 	SearxNGURL         string `env:"SEARXNG_URL" default:""`
 	SearchHalfLifeDays int    `env:"SEARCH_HALF_LIFE_DAYS" default:"30"`
+
+	// ShareSigningKey — 笔记分享访问 JWT 的 HS256 密钥（§7.6）。为空则
+	// 启动时随机生成 + warn（单实例 dev 可用）；多实例部署必须显式配置，
+	// 否则各实例签发的访客 token 互不认。
+	ShareSigningKey string `env:"BRAIN_SHARE_SIGNING_KEY" default:""`
 
 	// NatsURL — when set, Wiki block events fan out to NATS in addition
 	// to Realtime. Empty disables NATS publishing (Realtime path stays).
@@ -754,7 +760,24 @@ func run() error {
 	// Notes 域（N0 骨架，docs/BiuMind-Notes-Design-Draft.md §6.1）：
 	// 与 wiki 同库不同表、不同路由前缀（/v1/notes、/v1/notebooks、/v1/note-tags）。
 	// WithWiki 注入 wiki store —— N3「转入知识库」promote 在同进程内直调建页。
-	noteapi.NewServer(noteStore, verifier, logger).WithWiki(st).Mount(mux)
+	noteSrv := noteapi.NewServer(noteStore, verifier, logger).WithWiki(st)
+	// 笔记分享（§7.6）：管理端随 Mount（requireAuth），公开端 /v1/shares/*
+	// 走 MountPublic —— 无鉴权，brain 首批公开业务路由。访问 JWT 为 HS256
+	// 服务端密钥；未配置时随机生成（重启/多实例即全失效，warn 提示）。
+	if cfg.ShareSigningKey != "" {
+		noteSrv.ShareSigningKey = []byte(cfg.ShareSigningKey)
+	} else {
+		shareKey := make([]byte, 32)
+		if _, err := rand.Read(shareKey); err != nil {
+			return fmt.Errorf("generate share signing key: %w", err)
+		}
+		noteSrv.ShareSigningKey = shareKey
+		logger.Warn("BRAIN_SHARE_SIGNING_KEY unset — generated random share signing key; " +
+			"share access tokens invalidate on restart and across replicas " +
+			"(multi-instance deployments MUST set BRAIN_SHARE_SIGNING_KEY explicitly)")
+	}
+	noteSrv.Mount(mux)
+	noteSrv.MountPublic(mux)
 
 	// 笔记历史版本周期清理 —— N3 只交付了 store.PruneRevisions 函数，
 	// 这里接周期：只删 change_type='edit' 且超出 keepRecent/keepDays
@@ -1198,6 +1221,10 @@ func run() error {
 				MaxUploadBytes: cfg.FilesMaxUploadBytes,
 			}
 			filesSrv.Mount(mux)
+			// 笔记分享附件代理复用同一 Blob（/v1/shares/{token}/files/{file_id}
+			// 302 → presign）；noteSrv 早已挂载，这里回填字段即可——
+			// handler 按请求时读字段，此时 http server 尚未起监听，无竞态。
+			noteSrv.ShareBlob = blob
 			logger.Info("files: mounted /v1/files/* (MinIO blob backend)",
 				"bucket", cfg.MinioBucket, "max_upload", cfg.FilesMaxUploadBytes)
 

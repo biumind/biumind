@@ -393,6 +393,8 @@ services:
       # Wiki block events → JetStream durable（DESIGN.md §17）
       BUS_USE_JETSTREAM: "true"
       GRAPH_AUTO_EXTRACT: "true"
+      # 笔记分享访问 JWT 密钥（§7.6）；留空 = 启动随机生成，多实例必须显式同值
+      BRAIN_SHARE_SIGNING_KEY: ${BRAIN_SHARE_SIGNING_KEY:-}
     ports:
       - "${BRAIN_PORT:-7003}:7003"
     networks: [biu-net]

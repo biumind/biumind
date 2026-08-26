@@ -24,6 +24,10 @@
 //	GET    /v1/notes/{id}/revisions/{rid}            单个版本（含完整内容）
 //	POST   /v1/notes/{id}/revisions/{rid}/restore    覆盖式恢复（先自动备份当前状态）
 //	POST   /v1/notes/{id}/revisions/{rid}/save-as-copy 以该版本另存新笔记
+//
+// 笔记分享（§7.6）：管理端见 share.go（随 Mount 挂载，requireAuth）；
+// 公开端见 share_public.go（MountPublic 单独挂载，无鉴权 —— brain 首批
+// 公开业务路由）。
 package api
 
 import (
@@ -36,6 +40,7 @@ import (
 	"time"
 
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
+	filespkg "github.com/biumind/biumind/services/brain/internal/files"
 	"github.com/biumind/biumind/services/brain/internal/note/store"
 	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 	"github.com/google/uuid"
@@ -48,6 +53,13 @@ type Server struct {
 	// Wiki —— 「转入知识库」（promote）在同进程内直调 wiki store 建页。
 	// nil 时 promote 端点返回 503。
 	Wiki *wikistore.Store
+	// ShareSigningKey —— 笔记分享访问 JWT 的 HS256 密钥
+	// （env BRAIN_SHARE_SIGNING_KEY；main 在为空时随机生成 + warn）。
+	ShareSigningKey []byte
+	// ShareBlob —— 分享附件代理的 presign 后端（复用 files 域 Blob）。
+	// nil（MINIO_ENDPOINT 未配置）时 files 代理路由 503 files_unavailable；
+	// main 在 files 装配后回填（挂载顺序见 cmd/brain/main.go）。
+	ShareBlob *filespkg.Blob
 }
 
 func NewServer(s *store.Store, v *bauth.Verifier, l *slog.Logger) *Server {
@@ -89,6 +101,14 @@ func (s *Server) Mount(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /v1/note-tags", s.requireAuth(s.handleCreateTag))
 	mux.HandleFunc("GET /v1/note-tags", s.requireAuth(s.handleListTags))
+
+	// 笔记分享管理端（§7.6）。「shares」是字面量段，ServeMux 按
+	// specificity 优先于 {id}；公开端 /v1/shares/* 走 MountPublic。
+	mux.HandleFunc("PUT /v1/notes/{id}/share", s.requireAuth(s.handlePutShare))
+	mux.HandleFunc("GET /v1/notes/{id}/share", s.requireAuth(s.handleGetShare))
+	mux.HandleFunc("DELETE /v1/notes/{id}/share", s.requireAuth(s.handleDeleteShare))
+	mux.HandleFunc("POST /v1/notes/{id}/share/rotate", s.requireAuth(s.handleRotateShare))
+	mux.HandleFunc("GET /v1/notes/shares", s.requireAuth(s.handleListShares))
 }
 
 // ─── Notebooks ──────────────────────────────────────────
