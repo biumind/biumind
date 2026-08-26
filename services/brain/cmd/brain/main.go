@@ -811,6 +811,37 @@ func run() error {
 	logger.Info("notes: revision prune worker started", "interval", "24h",
 		"keep_recent", notestore.PruneDefaultKeepRecent,
 		"keep_days", notestore.PruneDefaultKeepDays)
+
+	// 分享会话去重记录 TTL 清理（S2，迁移 00006）—— 照上面
+	// runNotePrune 的既有模式：boot scan + 每日 tick，单实例进程内
+	// 周期任务（brain 无 task_states 这类跨实例 job 治理基建）。
+	runShareViewSessionPrune := func() {
+		c, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		n, err := noteStore.PruneShareViewSessions(c, notestore.ShareViewSessionsDefaultKeepDays)
+		if err != nil {
+			logger.Warn("note share view sessions prune failed", "err", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("note share view sessions pruned", "deleted", n)
+		}
+	}
+	runShareViewSessionPrune() // boot scan
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				runShareViewSessionPrune()
+			}
+		}
+	}()
+	logger.Info("notes: share view sessions prune worker started",
+		"interval", "24h", "keep_days", notestore.ShareViewSessionsDefaultKeepDays)
 	searchSrv.Mount(mux)
 	graphSrv.Mount(mux)
 	memorySrv.Mount(mux)

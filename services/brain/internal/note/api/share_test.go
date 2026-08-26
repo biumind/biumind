@@ -638,3 +638,161 @@ func TestSharePublicFileRedirect(t *testing.T) {
 		t.Fatalf("view_count after one public GET: %d err=%v", vc, err)
 	}
 }
+
+// ─── S2：max_views / exhausted / 会话级计数去重 ───────────
+
+// getPublicWithSession —— 公开 GET 带 X-Share-Session header（"" = 不带）。
+func (h *shareHarness) getPublicWithSession(t *testing.T, path, session string) (int, map[string]any, string) {
+	t.Helper()
+	req, _ := http.NewRequest("GET", h.server.URL+path, nil)
+	if session != "" {
+		req.Header.Set("X-Share-Session", session)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	bb, _ := io.ReadAll(resp.Body)
+	out := map[string]any{}
+	if len(bb) > 0 && bb[0] == '{' {
+		_ = json.Unmarshal(bb, &out)
+	}
+	return resp.StatusCode, out, string(bb)
+}
+
+func TestShareMaxViewsPutAndOutput(t *testing.T) {
+	h := newShareHarness(t)
+	uid := uuid.New()
+	defer h.cleanupUser(t, uid)
+	tok := h.mintUserToken(uid)
+	noteID := h.createNote(t, uid, "上限", "正文")
+
+	// 新建缺省 → max_views=null
+	_, sh := h.putShare(t, tok, noteID, map[string]any{})
+	if sh["max_views"] != nil {
+		t.Fatalf("default max_views should be null: %v", sh)
+	}
+	// 设置 100 → 输出 100；缺省保持；0 移除
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"max_views": 100})
+	if sh["max_views"] != float64(100) {
+		t.Fatalf("max_views set: %v", sh)
+	}
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"expires_in": "7d"})
+	if sh["max_views"] != float64(100) {
+		t.Fatalf("omitted max_views should keep: %v", sh)
+	}
+	_, sh = h.putShare(t, tok, noteID, map[string]any{"max_views": 0})
+	if sh["max_views"] != nil {
+		t.Fatalf("max_views=0 should remove: %v", sh)
+	}
+	// 非法值：负数 / 小数 / 非数 → 400 bad_max_views
+	for _, bad := range []any{-1, 2.5, "abc", true} {
+		st, body, _ := h.do(t, "PUT", "/v1/notes/"+noteID.String()+"/share", tok,
+			map[string]any{"max_views": bad})
+		if st != 400 || shareErrCode(body) != "bad_max_views" {
+			t.Fatalf("max_views=%v: %d %v", bad, st, body)
+		}
+	}
+}
+
+func TestSharePublicExhausted(t *testing.T) {
+	h := newShareHarness(t)
+	uid := uuid.New()
+	defer h.cleanupUser(t, uid)
+	tok := h.mintUserToken(uid)
+	noteID := h.createNote(t, uid, "会耗尽", "正文")
+
+	_, sh := h.putShare(t, tok, noteID, map[string]any{"max_views": 1})
+	token := sh["token"].(string)
+
+	// 第 1 次访问计满；第 2 次起 → 410 exhausted
+	st, _, raw := h.getPublic(t, "/v1/shares/"+token)
+	if st != 200 {
+		t.Fatalf("first view: %d %s", st, raw)
+	}
+	st, body, _ := h.getPublic(t, "/v1/shares/"+token)
+	if st != 410 || shareErrCode(body) != "exhausted" {
+		t.Fatalf("exhausted content: %d %v", st, body)
+	}
+	// files 路由同码（① 在③之前，随机 file_id 也先撞 exhausted）
+	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, uuid.New()))
+	if st != 410 || shareErrCode(body) != "exhausted" {
+		t.Fatalf("exhausted files: %d %v", st, body)
+	}
+	// 管理列表 status=exhausted
+	st, body, _ = h.do(t, "GET", "/v1/notes/shares", tok, nil)
+	if st != 200 {
+		t.Fatalf("list shares: %d", st)
+	}
+	shares, _ := body["shares"].([]any)
+	if len(shares) != 1 || shares[0].(map[string]any)["status"] != "exhausted" {
+		t.Fatalf("list status should be exhausted: %v", body)
+	}
+	// 调整上限恢复可读
+	h.putShare(t, tok, noteID, map[string]any{"max_views": 5})
+	st, _, _ = h.getPublic(t, "/v1/shares/"+token)
+	if st != 200 {
+		t.Fatalf("raised limit should be readable: %d", st)
+	}
+	// 移除上限同样恢复
+	h.putShare(t, tok, noteID, map[string]any{"max_views": 0})
+	st, _, _ = h.getPublic(t, "/v1/shares/"+token)
+	if st != 200 {
+		t.Fatalf("removed limit should be readable: %d", st)
+	}
+}
+
+func TestSharePublicViewSessionDedup(t *testing.T) {
+	h := newShareHarness(t)
+	uid := uuid.New()
+	defer h.cleanupUser(t, uid)
+	tok := h.mintUserToken(uid)
+	noteID := h.createNote(t, uid, "会话去重", "正文")
+
+	_, sh := h.putShare(t, tok, noteID, map[string]any{})
+	token := sh["token"].(string)
+	viewCount := func() float64 {
+		st, body, _ := h.do(t, "GET", "/v1/notes/"+noteID.String()+"/share", tok, nil)
+		if st != 200 {
+			t.Fatalf("get share: %d", st)
+		}
+		return body["view_count"].(float64)
+	}
+
+	// 同 session 两次 GET 只计 1 次
+	s1 := uuid.New().String()
+	for i := 0; i < 2; i++ {
+		st, _, raw := h.getPublicWithSession(t, "/v1/shares/"+token, s1)
+		if st != 200 {
+			t.Fatalf("session view %d: %d %s", i, st, raw)
+		}
+	}
+	if vc := viewCount(); vc != 1 {
+		t.Fatalf("same session should count once, got %v", vc)
+	}
+	// 不同 session 各计 1 次
+	st, _, _ := h.getPublicWithSession(t, "/v1/shares/"+token, uuid.New().String())
+	if st != 200 {
+		t.Fatalf("second session: %d", st)
+	}
+	if vc := viewCount(); vc != 2 {
+		t.Fatalf("distinct sessions should count separately, got %v", vc)
+	}
+	// 无 header 每次照计
+	for i := 0; i < 2; i++ {
+		if st, _, _ := h.getPublic(t, "/v1/shares/"+token); st != 200 {
+			t.Fatalf("no-header view %d: %d", i, st)
+		}
+	}
+	if vc := viewCount(); vc != 4 {
+		t.Fatalf("no header should count every time, got %v", vc)
+	}
+	// 原始 session id 不落库（只存 sha256 hex）
+	var rawHits int
+	if err := h.pool.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM brain.note_share_view_sessions WHERE session_hash = $1
+	`, s1).Scan(&rawHits); err != nil || rawHits != 0 {
+		t.Fatalf("raw session id must not be stored: %d err=%v", rawHits, err)
+	}
+}

@@ -39,9 +39,12 @@ type Share struct {
 	ExpiresAt         *time.Time
 	CredentialVersion int
 	ViewCount         int64
-	DisabledAt        *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// MaxViews —— 访问次数上限（S2，迁移 00006）；NULL = 不限。
+	// view_count >= max_views 即 exhausted（校验链① 410 / 列表 status）。
+	MaxViews   *int
+	DisabledAt *time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // ShareWithTitle —— 「我的分享」管理列表行（join note_notes 取标题）。
@@ -63,13 +66,13 @@ type PublicNote struct {
 }
 
 const shareColumns = `id, note_id, user_id, token, password_hash, expires_at,
-	credential_version, view_count, disabled_at, created_at, updated_at`
+	credential_version, view_count, max_views, disabled_at, created_at, updated_at`
 
 func scanShare(row pgx.Row) (*Share, error) {
 	sh := &Share{}
 	err := row.Scan(
 		&sh.ID, &sh.NoteID, &sh.UserID, &sh.Token, &sh.PasswordHash, &sh.ExpiresAt,
-		&sh.CredentialVersion, &sh.ViewCount, &sh.DisabledAt, &sh.CreatedAt, &sh.UpdatedAt,
+		&sh.CredentialVersion, &sh.ViewCount, &sh.MaxViews, &sh.DisabledAt, &sh.CreatedAt, &sh.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -133,7 +136,12 @@ type UpsertShareInput struct {
 	// （credential_version+1），nil = 移除密码。false = 密码保持不变。
 	PasswordSet  bool
 	PasswordHash *string
-	ActorID      string
+	// MaxViewsSet —— true 表示本次要改访问上限（S2）：MaxViews 非 nil =
+	// 设置/调整上限，nil = 移除上限（body max_views=0）。false = 保持
+	// 不变（与 ExpiresSet / PasswordSet 同套三态）。
+	MaxViewsSet bool
+	MaxViews    *int
+	ActorID     string
 }
 
 func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, error) {
@@ -154,16 +162,20 @@ func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, e
 	}
 
 	if errors.Is(err, ErrNotFound) {
-		// 新建（expires_in 缺省 → ExpiresAt 零值 nil = never）
+		// 新建（expires_in / max_views 缺省 → 零值 nil = never / 不限）
 		var hash *string
 		if in.PasswordSet {
 			hash = in.PasswordHash
 		}
+		var maxViews *int
+		if in.MaxViewsSet {
+			maxViews = in.MaxViews
+		}
 		sh, cerr := scanShare(tx.QueryRow(ctx, `
-			INSERT INTO brain.note_shares (note_id, user_id, token, password_hash, expires_at)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO brain.note_shares (note_id, user_id, token, password_hash, expires_at, max_views)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			RETURNING `+shareColumns,
-			in.NoteID, in.UserID, in.Token, hash, in.ExpiresAt))
+			in.NoteID, in.UserID, in.Token, hash, in.ExpiresAt, maxViews))
 		if cerr != nil {
 			return nil, fmt.Errorf("insert note share: %w", cerr)
 		}
@@ -196,14 +208,19 @@ func (s *Store) UpsertShare(ctx context.Context, in UpsertShareInput) (*Share, e
 	if in.ExpiresSet {
 		newExpiresAt = in.ExpiresAt
 	}
+	// max_views 缺省 = 保持现有上限（同套三态）。
+	newMaxViews := cur.MaxViews
+	if in.MaxViewsSet {
+		newMaxViews = in.MaxViews
+	}
 	restored := cur.DisabledAt != nil
 	sh, err := scanShare(tx.QueryRow(ctx, `
 		UPDATE brain.note_shares
 		SET password_hash = $3, expires_at = $4, credential_version = $5,
-		    disabled_at = NULL, updated_at = now()
+		    max_views = $6, disabled_at = NULL, updated_at = now()
 		WHERE id = $1 AND user_id = $2
 		RETURNING `+shareColumns,
-		cur.ID, in.UserID, newHash, newExpiresAt, newCred))
+		cur.ID, in.UserID, newHash, newExpiresAt, newCred, newMaxViews))
 	if err != nil {
 		return nil, fmt.Errorf("update note share: %w", err)
 	}
@@ -290,7 +307,7 @@ func (s *Store) RotateShare(ctx context.Context, noteID, userID uuid.UUID, newTo
 func (s *Store) ListShares(ctx context.Context, userID uuid.UUID) ([]*ShareWithTitle, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT s.id, s.note_id, s.user_id, s.token, s.password_hash, s.expires_at,
-		       s.credential_version, s.view_count, s.disabled_at, s.created_at, s.updated_at,
+		       s.credential_version, s.view_count, s.max_views, s.disabled_at, s.created_at, s.updated_at,
 		       n.title
 		FROM brain.note_shares s
 		LEFT JOIN brain.note_notes n ON n.id = s.note_id
@@ -306,7 +323,7 @@ func (s *Store) ListShares(ctx context.Context, userID uuid.UUID) ([]*ShareWithT
 		sw := &ShareWithTitle{}
 		if err := rows.Scan(
 			&sw.ID, &sw.NoteID, &sw.UserID, &sw.Token, &sw.PasswordHash, &sw.ExpiresAt,
-			&sw.CredentialVersion, &sw.ViewCount, &sw.DisabledAt, &sw.CreatedAt, &sw.UpdatedAt,
+			&sw.CredentialVersion, &sw.ViewCount, &sw.MaxViews, &sw.DisabledAt, &sw.CreatedAt, &sw.UpdatedAt,
 			&sw.NoteTitle,
 		); err != nil {
 			return nil, err
@@ -372,13 +389,54 @@ func (s *Store) GetSharedFileObjectKey(ctx context.Context, fileID uuid.UUID) (s
 	return key, nil
 }
 
-// IncrShareViewCount —— 匿名聚合访问计数（S1 每成功请求 +1，会话级
-// 去重 S2）。
-func (s *Store) IncrShareViewCount(ctx context.Context, shareID uuid.UUID) error {
-	_, err := s.pool.Exec(ctx, `
+// RecordShareView —— 公开 GET 成功路径的访问计数（S2 会话级去重，
+// §7.6 增量契约）：
+//   - sessionHash 非 nil（调用方上送了 X-Share-Session 的 sha256）→
+//     先 INSERT note_share_view_sessions ON CONFLICT DO NOTHING，仅当真
+//     插入（RowsAffected=1）才 view_count+1，counted 返回是否真计了一次；
+//     并发首次插入由主键约束兜底，至多一方计数，无需事务。
+//   - sessionHash 为 nil（curl / 爬虫 / 直开 API）→ 每次照计。
+func (s *Store) RecordShareView(ctx context.Context, shareID uuid.UUID, sessionHash *string) (counted bool, err error) {
+	if sessionHash != nil {
+		tag, err := s.pool.Exec(ctx, `
+			INSERT INTO brain.note_share_view_sessions (share_id, session_hash)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, shareID, *sessionHash)
+		if err != nil {
+			return false, err
+		}
+		if tag.RowsAffected() == 0 {
+			return false, nil // 同会话重复访问，不计数
+		}
+	}
+	if _, err := s.pool.Exec(ctx, `
 		UPDATE brain.note_shares SET view_count = view_count + 1 WHERE id = $1
-	`, shareID)
-	return err
+	`, shareID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ShareViewSessionsDefaultKeepDays —— 会话去重记录保留期（S2 契约：
+// 30 天 TTL）。超期记录删掉后同会话再次访问会重新计数——可接受，
+// 30 天前的会话基本已死。
+const ShareViewSessionsDefaultKeepDays = 30
+
+// PruneShareViewSessions —— 清理超过 keepDays 天的会话去重记录
+// （照 PruneRevisions 的周期 job 模式：main 里 boot scan + 每日 tick）。
+func (s *Store) PruneShareViewSessions(ctx context.Context, keepDays int) (int64, error) {
+	if keepDays <= 0 {
+		keepDays = ShareViewSessionsDefaultKeepDays
+	}
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM brain.note_share_view_sessions
+		WHERE created_at < now() - make_interval(days => $1)
+	`, keepDays)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // RewriteShareFileURIs —— 公开内容出口改写：正文里的 `biu-file://<uuid>`

@@ -17,6 +17,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"time"
 	"unicode/utf8"
@@ -30,12 +31,14 @@ import (
 var shareErrMessages = map[string]string{
 	"not_found":         "share not found or disabled",
 	"expired":           "share expired",
+	"exhausted":         "share view limit exhausted",
 	"note_deleted":      "note deleted",
 	"password_required": "password required",
 	"invalid_password":  "invalid password",
 	"bad_request":       "bad request",
 	"bad_expires_in":    "invalid expires_in, expect 1d/7d/30d/never",
 	"bad_password":      "password must be 4-8 characters",
+	"bad_max_views":     "max_views must be a positive integer, or 0 to remove the limit",
 	"files_unavailable": "files storage unavailable",
 	"internal":          "internal error",
 }
@@ -59,8 +62,8 @@ func generateShareToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// shareOut —— 管理端 share 对象（§7.6 冻结字段；不返回 url，客户端用
-// origin 自拼 ${origin}/s/${token}）。
+// shareOut —— 管理端 share 对象（§7.6 冻结字段 + S2 max_views；不返回
+// url，客户端用 origin 自拼 ${origin}/s/${token}）。
 func shareOut(sh *store.Share) map[string]any {
 	out := map[string]any{
 		"token":              sh.Token,
@@ -75,6 +78,11 @@ func shareOut(sh *store.Share) map[string]any {
 	} else {
 		out["expires_at"] = nil
 	}
+	if sh.MaxViews != nil {
+		out["max_views"] = *sh.MaxViews
+	} else {
+		out["max_views"] = nil
+	}
 	if sh.DisabledAt != nil {
 		out["disabled_at"] = sh.DisabledAt.UTC().Format(time.RFC3339)
 	} else {
@@ -83,10 +91,14 @@ func shareOut(sh *store.Share) map[string]any {
 	return out
 }
 
-// shareStatus —— 管理列表状态机：disabled > expired > active。
+// shareStatus —— 管理列表状态机：disabled > exhausted > expired > active
+// （S2 契约：exhausted = max_views 非空且 view_count 已达上限）。
 func shareStatus(sh *store.Share, now time.Time) string {
 	if sh.DisabledAt != nil {
 		return "disabled"
+	}
+	if sh.MaxViews != nil && sh.ViewCount >= int64(*sh.MaxViews) {
+		return "exhausted"
 	}
 	if sh.ExpiresAt != nil && now.After(*sh.ExpiresAt) {
 		return "expired"
@@ -114,6 +126,36 @@ type putShareReq struct {
 	// ExpiresIn —— 字段缺省 = 保持现有 expires_at 不变（新建时视为
 	// never）；有值时 "1d" | "7d" | "30d" | "never"，非法值 400。
 	ExpiresIn *string `json:"expires_in"`
+	// MaxViews —— S2 三态，与 password / expires_in 同套规则：字段缺省
+	// （或 null）= 保持不变；0 = 移除上限；正整数 = 设置/调整。
+	// RawMessage 承载是为了把「非数 / 小数 / 负数」精确映射到
+	// 400 bad_max_views 而非笼统的 bad_request。
+	MaxViews json.RawMessage `json:"max_views"`
+}
+
+// parseMaxViews —— max_views 三态解析。ok=false 时响应已写。
+// 列是 PG int4，超 int32 范围一并按非法值拒。
+func parseMaxViews(w http.ResponseWriter, raw json.RawMessage, in *store.UpsertShareInput) (ok bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true // 缺省 = 保持
+	}
+	var num json.Number
+	if err := json.Unmarshal(raw, &num); err != nil {
+		writeShareErr(w, http.StatusBadRequest, "bad_max_views")
+		return false
+	}
+	v, err := num.Int64() // "2.5" 等小数值在此失败
+	if err != nil || v < 0 || v > math.MaxInt32 {
+		writeShareErr(w, http.StatusBadRequest, "bad_max_views")
+		return false
+	}
+	in.MaxViewsSet = true
+	if v > 0 {
+		mv := int(v)
+		in.MaxViews = &mv
+	}
+	// v == 0 → MaxViews 保持 nil = 移除上限
+	return true
 }
 
 func (s *Server) handlePutShare(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +212,9 @@ func (s *Server) handlePutShare(w http.ResponseWriter, r *http.Request) {
 			h := string(hash)
 			in.PasswordHash = &h
 		}
+	}
+	if !parseMaxViews(w, req.MaxViews, &in) {
+		return
 	}
 	if in.Token == "" {
 		tok, terr := generateShareToken()

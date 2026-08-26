@@ -17,9 +17,12 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/biumind/biumind/services/brain/internal/note/store"
@@ -40,8 +43,9 @@ func (s *Server) MountPublic(mux *http.ServeMux) {
 }
 
 // resolveActiveShare —— 校验链①：行存在（404 not_found）+ 未停用
-// （404 not_found——不暴露「存在但停用」）+ 未过期（410 expired）。
-// 返回 nil 时响应已写。
+// （404 not_found——不暴露「存在但停用」）+ 未过期（410 expired）+
+// 未达访问上限（410 exhausted，S2 契约：追加在 expired 之后，同码不同
+// code）。返回 nil 时响应已写。
 func (s *Server) resolveActiveShare(w http.ResponseWriter, r *http.Request) *store.Share {
 	sh, err := s.Store.GetShareByToken(r.Context(), r.PathValue("token"))
 	if err != nil {
@@ -58,6 +62,10 @@ func (s *Server) resolveActiveShare(w http.ResponseWriter, r *http.Request) *sto
 	}
 	if sh.ExpiresAt != nil && time.Now().After(*sh.ExpiresAt) {
 		writeShareErr(w, http.StatusGone, "expired")
+		return nil
+	}
+	if sh.MaxViews != nil && sh.ViewCount >= int64(*sh.MaxViews) {
+		writeShareErr(w, http.StatusGone, "exhausted")
 		return nil
 	}
 	return sh
@@ -98,7 +106,8 @@ func (s *Server) resolvePublicNote(w http.ResponseWriter, r *http.Request, noteI
 }
 
 // handlePublicGetShare —— GET /v1/shares/{token}：标题 + 改写后
-// content_md + 元信息；成功响应 view_count+1（S1 每请求计）。
+// content_md + 元信息；成功响应计一次访问（S2：带 X-Share-Session 的
+// 会话内去重，未带 header 每次照计；files 路由不计数）。
 func (s *Server) handlePublicGetShare(w http.ResponseWriter, r *http.Request) {
 	sh := s.resolveActiveShare(w, r)
 	if sh == nil || !s.checkShareAccess(w, r, sh) {
@@ -108,8 +117,16 @@ func (s *Server) handlePublicGetShare(w http.ResponseWriter, r *http.Request) {
 	if n == nil {
 		return
 	}
-	if err := s.Store.IncrShareViewCount(r.Context(), sh.ID); err != nil && s.Logger != nil {
-		s.Logger.Warn("note share: view count incr failed", "share_id", sh.ID, "err", err)
+	// S2 会话级去重：落地页每个浏览器会话上送 X-Share-Session
+	// （sessionStorage 持有），服务端只落 sha256，首插成功才 +1。
+	var sessionHash *string
+	if sess := strings.TrimSpace(r.Header.Get("X-Share-Session")); sess != "" {
+		sum := sha256.Sum256([]byte(sess))
+		h := hex.EncodeToString(sum[:])
+		sessionHash = &h
+	}
+	if _, err := s.Store.RecordShareView(r.Context(), sh.ID, sessionHash); err != nil && s.Logger != nil {
+		s.Logger.Warn("note share: record view failed", "share_id", sh.ID, "err", err)
 	}
 	out := map[string]any{
 		"title":             n.Title,

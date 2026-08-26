@@ -223,10 +223,11 @@ func TestShareListAndViewCount(t *testing.T) {
 		t.Fatalf("joined titles wrong: %v", titles)
 	}
 
-	// view_count 自增
+	// view_count 自增（无 session = 每次照计）
 	for i := 0; i < 3; i++ {
-		if err := h.st.IncrShareViewCount(ctx, sh1.ID); err != nil {
-			t.Fatalf("IncrShareViewCount: %v", err)
+		counted, err := h.st.RecordShareView(ctx, sh1.ID, nil)
+		if err != nil || !counted {
+			t.Fatalf("RecordShareView: counted=%v err=%v", counted, err)
 		}
 	}
 	got, err := h.st.GetShareByToken(ctx, sh1.Token)
@@ -327,5 +328,135 @@ func TestSharePublicHelpers(t *testing.T) {
 	pn, err = h.st.GetPublicNote(ctx, n.ID)
 	if err != nil || pn.DeletedAt == nil {
 		t.Fatalf("trashed note should carry deleted_at: %+v err=%v", pn, err)
+	}
+}
+
+// ─── S2：max_views 三态 / 会话去重 / TTL 清理 ────────────
+
+func TestShareMaxViewsTriState(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupShares(t, uid)
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+	n := createNote(t, h, uid, "上限三态", "正文")
+
+	// 新建缺省 → NULL（不限）
+	sh := upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+	if sh.MaxViews != nil {
+		t.Fatalf("create default max_views should be NULL: %+v", sh)
+	}
+	// 设置 100 → 缺省保持 → 0 移除（NULL）
+	mv := 100
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{MaxViewsSet: true, MaxViews: &mv})
+	if sh.MaxViews == nil || *sh.MaxViews != 100 {
+		t.Fatalf("max_views set: %+v", sh)
+	}
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+	if sh.MaxViews == nil || *sh.MaxViews != 100 {
+		t.Fatalf("omitted max_views should keep: %+v", sh)
+	}
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{MaxViewsSet: true, MaxViews: nil})
+	if sh.MaxViews != nil {
+		t.Fatalf("max_views=0 should remove limit: %+v", sh)
+	}
+	// 停用恢复缺省 → 保持（先设回 50 再停用）
+	mv = 50
+	upsertShare(t, h, n.ID, uid, UpsertShareInput{MaxViewsSet: true, MaxViews: &mv})
+	if err := h.st.DisableShare(ctx, n.ID, uid, uid.String()); err != nil {
+		t.Fatalf("DisableShare: %v", err)
+	}
+	sh = upsertShare(t, h, n.ID, uid, UpsertShareInput{Token: "must-not-be-used"})
+	if sh.MaxViews == nil || *sh.MaxViews != 50 || sh.DisabledAt != nil {
+		t.Fatalf("restore should keep max_views: %+v", sh)
+	}
+}
+
+func TestShareViewSessionDedup(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupShares(t, uid)
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+	n := createNote(t, h, uid, "去重", "正文")
+	sh := upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+
+	// 同 session 两次 → 只计 1 次
+	s1 := "hash-session-1"
+	counted, err := h.st.RecordShareView(ctx, sh.ID, &s1)
+	if err != nil || !counted {
+		t.Fatalf("first view should count: %v %v", counted, err)
+	}
+	counted, err = h.st.RecordShareView(ctx, sh.ID, &s1)
+	if err != nil || counted {
+		t.Fatalf("same session repeat should not count: %v %v", counted, err)
+	}
+	// 不同 session → 各计 1 次
+	s2 := "hash-session-2"
+	counted, err = h.st.RecordShareView(ctx, sh.ID, &s2)
+	if err != nil || !counted {
+		t.Fatalf("new session should count: %v %v", counted, err)
+	}
+	// 无 session → 每次照计
+	counted, err = h.st.RecordShareView(ctx, sh.ID, nil)
+	if err != nil || !counted {
+		t.Fatalf("no session should always count: %v %v", counted, err)
+	}
+	got, err := h.st.GetShareByToken(ctx, sh.Token)
+	if err != nil {
+		t.Fatalf("GetShareByToken: %v", err)
+	}
+	if got.ViewCount != 3 {
+		t.Fatalf("view_count: got %d want 3", got.ViewCount)
+	}
+	// 去重记录确实落了两行
+	var rows int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM brain.note_share_view_sessions WHERE share_id = $1
+	`, sh.ID).Scan(&rows); err != nil || rows != 2 {
+		t.Fatalf("session rows: %d err=%v", rows, err)
+	}
+}
+
+func TestPruneShareViewSessions(t *testing.T) {
+	h := newStoreHarness(t)
+	uid := uuid.New()
+	defer h.cleanupShares(t, uid)
+	defer h.cleanupNotes(t, uid)
+	ctx := context.Background()
+	n := createNote(t, h, uid, "清理", "正文")
+	sh := upsertShare(t, h, n.ID, uid, UpsertShareInput{})
+
+	// 两条会话记录，一条回溯到 40 天前
+	sOld, sNew := "hash-old", "hash-new"
+	for _, s := range []string{sOld, sNew} {
+		if _, err := h.st.RecordShareView(ctx, sh.ID, &s); err != nil {
+			t.Fatalf("RecordShareView: %v", err)
+		}
+	}
+	if _, err := h.pool.Exec(ctx, `
+		UPDATE brain.note_share_view_sessions
+		SET created_at = now() - interval '40 days'
+		WHERE share_id = $1 AND session_hash = $2
+	`, sh.ID, sOld); err != nil {
+		t.Fatalf("backdate: %v", err)
+	}
+
+	deleted, err := h.st.PruneShareViewSessions(ctx, 30)
+	if err != nil {
+		t.Fatalf("PruneShareViewSessions: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("expected 1 pruned, got %d", deleted)
+	}
+	var remain int
+	if err := h.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM brain.note_share_view_sessions WHERE share_id = $1
+	`, sh.ID).Scan(&remain); err != nil || remain != 1 {
+		t.Fatalf("remain: %d err=%v", remain, err)
+	}
+	// 默认 keepDays（0 → 30 天兜底）同样只删过期行
+	if _, err := h.st.PruneShareViewSessions(ctx, 0); err != nil {
+		t.Fatalf("PruneShareViewSessions default: %v", err)
 	}
 }
