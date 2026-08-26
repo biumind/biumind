@@ -16,7 +16,10 @@ export default defineConfig({
   },
   integrations: [
     tailwind({ applyBaseStyles: false }),
-    sitemap(),
+    sitemap({
+      // 笔记分享落地页一律 noindex（设计 D3），不进 sitemap
+      filter: (page) => !page.includes('/s/') && !page.endsWith('/s'),
+    }),
   ],
   build: {
     format: 'directory',

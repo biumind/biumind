@@ -1,0 +1,415 @@
+---
+// 笔记公开分享落地页 —— /s/{token}
+// site 是纯静态构建（无 SSR adapter，见 Dockerfile：Astro → dist → nginx 托管），
+// 所有 /s/* 路径由 nginx try_files 兜底到本页，token 由客户端 JS 从
+// location.pathname 读取，再 fetch 同源 /v1/shares/{token} 渲染。
+// og meta 只能用通用文案（爬虫不执行 JS），分享内容一律 noindex（设计 D3）。
+// API 契约见 docs/BiuMind-Technical-Architecture.md §7.6（S1 冻结）。
+import '../../styles/global.css';
+import Logo from '../../components/Logo.astro';
+
+const pageTitle = 'BiuMind 笔记分享';
+const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDesc} />
+    <!-- 分享内容不进搜索引擎（D3） -->
+    <meta name="robots" content="noindex,nofollow" />
+
+    <!-- 静态构建无法注入笔记标题，og 用通用文案 -->
+    <meta property="og:type" content="article" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDesc} />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-bg font-sans text-ink dark:bg-zinc-950 dark:text-zinc-100">
+    <div class="mx-auto flex min-h-screen w-full max-w-prose flex-col px-6">
+      <!-- 顶部品牌 -->
+      <header class="border-b border-border py-5 dark:border-zinc-800">
+        <a href="/" aria-label="BiuMind 首页" class="inline-flex">
+          <Logo variant="horizontal" size="sm" link={false} />
+        </a>
+      </header>
+
+      <main class="flex-1 py-10">
+        <!-- 加载中 -->
+        <div id="state-loading" class="py-20 text-center text-[15px] text-ink-muted"></div>
+
+        <!-- 密码解锁 -->
+        <div id="state-password" hidden class="py-16">
+          <h1 id="pw-title" class="text-[22px] tracking-tightest"></h1>
+          <p id="pw-desc" class="mt-2 text-[14px] text-ink-secondary dark:text-zinc-400"></p>
+          <form id="pw-form" class="mt-6 flex flex-col gap-3 sm:flex-row">
+            <input
+              id="pw-input"
+              type="password"
+              autocomplete="off"
+              class="w-full flex-1 rounded-md border border-border bg-surface px-4 py-2.5 text-[14px] outline-none transition-colors focus:border-purple dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <button type="submit" class="btn-primary"></button>
+          </form>
+          <p id="pw-error" hidden class="mt-3 text-[13px] text-error"></p>
+        </div>
+
+        <!-- 错误（链接无效 / 已过期） -->
+        <div id="state-error" hidden class="py-20 text-center">
+          <h1 id="error-title" class="text-[22px] tracking-tightest"></h1>
+          <p id="error-desc" class="mt-3 text-[14px] text-ink-secondary dark:text-zinc-400"></p>
+        </div>
+
+        <!-- 笔记内容 -->
+        <article id="state-content" hidden>
+          <h1 id="note-title" class="text-[28px] leading-snug tracking-tightest"></h1>
+          <p id="note-meta" class="mt-3 text-[13px] text-ink-muted dark:text-zinc-500"></p>
+          <div id="note-body" class="share-markdown mt-8"></div>
+          <p id="note-source" hidden class="mt-10 border-t border-border pt-4 text-[13px] text-ink-muted dark:border-zinc-800 dark:text-zinc-500">
+            <span id="note-source-label"></span>
+            <a id="note-source-link" href="#" target="_blank" rel="noopener noreferrer" class="text-purple hover:underline"></a>
+          </p>
+        </article>
+      </main>
+
+      <!-- 底部引导 -->
+      <footer class="border-t border-border py-6 text-center dark:border-zinc-800">
+        <a id="cta-download" href="/download" class="text-[14px] font-medium text-purple hover:underline"></a>
+      </footer>
+    </div>
+
+    <script>
+      import { marked } from 'marked';
+      import DOMPurify from 'dompurify';
+
+      // ── 最小双语：分享链接无 locale 前缀，按浏览器语言 ──
+      const isEn = navigator.language.toLowerCase().startsWith('en');
+      const S = isEn
+        ? {
+            loading: 'Loading…',
+            untitled: 'Untitled note',
+            updatedAt: (t: string) => `Last updated ${t}`,
+            sourceLabel: 'Source: ',
+            cta: 'Take notes with BiuMind →',
+            pwTitle: 'This note is password protected',
+            pwDesc: 'Enter the password from the sender to view it.',
+            pwPlaceholder: 'Password',
+            pwSubmit: 'View note',
+            pwWrong: 'Wrong password, please try again.',
+            pwLimited: 'Too many attempts. Please try again later.',
+            invalidTitle: 'Link invalid or disabled',
+            invalidDesc: 'This share link does not exist or has been disabled by the author.',
+            expiredTitle: 'Share expired or note deleted',
+            expiredDesc: 'This share has expired, or the note has been deleted by the author.',
+            loadFailedTitle: 'Failed to load',
+            loadFailedDesc: 'Please check your connection and try again later.',
+            justNow: 'just now',
+            minutesAgo: (n: number) => `${n} min ago`,
+            hoursAgo: (n: number) => `${n} hr ago`,
+            daysAgo: (n: number) => `${n} d ago`,
+          }
+        : {
+            loading: '加载中…',
+            untitled: '无标题笔记',
+            updatedAt: (t: string) => `最后更新于 ${t}`,
+            sourceLabel: '来源：',
+            cta: '用 BiuMind 记笔记 →',
+            pwTitle: '这篇笔记受密码保护',
+            pwDesc: '请输入分享者提供的访问密码后查看。',
+            pwPlaceholder: '访问密码',
+            pwSubmit: '查看笔记',
+            pwWrong: '密码错误，请重试。',
+            pwLimited: '尝试过于频繁，请稍后再试。',
+            invalidTitle: '链接无效或已停用',
+            invalidDesc: '该分享链接不存在，或已被作者停止分享。',
+            expiredTitle: '分享已过期或笔记已删除',
+            expiredDesc: '该分享已过有效期，或笔记已被作者删除。',
+            loadFailedTitle: '加载失败',
+            loadFailedDesc: '请检查网络后稍后重试。',
+            justNow: '刚刚',
+            minutesAgo: (n: number) => `${n} 分钟前`,
+            hoursAgo: (n: number) => `${n} 小时前`,
+            daysAgo: (n: number) => `${n} 天前`,
+          };
+
+      const $ = (id: string) => document.getElementById(id) as HTMLElement;
+      const states = {
+        loading: $('state-loading'),
+        password: $('state-password'),
+        error: $('state-error'),
+        content: $('state-content'),
+      };
+      function show(name: keyof typeof states) {
+        for (const [key, el] of Object.entries(states)) el.hidden = key !== name;
+      }
+
+      // token：/s/{token}（允许后续子路径，取第一段）
+      const tokenMatch = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,})/);
+      const token = tokenMatch ? tokenMatch[1] : null;
+
+      // 解锁 JWT 存 sessionStorage（契约：exp 2h，改密/重置即失效）
+      const storageKey = token ? `biu:share-access:${token}` : '';
+      function savedToken(): string | null {
+        if (!storageKey) return null;
+        try {
+          const raw = sessionStorage.getItem(storageKey);
+          if (!raw) return null;
+          const { access_token, expires_at } = JSON.parse(raw);
+          if (typeof access_token !== 'string' || Date.now() >= expires_at) return null;
+          return access_token;
+        } catch {
+          return null;
+        }
+      }
+      function saveToken(accessToken: string, expiresIn: number) {
+        sessionStorage.setItem(
+          storageKey,
+          JSON.stringify({ access_token: accessToken, expires_at: Date.now() + expiresIn * 1000 }),
+        );
+      }
+      function clearToken() {
+        if (storageKey) sessionStorage.removeItem(storageKey);
+      }
+
+      function relativeTime(iso: string): string {
+        const t = new Date(iso).getTime();
+        if (Number.isNaN(t)) return '';
+        const diff = Math.max(0, Date.now() - t);
+        const m = Math.floor(diff / 60000);
+        if (m < 1) return S.justNow;
+        if (m < 60) return S.minutesAgo(m);
+        const h = Math.floor(m / 60);
+        if (h < 24) return S.hoursAgo(h);
+        const d = Math.floor(h / 24);
+        if (d < 30) return S.daysAgo(d);
+        return new Date(t).toLocaleDateString(isEn ? 'en-US' : 'zh-CN');
+      }
+
+      function showError(kind: 'invalid' | 'expired' | 'failed') {
+        $('error-title').textContent =
+          kind === 'invalid' ? S.invalidTitle : kind === 'expired' ? S.expiredTitle : S.loadFailedTitle;
+        $('error-desc').textContent =
+          kind === 'invalid' ? S.invalidDesc : kind === 'expired' ? S.expiredDesc : S.loadFailedDesc;
+        show('error');
+      }
+
+      // 契约字段：{"title","content_md","author","source_url","updated_at","password_required":false}
+      interface ShareContent {
+        title: string;
+        content_md: string;
+        author: string | null;
+        source_url: string | null;
+        updated_at: string;
+        password_required: boolean;
+      }
+
+      function renderContent(data: ShareContent) {
+        const title = data.title || S.untitled;
+        $('note-title').textContent = title;
+        document.title = `${title} · BiuMind`;
+
+        const updated = relativeTime(data.updated_at);
+        const metaParts = [updated ? S.updatedAt(updated) : '', data.author ?? ''].filter(Boolean);
+        $('note-meta').textContent = metaParts.join(' · ');
+
+        // content_md 中 biu-file:// 已由服务端改写为 /v1/shares/{token}/files/<uuid>
+        const rawHtml = marked.parse(data.content_md ?? '', { async: false });
+        // 必须消毒：用户 markdown 可含内联 HTML
+        $('note-body').innerHTML = DOMPurify.sanitize(rawHtml);
+        postProcess($('note-body'));
+
+        if (data.source_url) {
+          $('note-source-label').textContent = S.sourceLabel;
+          const link = $('note-source-link') as HTMLAnchorElement;
+          link.href = data.source_url;
+          link.textContent = data.source_url;
+          $('note-source').hidden = false;
+        }
+        show('content');
+      }
+
+      function postProcess(container: HTMLElement) {
+        const accessToken = savedToken();
+        container.querySelectorAll('a').forEach((a) => {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+        });
+        // 附件 URL（/v1/shares/{token}/files/<uuid>）追加 ?access_token=<jwt>：
+        // 浏览器 <img> 原生请求无法带 Authorization header，契约规定走 query 通道。
+        if (accessToken && token) {
+          const prefix = `/v1/shares/${token}/files/`;
+          container.querySelectorAll('img, a, source, video, audio').forEach((el) => {
+            for (const attr of ['src', 'href'] as const) {
+              const val = el.getAttribute(attr);
+              if (!val) continue;
+              const url = new URL(val, window.location.origin);
+              if (url.pathname.startsWith(prefix)) {
+                url.searchParams.set('access_token', accessToken);
+                el.setAttribute(attr, url.pathname + url.search);
+              }
+            }
+          });
+        }
+      }
+
+      async function load() {
+        if (!token) {
+          showError('invalid');
+          return;
+        }
+        const headers: Record<string, string> = {};
+        const accessToken = savedToken();
+        if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+        let res: Response;
+        try {
+          res = await fetch(`/v1/shares/${encodeURIComponent(token)}`, { headers });
+        } catch {
+          showError('failed');
+          return;
+        }
+        if (res.ok) {
+          renderContent((await res.json()) as ShareContent);
+          return;
+        }
+        if (res.status === 401) {
+          // password_required（或已存 JWT 被 credential_version 作废旧化）
+          clearToken();
+          show('password');
+          return;
+        }
+        if (res.status === 404) {
+          showError('invalid');
+          return;
+        }
+        if (res.status === 410) {
+          showError('expired');
+          return;
+        }
+        showError('failed');
+      }
+
+      // 静态文案
+      states.loading.textContent = S.loading;
+      $('pw-title').textContent = S.pwTitle;
+      $('pw-desc').textContent = S.pwDesc;
+      ($('pw-input') as HTMLInputElement).placeholder = S.pwPlaceholder;
+      $('pw-form').querySelector('button')!.textContent = S.pwSubmit;
+      $('cta-download').textContent = S.cta;
+
+      // 密码解锁：POST /v1/shares/{token}/unlock {"password":"…"} → {"access_token","expires_in"}
+      $('pw-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = $('pw-error');
+        errEl.hidden = true;
+        const password = ($('pw-input') as HTMLInputElement).value;
+        let res: Response;
+        try {
+          res = await fetch(`/v1/shares/${encodeURIComponent(token!)}/unlock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+          });
+        } catch {
+          errEl.textContent = S.loadFailedDesc;
+          errEl.hidden = false;
+          return;
+        }
+        if (res.ok) {
+          const data = (await res.json()) as { access_token: string; expires_in: number };
+          saveToken(data.access_token, data.expires_in);
+          await load();
+          return;
+        }
+        errEl.textContent = res.status === 401 ? S.pwWrong : res.status === 429 ? S.pwLimited : S.loadFailedDesc;
+        errEl.hidden = false;
+      });
+
+      void load();
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  /* Logo 组件文字/mark 用浅色 token，暗色下覆盖 */
+  @media (prefers-color-scheme: dark) {
+    .biu-logo { color: #f4f4f5; --logo-circuit: #f4f4f5; }
+    .biu-logo__type { color: #f4f4f5; }
+  }
+</style>
+
+<style>
+  /* 渲染后的 markdown 排版（无 typography 插件，手写最小样式 + 暗色适配） */
+  .share-markdown {
+    font-size: 15px;
+    line-height: 1.75;
+    overflow-wrap: break-word;
+  }
+  .share-markdown h1,
+  .share-markdown h2,
+  .share-markdown h3,
+  .share-markdown h4 {
+    margin: 1.6em 0 0.6em;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+  }
+  .share-markdown h1 { font-size: 22px; }
+  .share-markdown h2 { font-size: 19px; }
+  .share-markdown h3 { font-size: 16px; }
+  .share-markdown h4 { font-size: 15px; }
+  .share-markdown p { margin: 0.9em 0; }
+  .share-markdown a { color: var(--purple); }
+  .share-markdown a:hover { text-decoration: underline; }
+  .share-markdown ul,
+  .share-markdown ol { margin: 0.9em 0; padding-left: 1.5em; }
+  .share-markdown ul { list-style: disc; }
+  .share-markdown ol { list-style: decimal; }
+  .share-markdown li { margin: 0.3em 0; }
+  .share-markdown blockquote {
+    margin: 0.9em 0;
+    padding: 0.2em 0 0.2em 1em;
+    border-left: 3px solid var(--border);
+    color: var(--ink-secondary);
+  }
+  .share-markdown code {
+    padding: 0.15em 0.4em;
+    border-radius: 6px;
+    background: var(--surface-muted);
+    font-family: Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    font-size: 0.88em;
+  }
+  .share-markdown pre {
+    margin: 0.9em 0;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    overflow-x: auto;
+  }
+  .share-markdown pre code { padding: 0; background: transparent; }
+  .share-markdown img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+    margin: 0.9em 0;
+  }
+  .share-markdown hr { margin: 1.8em 0; border: none; border-top: 1px solid var(--border); }
+  .share-markdown table { margin: 0.9em 0; width: 100%; border-collapse: collapse; font-size: 14px; }
+  .share-markdown th,
+  .share-markdown td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+  .share-markdown th { background: var(--surface-muted); font-weight: 600; }
+
+  @media (prefers-color-scheme: dark) {
+    .share-markdown blockquote { border-left-color: #3f3f46; color: #a1a1aa; }
+    .share-markdown code { background: #27272a; }
+    .share-markdown pre { border-color: #3f3f46; background: #18181b; }
+    .share-markdown hr { border-top-color: #3f3f46; }
+    .share-markdown th,
+    .share-markdown td { border-color: #3f3f46; }
+    .share-markdown th { background: #27272a; }
+  }
+</style>
