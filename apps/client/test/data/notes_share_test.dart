@@ -371,18 +371,18 @@ void main() {
     });
   });
 
-  group('分享 URL 拼接（契约：客户端拼 origin/s/token）', () {
+  group('分享 URL 拼接（契约：客户端拼 origin/s/n/token）', () {
     test('origin 无 path 时直接拼', () {
       expect(
         noteShareUrl(Uri.parse('https://biumind.ai'), 'tok-abc'),
-        'https://biumind.ai/s/tok-abc',
+        'https://biumind.ai/s/n/tok-abc',
       );
     });
 
     test('自托管带端口 origin', () {
       expect(
         noteShareUrl(Uri.parse('http://localhost:8088'), 'tok-abc'),
-        'http://localhost:8088/s/tok-abc',
+        'http://localhost:8088/s/n/tok-abc',
       );
     });
   });

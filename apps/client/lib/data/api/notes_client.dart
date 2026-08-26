@@ -304,7 +304,8 @@ NoteShareStatus noteShareStatusFromString(String s) => switch (s) {
 
 /// 管理端 share 对象 —— S1 冻结契约（docs/BiuMind-Technical-Architecture.md
 /// §7.6「API 契约」）：所有管理端接口的返回体。**服务端不返回 url 字段**，
-/// 分享 URL 由客户端用 origin 自行拼接 `${origin}/s/${token}`。
+/// 分享 URL 由客户端用 origin 自行拼接 `${origin}/s/n/${token}`
+/// （见 noteShareUrl）。
 class NoteShare {
   final String token;
   final bool passwordSet;

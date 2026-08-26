@@ -4,7 +4,7 @@
 // notes_client_test.dart 的 loopback HttpServer 模式 —— 改用
 // `_FakeShareClient extends NotesClient`（内存态 + 请求日志）override
 // noteShareClientProvider；hubCredentialsProvider 用固定 origin（分享 URL
-// 客户端拼接 `${origin}/s/${token}`）。noteShareProvider /
+// 客户端拼接 `${origin}/s/n/${token}`）。noteShareProvider /
 // myNoteSharesProvider 的 invalidate 刷新链路走真实实现，「点击 → 调用 →
 // invalidate → 重拉 → UI 更新」整回路被覆盖。
 //
@@ -215,7 +215,7 @@ void main() {
     );
   }
 
-  String expectedUrl(String token) => '$origin/s/$token';
+  String expectedUrl(String token) => '$origin/s/n/$token';
 
   testWidgets('未分享 → 「创建分享链接」→ 创建后出现链接与复制按钮', (tester) async {
     await pumpSheet(tester);

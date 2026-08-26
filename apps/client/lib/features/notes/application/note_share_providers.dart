@@ -63,10 +63,12 @@ final activeNoteShareMapProvider =
     });
 
 /// 分享 URL 拼接 —— 契约：服务端不返回 url 字段，客户端用 origin 自行
-/// 拼接 `${origin}/s/${token}`（自托管 origin 各异；单 origin 寻址下
-/// endpoint 即站点 origin，落地页 /s/ 由 site nginx 反代）。
+/// 拼接 `${origin}/s/n/${token}`（架构决策：落地页路由 /s/n/{token}，
+/// 公开 API /v1/shares/n/...；无历史兼容。自托管 origin 各异；单 origin
+/// 寻址下 endpoint 即站点 origin，落地页由 site nginx 反代）。
+/// 所有需要分享 URL 的位置（弹层复制/系统分享、管理页复制）统一走这里。
 String noteShareUrl(Uri origin, String token) =>
-    origin.replace(path: '/s/$token').toString();
+    origin.replace(path: '/s/n/$token').toString();
 
 /// 从 expires_at 反推有效期档位（1d/7d/30d/never）—— 仅用于分享弹层
 /// 有效期选择器的选中态回显（按剩余时间归桶；服务端不存档位只存
