@@ -105,6 +105,8 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
             invalidDesc: 'This share link does not exist or has been disabled by the author.',
             expiredTitle: 'Share expired or note deleted',
             expiredDesc: 'This share has expired, or the note has been deleted by the author.',
+            exhaustedTitle: 'View limit reached',
+            exhaustedDesc: 'This share has reached its maximum number of views set by the author.',
             loadFailedTitle: 'Failed to load',
             loadFailedDesc: 'Please check your connection and try again later.',
             justNow: 'just now',
@@ -128,6 +130,8 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
             invalidDesc: '该分享链接不存在，或已被作者停止分享。',
             expiredTitle: '分享已过期或笔记已删除',
             expiredDesc: '该分享已过有效期，或笔记已被作者删除。',
+            exhaustedTitle: '该分享访问次数已达上限',
+            exhaustedDesc: '作者为该分享设置了访问次数上限，现已达到上限，无法继续查看。',
             loadFailedTitle: '加载失败',
             loadFailedDesc: '请检查网络后稍后重试。',
             justNow: '刚刚',
@@ -150,6 +154,23 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
       // token：/s/{token}（允许后续子路径，取第一段）
       const tokenMatch = window.location.pathname.match(/^\/s\/([A-Za-z0-9_-]{8,})/);
       const token = tokenMatch ? tokenMatch[1] : null;
+
+      // 访问计数会话级去重（S2 契约）：每浏览器会话一个 uuid，sessionStorage 持有，
+      // 会话内不变，所有分享页共用；随公开 GET 上送 X-Share-Session，
+      // 服务端 (share_id, sha256(session)) 首插才 view_count+1，同会话刷新不重复计。
+      function shareSession(): string | null {
+        try {
+          let id = sessionStorage.getItem('biu:share-session');
+          if (!id) {
+            id = crypto.randomUUID();
+            sessionStorage.setItem('biu:share-session', id);
+          }
+          return id;
+        } catch {
+          // sessionStorage 不可用（隐私模式等）——不带 header，服务端每次照计
+          return null;
+        }
+      }
 
       // 解锁 JWT 存 sessionStorage（契约：exp 2h，改密/重置即失效）
       const storageKey = token ? `biu:share-access:${token}` : '';
@@ -189,11 +210,21 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         return new Date(t).toLocaleDateString(isEn ? 'en-US' : 'zh-CN');
       }
 
-      function showError(kind: 'invalid' | 'expired' | 'failed') {
-        $('error-title').textContent =
-          kind === 'invalid' ? S.invalidTitle : kind === 'expired' ? S.expiredTitle : S.loadFailedTitle;
-        $('error-desc').textContent =
-          kind === 'invalid' ? S.invalidDesc : kind === 'expired' ? S.expiredDesc : S.loadFailedDesc;
+      function showError(kind: 'invalid' | 'expired' | 'exhausted' | 'failed') {
+        const titles = {
+          invalid: S.invalidTitle,
+          expired: S.expiredTitle,
+          exhausted: S.exhaustedTitle,
+          failed: S.loadFailedTitle,
+        };
+        const descs = {
+          invalid: S.invalidDesc,
+          expired: S.expiredDesc,
+          exhausted: S.exhaustedDesc,
+          failed: S.loadFailedDesc,
+        };
+        $('error-title').textContent = titles[kind];
+        $('error-desc').textContent = descs[kind];
         show('error');
       }
 
@@ -264,6 +295,8 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
         const headers: Record<string, string> = {};
         const accessToken = savedToken();
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+        const sessionId = shareSession();
+        if (sessionId) headers['X-Share-Session'] = sessionId;
         let res: Response;
         try {
           res = await fetch(`/v1/shares/${encodeURIComponent(token)}`, { headers });
@@ -286,7 +319,16 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
           return;
         }
         if (res.status === 410) {
-          showError('expired');
+          // 410 需按 body code 分支：expired / note_deleted 同文案，exhausted 单独文案。
+          // 错误体 {"error":{"code":"<code>","message":"<msg>"}}；解析失败兜底 expired 文案。
+          let code = '';
+          try {
+            const body = (await res.json()) as { error?: { code?: string } };
+            code = body?.error?.code ?? '';
+          } catch {
+            /* 保持兜底 */
+          }
+          showError(code === 'exhausted' ? 'exhausted' : 'expired');
           return;
         }
         showError('failed');
