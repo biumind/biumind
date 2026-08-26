@@ -93,10 +93,10 @@ class _FakeSharesClient extends NotesClient {
   Future<NoteShare> putShare(
     String noteId, {
     String? password,
-    required String expiresIn,
+    String? expiresIn,
   }) async {
     log.add('PUT:$noteId');
-    lastPutBody = {'expires_in': expiresIn, 'password': ?password};
+    lastPutBody = {'expires_in': ?expiresIn, 'password': ?password};
     // PUT 对已停用分享 = 以原 token 恢复（契约）。
     return _replace(noteId, NoteShareStatus.active).share;
   }
@@ -225,7 +225,8 @@ void main() {
     await pumpUntilFound(tester, find.text('生效中'));
 
     expect(client.log, contains('PUT:n1'));
-    expect(client.lastPutBody['expires_in'], isNotNull);
+    // 契约修订：恢复的 PUT 两个字段全缺省（有效期保持现有 expires_at）。
+    expect(client.lastPutBody.containsKey('expires_in'), isFalse);
     expect(client.lastPutBody.containsKey('password'), isFalse); // 缺省 = 保持
     expect(find.byTooltip('停止分享'), findsOneWidget);
   });

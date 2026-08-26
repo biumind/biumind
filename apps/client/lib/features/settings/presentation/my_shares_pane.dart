@@ -157,15 +157,10 @@ class _ShareRowState extends ConsumerState<_ShareRow> {
   }
 
   Future<void> _restore() async {
-    // 对已停用分享 PUT = 以原 token 恢复并更新配置（契约）；有效期按当前
-    // expires_at 剩余时间归桶（已过期的给永久，用户可在笔记里再调）。
-    final expiresIn = noteShareExpiresInOf(
-      item.share.expiresAt,
-      DateTime.now(),
-    );
+    // 对已停用分享 PUT = 以原 token 恢复（契约）；expires_in 缺省 =
+    // 保持现有 expires_at 不变（契约修订，不再归桶反推上送）。
     await _mutate(
-      (client) =>
-          client.putShare(item.noteId, expiresIn: expiresIn).then((_) {}),
+      (client) => client.putShare(item.noteId).then((_) {}),
       '分享已恢复',
     );
   }

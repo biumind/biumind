@@ -653,16 +653,20 @@ class NotesClient {
   // ─── Share (笔记分享，S1) ────────────────────────────────
 
   /// 创建或更新分享（幂等，一篇笔记一条；对已停用分享 = 以原 token 恢复
-  /// 并更新配置）。契约：`expires_in` 每次必传（1d/7d/30d/never）；
-  /// [password] presence 语义：null = 字段缺省（保持不变），'' = 移除密码，
-  /// 有值 = 重设（服务端 bcrypt + credential_version+1）。
+  /// 并更新配置）。presence 语义（两个字段一致）：null = 字段缺省；
+  /// [password] '' = 移除密码、有值 = 重设（服务端 bcrypt +
+  /// credential_version+1）；[expiresIn]（1d/7d/30d/never）缺省 = 保持
+  /// 现有 expires_at 不变（契约修订：原"每次必传"已放宽；新建分享缺省
+  /// = never）。只有用户真的切换有效期档位时才传 [expiresIn]。
   Future<NoteShare> putShare(
     String noteId, {
     String? password,
-    required String expiresIn,
+    String? expiresIn,
   }) async {
-    final body = <String, dynamic>{'expires_in': expiresIn};
-    if (password != null) body['password'] = password; // '' = 移除密码
+    final body = <String, dynamic>{
+      'expires_in': ?expiresIn,
+      'password': ?password, // '' = 移除密码
+    };
     final raw = await _put('/v1/notes/$noteId/share', body);
     return NoteShare.fromJson(raw);
   }

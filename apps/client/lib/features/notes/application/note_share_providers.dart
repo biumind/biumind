@@ -68,9 +68,10 @@ final activeNoteShareMapProvider =
 String noteShareUrl(Uri origin, String token) =>
     origin.replace(path: '/s/$token').toString();
 
-/// 从 expires_at 反推有效期档位（1d/7d/30d/never）—— 契约的 PUT body
-/// `expires_in` 每次必传，恢复分享 / 回显有效期选择器时按剩余时间归桶。
-/// 已过期的归 'never'（恢复时给永久，让用户自行再选）。
+/// 从 expires_at 反推有效期档位（1d/7d/30d/never）—— 仅用于分享弹层
+/// 有效期选择器的选中态回显（按剩余时间归桶；服务端不存档位只存
+/// expires_at，归桶只影响显示，不影响数据）。契约修订后 PUT 的
+/// expires_in 缺省 = 保持不变，本函数**不再用于上送**。
 String noteShareExpiresInOf(DateTime? expiresAt, DateTime now) {
   if (expiresAt == null) return 'never';
   final rem = expiresAt.difference(now);

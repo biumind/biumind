@@ -125,7 +125,7 @@ void main() {
   tearDown(() => fake.stop());
 
   group('管理端接口', () {
-    test('PUT 创建/更新：expires_in 必传，password 缺省不出现在 body', () async {
+    test('PUT 创建/更新：传 expires_in 则上送，password 缺省不出现在 body', () async {
       final share = await client.putShare('n1', expiresIn: '7d');
       expect(fake.lastMethod, 'PUT');
       expect(fake.lastPath, '/v1/notes/n1/share');
@@ -139,15 +139,22 @@ void main() {
       expect(share.disabledAt, isNull);
     });
 
-    test('PUT password：空串 = 移除密码（字段必须上送）', () async {
-      await client.putShare('n1', password: '', expiresIn: 'never');
-      expect(fake.lastBody['password'], '');
-      expect(fake.lastBody['expires_in'], 'never');
+    test('PUT expires_in 缺省 = 不上送（契约修订：保持现有 expires_at）', () async {
+      await client.putShare('n1');
+      expect(fake.lastBody.containsKey('expires_in'), isFalse);
+      expect(fake.lastBody.containsKey('password'), isFalse);
     });
 
-    test('PUT password：有值 = 重设密码', () async {
-      await client.putShare('n1', password: '1234', expiresIn: '30d');
+    test('PUT password：空串 = 移除密码（字段必须上送），expires_in 缺省', () async {
+      await client.putShare('n1', password: '');
+      expect(fake.lastBody['password'], '');
+      expect(fake.lastBody.containsKey('expires_in'), isFalse);
+    });
+
+    test('PUT password：有值 = 重设密码，expires_in 缺省', () async {
+      await client.putShare('n1', password: '1234');
       expect(fake.lastBody['password'], '1234');
+      expect(fake.lastBody.containsKey('expires_in'), isFalse);
     });
 
     test('GET 单篇分享状态', () async {
@@ -254,7 +261,7 @@ void main() {
     });
   });
 
-  group('有效期归桶（expires_in 反推，PUT 恢复/改密码时保持配置用）', () {
+  group('有效期归桶（仅用于有效期选择器的选中态回显，不再上送）', () {
     final now = DateTime.utc(2026, 8, 26, 12);
 
     test('null / 已过期 → never', () {

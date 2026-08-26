@@ -126,37 +126,31 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
     doneToast: '分享链接已创建',
   );
 
-  Future<void> _restoreShare(api.NoteShare share) => _run(
-    // 对已停用分享 PUT = 以原 token 恢复并更新配置（契约）。
-    (client) => client
-        .putShare(
-          widget.noteId,
-          expiresIn: noteShareExpiresInOf(share.expiresAt, DateTime.now()),
-        )
-        .then((_) {}),
+  Future<void> _restoreShare() => _run(
+    // 对已停用分享 PUT = 以原 token 恢复（契约）；expires_in 缺省 =
+    // 保持现有 expires_at 不变（契约修订，不再归桶反推上送）。
+    (client) => client.putShare(widget.noteId).then((_) {}),
     doneToast: '分享已恢复',
   );
 
   Future<void> _setExpiresIn(String expiresIn) => _run(
-    // password 字段缺省 = 保持不变（契约 presence 语义）。
+    // 只有用户真的切换有效期档位时才上送 expires_in；password 字段
+    // 缺省 = 保持不变（契约 presence 语义）。
     (client) =>
         client.putShare(widget.noteId, expiresIn: expiresIn).then((_) {}),
   );
 
-  Future<void> _setPasswordKeepingExpiry(api.NoteShare share) async {
+  Future<void> _setPassword() async {
     final pwd = _passwordController.text;
     if (pwd.length < 4 || pwd.length > 8) {
       _toast('密码需为 4–8 位');
       return;
     }
+    // expires_in 缺省 = 保持现有 expires_at 不变（契约修订）—— 改密码
+    // 不再碰有效期。
     final ok = await _run(
-      (client) => client
-          .putShare(
-            widget.noteId,
-            password: pwd,
-            expiresIn: noteShareExpiresInOf(share.expiresAt, DateTime.now()),
-          )
-          .then((_) {}),
+      (client) =>
+          client.putShare(widget.noteId, password: pwd).then((_) {}),
       doneToast: '访问密码已设置',
     );
     // 只有服务端真的改成功才记录密码本体（合并复制文案用）—— 失败时
@@ -170,15 +164,9 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
     }
   }
 
-  Future<void> _removePassword(api.NoteShare share) => _run(
-    // '' = 移除密码（契约 presence 语义）。
-    (client) => client
-        .putShare(
-          widget.noteId,
-          password: '',
-          expiresIn: noteShareExpiresInOf(share.expiresAt, DateTime.now()),
-        )
-        .then((_) {}),
+  Future<void> _removePassword() => _run(
+    // '' = 移除密码（契约 presence 语义）；expires_in 缺省 = 保持不变。
+    (client) => client.putShare(widget.noteId, password: '').then((_) {}),
     doneToast: '访问密码已移除',
   );
 
@@ -406,7 +394,7 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
                         setState(() => _passwordInputVisible = true);
                       } else if (share.passwordSet) {
                         setState(() => _passwordInputVisible = false);
-                        _removePassword(share);
+                        _removePassword();
                       } else {
                         setState(() => _passwordInputVisible = false);
                       }
@@ -443,7 +431,7 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
                           _passwordController.text.length < 4 ||
                           _passwordController.text.length > 8
                       ? null
-                      : () => _setPasswordKeepingExpiry(share),
+                      : _setPassword,
                   child: Text(share.passwordSet ? '更新' : '设置'),
                 ),
               ],
@@ -489,7 +477,7 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
             if (disabled)
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _acting ? null : () => _restoreShare(share),
+                  onPressed: _acting ? null : _restoreShare,
                   icon: const Icon(Icons.restore, size: 16),
                   label: const Text('恢复分享'),
                 ),

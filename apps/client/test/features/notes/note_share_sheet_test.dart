@@ -60,10 +60,10 @@ class _FakeShareClient extends NotesClient {
   Future<NoteShare> putShare(
     String noteId, {
     String? password,
-    required String expiresIn,
+    String? expiresIn,
   }) async {
     log.add('PUT');
-    lastPutBody = {'expires_in': expiresIn, 'password': ?password};
+    lastPutBody = {'expires_in': ?expiresIn, 'password': ?password};
     if (failNextPut) {
       failNextPut = false;
       throw const NotesApiError(
@@ -83,7 +83,9 @@ class _FakeShareClient extends NotesClient {
     share = NoteShare(
       token: cur?.token ?? 'tok-1',
       passwordSet: passwordSet,
-      expiresAt: _expiresAtFor(expiresIn),
+      // 契约修订：expires_in 缺省 = 保持现有 expires_at 不变。
+      expiresAt:
+          expiresIn == null ? cur?.expiresAt : _expiresAtFor(expiresIn),
       credentialVersion: credentialVersion,
       viewCount: cur?.viewCount ?? 0,
       // PUT 对已停用分享 = 恢复（契约）。
@@ -193,7 +195,7 @@ void main() {
     await tester.tap(find.text('创建分享链接'));
     await pumpUntilFound(tester, find.text(expectedUrl('tok-1')));
 
-    // PUT body：expires_in 必传（默认永久），password 字段缺省。
+    // PUT body：创建显式传默认档位 never，password 字段缺省。
     expect(client.lastPutBody['expires_in'], 'never');
     expect(client.lastPutBody.containsKey('password'), isFalse);
     expect(find.byTooltip('复制链接'), findsOneWidget);
@@ -240,7 +242,8 @@ void main() {
     await pumpUntilFound(tester, find.widgetWithText(FilledButton, '更新'));
 
     expect(client.lastPutBody['password'], '1234');
-    expect(client.lastPutBody['expires_in'], 'never');
+    // 契约修订：改密码不再上送 expires_in（缺省 = 保持现有有效期）。
+    expect(client.lastPutBody.containsKey('expires_in'), isFalse);
     expect(client.share!.passwordSet, isTrue);
     expect(client.share!.credentialVersion, 2);
 
@@ -348,6 +351,9 @@ void main() {
     // 在停用态也存在，不能当完成信号）。
     await pumpUntilFound(tester, find.text('重置链接'));
     expect(client.log.where((e) => e == 'PUT').length, 1);
+    // 恢复的 PUT：两个字段全缺省（原 token 恢复、有效期保持不变）。
+    expect(client.lastPutBody.containsKey('expires_in'), isFalse);
+    expect(client.lastPutBody.containsKey('password'), isFalse);
     expect(client.share!.disabledAt, isNull);
     expect(find.text('已停止分享，链接当前无法访问'), findsNothing);
   });
