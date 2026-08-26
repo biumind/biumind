@@ -12,9 +12,11 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/layout/form_factor.dart';
+import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/notes_client.dart' as api;
 import '../../../services/auth_service.dart';
 import '../application/note_share_providers.dart';
@@ -26,6 +28,15 @@ const _expiresOptions = <(String, String)>[
   ('7d', '7 天'),
   ('30d', '30 天'),
   ('never', '永久'),
+];
+
+/// 访问次数上限档位（S2；'custom' 弹输入框，'none' = 不限 → 上送 0 移除）。
+const _maxViewsOptions = <(String, String)>[
+  ('none', '不限'),
+  ('100', '100'),
+  ('500', '500'),
+  ('1000', '1000'),
+  ('custom', '自定义'),
 ];
 
 class NoteShareSheet extends ConsumerStatefulWidget {
@@ -140,6 +151,61 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
         client.putShare(widget.noteId, expiresIn: expiresIn).then((_) {}),
   );
 
+  /// 访问次数上限（S2）：选择档位后才上送 max_views（'none' = 不限 →
+  /// 上送 0 移除上限）；其余字段缺省保持不变。
+  Future<void> _setMaxViews(String option) async {
+    if (option == 'custom') {
+      final v = await _promptCustomMaxViews();
+      if (v == null || !mounted) return;
+      await _run(
+        (client) => client.putShare(widget.noteId, maxViews: v).then((_) {}),
+        doneToast: '访问上限已设置为 $v 次',
+      );
+      return;
+    }
+    final maxViews = option == 'none' ? 0 : int.parse(option);
+    await _run(
+      (client) =>
+          client.putShare(widget.noteId, maxViews: maxViews).then((_) {}),
+      doneToast: option == 'none' ? '已移除访问上限' : '访问上限已设置为 $maxViews 次',
+    );
+  }
+
+  /// 「自定义」上限输入弹窗：正整数校验（非法输入不允许确定）。
+  Future<int?> _promptCustomMaxViews() {
+    final controller = TextEditingController();
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('自定义访问上限'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: '正整数，如 200'),
+          onSubmitted: (v) {
+            final n = int.tryParse(v.trim());
+            if (n != null && n > 0) Navigator.of(ctx).pop(n);
+          },
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final n = int.tryParse(controller.text.trim());
+              if (n == null || n <= 0) return; // 正整数校验，不合法不关闭
+              Navigator.of(ctx).pop(n);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _setPassword() async {
     final pwd = _passwordController.text;
     if (pwd.length < 4 || pwd.length > 8) {
@@ -222,15 +288,26 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
     );
   }
 
-  void _copyLink(api.NoteShare share) {
-    final url = _shareUrl(share);
-    if (url == null) return;
-    // 含密码时复制「链接 + 密码」合并文案（方便粘贴到微信）—— 密码本体
-    // 只有本次会话内在本弹层设置过才拿得到，否则只复制链接。
+  /// 复制 / 系统分享共用的文案：含密码时（本次会话内在本弹层设置过）
+  /// 拼「链接 + 密码」合并文案（方便粘贴到微信），否则纯链接 —— 服务端
+  /// 只回 password_set，不回密码本体。
+  String _shareText(api.NoteShare share) {
+    final url = _shareUrl(share) ?? '';
     final pwd = share.passwordSet ? _lastSetPassword : null;
-    final text = pwd == null ? url : '链接：$url\n访问密码：$pwd';
-    Clipboard.setData(ClipboardData(text: text));
-    _toast(pwd == null ? '链接已复制' : '链接和访问密码已复制');
+    return pwd == null ? url : '链接：$url\n访问密码：$pwd';
+  }
+
+  void _copyLink(api.NoteShare share) {
+    final hasPwd =
+        share.passwordSet && _lastSetPassword != null;
+    Clipboard.setData(ClipboardData(text: _shareText(share)));
+    _toast(hasPwd ? '链接和访问密码已复制' : '链接已复制');
+  }
+
+  /// 系统分享面板（S2，share_plus）—— 平台能力由 PlatformCaps
+  /// .hasSystemShare 门控（C5：业务代码不做平台分支）。
+  void _systemShare(api.NoteShare share) {
+    SharePlus.instance.share(ShareParams(text: _shareText(share)));
   }
 
   // ─── build ───────────────────────────────────────────────
@@ -333,15 +410,17 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              status == api.NoteShareStatus.disabled
-                  ? '已停止分享，链接当前无法访问'
-                  : '分享已过期，链接当前无法访问',
+              switch (status) {
+                api.NoteShareStatus.disabled => '已停止分享，链接当前无法访问',
+                api.NoteShareStatus.exhausted => '已达访问上限，链接当前无法访问',
+                _ => '分享已过期，链接当前无法访问',
+              },
               style: TextStyle(fontSize: 12, color: c.text2),
             ),
           ),
           const SizedBox(height: 12),
         ],
-        // 链接 + 一键复制
+        // 链接 + 一键复制（+ 系统分享，平台能力门控）
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -364,6 +443,15 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
               ),
+              if (ref.watch(platformCapsProvider).hasSystemShare)
+                IconButton(
+                  tooltip: '系统分享…',
+                  onPressed: () => _systemShare(share),
+                  icon: Icon(Icons.ios_share, size: 16, color: c.text2),
+                  padding: EdgeInsets.zero,
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
             ],
           ),
         ),
@@ -462,12 +550,45 @@ class _NoteShareSheetState extends ConsumerState<NoteShareSheet> {
             ),
           ],
         ),
+        const SizedBox(height: 8),
+        // 访问次数上限（S2）：不限 / 100 / 500 / 1000 / 自定义。
+        Row(
+          children: <Widget>[
+            Text('访问上限', style: TextStyle(fontSize: 13, color: c.text1)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SegmentedButton<String>(
+                segments: <ButtonSegment<String>>[
+                  for (final (value, label) in _maxViewsOptions)
+                    ButtonSegment(value: value, label: Text(label)),
+                ],
+                // 选中态回显：null → 不限；命中档位 → 档位；其余 → 自定义。
+                selected: {
+                  switch (share.maxViews) {
+                    null => 'none',
+                    100 || 500 || 1000 => '${share.maxViews}',
+                    _ => 'custom',
+                  },
+                },
+                onSelectionChanged: _acting
+                    ? null
+                    : (sel) => _setMaxViews(sel.first),
+                showSelectedIcon: false,
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         // 信息行：创建时间 / 有效期剩余 / 累计访问
         Text(
           '创建于 ${relativeTime(share.createdAt)}'
           ' · ${noteShareExpiryLabel(share.expiresAt, now)}'
-          ' · 累计访问 ${share.viewCount} 次',
+          ' · 累计访问 ${share.viewCount} 次'
+          '${share.maxViews != null ? '（上限 ${share.maxViews} 次）' : ''}',
           style: TextStyle(fontSize: 11, color: c.textMuted),
         ),
         const SizedBox(height: 16),

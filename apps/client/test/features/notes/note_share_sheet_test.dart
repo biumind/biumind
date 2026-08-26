@@ -12,6 +12,7 @@
 // 统一用 _pumpUntil 小步推进。
 
 import 'package:biumind/app/theme/theme.dart';
+import 'package:biumind/core/platform/platform_caps.dart';
 import 'package:biumind/data/api/notes_client.dart';
 import 'package:biumind/features/notes/application/note_share_providers.dart';
 import 'package:biumind/features/notes/presentation/note_share_sheet.dart';
@@ -44,13 +45,19 @@ class _FakeShareClient extends NotesClient {
   }
 
   /// 预置一条活跃分享。
-  void seed({bool passwordSet = false, DateTime? expiresAt}) {
+  void seed({
+    bool passwordSet = false,
+    DateTime? expiresAt,
+    int viewCount = 3,
+    int? maxViews,
+  }) {
     share = NoteShare(
       token: 'tok-1',
       passwordSet: passwordSet,
       expiresAt: expiresAt,
       credentialVersion: 1,
-      viewCount: 3,
+      viewCount: viewCount,
+      maxViews: maxViews,
       createdAt: DateTime.utc(2026, 8, 26),
       updatedAt: DateTime.utc(2026, 8, 26),
     );
@@ -61,9 +68,14 @@ class _FakeShareClient extends NotesClient {
     String noteId, {
     String? password,
     String? expiresIn,
+    int? maxViews,
   }) async {
     log.add('PUT');
-    lastPutBody = {'expires_in': ?expiresIn, 'password': ?password};
+    lastPutBody = {
+      'expires_in': ?expiresIn,
+      'password': ?password,
+      'max_views': ?maxViews,
+    };
     if (failNextPut) {
       failNextPut = false;
       throw const NotesApiError(
@@ -88,6 +100,9 @@ class _FakeShareClient extends NotesClient {
           expiresIn == null ? cur?.expiresAt : _expiresAtFor(expiresIn),
       credentialVersion: credentialVersion,
       viewCount: cur?.viewCount ?? 0,
+      // max_views 三态：缺省保持 / 0 移除 / 正整数设置。
+      maxViews:
+          maxViews == null ? cur?.maxViews : (maxViews == 0 ? null : maxViews),
       // PUT 对已停用分享 = 恢复（契约）。
       createdAt: cur?.createdAt ?? DateTime.utc(2026, 8, 26),
       updatedAt: DateTime.now().toUtc(),
@@ -117,6 +132,7 @@ class _FakeShareClient extends NotesClient {
       expiresAt: s.expiresAt,
       credentialVersion: s.credentialVersion,
       viewCount: s.viewCount,
+      maxViews: s.maxViews,
       disabledAt: DateTime.now().toUtc(),
       createdAt: s.createdAt,
       updatedAt: DateTime.now().toUtc(),
@@ -133,6 +149,7 @@ class _FakeShareClient extends NotesClient {
       expiresAt: s?.expiresAt,
       credentialVersion: (s?.credentialVersion ?? 1) + 1,
       viewCount: s?.viewCount ?? 0,
+      maxViews: s?.maxViews,
       createdAt: s?.createdAt ?? DateTime.utc(2026, 8, 26),
       updatedAt: DateTime.now().toUtc(),
     );
@@ -155,7 +172,7 @@ void main() {
     clipboardText = null;
   });
 
-  Future<void> pumpSheet(WidgetTester tester) async {
+  Future<void> pumpSheet(WidgetTester tester, {bool systemShare = false}) async {
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
       (call) async {
@@ -172,6 +189,18 @@ void main() {
           hubCredentialsProvider.overrideWithValue(
             HubCredentials(
                 endpoint: Uri.parse(origin), bearerToken: 'tok'),
+          ),
+          platformCapsProvider.overrideWithValue(
+            PlatformCaps(
+              hasLocalPty: false,
+              hasFileSystem: false,
+              hasNotifications: false,
+              supportsBackgroundIsolates: false,
+              hasPersistentSqlite: false,
+              hasEmbeddedWebView: false,
+              hasRepoAppRunner: false,
+              hasSystemShare: systemShare,
+            ),
           ),
         ],
         child: MaterialApp(
@@ -357,6 +386,89 @@ void main() {
     expect(client.share!.disabledAt, isNull);
     expect(find.text('已停止分享，链接当前无法访问'), findsNothing);
   });
+
+  testWidgets('访问上限：档位上送（500 → 500，不限 → 0 移除），其余字段缺省',
+      (tester) async {
+    client.seed();
+    await pumpSheet(tester);
+    await pumpUntilFound(tester, find.byTooltip('复制链接'));
+
+    // 选 500 → max_views 500；其余字段（expires_in/password）缺省。
+    await tester.tap(find.text('500'));
+    await _pumpUntilLog(tester, client, 'PUT', 1);
+    expect(client.lastPutBody['max_views'], 500);
+    expect(client.lastPutBody.containsKey('expires_in'), isFalse);
+    expect(client.lastPutBody.containsKey('password'), isFalse);
+    await pumpUntilFound(tester, find.textContaining('上限 500 次'));
+
+    // 选「不限」→ max_views 0（移除上限）。
+    await tester.tap(find.text('不限'));
+    await _pumpUntilLog(tester, client, 'PUT', 2);
+    expect(client.lastPutBody['max_views'], 0);
+    expect(client.share!.maxViews, isNull);
+  });
+
+  testWidgets('访问上限「自定义」：正整数校验 → 合法值上送', (tester) async {
+    client.seed();
+    await pumpSheet(tester);
+    await pumpUntilFound(tester, find.byTooltip('复制链接'));
+
+    await tester.tap(find.text('自定义'));
+    await pumpUntilFound(tester, find.text('自定义访问上限'));
+
+    // 非法输入（非正整数）：确定不生效、无 PUT。
+    await tester.enterText(find.byType(TextField).last, '0');
+    await tester.tap(find.widgetWithText(FilledButton, '确定'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(client.log.where((e) => e == 'PUT').length, 0);
+    expect(find.text('自定义访问上限'), findsOneWidget); // 弹窗未关
+
+    // 合法输入：上送 200。
+    await tester.enterText(find.byType(TextField).last, '200');
+    await tester.tap(find.widgetWithText(FilledButton, '确定'));
+    await _pumpUntilLog(tester, client, 'PUT', 1);
+    expect(client.lastPutBody['max_views'], 200);
+    expect(client.share!.maxViews, 200);
+  });
+
+  testWidgets('已达访问上限（exhausted）→ 弹层显示提示横幅', (tester) async {
+    client.seed(viewCount: 100, maxViews: 100);
+    await pumpSheet(tester);
+    await pumpUntilFound(tester, find.text('已达访问上限，链接当前无法访问'));
+    // 信息行带出上限计数。
+    expect(find.textContaining('上限 100 次'), findsOneWidget);
+  });
+
+  testWidgets('系统分享按钮：平台能力门控显隐', (tester) async {
+    client.seed();
+    // 有能力（iOS/Android/macOS/Web）→ 显示。
+    await pumpSheet(tester, systemShare: true);
+    await pumpUntilFound(tester, find.byTooltip('系统分享…'));
+    expect(find.byTooltip('复制链接'), findsOneWidget);
+  });
+
+  testWidgets('系统分享按钮：无平台能力 → 不渲染', (tester) async {
+    client.seed();
+    await pumpSheet(tester, systemShare: false);
+    await pumpUntilFound(tester, find.byTooltip('复制链接'));
+    expect(find.byTooltip('系统分享…'), findsNothing);
+  });
+}
+
+/// 等 fake client 日志里某类请求达到 [count] 次（请求→invalidate→重拉
+/// 是异步的，UI finder 在动作前后可能都存在，拿日志当完成信号最稳）。
+Future<void> _pumpUntilLog(
+  WidgetTester tester,
+  _FakeShareClient client,
+  String entry,
+  int count, {
+  int maxPumps = 100,
+}) async {
+  for (var i = 0; i < maxPumps; i++) {
+    if (client.log.where((e) => e == entry).length >= count) return;
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+  fail('pumpUntilLog 超时：$entry 未达 $count 次');
 }
 
 /// 小步 pump 直到 finder 命中（加载态 spinner 是无限动画，不能

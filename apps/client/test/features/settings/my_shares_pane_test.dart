@@ -33,6 +33,7 @@ class _FakeSharesClient extends NotesClient {
     required String title,
     required NoteShareStatus status,
     int viewCount = 0,
+    int? maxViews,
     DateTime? expiresAt,
   }) =>
       NoteShareListItem(
@@ -42,6 +43,7 @@ class _FakeSharesClient extends NotesClient {
           expiresAt: expiresAt,
           credentialVersion: 1,
           viewCount: viewCount,
+          maxViews: maxViews,
           disabledAt: status == NoteShareStatus.disabled
               ? DateTime.utc(2026, 8, 27)
               : null,
@@ -94,9 +96,14 @@ class _FakeSharesClient extends NotesClient {
     String noteId, {
     String? password,
     String? expiresIn,
+    int? maxViews,
   }) async {
     log.add('PUT:$noteId');
-    lastPutBody = {'expires_in': ?expiresIn, 'password': ?password};
+    lastPutBody = {
+      'expires_in': ?expiresIn,
+      'password': ?password,
+      'max_views': ?maxViews,
+    };
     // PUT 对已停用分享 = 以原 token 恢复（契约）。
     return _replace(noteId, NoteShareStatus.active).share;
   }
@@ -183,6 +190,30 @@ void main() {
     // 只有生效中的行有「复制链接」；已停用行有「恢复分享」。
     expect(find.byTooltip('复制链接'), findsOneWidget);
     expect(find.byTooltip('恢复分享'), findsOneWidget);
+  });
+
+  testWidgets('已上限（exhausted）chip + N/上限 摘要（S2）', (tester) async {
+    client.items = [
+      _FakeSharesClient.item(
+          noteId: 'n1',
+          title: '热门笔记',
+          status: NoteShareStatus.exhausted,
+          viewCount: 100,
+          maxViews: 100),
+      _FakeSharesClient.item(
+          noteId: 'n2',
+          title: '普通笔记',
+          status: NoteShareStatus.active,
+          viewCount: 12,
+          maxViews: 500),
+    ];
+    await pumpPane(tester);
+    await pumpUntilFound(tester, find.text('已上限'));
+
+    expect(find.text('生效中'), findsOneWidget);
+    // 有上限的行显示「N / 上限」计数。
+    expect(find.textContaining('访问 100 / 100 次'), findsOneWidget);
+    expect(find.textContaining('访问 12 / 500 次'), findsOneWidget);
   });
 
   testWidgets('空态：还没有分享过笔记', (tester) async {

@@ -75,6 +75,12 @@ class PlatformCaps {
   /// 裁剪。未发行的桌面平台（Windows/Linux）回落 'web'（非移动端行为）。
   final String editorPlatform;
 
+  /// True when the platform has a usable OS 级系统分享面板（share_plus）：
+  /// iOS / Android 原生分享 sheet、macOS 分享 picker、Web navigator.share。
+  /// Windows / Linux 的分享 UX 不确定，关闭入口（复制链接仍可用）。
+  /// 笔记分享弹层的「系统分享…」按钮据此显隐（S2）。
+  final bool hasSystemShare;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -86,6 +92,7 @@ class PlatformCaps {
     this.isMobile = false,
     this.hasRichClipboard = false,
     this.editorPlatform = 'web',
+    this.hasSystemShare = false,
   });
 
   factory PlatformCaps.detect() {
@@ -104,6 +111,7 @@ class PlatformCaps {
         hasPersistentSqlite: true,
         hasEmbeddedWebView: false,
         hasRepoAppRunner: false,
+        hasSystemShare: true, // navigator.share
       );
     }
     final desktop = switch (defaultTargetPlatform) {
@@ -139,6 +147,13 @@ class PlatformCaps {
         TargetPlatform.android => 'android',
         TargetPlatform.macOS => 'macos',
         _ => 'web',
+      },
+      hasSystemShare: switch (defaultTargetPlatform) {
+        TargetPlatform.iOS ||
+        TargetPlatform.android ||
+        TargetPlatform.macOS =>
+          true,
+        _ => false,
       },
     );
   }

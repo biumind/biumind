@@ -26,6 +26,7 @@ class _FakeShareApi {
     String? expiresAt = '2026-09-02T00:00:00Z',
     int credentialVersion = 1,
     int viewCount = 7,
+    int? maxViews,
     String? disabledAt,
   }) => {
     'token': token,
@@ -33,6 +34,7 @@ class _FakeShareApi {
     'expires_at': expiresAt,
     'credential_version': credentialVersion,
     'view_count': viewCount,
+    'max_views': maxViews,
     'disabled_at': disabledAt,
     'created_at': '2026-08-26T00:00:00Z',
     'updated_at': '2026-08-26T01:00:00Z',
@@ -96,6 +98,12 @@ class _FakeShareApi {
             'note_id': 'n3',
             'note_title': '旧笔记',
             'status': 'expired',
+          },
+          {
+            ..._shareJson(token: 'tok-z', viewCount: 100, maxViews: 100),
+            'note_id': 'n4',
+            'note_title': '热门笔记',
+            'status': 'exhausted',
           },
         ],
       };
@@ -190,16 +198,32 @@ void main() {
       expect(share.credentialVersion, 2);
     });
 
-    test('GET 我的分享列表：note_id/note_title/status 解析', () async {
+    test('GET 我的分享列表：note_id/note_title/status/max_views 解析', () async {
       final items = await client.listShares();
-      expect(items, hasLength(3));
+      expect(items, hasLength(4));
       expect(items[0].noteId, 'n1');
       expect(items[0].noteTitle, '会议纪要');
       expect(items[0].status, NoteShareStatus.active);
+      expect(items[0].share.maxViews, isNull);
       expect(items[1].status, NoteShareStatus.disabled);
       expect(items[1].share.disabledAt, isNotNull);
       expect(items[1].share.expiresAt, isNull);
       expect(items[2].status, NoteShareStatus.expired);
+      // S2：exhausted 状态值 + max_views 解析。
+      expect(items[3].status, NoteShareStatus.exhausted);
+      expect(items[3].share.maxViews, 100);
+      expect(items[3].share.viewCount, 100);
+    });
+
+    test('PUT max_views 三态：正整数设置 / 0 移除 / 缺省不上送（S2）', () async {
+      await client.putShare('n1', maxViews: 500);
+      expect(fake.lastBody['max_views'], 500);
+
+      await client.putShare('n1', maxViews: 0);
+      expect(fake.lastBody['max_views'], 0);
+
+      await client.putShare('n1');
+      expect(fake.lastBody.containsKey('max_views'), isFalse);
     });
   });
 
@@ -243,6 +267,64 @@ void main() {
       );
       expect(
         noteShareStatusOf(disabledAt: null, expiresAt: null, now: now),
+        NoteShareStatus.active,
+      );
+    });
+
+    test('max_views 触顶 → exhausted（优先级低于 disabled、高于 expired）', () {
+      // view_count >= max_views（恰等也算触顶）→ exhausted
+      expect(
+        noteShareStatusOf(
+          disabledAt: null,
+          expiresAt: now.add(const Duration(days: 1)),
+          viewCount: 100,
+          maxViews: 100,
+          now: now,
+        ),
+        NoteShareStatus.exhausted,
+      );
+      // 未触顶 → active
+      expect(
+        noteShareStatusOf(
+          disabledAt: null,
+          expiresAt: null,
+          viewCount: 99,
+          maxViews: 100,
+          now: now,
+        ),
+        NoteShareStatus.active,
+      );
+      // disabled 优先于 exhausted
+      expect(
+        noteShareStatusOf(
+          disabledAt: now.subtract(const Duration(days: 1)),
+          expiresAt: null,
+          viewCount: 100,
+          maxViews: 100,
+          now: now,
+        ),
+        NoteShareStatus.disabled,
+      );
+      // exhausted 优先于 expired
+      expect(
+        noteShareStatusOf(
+          disabledAt: null,
+          expiresAt: now.subtract(const Duration(days: 1)),
+          viewCount: 100,
+          maxViews: 100,
+          now: now,
+        ),
+        NoteShareStatus.exhausted,
+      );
+      // max_views null = 不限，永不 exhausted
+      expect(
+        noteShareStatusOf(
+          disabledAt: null,
+          expiresAt: null,
+          viewCount: 99999,
+          maxViews: null,
+          now: now,
+        ),
         NoteShareStatus.active,
       );
     });

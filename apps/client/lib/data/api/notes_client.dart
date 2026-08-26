@@ -271,18 +271,24 @@ class NotePromoteResult {
   const NotePromoteResult({required this.page, required this.note});
 }
 
-/// 分享状态机（S1 契约：active / disabled / expired）。
-/// 推导规则与 brain 服务端一致：disabled_at 非空 → disabled（停用优先于
-/// 过期，恢复后按 expires_at 重新判定）；否则 expires_at 已过 → expired；
+/// 分享状态机（S1 契约：active / disabled / expired；S2 + exhausted）。
+/// 推导规则与 brain 服务端一致（优先级 disabled > exhausted > expired >
+/// active）：disabled_at 非空 → disabled；max_views 非空且
+/// view_count >= max_views → exhausted；expires_at 已过 → expired；
 /// 否则 active。[now] 显式传入以便单测。
-enum NoteShareStatus { active, disabled, expired }
+enum NoteShareStatus { active, disabled, expired, exhausted }
 
 NoteShareStatus noteShareStatusOf({
   required DateTime? disabledAt,
   required DateTime? expiresAt,
+  int viewCount = 0,
+  int? maxViews,
   required DateTime now,
 }) {
   if (disabledAt != null) return NoteShareStatus.disabled;
+  if (maxViews != null && viewCount >= maxViews) {
+    return NoteShareStatus.exhausted;
+  }
   if (expiresAt != null && !expiresAt.isAfter(now)) {
     return NoteShareStatus.expired;
   }
@@ -292,6 +298,7 @@ NoteShareStatus noteShareStatusOf({
 NoteShareStatus noteShareStatusFromString(String s) => switch (s) {
       'disabled' => NoteShareStatus.disabled,
       'expired' => NoteShareStatus.expired,
+      'exhausted' => NoteShareStatus.exhausted,
       _ => NoteShareStatus.active,
     };
 
@@ -304,6 +311,10 @@ class NoteShare {
   final DateTime? expiresAt;
   final int credentialVersion;
   final int viewCount;
+
+  /// 访问次数上限（S2）；null = 不限。view_count >= max_views 时分享
+  /// 进入 exhausted（链接 410）。
+  final int? maxViews;
   final DateTime? disabledAt;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -314,6 +325,7 @@ class NoteShare {
     this.expiresAt,
     required this.credentialVersion,
     required this.viewCount,
+    this.maxViews,
     this.disabledAt,
     required this.createdAt,
     required this.updatedAt,
@@ -326,6 +338,7 @@ class NoteShare {
             DateTime.tryParse(j['expires_at'] as String? ?? '')?.toUtc(),
         credentialVersion: (j['credential_version'] as num? ?? 1).toInt(),
         viewCount: (j['view_count'] as num? ?? 0).toInt(),
+        maxViews: (j['max_views'] as num?)?.toInt(),
         disabledAt:
             DateTime.tryParse(j['disabled_at'] as String? ?? '')?.toUtc(),
         createdAt: DateTime.tryParse(j['created_at'] as String? ?? '')
@@ -342,6 +355,8 @@ class NoteShare {
   NoteShareStatus status(DateTime now) => noteShareStatusOf(
         disabledAt: disabledAt,
         expiresAt: expiresAt,
+        viewCount: viewCount,
+        maxViews: maxViews,
         now: now,
       );
 }
@@ -653,19 +668,22 @@ class NotesClient {
   // ─── Share (笔记分享，S1) ────────────────────────────────
 
   /// 创建或更新分享（幂等，一篇笔记一条；对已停用分享 = 以原 token 恢复
-  /// 并更新配置）。presence 语义（两个字段一致）：null = 字段缺省；
+  /// 并更新配置）。presence 语义（三个字段一致）：null = 字段缺省；
   /// [password] '' = 移除密码、有值 = 重设（服务端 bcrypt +
   /// credential_version+1）；[expiresIn]（1d/7d/30d/never）缺省 = 保持
   /// 现有 expires_at 不变（契约修订：原"每次必传"已放宽；新建分享缺省
-  /// = never）。只有用户真的切换有效期档位时才传 [expiresIn]。
+  /// = never），只有用户真的切换有效期档位时才传；[maxViews]（S2）
+  /// 正整数 = 设置/调整上限、`0` = 移除上限、缺省 = 保持不变。
   Future<NoteShare> putShare(
     String noteId, {
     String? password,
     String? expiresIn,
+    int? maxViews,
   }) async {
     final body = <String, dynamic>{
       'expires_in': ?expiresIn,
       'password': ?password, // '' = 移除密码
+      'max_views': ?maxViews, // 0 = 移除上限
     };
     final raw = await _put('/v1/notes/$noteId/share', body);
     return NoteShare.fromJson(raw);

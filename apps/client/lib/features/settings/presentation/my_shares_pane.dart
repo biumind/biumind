@@ -199,6 +199,7 @@ class _ShareRowState extends ConsumerState<_ShareRow> {
       api.NoteShareStatus.active => ('生效中', c.successSoft, c.success),
       api.NoteShareStatus.disabled => ('已停用', c.surface2, c.textMuted),
       api.NoteShareStatus.expired => ('已过期', c.warningSoft, c.warning),
+      api.NoteShareStatus.exhausted => ('已上限', c.errorSoft, c.error),
     };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -243,7 +244,7 @@ class _ShareRowState extends ConsumerState<_ShareRow> {
                 const SizedBox(height: 4),
                 Text(
                   '${noteShareExpiryLabel(item.share.expiresAt, now)}'
-                  ' · 累计访问 ${item.share.viewCount} 次'
+                  ' · ${item.share.maxViews != null ? '访问 ${item.share.viewCount} / ${item.share.maxViews} 次' : '累计访问 ${item.share.viewCount} 次'}'
                   '${item.share.passwordSet ? ' · 已设密码' : ''}',
                   style: TextStyle(fontSize: 11, color: c.textMuted),
                 ),
