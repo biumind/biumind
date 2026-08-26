@@ -310,7 +310,7 @@ func TestSharePublicHelpers(t *testing.T) {
 
 	// biu-file:// 改写：URI 精确形态被替换，裸字样不动
 	rw := RewriteShareFileURIs(content, "tok123")
-	want := fmt.Sprintf("/v1/shares/tok123/files/%s", fileID)
+	want := fmt.Sprintf("/v1/shares/n/tok123/files/%s", fileID)
 	if !strings.Contains(rw, want) {
 		t.Fatalf("rewrite missing %q: %s", want, rw)
 	}

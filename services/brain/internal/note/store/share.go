@@ -440,9 +440,9 @@ func (s *Store) PruneShareViewSessions(ctx context.Context, keepDays int) (int64
 }
 
 // RewriteShareFileURIs —— 公开内容出口改写：正文里的 `biu-file://<uuid>`
-// 统一替换为 `/v1/shares/{token}/files/<uuid>`（相对 origin 的绝对路径，
-// Astro 落地页同源访问）。正则只匹配附件 URI 的精确形态
-// （biu-file:// + 规范 uuid），正文普通文本不会被误伤。
+// 统一替换为 `/v1/shares/n/{token}/files/<uuid>`（类型命名空间 n=note；
+// 相对 origin 的绝对路径，Astro 落地页同源访问）。正则只匹配附件 URI
+// 的精确形态（biu-file:// + 规范 uuid），正文普通文本不会被误伤。
 func RewriteShareFileURIs(content, token string) string {
-	return biuFileURIRe.ReplaceAllString(content, "/v1/shares/"+token+"/files/${1}")
+	return biuFileURIRe.ReplaceAllString(content, "/v1/shares/n/"+token+"/files/${1}")
 }

@@ -338,13 +338,13 @@ func TestSharePublicPasswordFlow(t *testing.T) {
 	token := sh["token"].(string)
 
 	// ① 有密码未解锁 → 401 password_required
-	st, body, _ := h.getPublic(t, "/v1/shares/"+token)
+	st, body, _ := h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 401 || shareErrCode(body) != "password_required" {
 		t.Fatalf("locked share: %d %v", st, body)
 	}
 
 	// unlock 密码错误 → 401 invalid_password（并写审计事件）
-	st, body, _ = h.do(t, "POST", "/v1/shares/"+token+"/unlock", "", map[string]any{"password": "0000"})
+	st, body, _ = h.do(t, "POST", "/v1/shares/n/"+token+"/unlock", "", map[string]any{"password": "0000"})
 	if st != 401 || shareErrCode(body) != "invalid_password" {
 		t.Fatalf("wrong password: %d %v", st, body)
 	}
@@ -357,19 +357,19 @@ func TestSharePublicPasswordFlow(t *testing.T) {
 	}
 
 	// unlock 正确 → 200 access_token + expires_in=7200
-	st, body, _ = h.do(t, "POST", "/v1/shares/"+token+"/unlock", "", map[string]any{"password": "1234"})
+	st, body, _ = h.do(t, "POST", "/v1/shares/n/"+token+"/unlock", "", map[string]any{"password": "1234"})
 	if st != 200 || body["access_token"] == nil || body["expires_in"] != float64(7200) {
 		t.Fatalf("unlock: %d %v", st, body)
 	}
 	access := body["access_token"].(string)
 
 	// 双通道：Bearer
-	st, body, raw := h.do(t, "GET", "/v1/shares/"+token, access, nil)
+	st, body, raw := h.do(t, "GET", "/v1/shares/n/"+token, access, nil)
 	if st != 200 {
 		t.Fatalf("public GET with bearer: %d %s", st, raw)
 	}
 	// 双通道：?access_token=
-	st, body, _ = h.getPublic(t, "/v1/shares/"+token+"?access_token="+access)
+	st, body, _ = h.getPublic(t, "/v1/shares/n/"+token+"?access_token="+access)
 	if st != 200 {
 		t.Fatalf("public GET with query token: %d %v", st, body)
 	}
@@ -378,25 +378,25 @@ func TestSharePublicPasswordFlow(t *testing.T) {
 		t.Fatalf("public content shape: %v", body)
 	}
 	content := body["content_md"].(string)
-	if !strings.Contains(content, "/v1/shares/"+token+"/files/"+fileID.String()) ||
+	if !strings.Contains(content, "/v1/shares/n/"+token+"/files/"+fileID.String()) ||
 		strings.Contains(content, "biu-file://"+fileID.String()) {
 		t.Fatalf("content_md not rewritten: %s", content)
 	}
 
 	// 重设密码 → credential_version+1 → 旧访问 JWT 立即失效
 	h.putShare(t, tok, noteID, map[string]any{"expires_in": "never", "password": "5678"})
-	st, body, _ = h.do(t, "GET", "/v1/shares/"+token, access, nil)
+	st, body, _ = h.do(t, "GET", "/v1/shares/n/"+token, access, nil)
 	if st != 401 || shareErrCode(body) != "password_required" {
 		t.Fatalf("stale access JWT must fail after password reset: %d %v", st, body)
 	}
-	st, body, _ = h.do(t, "POST", "/v1/shares/"+token+"/unlock", "", map[string]any{"password": "5678"})
+	st, body, _ = h.do(t, "POST", "/v1/shares/n/"+token+"/unlock", "", map[string]any{"password": "5678"})
 	if st != 200 {
 		t.Fatalf("unlock with new password: %d %v", st, body)
 	}
 
 	// 移除密码 → 无需 JWT 直接可读
 	h.putShare(t, tok, noteID, map[string]any{"expires_in": "never", "password": ""})
-	st, body, _ = h.getPublic(t, "/v1/shares/"+token)
+	st, body, _ = h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 200 || body["title"] != "带密码" {
 		t.Fatalf("password removed should open access: %d %v", st, body)
 	}
@@ -418,7 +418,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 	`, tok1); err != nil {
 		t.Fatalf("force expire: %v", err)
 	}
-	st, body, _ := h.getPublic(t, "/v1/shares/"+tok1)
+	st, body, _ := h.getPublic(t, "/v1/shares/n/"+tok1)
 	if st != 410 || shareErrCode(body) != "expired" {
 		t.Fatalf("expired share: %d %v", st, body)
 	}
@@ -427,14 +427,14 @@ func TestSharePublicStatusChain(t *testing.T) {
 	n2 := h.createNote(t, uid, "被停用", "")
 	_, sh2 := h.putShare(t, tok, n2, map[string]any{"expires_in": "never"})
 	tok2 := sh2["token"].(string)
-	st, body, _ = h.getPublic(t, "/v1/shares/"+tok2)
+	st, body, _ = h.getPublic(t, "/v1/shares/n/"+tok2)
 	if st != 200 {
 		t.Fatalf("active share: %d %v", st, body)
 	}
 	if st, _, _ := h.do(t, "DELETE", "/v1/notes/"+n2.String()+"/share", tok, nil); st != 204 {
 		t.Fatalf("disable: %d", st)
 	}
-	st, body, _ = h.getPublic(t, "/v1/shares/"+tok2)
+	st, body, _ = h.getPublic(t, "/v1/shares/n/"+tok2)
 	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("disabled share: %d %v", st, body)
 	}
@@ -446,7 +446,7 @@ func TestSharePublicStatusChain(t *testing.T) {
 	if st, _, _ := h.do(t, "DELETE", "/v1/notes/"+n3.String(), tok, nil); st != 200 {
 		t.Fatalf("trash note: %d", st)
 	}
-	st, body, _ = h.getPublic(t, "/v1/shares/"+tok3)
+	st, body, _ = h.getPublic(t, "/v1/shares/n/"+tok3)
 	if st != 410 || shareErrCode(body) != "note_deleted" {
 		t.Fatalf("trashed note share: %d %v", st, body)
 	}
@@ -459,17 +459,17 @@ func TestSharePublicStatusChain(t *testing.T) {
 	if st != 200 {
 		t.Fatalf("rotate: %d", st)
 	}
-	st, _, _ = h.getPublic(t, "/v1/shares/"+tok4)
+	st, _, _ = h.getPublic(t, "/v1/shares/n/"+tok4)
 	if st != 404 {
 		t.Fatalf("old token after rotate: %d", st)
 	}
-	st, _, _ = h.getPublic(t, "/v1/shares/"+sh5["token"].(string))
+	st, _, _ = h.getPublic(t, "/v1/shares/n/"+sh5["token"].(string))
 	if st != 200 {
 		t.Fatalf("new token after rotate: %d", st)
 	}
 
 	// 不存在的 token → 404
-	st, body, _ = h.getPublic(t, "/v1/shares/no-such-token")
+	st, body, _ = h.getPublic(t, "/v1/shares/n/no-such-token")
 	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("unknown token: %d %v", st, body)
 	}
@@ -490,7 +490,7 @@ func TestSharePublicFileGuards(t *testing.T) {
 	token := sh["token"].(string)
 
 	// ③ 附件未挂在笔记上 → 404（防随机 ID 盗链）
-	st, body, _ := h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, uuid.New()))
+	st, body, _ := h.getPublic(t, fmt.Sprintf("/v1/shares/n/%s/files/%s", token, uuid.New()))
 	if st != 404 || shareErrCode(body) != "not_found" {
 		t.Fatalf("stranger attachment: %d %v", st, body)
 	}
@@ -508,13 +508,13 @@ func TestSharePublicFileGuards(t *testing.T) {
 	`, noteID, fileID); err != nil {
 		t.Fatalf("insert note_attachments: %v", err)
 	}
-	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, fileID))
+	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/n/%s/files/%s", token, fileID))
 	if st != 503 || shareErrCode(body) != "files_unavailable" {
 		t.Fatalf("no-blob files route: %d %v", st, body)
 	}
 
 	// 坏 file_id → 400
-	st, _, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/not-a-uuid", token))
+	st, _, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/n/%s/files/not-a-uuid", token))
 	if st != 400 {
 		t.Fatalf("bad file id: %d", st)
 	}
@@ -590,7 +590,7 @@ func TestSharePublicFileRedirect(t *testing.T) {
 
 	// 302 → Location 指向 presign URL；响应头带 nosniff + CSP sandbox
 	req, _ = http.NewRequest("GET",
-		fmt.Sprintf("%s/v1/shares/%s/files/%s", server.URL, token, fileID), nil)
+		fmt.Sprintf("%s/v1/shares/n/%s/files/%s", server.URL, token, fileID), nil)
 	resp, err = noRedirect.Do(req)
 	if err != nil {
 		t.Fatalf("files route: %v", err)
@@ -623,7 +623,7 @@ func TestSharePublicFileRedirect(t *testing.T) {
 	}
 
 	// view_count 在内容接口累计（走带 blob 的第二台服务）
-	cresp, err := http.Get(server.URL + "/v1/shares/" + token)
+	cresp, err := http.Get(server.URL + "/v1/shares/n/" + token)
 	if err != nil {
 		t.Fatalf("public content via blob server: %v", err)
 	}
@@ -707,16 +707,16 @@ func TestSharePublicExhausted(t *testing.T) {
 	token := sh["token"].(string)
 
 	// 第 1 次访问计满；第 2 次起 → 410 exhausted
-	st, _, raw := h.getPublic(t, "/v1/shares/"+token)
+	st, _, raw := h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 200 {
 		t.Fatalf("first view: %d %s", st, raw)
 	}
-	st, body, _ := h.getPublic(t, "/v1/shares/"+token)
+	st, body, _ := h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 410 || shareErrCode(body) != "exhausted" {
 		t.Fatalf("exhausted content: %d %v", st, body)
 	}
 	// files 路由同码（① 在③之前，随机 file_id 也先撞 exhausted）
-	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/%s/files/%s", token, uuid.New()))
+	st, body, _ = h.getPublic(t, fmt.Sprintf("/v1/shares/n/%s/files/%s", token, uuid.New()))
 	if st != 410 || shareErrCode(body) != "exhausted" {
 		t.Fatalf("exhausted files: %d %v", st, body)
 	}
@@ -731,13 +731,13 @@ func TestSharePublicExhausted(t *testing.T) {
 	}
 	// 调整上限恢复可读
 	h.putShare(t, tok, noteID, map[string]any{"max_views": 5})
-	st, _, _ = h.getPublic(t, "/v1/shares/"+token)
+	st, _, _ = h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 200 {
 		t.Fatalf("raised limit should be readable: %d", st)
 	}
 	// 移除上限同样恢复
 	h.putShare(t, tok, noteID, map[string]any{"max_views": 0})
-	st, _, _ = h.getPublic(t, "/v1/shares/"+token)
+	st, _, _ = h.getPublic(t, "/v1/shares/n/"+token)
 	if st != 200 {
 		t.Fatalf("removed limit should be readable: %d", st)
 	}
@@ -763,7 +763,7 @@ func TestSharePublicViewSessionDedup(t *testing.T) {
 	// 同 session 两次 GET 只计 1 次
 	s1 := uuid.New().String()
 	for i := 0; i < 2; i++ {
-		st, _, raw := h.getPublicWithSession(t, "/v1/shares/"+token, s1)
+		st, _, raw := h.getPublicWithSession(t, "/v1/shares/n/"+token, s1)
 		if st != 200 {
 			t.Fatalf("session view %d: %d %s", i, st, raw)
 		}
@@ -772,7 +772,7 @@ func TestSharePublicViewSessionDedup(t *testing.T) {
 		t.Fatalf("same session should count once, got %v", vc)
 	}
 	// 不同 session 各计 1 次
-	st, _, _ := h.getPublicWithSession(t, "/v1/shares/"+token, uuid.New().String())
+	st, _, _ := h.getPublicWithSession(t, "/v1/shares/n/"+token, uuid.New().String())
 	if st != 200 {
 		t.Fatalf("second session: %d", st)
 	}
@@ -781,7 +781,7 @@ func TestSharePublicViewSessionDedup(t *testing.T) {
 	}
 	// 无 header 每次照计
 	for i := 0; i < 2; i++ {
-		if st, _, _ := h.getPublic(t, "/v1/shares/"+token); st != 200 {
+		if st, _, _ := h.getPublic(t, "/v1/shares/n/"+token); st != 200 {
 			t.Fatalf("no-header view %d: %d", i, st)
 		}
 	}
@@ -794,5 +794,40 @@ func TestSharePublicViewSessionDedup(t *testing.T) {
 		SELECT COUNT(*) FROM brain.note_share_view_sessions WHERE session_hash = $1
 	`, s1).Scan(&rawHits); err != nil || rawHits != 0 {
 		t.Fatalf("raw session id must not be stored: %d err=%v", rawHits, err)
+	}
+}
+
+// TestShareLegacyBarePathGone —— 命名空间迁移（§7.6：/v1/shares/n/ 类型
+// 前缀，无历史兼容）：旧裸路径一律 404，确认无残留挂载。
+func TestShareLegacyBarePathGone(t *testing.T) {
+	h := newShareHarness(t)
+	uid := uuid.New()
+	defer h.cleanupUser(t, uid)
+	tok := h.mintUserToken(uid)
+	noteID := h.createNote(t, uid, "裸路径", "正文")
+
+	_, sh := h.putShare(t, tok, noteID, map[string]any{})
+	token := sh["token"].(string)
+
+	// 新路径可用
+	st, _, raw := h.getPublic(t, "/v1/shares/n/"+token)
+	if st != 200 {
+		t.Fatalf("namespaced path: %d %s", st, raw)
+	}
+	// 旧裸路径三条全部 404
+	for _, p := range []struct{ method, path string }{
+		{"GET", "/v1/shares/" + token},
+		{"POST", "/v1/shares/" + token + "/unlock"},
+		{"GET", "/v1/shares/" + token + "/files/" + uuid.New().String()},
+	} {
+		req, _ := http.NewRequest(p.method, h.server.URL+p.path, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", p.method, p.path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 404 {
+			t.Fatalf("legacy bare path %s %s should 404, got %d", p.method, p.path, resp.StatusCode)
+		}
 	}
 }

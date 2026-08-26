@@ -1,9 +1,9 @@
 // 笔记分享公开端接口（无鉴权 —— brain 首批公开业务路由，与既有
 // requireAuth 端点显式分离，挂 MountPublic 而非 Mount）。
 //
-//	GET  /v1/shares/{token}                笔记内容（biu-file:// 已改写；有密码未解锁 → 401）
-//	POST /v1/shares/{token}/unlock         校验密码 → 签短期访问 JWT（HS256，exp 2h）
-//	GET  /v1/shares/{token}/files/{file_id} 附件代理（302 → 15min presign URL）
+//	GET  /v1/shares/n/{token}                笔记内容（biu-file:// 已改写；有密码未解锁 → 401）
+//	POST /v1/shares/n/{token}/unlock         校验密码 → 签短期访问 JWT（HS256，exp 2h）
+//	GET  /v1/shares/n/{token}/files/{file_id} 附件代理（302 → 15min presign URL）
 //
 // 校验链（§7.6，每请求全量复核，撤销即时生效不等 exp）：
 //
@@ -34,12 +34,14 @@ import (
 // presignGetTTL 的 15 分钟惯例）。
 const shareFilePresignTTL = 15 * time.Minute
 
-// MountPublic —— 公开分享路由（无 requireAuth）。限流在 nginx 层
+// MountPublic —— 公开分享路由（无 requireAuth）。类型命名空间
+// `/v1/shares/n/`（n=note；§7.6 命名空间约定：裸 /v1/shares/{token}
+// 禁止任何类型使用，无历史兼容，裸路径一律 404）。限流在 nginx 层
 // （/v1/shares 通用 zone + unlock 更严 location），brain 内不做。
 func (s *Server) MountPublic(mux *http.ServeMux) {
-	mux.HandleFunc("GET /v1/shares/{token}", s.handlePublicGetShare)
-	mux.HandleFunc("POST /v1/shares/{token}/unlock", s.handlePublicUnlockShare)
-	mux.HandleFunc("GET /v1/shares/{token}/files/{file_id}", s.handlePublicShareFile)
+	mux.HandleFunc("GET /v1/shares/n/{token}", s.handlePublicGetShare)
+	mux.HandleFunc("POST /v1/shares/n/{token}/unlock", s.handlePublicUnlockShare)
+	mux.HandleFunc("GET /v1/shares/n/{token}/files/{file_id}", s.handlePublicShareFile)
 }
 
 // resolveActiveShare —— 校验链①：行存在（404 not_found）+ 未停用
@@ -105,7 +107,7 @@ func (s *Server) resolvePublicNote(w http.ResponseWriter, r *http.Request, noteI
 	return n
 }
 
-// handlePublicGetShare —— GET /v1/shares/{token}：标题 + 改写后
+// handlePublicGetShare —— GET /v1/shares/n/{token}：标题 + 改写后
 // content_md + 元信息；成功响应计一次访问（S2：带 X-Share-Session 的
 // 会话内去重，未带 header 每次照计；files 路由不计数）。
 func (s *Server) handlePublicGetShare(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +153,7 @@ type unlockShareReq struct {
 	Password string `json:"password"`
 }
 
-// handlePublicUnlockShare —— POST /v1/shares/{token}/unlock：bcrypt 校验
+// handlePublicUnlockShare —— POST /v1/shares/n/{token}/unlock：bcrypt 校验
 // → 签访问 JWT（share_id + credential_version，exp 2h）。密码失败写
 // 审计事件（scope note_share）；按 IP 限流在 nginx 层（429 不由 brain
 // 产生）。无密码的分享调用 unlock 直接签发（内容本就公开，客户端流程
@@ -189,7 +191,7 @@ func (s *Server) handlePublicUnlockShare(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// handlePublicShareFile —— GET /v1/shares/{token}/files/{file_id}：
+// handlePublicShareFile —— GET /v1/shares/n/{token}/files/{file_id}：
 // 完整校验链后 302 到 15min presign URL（复用 files 域 Blob.PresignGet
 // 内部逻辑，不走 HTTP 自调）。302 目标已是 MinIO URL，内容清洗由对象
 // 存储侧响应头承担；本响应附 nosniff + CSP sandbox。

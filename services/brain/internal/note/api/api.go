@@ -103,7 +103,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/note-tags", s.requireAuth(s.handleListTags))
 
 	// 笔记分享管理端（§7.6）。「shares」是字面量段，ServeMux 按
-	// specificity 优先于 {id}；公开端 /v1/shares/* 走 MountPublic。
+	// specificity 优先于 {id}；公开端 /v1/shares/n/* 走 MountPublic。
 	mux.HandleFunc("PUT /v1/notes/{id}/share", s.requireAuth(s.handlePutShare))
 	mux.HandleFunc("GET /v1/notes/{id}/share", s.requireAuth(s.handleGetShare))
 	mux.HandleFunc("DELETE /v1/notes/{id}/share", s.requireAuth(s.handleDeleteShare))
