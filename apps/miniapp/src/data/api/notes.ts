@@ -10,7 +10,7 @@
 //   GET  /v1/notes/{id}/share 当前分享状态, 404 = 未分享
 //   PUT  /v1/notes/{id}/share body {} 全缺省 = 无密码/永久, 幂等返回现有分享
 //   GET  /v1/notes/shares     我的分享列表 (列表"已分享"徽标)
-// 分享 URL 由客户端自行拼接 `${origin}/s/${token}`, 服务端不返回 url 字段.
+// 分享 URL 由客户端自行拼接 `${origin}/s/n/${token}`, 服务端不返回 url 字段.
 
 import { get, post, put, type ApiError } from './client';
 

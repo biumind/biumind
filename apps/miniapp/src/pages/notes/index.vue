@@ -2,7 +2,7 @@
 // 笔记速记 — 最小闭环: 顶部快速输入 (免选笔记本, 自动标题) + 列表 +
 // 点条目弹层编辑. 端点对齐 apps/client 的 notes data 层:
 //   GET /v1/notes?limit=50 · POST /v1/notes · PUT /v1/notes/{id} (If-Match 乐观锁)
-// 长按条目 → 分享: GET/PUT /v1/notes/{id}/share 拿 token, 拼 ${origin}/s/{token}
+// 长按条目 → 分享: GET/PUT /v1/notes/{id}/share 拿 token, 拼 ${origin}/s/n/{token}
 // 复制到剪贴板 (微信场景主要传播方式就是粘贴链接).
 
 import { ref, onMounted } from 'vue';
@@ -136,12 +136,12 @@ async function shareNote(n: NoteItem) {
   sharing.value = true;
   try {
     const share = await ensureShare(n.id);
-    // 单 origin 寻址: API baseURL 的 origin 即站点 origin, /s/ 由 nginx 反代
+    // 单 origin 寻址: API baseURL 的 origin 即站点 origin, /s/n/ 由 nginx 反代
     const origin = ((import.meta.env.VITE_BIU_API_BASE as string) || '').replace(
       /\/$/,
       '',
     );
-    await copyToClipboard(origin + '/s/' + share.token);
+    await copyToClipboard(origin + '/s/n/' + share.token);
     uni.showToast({ title: '分享链接已复制', icon: 'none' });
     sharedIds.value = new Set(sharedIds.value).add(n.id);
   } catch (e: unknown) {
