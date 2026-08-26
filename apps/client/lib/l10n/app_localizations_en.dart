@@ -911,6 +911,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsCheckUpdateAvailable => 'Update available';
 
   @override
+  String get settingsCheckUpdateFailed => 'Check failed — try again later';
+
+  @override
+  String get settingsCheckUpdateNow => 'Recheck';
+
+  @override
+  String settingsCheckUpdateFound(String version) {
+    return 'New version $version available';
+  }
+
+  @override
+  String get settingsCheckUpdateDownload => 'Download';
+
+  @override
   String get settingsFetchNightly => 'Get nightly builds';
 
   @override

@@ -886,6 +886,20 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsCheckUpdateAvailable => '发现新版本';
 
   @override
+  String get settingsCheckUpdateFailed => '检查失败，请稍后重试';
+
+  @override
+  String get settingsCheckUpdateNow => '重新检查';
+
+  @override
+  String settingsCheckUpdateFound(String version) {
+    return '发现新版本 $version';
+  }
+
+  @override
+  String get settingsCheckUpdateDownload => '前往下载';
+
+  @override
   String get settingsFetchNightly => '获取开发版';
 
   @override

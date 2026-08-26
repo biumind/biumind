@@ -282,6 +282,20 @@
   "@settingsCheckUpdateChecking": {},
   "settingsCheckUpdateAvailable": "发现新版本",
   "@settingsCheckUpdateAvailable": {},
+  "settingsCheckUpdateFailed": "检查失败，请稍后重试",
+  "@settingsCheckUpdateFailed": {},
+  "settingsCheckUpdateNow": "重新检查",
+  "@settingsCheckUpdateNow": {},
+  "settingsCheckUpdateFound": "发现新版本 {version}",
+  "@settingsCheckUpdateFound": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsCheckUpdateDownload": "前往下载",
+  "@settingsCheckUpdateDownload": {},
   "settingsFetchNightly": "获取开发版",
   "@settingsFetchNightly": {},
   "settingsFetchNightlySubtitle": "未签名·可能不稳定·数据请先备份",

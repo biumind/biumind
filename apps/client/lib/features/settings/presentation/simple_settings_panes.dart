@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/ui/biu_text_field.dart';
@@ -274,18 +275,24 @@ class AboutPane extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = AppLocalizations.of(context)!;
     final settings = ref.watch(settingsControllerProvider).valueOrNull;
-    final asyncUpdate = ref.watch(updateAvailableProvider);
-    final update = asyncUpdate.valueOrNull;
+    // 进页自动检查 (aboutUpdateCheckProvider 带 60s 节流); banner 的
+    // updateAvailableProvider 常驻 shell 只算启动一次, 这里不用它。
+    final asyncCheck = ref.watch(aboutUpdateCheckProvider);
+    final result = asyncCheck.valueOrNull;
+    final update = result?.info;
     final pkg = ref.watch(_packageInfoProvider).valueOrNull;
 
-    // 检查更新 状态: 有更新 (banner 已在顶部提示, 这里只显状态) > 检查中 > 已最新。
+    // 检查更新 状态: 有更新 (banner 已在顶部提示, 这里只显状态) > 检查中 >
+    // 失败 / 已最新 — 失败不伪装成"已最新"。
     final String checkStatus;
     if (update != null) {
       checkStatus = update.isNightly
           ? '${t.settingsCheckUpdateAvailable} #${update.nightlyRun}'
           : t.settingsCheckUpdateAvailable;
-    } else if (asyncUpdate.isLoading) {
+    } else if (result == null) {
       checkStatus = t.settingsCheckUpdateChecking;
+    } else if (result.status == UpdateCheckStatus.failed) {
+      checkStatus = t.settingsCheckUpdateFailed;
     } else {
       checkStatus = t.settingsCheckUpdateLatest;
     }
@@ -301,7 +308,35 @@ class AboutPane extends ConsumerWidget {
               pkg == null ? '—' : '${pkg.version}+${pkg.buildNumber}'),
           const SizedBox(height: BiuTokens.space4),
           // ── 更新 ──────────────────────────────────────────
-          _kv(t.settingsCheckUpdate, checkStatus),
+          Padding(
+            padding: const EdgeInsets.only(bottom: BiuTokens.space2),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 120,
+                  child: Text(t.settingsCheckUpdate,
+                      style: TextStyle(
+                          fontSize: 13, color: BiuTokens.textSecondary)),
+                ),
+                Text(checkStatus,
+                    style: TextStyle(fontSize: 13, color: BiuTokens.text)),
+                const SizedBox(width: BiuTokens.space3),
+                // 手动「重新检查」兜底: 绕过节流强制重查 + snackbar 反馈。
+                TextButton(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: asyncCheck.isLoading
+                      ? null
+                      : () => _recheckUpdate(context, ref),
+                  child: Text(t.settingsCheckUpdateNow,
+                      style: const TextStyle(fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: BiuTokens.space3),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -327,6 +362,43 @@ class AboutPane extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// 手动「重新检查」: 清节流缓存 → invalidate 强制重查 → snackbar 反馈结果。
+  /// 有更新时带「前往下载」action 直达下载页 (与 banner 按钮同行为)。
+  Future<void> _recheckUpdate(BuildContext context, WidgetRef ref) async {
+    final t = AppLocalizations.of(context)!;
+    resetAboutUpdateCheckThrottle();
+    ref.invalidate(aboutUpdateCheckProvider);
+    final r = await ref.read(aboutUpdateCheckProvider.future);
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    switch (r.status) {
+      case UpdateCheckStatus.available:
+        final info = r.info!;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(info.isNightly
+                ? '${t.settingsCheckUpdateAvailable} #${info.nightlyRun}'
+                : t.settingsCheckUpdateFound('v${info.targetVersion}')),
+            action: SnackBarAction(
+              label: t.settingsCheckUpdateDownload,
+              onPressed: () {
+                final uri = Uri.tryParse(info.downloadPageUrl);
+                if (uri != null) {
+                  launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+            ),
+          ),
+        );
+      case UpdateCheckStatus.upToDate:
+        messenger.showSnackBar(
+            SnackBar(content: Text(t.settingsCheckUpdateLatest)));
+      case UpdateCheckStatus.failed:
+        messenger.showSnackBar(
+            SnackBar(content: Text(t.settingsCheckUpdateFailed)));
+    }
   }
 
   Widget _kv(String k, String v) => Padding(

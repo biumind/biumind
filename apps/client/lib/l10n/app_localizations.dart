@@ -1771,6 +1771,30 @@ abstract class AppLocalizations {
   /// **'Update available'**
   String get settingsCheckUpdateAvailable;
 
+  /// No description provided for @settingsCheckUpdateFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Check failed — try again later'**
+  String get settingsCheckUpdateFailed;
+
+  /// No description provided for @settingsCheckUpdateNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Recheck'**
+  String get settingsCheckUpdateNow;
+
+  /// No description provided for @settingsCheckUpdateFound.
+  ///
+  /// In en, this message translates to:
+  /// **'New version {version} available'**
+  String settingsCheckUpdateFound(String version);
+
+  /// No description provided for @settingsCheckUpdateDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get settingsCheckUpdateDownload;
+
   /// No description provided for @settingsFetchNightly.
   ///
   /// In en, this message translates to:

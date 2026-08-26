@@ -14,6 +14,7 @@ import 'package:biumind/features/update/application/update_check_controller.dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' show MockClient;
+import 'package:pub_semver/pub_semver.dart';
 
 /// 起 MockClient 返回给定 nightly 清单, 在其 zone 内跑 checkNightly。
 Future<UpdateInfo?> _run({
@@ -116,6 +117,67 @@ void main() {
         statusCode: 404,
       );
       expect(info, isNull);
+    });
+  });
+
+  group('checkStable 三态', () {
+    /// 起 MockClient 返回给定 stable 清单, 在其 zone 内跑 checkStable。
+    Future<UpdateCheckResult> runStable({
+      required Map<String, dynamic> manifest,
+      required String current,
+      int statusCode = 200,
+    }) {
+      final client = MockClient(
+        (_) async => http.Response(jsonEncode(manifest), statusCode),
+      );
+      return http.runWithClient(
+        () => checkStable(
+          origin: 'https://example.com',
+          current: Version.parse(current),
+        ),
+        () => client,
+      );
+    }
+
+    Map<String, dynamic> stableManifest(String version, {String channel = 'stable'}) =>
+        {
+          'manifest': 'release-manifest-v1',
+          'channel': channel,
+          'version': version,
+          'notes': 'stable',
+        };
+
+    test('清单版本更高 → available, 下载页跳 origin/download', () async {
+      final r = await runStable(manifest: stableManifest('1.2.0'), current: '1.1.0');
+      expect(r.status, UpdateCheckStatus.available);
+      expect(r.info!.targetVersion, Version.parse('1.2.0'));
+      expect(r.info!.downloadPageUrl, 'https://example.com/download');
+      expect(r.info!.isNightly, isFalse);
+    });
+
+    test('清单版本不高于当前 → upToDate (不是 failed)', () async {
+      for (final v in ['1.1.0', '1.0.9']) {
+        final r = await runStable(manifest: stableManifest(v), current: '1.1.0');
+        expect(r.status, UpdateCheckStatus.upToDate, reason: 'version $v');
+        expect(r.info, isNull);
+      }
+    });
+
+    test('非 200 响应 → failed', () async {
+      final r = await runStable(
+        manifest: stableManifest('1.2.0'),
+        current: '1.1.0',
+        statusCode: 503,
+      );
+      expect(r.status, UpdateCheckStatus.failed);
+    });
+
+    test('非 stable channel 清单 → failed (无法判定, 不伪装已最新)', () async {
+      final r = await runStable(
+        manifest: stableManifest('1.2.0', channel: 'beta'),
+        current: '1.1.0',
+      );
+      expect(r.status, UpdateCheckStatus.failed);
     });
   });
 }

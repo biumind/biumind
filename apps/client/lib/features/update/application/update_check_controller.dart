@@ -1,14 +1,19 @@
 // 客户端更新检测 controller。
 //
-// 启动时拉 `<origin>/downloads/releases.json` (origin = identityUri 单源),
-// 比对当前版本 (PackageInfo.fromPlatform),有新版返回 UpdateInfo 供 banner 展示。
+// 拉 `<origin>/downloads/releases.json` (origin = identityUri 单源),
+// 比对当前版本 (PackageInfo.fromPlatform),有新版返回 UpdateInfo 供展示。
+// 两个消费场景共用 checkForUpdate 核心逻辑:
+//   - UpdateBanner: 启动时检查 (updateAvailableProvider), 失败静默
+//   - 设置→关于: 进页自动检查 + 手动"重新检查" (aboutUpdateCheckProvider),
+//     三态区分 有更新/已最新/拉取失败, 失败不伪装成"已最新"
 //
 // 设计 (见 docs/BiuMind-Client-Release-Manifest.md):
 //   - 单 origin 寻址: origin = settingsControllerProvider.identityUrl (经 site nginx)
 //   - 版本规范化: strip v + drop +build, pub_semver Version.parse 比对
 //   - 平台选择: stable 跳 /download 页 (官网侧检测); nightly 直选当前平台
 //     asset.url (OSS 直链), 无对应平台 → GH release 页
-//   - 网络/解析错: 静默 (return null, 不吓用户), 见 security_alert_banner 约定
+//   - banner 场景网络/解析错: 静默 (return null, 不吓用户),
+//     见 security_alert_banner 约定
 //   - autoDispose + banner watch: 只在 shell 渲染时触发, 不额外占资源
 
 import 'dart:convert' show jsonDecode;
@@ -22,8 +27,10 @@ import 'package:pub_semver/pub_semver.dart';
 
 import '../../../features/settings/application/settings_controller.dart';
 import '../../../features/update/domain/release_manifest.dart';
+import '../../../services/settings_repo.dart' show AppSettings;
 
-/// 检测结果:有新版则填充,无新版/未登录/网络错 → null。
+/// 检测结果: 发现新版本时的载荷 (版本 / 下载 url / notes)。
+/// banner 的 updateAvailableProvider 在无新版/未登录/网络错时返回 null。
 class UpdateInfo {
   final Version targetVersion;
   final String downloadPageUrl; // stable: 官网 /download; nightly: 平台 asset OSS 直链 (无则 GH 页)
@@ -45,17 +52,37 @@ class UpdateInfo {
   });
 }
 
-/// 启动时拉清单比对当前版本。
-/// autoDispose: 仅 banner 挂载时触发; null = 无更新或拉失败 (静默)。
+/// 检查结果三态: banner 场景失败静默 (null), 关于页场景需要区分
+/// "已最新"与"拉取失败", 失败不能伪装成已最新误导用户。
+enum UpdateCheckStatus { available, upToDate, failed }
+
+class UpdateCheckResult {
+  final UpdateCheckStatus status;
+
+  /// status == available 时非空。
+  final UpdateInfo? info;
+
+  const UpdateCheckResult.available(UpdateInfo i)
+      : status = UpdateCheckStatus.available,
+        info = i;
+  const UpdateCheckResult.upToDate()
+      : status = UpdateCheckStatus.upToDate,
+        info = null;
+  const UpdateCheckResult.failed()
+      : status = UpdateCheckStatus.failed,
+        info = null;
+}
+
+/// 核心检查逻辑: banner (启动) 与 关于页 (进页自动 + 手动) 共用。
+/// 三态返回, 失败是否静默由调用方决定。
 ///
 /// 通道优先级:用户在 设置→关于 开启"获取开发版"时, nightly canary 优先于
 /// stable (opt-in bleeding edge); 否则只查 stable。
-final updateAvailableProvider =
-    FutureProvider.autoDispose<UpdateInfo?>((ref) async {
-  final settings = ref.watch(settingsControllerProvider).valueOrNull;
-  if (settings == null) return null;
+Future<UpdateCheckResult> checkForUpdate(AppSettings settings) async {
   final origin = (settings.identityUrl ?? '').trim();
-  if (origin.isEmpty) return null; // 未配置服务器地址, 不查
+  if (origin.isEmpty) {
+    return const UpdateCheckResult.failed(); // 未配置服务器地址
+  }
 
   Version current;
   // 已装构建戳: CI 以 --build-number=epoch秒 构建 (stable 与 nightly 共用
@@ -66,27 +93,76 @@ final updateAvailableProvider =
     current = _normalizeVersion(info.version);
     installedBuild = int.tryParse(info.buildNumber) ?? 0;
   } catch (_) {
-    return null;
+    return const UpdateCheckResult.failed();
   }
 
   // 1. nightly canary — envelope 非 v1 (channel=nightly + run + build), 单独 fetch/parse。
-  //    nightly 优先:开了开关的用户要 bleeding edge, 同一 banner 位不叠 stable。
+  //    nightly 优先:开了开关的用户要 bleeding edge, 同一提示位不叠 stable。
   if (settings.fetchNightly) {
     final nightly = await checkNightly(
       origin: origin,
       installedBuild: installedBuild,
       lastNotifiedRun: settings.lastNotifiedNightlyRun,
     );
-    if (nightly != null) return nightly;
+    if (nightly != null) return UpdateCheckResult.available(nightly);
   }
 
   // 2. stable — 官网默认通道。
-  return _checkStable(origin: origin, current: current);
+  return checkStable(origin: origin, current: current);
+}
+
+/// 启动时拉清单比对当前版本。
+/// autoDispose: 仅 banner 挂载时触发; null = 无更新或拉失败 (静默)。
+final updateAvailableProvider =
+    FutureProvider.autoDispose<UpdateInfo?>((ref) async {
+  final settings = ref.watch(settingsControllerProvider).valueOrNull;
+  if (settings == null) return null;
+  final r = await checkForUpdate(settings);
+  return r.info; // 失败/已最新 → null (静默, 不吓用户)
 });
+
+/// 关于页自动检查节流窗口: 60s 内重复进页不重复请求 (autoDispose 会在
+/// 离页后释放, 无节流则来回切 tab 每次进页都打一次接口)。
+const aboutCheckThrottle = Duration(seconds: 60);
+DateTime? _aboutCheckedAt;
+UpdateCheckResult? _aboutCached;
+bool? _aboutCachedNightly; // 缓存对应的 fetchNightly 通道, 开关切换时缓存作废
+
+/// 设置→关于 进页自动检查 (autoDispose 随页释放)。与 banner 的
+/// updateAvailableProvider 独立: banner 常驻 shell 从不 dispose, 结果只在
+/// 启动时算一次; 关于页需要进页拿到新鲜结果 (节流窗口内直接返回缓存)。
+/// 拉取失败不写缓存 — 下次进页立即重试, 不背 60s 失败状态。
+final aboutUpdateCheckProvider =
+    FutureProvider.autoDispose<UpdateCheckResult>((ref) async {
+  final settings = ref.watch(settingsControllerProvider).valueOrNull;
+  if (settings == null) return const UpdateCheckResult.failed();
+  final now = DateTime.now();
+  if (_aboutCached != null &&
+      _aboutCheckedAt != null &&
+      _aboutCachedNightly == settings.fetchNightly &&
+      now.difference(_aboutCheckedAt!) < aboutCheckThrottle) {
+    return _aboutCached!;
+  }
+  final r = await checkForUpdate(settings);
+  if (r.status != UpdateCheckStatus.failed) {
+    _aboutCheckedAt = now;
+    _aboutCached = r;
+    _aboutCachedNightly = settings.fetchNightly;
+  }
+  return r;
+});
+
+/// 手动「重新检查」: 清掉节流缓存, 调用方随即 ref.invalidate
+/// (aboutUpdateCheckProvider) 强制重查。
+void resetAboutUpdateCheckThrottle() {
+  _aboutCheckedAt = null;
+}
 
 /// stable releases.json 检查。只看 stable channel, version 严格大于当前才提示。
 /// 跳官网 /download 页 (单 origin); 产物 url 在官网侧检测平台。
-Future<UpdateInfo?> _checkStable({
+/// 三态返回: 有更新 / 已最新 / 拉取或解析失败。
+@visibleForTesting
+Future<UpdateCheckResult> checkStable({
   required String origin,
   required Version current,
 }) async {
@@ -94,25 +170,29 @@ Future<UpdateInfo?> _checkStable({
     final res = await http
         .get(Uri.parse('$origin/downloads/releases.json'))
         .timeout(const Duration(seconds: 5));
-    if (res.statusCode != 200) return null;
+    if (res.statusCode != 200) return const UpdateCheckResult.failed();
     final body = res.body;
-    if (body.isEmpty) return null;
+    if (body.isEmpty) return const UpdateCheckResult.failed();
     final decoded = jsonDecode(body);
-    if (decoded is! Map<String, dynamic>) return null;
+    if (decoded is! Map<String, dynamic>) {
+      return const UpdateCheckResult.failed();
+    }
     final manifest = ReleaseManifest.fromJson(decoded);
     // 只看 stable channel (官网默认拉 stable, 内测 channel 不主动弹更新)
-    if (manifest.channel != 'stable') return null;
+    if (manifest.channel != 'stable') return const UpdateCheckResult.failed();
     // Version 实现 Comparable + 重载 >/</>=; 优先级高于当前版本才有更新
-    if (manifest.version.compareTo(current) <= 0) return null;
-    return UpdateInfo(
+    if (manifest.version.compareTo(current) <= 0) {
+      return const UpdateCheckResult.upToDate();
+    }
+    return UpdateCheckResult.available(UpdateInfo(
       targetVersion: manifest.version,
       // 跳官网下载页 (单 origin): origin + /download。web 端 externalApplication
       // 会新标签打开; 桌面端 url_launcher 调系统浏览器。
       downloadPageUrl: '$origin/download',
       notes: manifest.notes,
-    );
+    ));
   } catch (_) {
-    return null; // 网络/解析错不吓用户
+    return const UpdateCheckResult.failed(); // 网络/解析错
   }
 }
 

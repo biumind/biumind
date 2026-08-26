@@ -317,6 +317,20 @@
   "@settingsCheckUpdateChecking": {},
   "settingsCheckUpdateAvailable": "Update available",
   "@settingsCheckUpdateAvailable": {},
+  "settingsCheckUpdateFailed": "Check failed — try again later",
+  "@settingsCheckUpdateFailed": {},
+  "settingsCheckUpdateNow": "Recheck",
+  "@settingsCheckUpdateNow": {},
+  "settingsCheckUpdateFound": "New version {version} available",
+  "@settingsCheckUpdateFound": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsCheckUpdateDownload": "Download",
+  "@settingsCheckUpdateDownload": {},
   "settingsFetchNightly": "Get nightly builds",
   "@settingsFetchNightly": {},
   "settingsFetchNightlySubtitle": "Unsigned · may be unstable · back up your data first",
