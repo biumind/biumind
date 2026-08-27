@@ -2,9 +2,12 @@
 // in priority order and derive install/start commands + runtime
 // requirements (tech plan §2.1, design doc 4.2).
 //
-// Priority: Dockerfile → docker-compose (rejected, D4) → package.json
-// → requirements.txt / pyproject.toml → index.html (pure static) →
-// unsupported.
+// Priority: docker-compose (rejected, D4 — a compose file means
+// multi-service no matter what else the repo ships) → package.json
+// (runnable script) → requirements.txt / pyproject.toml (recognisable
+// entry file) → Dockerfile → index.html (pure static) → unsupported.
+// Language entries win over Dockerfile, aligned with the CLI runner's
+// PlanStack: the confirm page shows what the runner will actually do.
 
 package repoanalyze
 
@@ -54,7 +57,53 @@ func Detect(ctx context.Context, gh *Client, owner, repo, ref string) (*Stack, e
 		return gh.FileContent(ctx, owner, repo, path, ref)
 	}
 
-	// 1. Dockerfile — single-container build.
+	// 1. docker-compose — multi-container, explicitly out of scope (D4).
+	for _, p := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
+		if _, ok, err := file(p); err != nil {
+			return nil, err
+		} else if ok {
+			return &Stack{
+				Kind:   StackUnsupported,
+				Reason: "检测到 docker-compose 多容器编排，Repo App 一期仅支持单进程项目（M2 再评估 compose 支持）",
+			}, nil
+		}
+	}
+
+	// 2. package.json — Node project. A nil Stack means "nothing runnable
+	// as Node": fall through, the repo may still be docker/static.
+	if content, ok, err := file("package.json"); err != nil {
+		return nil, err
+	} else if ok {
+		st, err := detectNode(ctx, gh, owner, repo, ref, content)
+		if err != nil {
+			return nil, err
+		}
+		if st != nil {
+			return st, nil
+		}
+	}
+
+	// 3. Python — requirements.txt or pyproject.toml, but only when a
+	// recognisable entry file exists (same rule as the CLI runner).
+	_, hasReq, err := file("requirements.txt")
+	if err != nil {
+		return nil, err
+	}
+	pyproject, hasPyproject, err := file("pyproject.toml")
+	if err != nil {
+		return nil, err
+	}
+	if hasReq || hasPyproject {
+		st, err := detectPython(ctx, gh, owner, repo, ref, hasReq, pyproject)
+		if err != nil {
+			return nil, err
+		}
+		if st != nil {
+			return st, nil
+		}
+	}
+
+	// 4. Dockerfile — single-container build, last resort before static.
 	if content, ok, err := file("Dockerfile"); err != nil {
 		return nil, err
 	} else if ok {
@@ -69,38 +118,6 @@ func Detect(ctx context.Context, gh *Client, owner, repo, ref string) (*Stack, e
 		}, nil
 	}
 
-	// 2. docker-compose — multi-container, explicitly out of scope (D4).
-	for _, p := range []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} {
-		if _, ok, err := file(p); err != nil {
-			return nil, err
-		} else if ok {
-			return &Stack{
-				Kind:   StackUnsupported,
-				Reason: "检测到 docker-compose 多容器编排，Repo App 一期仅支持单进程项目（M2 再评估 compose 支持）",
-			}, nil
-		}
-	}
-
-	// 3. package.json — Node project.
-	if content, ok, err := file("package.json"); err != nil {
-		return nil, err
-	} else if ok {
-		return detectNode(ctx, gh, owner, repo, ref, content)
-	}
-
-	// 4. Python — requirements.txt or pyproject.toml.
-	_, hasReq, err := file("requirements.txt")
-	if err != nil {
-		return nil, err
-	}
-	pyproject, hasPyproject, err := file("pyproject.toml")
-	if err != nil {
-		return nil, err
-	}
-	if hasReq || hasPyproject {
-		return detectPython(ctx, gh, owner, repo, ref, hasReq, pyproject)
-	}
-
 	// 5. Pure static site.
 	for _, p := range []string{"index.html", "dist/index.html"} {
 		if _, ok, err := file(p); err != nil {
@@ -112,7 +129,7 @@ func Detect(ctx context.Context, gh *Client, owner, repo, ref string) (*Stack, e
 
 	return &Stack{
 		Kind:   StackUnsupported,
-		Reason: "未识别到可运行的技术栈（目前支持 Dockerfile / Node / Python / 纯静态站点）",
+		Reason: "未识别到可运行的技术栈（目前支持 Node / Python / Dockerfile / 纯静态站点）",
 	}, nil
 }
 
@@ -172,17 +189,37 @@ func detectNode(ctx context.Context, gh *Client, owner, repo, ref string, conten
 			RuntimeReqs: reqs,
 		}, nil
 	}
-	return &Stack{
-		Kind:   StackUnsupported,
-		Reason: "package.json 中既没有 start/server.js 服务入口，也没有 build 脚本，无法判断如何运行",
-	}, nil
+	// Nothing runnable as Node (bower-era package.json with no useful
+	// scripts): nil tells the caller to keep probing docker/static.
+	return nil, nil
 }
 
 // ─── Python ──────────────────────────────────────────────────────────
 
 var requiresPythonRe = regexp.MustCompile(`requires-python\s*=\s*"([^"]+)"`)
 
+// pythonEntryCandidates mirrors the CLI runner's entry-file list — the
+// two detectors must agree on what counts as a runnable Python project.
+var pythonEntryCandidates = []string{"app.py", "main.py", "server.py", "run.py", "wsgi.py", "manage.py"}
+
 func detectPython(ctx context.Context, gh *Client, owner, repo, ref string, hasReq bool, pyproject []byte) (*Stack, error) {
+	// A Python manifest without a recognisable entry file is not
+	// runnable by the runner either — fall through (nil) so the caller
+	// keeps probing (e.g. Makefile-only bootstrap projects like
+	// OpenMontage land here and need the adapter overlay, M2.5+).
+	entryFound := false
+	for _, cand := range pythonEntryCandidates {
+		if _, ok, err := gh.FileContent(ctx, owner, repo, cand, ref); err != nil {
+			return nil, err
+		} else if ok {
+			entryFound = true
+			break
+		}
+	}
+	if !entryFound {
+		return nil, nil
+	}
+
 	version := ">=3.10"
 	if m := requiresPythonRe.FindSubmatch(pyproject); m != nil {
 		version = string(m[1])

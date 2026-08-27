@@ -216,6 +216,7 @@ func TestAnalyze_PythonMakeSetup(t *testing.T) {
 		headSHA: "deadbeefcafe",
 		files: map[string]string{
 			"requirements.txt": "flask==3.0.0\n",
+			"app.py":           "from flask import Flask\n",
 			"Makefile":         "setup:\n\tpip install -e .\nrun:\n\tflask run\n",
 			".env.example":     "API_KEY=\nPORT=8000\n",
 		},
@@ -258,6 +259,57 @@ func TestAnalyze_PythonMakeSetup(t *testing.T) {
 
 	if err := biuapp.Validate(&res.ManifestDraft); err != nil {
 		t.Errorf("manifest draft failed biuapp.Validate: %v", err)
+	}
+}
+
+// A Python manifest without any recognisable entry file must NOT be
+// classified python (the CLI runner can't start it either) — it falls
+// through, and with nothing else present the repo is unsupported. This
+// is the OpenMontage shape: Makefile setup, no app.py — such projects
+// need the adapter overlay (M2.5+), not a wrong "python" verdict.
+func TestAnalyze_PythonNoEntryFallsThrough(t *testing.T) {
+	stub := &ghStub{
+		owner: "o", repo: "r",
+		repoBody: repoJSON("Agent pipeline", "main", "MIT", 9),
+		headSHA:  "deadbeefcafe",
+		files: map[string]string{
+			"requirements.txt": "flask==3.0.0\n",
+			"Makefile":         "setup:\n\tpip install -e .\n",
+		},
+	}
+	gh, _ := stub.client(t)
+
+	res, err := Analyze(context.Background(), gh, "https://github.com/o/r")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if res.Stack.Kind != StackUnsupported {
+		t.Errorf("stack kind = %q, want unsupported (no entry file)", res.Stack.Kind)
+	}
+}
+
+// A repo shipping both a Python entry and a Dockerfile classifies as
+// python — language entry wins over Dockerfile, aligned with the CLI
+// runner (smoke: shekhargulati/python-flask-docker-hello-world).
+func TestAnalyze_DockerfileYieldsToPythonEntry(t *testing.T) {
+	stub := &ghStub{
+		owner: "o", repo: "r",
+		repoBody: repoJSON("Flask with Dockerfile", "main", "MIT", 5),
+		headSHA:  "deadbeefcafe",
+		files: map[string]string{
+			"requirements.txt": "flask\n",
+			"app.py":           "from flask import Flask\n",
+			"Dockerfile":       "FROM python:3.12\nEXPOSE 5000\n",
+		},
+	}
+	gh, _ := stub.client(t)
+
+	res, err := Analyze(context.Background(), gh, "https://github.com/o/r")
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if res.Stack.Kind != StackPython {
+		t.Errorf("stack kind = %q, want python (language entry beats Dockerfile)", res.Stack.Kind)
 	}
 }
 
