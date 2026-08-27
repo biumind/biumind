@@ -18,6 +18,17 @@ class MainFlutterWindow: NSWindow {
     titlebarAppearsTransparent = true
     titleVisibility = .hidden
 
+    // 最小窗口尺寸 — 固定表单页(登录/设置等)按 1024×640 设计,「滚动条可见
+    // ⟺ 内容真的超长」不变量依赖这个下限(见 core/ui/biu_scroll_behavior.dart)。
+    // storyboard 默认 800×600 低于下限, 首启时钳制到最小尺寸。
+    minSize = NSSize(width: 1024, height: 640)
+    if frame.width < minSize.width || frame.height < minSize.height {
+      var f = frame
+      f.size.width = max(f.size.width, minSize.width)
+      f.size.height = max(f.size.height, minSize.height)
+      setFrame(f, display: true)
+    }
+
     // 平台视图点击的焦点接管：落在 WKWebView（笔记编辑器 / apps 面板）
     // 上的点击进不了 Flutter 手势体系 —— 文本框 FocusNode 不会自动
     // unfocus，FlutterTextInputPlugin 的隐藏输入框握着第一响应者不放

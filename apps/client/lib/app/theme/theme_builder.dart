@@ -116,6 +116,21 @@ ThemeData buildTheme({
       thickness: 1,
       space: 1,
     ),
+    // 滚动条全局样式 — macOS overlay 风: 4px 细滑块 / 无轨道 / 圆角贴边。
+    // 「静止隐藏、滚动/悬停出现」由 BiuScrollBehavior 控制
+    // (core/ui/biu_scroll_behavior.dart), 这里只管视觉; hover/拖拽仅加深颜色。
+    // 局部页面禁止再包 Scrollbar 调样式 — 需要差异化时改这两处收口。
+    scrollbarTheme: ScrollbarThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) =>
+          states.contains(WidgetState.hovered) ||
+                  states.contains(WidgetState.dragged)
+              ? neutral.text2.withValues(alpha: 0.6)
+              : neutral.textMuted.withValues(alpha: 0.8)),
+      thickness: WidgetStateProperty.all(4.0),
+      radius: const Radius.circular(2),
+      crossAxisMargin: 2,
+      mainAxisMargin: 4,
+    ),
     appBarTheme: AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,

@@ -12,6 +12,7 @@ import 'package:logging/logging.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 import 'core/ai/ai_surface.dart';
+import 'core/ui/biu_scroll_behavior.dart';
 import 'data/agent_plane/biu_daemon_manager.dart';
 import 'data/api/_http_helpers.dart' show authErrorHandler, billingErrorHandler;
 import 'data/api/hub_backend.dart';
@@ -284,6 +285,9 @@ class _BiuMindAppState extends ConsumerState<BiuMindApp>
     return MaterialApp.router(
       title: 'BiuMind',
       scaffoldMessengerKey: rootScaffoldMessengerKey,
+      // 全 app 滚动行为收口 — 桌面 overlay 滚动条(静止隐藏/悬停出现),
+      // 视觉见 theme_builder.dart scrollbarTheme。
+      scrollBehavior: const BiuScrollBehavior(),
       theme: buildTheme(
         palette: palette,
         mode: Brightness.light,

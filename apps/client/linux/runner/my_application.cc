@@ -53,6 +53,12 @@ static void my_application_activate(GApplication* application) {
   }
 
   gtk_window_set_default_size(window, 1280, 720);
+  // 最小窗口尺寸 — 与 macOS (MainFlutterWindow.swift) 一致, 固定表单页按
+  // 1024×640 设计, 「滚动条可见 ⟺ 内容真的超长」不变量依赖这个下限。
+  GdkGeometry hints;
+  hints.min_width = 1024;
+  hints.min_height = 640;
+  gtk_window_set_geometry_hints(window, nullptr, &hints, GDK_HINT_MIN_SIZE);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(

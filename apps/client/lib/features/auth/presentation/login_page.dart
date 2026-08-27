@@ -9,6 +9,7 @@
 // flow with email already known.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -380,58 +381,74 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final t = AppLocalizations.of(context)!;
     return Scaffold(
       backgroundColor: BiuTokens.bg,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(BiuTokens.space5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Center(
-                  child: Hero(
-                    tag: biuMarkHeroTag,
-                    child: BiuMark(size: 72),
+      // 居中 + 仅在视口不足时可滚: 视口够高时 Column 恰好撑满视口垂直居中
+      // (maxScrollExtent == 0, 桌面滚动条不会出现); 视口不够高才退化为
+      // 可滚动。「固定表单页零溢出」不变量见 core/ui/biu_scroll_behavior.dart。
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          const padding = EdgeInsets.all(BiuTokens.space5);
+          return SingleChildScrollView(
+            padding: padding,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight:
+                    math.max(0.0, constraints.maxHeight - padding.vertical),
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Center(
+                        child: Hero(
+                          tag: biuMarkHeroTag,
+                          child: BiuMark(size: 72),
+                        ),
+                      ),
+                      const SizedBox(height: BiuTokens.space4),
+                      Text(
+                        'BiuMind',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.displayMedium,
+                      ),
+                      const SizedBox(height: BiuTokens.space2),
+                      Text(
+                        _subtitleFor(_mode, t),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: BiuTokens.space6),
+
+                      if (_mode == _AuthMode.signIn) ..._signInForm(t)
+                      else if (_mode == _AuthMode.verify) ..._verifyForm(t)
+                      else if (_mode == _AuthMode.forgotEmail)
+                        ..._forgotEmailForm(t)
+                      else ..._resetCodeForm(t),
+
+                      if (_message != null) ...[
+                        const SizedBox(height: BiuTokens.space3),
+                        _banner(_message!, color: BiuTokens.error, soft: BiuTokens.errorSoft, icon: Icons.error_outline),
+                      ],
+                      if (_info != null) ...[
+                        const SizedBox(height: BiuTokens.space3),
+                        _banner(_info!, color: BiuTokens.purple, soft: BiuTokens.purpleSoft, icon: Icons.info_outline),
+                      ],
+
+                      const SizedBox(height: BiuTokens.space5),
+
+                      if (_mode == _AuthMode.signIn) ..._signInActions(t)
+                      else if (_mode == _AuthMode.verify) ..._verifyActions(t)
+                      else if (_mode == _AuthMode.forgotEmail)
+                        ..._forgotEmailActions(t)
+                      else ..._resetCodeActions(t),
+                    ],
                   ),
                 ),
-                const SizedBox(height: BiuTokens.space4),
-                Text(
-                  'BiuMind',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.displayMedium,
-                ),
-                const SizedBox(height: BiuTokens.space2),
-                Text(
-                  _subtitleFor(_mode, t),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: BiuTokens.space6),
-
-                if (_mode == _AuthMode.signIn) ..._signInForm(t)
-                else if (_mode == _AuthMode.verify) ..._verifyForm(t)
-                else if (_mode == _AuthMode.forgotEmail) ..._forgotEmailForm(t)
-                else ..._resetCodeForm(t),
-
-                if (_message != null) ...[
-                  const SizedBox(height: BiuTokens.space3),
-                  _banner(_message!, color: BiuTokens.error, soft: BiuTokens.errorSoft, icon: Icons.error_outline),
-                ],
-                if (_info != null) ...[
-                  const SizedBox(height: BiuTokens.space3),
-                  _banner(_info!, color: BiuTokens.purple, soft: BiuTokens.purpleSoft, icon: Icons.info_outline),
-                ],
-
-                const SizedBox(height: BiuTokens.space5),
-
-                if (_mode == _AuthMode.signIn) ..._signInActions(t)
-                else if (_mode == _AuthMode.verify) ..._verifyActions(t)
-                else if (_mode == _AuthMode.forgotEmail) ..._forgotEmailActions(t)
-                else ..._resetCodeActions(t),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
