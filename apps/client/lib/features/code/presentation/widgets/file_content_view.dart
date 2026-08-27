@@ -14,6 +14,7 @@ import 'package:flutter_highlight/themes/atom-one-light.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/theme.dart';
+import '../../../../core/ui/biu_scrollbar.dart';
 import '../../data/code_bridge_provider.dart';
 import '../../domain/git_models.dart' show FileImagePreview;
 
@@ -277,7 +278,7 @@ class _EditableTextViewState extends ConsumerState<_EditableTextView> {
         : atomOneLightTheme;
     final lang = _langForExt(widget.path);
     return SelectionArea(
-      child: Scrollbar(
+      child: BiuScrollbar(
         child: SingleChildScrollView(
           primary: true,
           child: SingleChildScrollView(

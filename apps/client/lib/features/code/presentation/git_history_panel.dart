@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/ui/biu_scrollbar.dart';
 import '../application/projects_controller.dart';
 import '../data/code_bridge_provider.dart';
 import '../domain/git_models.dart' show GitCommit;
@@ -272,7 +273,7 @@ class _DiffText extends StatelessWidget {
   Widget build(BuildContext context) {
     final lines = diff.split('\n');
     return SelectionArea(
-      child: Scrollbar(
+      child: BiuScrollbar(
         child: SingleChildScrollView(
           primary: true,
           child: SingleChildScrollView(

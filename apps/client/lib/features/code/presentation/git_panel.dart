@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/ui/biu_scrollbar.dart';
 import '../application/git_controller.dart';
 import '../data/code_bridge_provider.dart';
 import '../domain/git_models.dart';
@@ -695,7 +696,7 @@ class _DiffText extends StatelessWidget {
     }
     final lines = diff.split('\n');
     return SelectionArea(
-      child: Scrollbar(
+      child: BiuScrollbar(
         child: ListView.builder(
           primary: true,
           padding: const EdgeInsets.symmetric(vertical: 6),

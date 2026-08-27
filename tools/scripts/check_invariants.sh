@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # BiuMind 架构不变量校验（CI / pre-commit）
-# I1-I9（后端）+ C1-C11（端）的可静态扫描部分
+# I1-I9（后端）+ C1-C12（端）的可静态扫描部分
 #
 # ─── 深度清理工作项（ratchet 止血后，独立收敛）─────────────────────────
 # C5: 现 21 处 Platform.isXXX 散在业务代码（基线 .c5_baseline=21）。
@@ -174,6 +174,24 @@ if grep -rn --include='*.dart' \
   fail "T2: 发现新代码 import biu_tokens.dart (用 BiuColors 替代)"
 else
   ok "T2: 无新代码 import biu_tokens.dart"
+fi
+
+bold "C12: 滚动条收口 — 业务代码禁止裸 Scrollbar"
+# 滚动条是覆盖式反馈元素, 策略全局收口 (规约见
+# apps/client/lib/core/ui/biu_scroll_behavior.dart 顶部注释):
+#   * 视觉: ThemeData.scrollbarTheme (theme_builder.dart)
+#   * 桌面自动挂载: BiuScrollBehavior (main.dart scrollBehavior)
+#   * 需要显式滚动条时: core/ui/biu_scrollbar.dart 的 BiuScrollbar
+# 业务代码再写裸 Scrollbar/CupertinoScrollbar/RawScrollbar 会造成视觉分裂
+# (默认粗灰轨道 vs overlay 细滑块)。硬规则 (基线 0), 豁免仅限 core/ui/。
+# `Scrollbar\(` 前置非字母断言避免误伤 BiuScrollbar(。
+if grep -rn --include='*.dart' \
+  -E '(^|[^A-Za-z_])((Raw)?Scrollbar|CupertinoScrollbar)\(' \
+  apps/client/lib 2>/dev/null \
+  | grep -v "apps/client/lib/core/ui/"; then
+  fail "C12: 业务代码出现裸 Scrollbar — 改用 core/ui/biu_scrollbar.dart 的 BiuScrollbar"
+else
+  ok "C12: 业务代码无裸 Scrollbar (收口 BiuScrollbar + 全局 behavior)"
 fi
 
 # ─── 编码模块不变量 (Code-I1..I8 — docs/BiuMind-Code-Design.md §不变量) ──────
