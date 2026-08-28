@@ -164,6 +164,7 @@ describe('移动端 contextmenu 只 swallow 不弹菜单（双菜单实机 bug�
       aiActions: false,
       imageUpload: false,
       locale: 'zh-Hans',
+      resolveImageUrl: async (url: string) => url,
       mobile,
     })
     controller.attach()

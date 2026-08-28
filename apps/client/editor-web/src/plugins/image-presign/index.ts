@@ -17,6 +17,13 @@ export type PresignGet = (fileId: string) => Promise<string>
 export interface ImagePresignConfig {
   proxyDomURL: (url: string) => Promise<string> | string
   onImageLoadError: (event: Event) => void | Promise<void>
+  /**
+   * Promise 化的 URL 解析（复制链路用）：biu-file:// → presigned URL
+   * （走同一缓存），其他 URL 原样返回（blob:/https: 透传，blob 在同
+   * 会话内可 fetch）。不要把 resolve 展开进 Crepe feature config —
+   * 只挑 proxyDomURL / onImageLoadError 两个字段。
+   */
+  resolve: (url: string) => Promise<string>
 }
 
 const BIU_FILE_RE = /^biu-file:\/\/([0-9a-fA-F-]{36})$/
@@ -73,6 +80,14 @@ export function createImagePresignConfig(
           })
           .catch(() => {})
       }
+    },
+
+    resolve: (url: string) => {
+      const m = BIU_FILE_RE.exec(url)
+      if (!m) return Promise.resolve(url)
+      const hit = cache.get(m[1])
+      if (hit && hit.expiresAt > Date.now()) return Promise.resolve(hit.url)
+      return fetchAndCache(m[1])
     },
   }
 }

@@ -81,7 +81,8 @@ export interface MenuDeps {
   deleteNode: (nodePos: number) => void
   /** 替换图片：经 bridge 请 host 走既有上传链路，成功后更新节点 src（不新建节点） */
   replaceImage: (nodePos: number) => Promise<void>
-  /** 复制图片的 markdown 表示（![caption](uri)）到剪贴板纯文本 */
+  /** 复制图片：text flavor 是 canonical markdown（![alt](biu-file://…)），
+   *  html flavor 换 presigned URL，另附 PNG 图片本体（外部应用粘出真图） */
   copyImage: (nodePos: number) => Promise<void>
   aiAction: (action: 'ask' | 'edit', ctx: MenuContext) => void
   /** 源码模式 textarea 操作 */

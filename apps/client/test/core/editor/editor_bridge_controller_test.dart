@@ -357,6 +357,154 @@ void main() {
     });
   });
 
+  group('imageFileUpload（粘贴/拖入上传）', () {
+    late EditorBridgeController controller;
+    late List<BridgeMessage> sent;
+
+    setUp(() {
+      sent = <BridgeMessage>[];
+      controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      controller.attach((msg) async => sent.add(msg));
+    });
+
+    BridgeMessage imageFileUploadRequest({String? id = 'f1'}) {
+      return BridgeMessage(
+        type: 'imageFileUpload',
+        id: id,
+        payload: const {
+          'name': 'pic.png',
+          'mime': 'image/png',
+          'dataBase64': 'AQID',
+        },
+      );
+    }
+
+    test('resolver 收到解码后的 bytes：reply 带同一 id 和规范 URI', () async {
+      final received = <List<Object?>>[];
+      controller.resolveImageFileUpload = (name, mime, bytes) async {
+        received.add([name, mime, bytes]);
+        return 'biu-file://12345678-1234-1234-1234-123456789abc';
+      };
+      await controller.onIncomingMessage(imageFileUploadRequest());
+      expect(received.single[0], 'pic.png');
+      expect(received.single[1], 'image/png');
+      expect(received.single[2], [1, 2, 3]);
+      expect(sent.single.type, 'imageFileUpload.reply');
+      expect(sent.single.id, 'f1');
+      expect(
+        sent.single.payload['uri'],
+        'biu-file://12345678-1234-1234-1234-123456789abc',
+      );
+    });
+
+    test('resolver 未接线：reply uri null（编辑器不插节点）', () async {
+      await controller.onIncomingMessage(imageFileUploadRequest());
+      expect(sent.single.payload['uri'], isNull);
+    });
+
+    test('resolver 抛异常：reply uri null（不崩）', () async {
+      controller.resolveImageFileUpload =
+          (_, _, _) async => throw StateError('未连接 hub');
+      await controller.onIncomingMessage(imageFileUploadRequest());
+      expect(sent.single.payload['uri'], isNull);
+    });
+
+    test('payload 字段缺失：reply uri null', () async {
+      controller.resolveImageFileUpload =
+          (_, _, _) async => 'biu-file://x';
+      await controller.onIncomingMessage(
+        BridgeMessage(type: 'imageFileUpload', id: 'f2', payload: const {}),
+      );
+      expect(sent.single.payload['uri'], isNull);
+    });
+
+    test('缺 id：不回复', () async {
+      controller.resolveImageFileUpload =
+          (_, _, _) async => 'biu-file://x';
+      await controller.onIncomingMessage(imageFileUploadRequest(id: null));
+      expect(sent, isEmpty);
+    });
+  });
+
+  group('clipboardWrite 带图片二进制（单图复制）', () {
+    late EditorBridgeController controller;
+    late List<BridgeMessage> sent;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      sent = <BridgeMessage>[];
+      controller = EditorBridgeController(
+        initialMarkdown: '',
+        theme: BridgeTheme.light,
+      );
+      controller.attach((msg) async => sent.add(msg));
+    });
+
+    BridgeMessage imageCopyMessage() {
+      return BridgeMessage(
+        type: 'clipboardWrite',
+        payload: const {
+          'text': '![a](biu-file://uuid)',
+          'html': '<img src="https://signed">',
+          'imageBase64': 'AQID',
+          'imageMime': 'image/png',
+        },
+      );
+    }
+
+    test('图片写入成功：走 richClipboardImageWriter，不写纯文本', () async {
+      var plainWritten = false;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') plainWritten = true;
+        return null;
+      });
+      final calls = <List<Object?>>[];
+      controller.richClipboardImageWriter = (text, html, bytes) async {
+        calls.add([text, html, bytes]);
+        return true;
+      };
+      await controller.onIncomingMessage(imageCopyMessage());
+      expect(calls.single[0], '![a](biu-file://uuid)');
+      expect(calls.single[1], '<img src="https://signed">');
+      expect(calls.single[2], [1, 2, 3]);
+      expect(plainWritten, isFalse);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    test('图片写入不支持：回退双格式（richClipboardWriter）', () async {
+      controller.richClipboardImageWriter = (_, _, _) async => false;
+      final richCalls = <List<String>>[];
+      controller.richClipboardWriter = (text, html) async {
+        richCalls.add([text, html]);
+        return true;
+      };
+      await controller.onIncomingMessage(imageCopyMessage());
+      expect(richCalls.single[0], '![a](biu-file://uuid)');
+      expect(richCalls.single[1], '<img src="https://signed">');
+    });
+
+    test('宿主注入 handler 时走 handler（图片字段不拦截）', () async {
+      final received = <List<String?>>[];
+      controller.onClipboardWrite =
+          (text, html) async => received.add([text, html]);
+      var imageWriterCalled = false;
+      controller.richClipboardImageWriter = (_, _, _) async {
+        imageWriterCalled = true;
+        return true;
+      };
+      await controller.onIncomingMessage(imageCopyMessage());
+      expect(received, [
+        ['![a](biu-file://uuid)', '<img src="https://signed">'],
+      ]);
+      expect(imageWriterCalled, isFalse);
+    });
+  });
+
   group('aiAction（P2 预留）', () {
     test('未接线时不崩', () async {
       final controller = EditorBridgeController(

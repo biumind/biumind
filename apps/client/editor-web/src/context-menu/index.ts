@@ -34,6 +34,62 @@ import {
 } from './model'
 import { MenuView } from './view'
 
+/** HTML 属性值转义（复制图片拼 <img> 用：presigned URL 必带 & 查询参数）。 */
+function escapeHtmlAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+/** Blob → base64（不带 data: URL 前缀）。 */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error ?? new Error('FileReader error'))
+    reader.onload = () => {
+      const result = reader.result
+      if (typeof result !== 'string') {
+        reject(new Error('FileReader: unexpected result type'))
+        return
+      }
+      const comma = result.indexOf(',')
+      resolve(comma >= 0 ? result.slice(comma + 1) : result)
+    }
+    reader.readAsDataURL(blob)
+  })
+}
+
+/** 非 PNG 图片经 canvas 转码（浏览器 ClipboardItem 图片只接受 PNG）。 */
+async function transcodeToPng(blob: Blob): Promise<Blob | null> {
+  try {
+    const bitmap = await createImageBitmap(blob)
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(bitmap, 0, 0)
+    bitmap.close()
+    return await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/png'),
+    )
+  } catch {
+    return null
+  }
+}
+
+/** fetch 图片并取出 PNG base64；任何一步失败回 null（调用方降级 text+html）。 */
+async function fetchImageAsPngBase64(url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url)
+    if (!resp.ok) return null
+    const blob = await resp.blob()
+    const png = blob.type === 'image/png' ? blob : await transcodeToPng(blob)
+    if (!png) return null
+    return await blobToBase64(png)
+  } catch {
+    return null
+  }
+}
+
 export interface ContextMenuControllerDeps {
   bridge: BridgeClient
   /** 与 toolbar 共用的同一批命令（main.ts 提取的 editorCommands） */
@@ -46,6 +102,9 @@ export interface ContextMenuControllerDeps {
   /** init features.imageUpload：host 声明已接上传链路才渲染「替换图片…」 */
   imageUpload: boolean
   locale: string
+  /** 复制链路换 URL：biu-file:// → presigned URL（走编辑器渲染同一缓存），
+   *  blob:/https: 原样透传。单图复制取图片本体、整篇复制修 HTML flavor 用。 */
+  resolveImageUrl: (url: string) => Promise<string>
   /**
    * 移动端（M1）：Android WebView 长按选词完成时会发 contextmenu 事件——
    * 若照常弹竖向菜单，会与 selectionUpdated 驱动的选区浮动工具条同时
@@ -222,6 +281,29 @@ export class ContextMenuController {
       ?.editor.action(callCommand(command.key, payload as T))
   }
 
+  /** 把 HTML 里的 biu-file:// 图片地址批量换成 presigned URL（复制
+   *  HTML flavor 用）。换取失败的保留原值，不阻塞复制。 */
+  private async resolveHtmlImageSrcs(html: string): Promise<string> {
+    const uris = [
+      ...new Set(
+        [...html.matchAll(/biu-file:\/\/[0-9a-fA-F-]{36}/g)].map((m) => m[0]),
+      ),
+    ]
+    if (uris.length === 0) return html
+    let out = html
+    await Promise.all(
+      uris.map(async (uri) => {
+        try {
+          const resolved = await this.deps.resolveImageUrl(uri)
+          if (resolved && resolved !== uri) out = out.split(uri).join(resolved)
+        } catch {
+          // 保留原值 —— 复制不因此失败
+        }
+      }),
+    )
+    return out
+  }
+
   private buildMenuDeps(): MenuDeps {
     const { bridge, commands } = this.deps
     const clipboard = this.clipboard
@@ -254,6 +336,10 @@ export class ContextMenuController {
           html = fragmentToHtml(view.state.schema, slice.content)
           if (cut) view.dispatch(view.state.tr.deleteSelection())
         })
+        // HTML flavor 里的 biu-file:// 换成 presigned URL（外部应用可直接
+        // 加载；15 分钟 TTL，超时裂开可接受）。text flavor 保持 canonical，
+        // 内部粘贴往返不污染正文。
+        if (html) html = await this.resolveHtmlImageSrcs(html)
         if (markdown) {
           await clipboard.write(html ? { text: markdown, html } : { text: markdown })
         }
@@ -360,19 +446,37 @@ export class ContextMenuController {
       },
 
       copyImage: async (nodePos) => {
-        let markdown = ''
+        let src = ''
+        let alt = ''
         withView((view) => {
           const node = view.state.doc.nodeAt(nodePos)
           if (!node) return
-          const src = (node.attrs.src as string | undefined) ?? ''
-          if (!src) return
-          const alt =
+          src = (node.attrs.src as string | undefined) ?? ''
+          alt =
             (node.attrs.alt as string | undefined) ??
             (node.attrs.caption as string | undefined) ??
             ''
-          markdown = `![${alt}](${src})`
         })
-        if (markdown) await clipboard.write({ text: markdown })
+        if (!src) return
+        // text flavor 保持 canonical（biu-file://）——内部粘贴往返不污染正文
+        const markdown = `![${alt}](${src})`
+        // 换可 fetch 的 URL：biu-file → presigned；blob:/https: 透传
+        // （blob 在同会话内仍可 fetch，存量 blob 图也能复制出本体）
+        let resolved = src
+        try {
+          resolved = await this.deps.resolveImageUrl(src)
+        } catch {
+          // presign 失败保留原值 —— 降级 text-only 也比不写强
+        }
+        const html = `<img src="${escapeHtmlAttr(resolved)}" alt="${escapeHtmlAttr(alt)}">`
+        // 图片本体（PNG base64）：成功则多格式写（外部应用粘出真图），
+        // fetch/转码失败降级 text+html
+        const pngBase64 = await fetchImageAsPngBase64(resolved)
+        await clipboard.write(
+          pngBase64
+            ? { text: markdown, html, image: { base64: pngBase64, mime: 'image/png' } }
+            : { text: markdown, html },
+        )
       },
 
       aiAction: (action, menuCtx) => {

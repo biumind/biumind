@@ -160,6 +160,27 @@ class MainFlutterWindow: NSWindow {
         pb.setString(text, forType: .string)
         pb.setString(html, forType: .html)
         result(nil)
+      case "writeImage":
+        // 单图复制（编辑器右键「复制图片」）：PNG 本体写 NSPasteboard.png
+        // —— 粘到微信/备忘录/Word 直接出图；text（canonical markdown）
+        // 与可选 html 作为兜底 representation。
+        guard let args = call.arguments as? [String: Any],
+              let text = args["text"] as? String,
+              let imageBase64 = args["imageBase64"] as? String,
+              let pngData = Data(base64Encoded: imageBase64) else {
+          result(FlutterError(code: "bad_args",
+                              message: "writeImage needs {text, imageBase64}",
+                              details: nil))
+          return
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(pngData, forType: .png)
+        pb.setString(text, forType: .string)
+        if let html = args["html"] as? String {
+          pb.setString(html, forType: .html)
+        }
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }

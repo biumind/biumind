@@ -21,6 +21,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -233,6 +234,25 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
 
   // ─── 附件（N2）：图片 + 任意文件 ────────────────────────────
 
+  /// 上传内存字节，返回规范 URI（`biu-file://<uuid>`）。大小超 10MB 抛异常。
+  Future<String> _uploadBytes(
+    FilesClient filesClient,
+    Uint8List bytes,
+    String name, {
+    required String mime,
+  }) async {
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw Exception('$name 超过 10MB 上限');
+    }
+    final result = await filesClient.uploadViaPresign(
+      bytes: bytes,
+      filename: name,
+      mime: mime,
+      source: 'note-attachment',
+    );
+    return 'biu-file://${result.fileId}';
+  }
+
   /// 上传单个附件，返回规范 URI（`biu-file://<uuid>`）。大小超 10MB 抛异常。
   Future<String> _uploadAttachment(
     FilesClient filesClient,
@@ -240,16 +260,29 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
     required String mime,
   }) async {
     final bytes = await f.readAsBytes();
-    if (bytes.length > 10 * 1024 * 1024) {
-      throw Exception('${f.name} 超过 10MB 上限');
+    return _uploadBytes(filesClient, bytes, f.name, mime: mime);
+  }
+
+  /// 粘贴/拖入图片上传（bridge imageFileUpload，编辑器 onUpload 链路）：
+  /// File 已在编辑器侧读成 bytes，走与「插入图片」同一条 presign 直传
+  /// 链路；失败 SnackBar 报错并返回 null（编辑器侧不插入图片节点，
+  /// 正文不留 blob 占位）。
+  Future<String?> _uploadPastedImage(
+    String name,
+    String mime,
+    Uint8List bytes,
+  ) async {
+    final filesClient = ref.read(filesClientProvider);
+    if (filesClient == null) {
+      _showSnack('未连接 hub，无法上传图片');
+      return null;
     }
-    final result = await filesClient.uploadViaPresign(
-      bytes: bytes,
-      filename: f.name,
-      mime: mime,
-      source: 'note-attachment',
-    );
-    return 'biu-file://${result.fileId}';
+    try {
+      return await _uploadBytes(filesClient, bytes, name, mime: mime);
+    } on Exception catch (e) {
+      _showSnack('图片上传失败：$e');
+      return null;
+    }
   }
 
   /// 选图 → 走 chat 同款 presign 直传上传 → 在编辑器当前光标处插入
@@ -729,6 +762,7 @@ class _NoteEditorViewState extends ConsumerState<NoteEditorView> {
                 ),
                 resolvePresignGet: _presignGetAttachment,
                 resolveImageUpload: _pickAndUploadImage,
+                resolveImageFileUpload: _uploadPastedImage,
                 onMarkdownChanged: _contentAutosave.schedule,
                 controllerRef: (c) => _editorController = c,
               ),

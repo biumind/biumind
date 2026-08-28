@@ -148,10 +148,15 @@ export interface SelectionChangedPayload {
 
 /** 复制/剪切落系统剪贴板（execCommand 在 WKWebView 常失败，走 host）。
  *  text = markdown 序列化；html（P2 新增，可选）= 同一选区的 HTML 序列化，
- *  host 在 macOS 上写 NSPasteboard 双格式，其他平台忽略该字段只写 text。 */
+ *  host 在 macOS 上写 NSPasteboard 双格式，其他平台忽略该字段只写 text。
+ *  imageBase64/imageMime（可选）= 单图复制时的图片二进制（PNG base64），
+ *  host 有能力就写系统剪贴板图片格式（macOS NSPasteboard.png），
+ *  无能力的平台忽略，只写 text/html。 */
 export interface ClipboardWritePayload {
   text: string
   html?: string
+  imageBase64?: string
+  imageMime?: string
 }
 
 /** 读系统剪贴板（request/reply，应答见 ClipboardReadReplyPayload）。 */
@@ -177,6 +182,22 @@ export interface ImageUploadReplyPayload {
   uri: string | null
 }
 
+/** 粘贴/拖入图片上传（onUpload 链路）：编辑器手里已有 File（不弹选图器），
+ *  读成 base64 发给 host；host 走与「插入图片」同一条 presign 直传链路。
+ *  能力声明同 features.imageUpload（notes 专属）。 */
+export interface ImageFileUploadPayload {
+  name: string
+  mime: string
+  dataBase64: string
+}
+
+/** imageFileUpload 的应答：uri = biu-file://<uuid> 规范 URI；null = 上传
+ *  失败 / host 未接线（编辑器侧 onUpload 抛错，图片节点不插入——绝不回落
+ *  blob URL，防止不可持久化的引用落库）。 */
+export interface ImageFileUploadReplyPayload {
+  uri: string | null
+}
+
 // Discriminated union — exhaustive for safety.
 
 export type HostToEditorMessage =
@@ -188,6 +209,7 @@ export type HostToEditorMessage =
   | Msg<'presignGet.reply', PresignGetReplyPayload>
   | Msg<'clipboardRead.reply', ClipboardReadReplyPayload>
   | Msg<'imageUpload.reply', ImageUploadReplyPayload>
+  | Msg<'imageFileUpload.reply', ImageFileUploadReplyPayload>
 
 export type EditorToHostMessage =
   | Msg<'ready', ReadyPayload>
@@ -201,6 +223,7 @@ export type EditorToHostMessage =
   | Msg<'clipboardRead', ClipboardReadPayload>
   | Msg<'aiAction', AiActionPayload>
   | Msg<'imageUpload', ImageUploadPayload>
+  | Msg<'imageFileUpload', ImageFileUploadPayload>
 
 export interface Msg<T extends string, P> {
   type: T

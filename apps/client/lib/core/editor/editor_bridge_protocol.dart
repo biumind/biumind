@@ -199,6 +199,21 @@ BridgeMessage imageUploadReplyMessage({
   );
 }
 
+/// imageFileUpload.reply — 粘贴/拖入图片上传（onUpload 链路）的应答。
+/// 编辑器手里已有 File（读成 base64 发来），host 走同一条 presign 直传
+/// 链路；`uri` = `biu-file://<uuid>` 规范 URI，null = 上传失败
+/// （编辑器侧 onUpload 抛错，图片节点不插入——绝不回落 blob URL）。
+BridgeMessage imageFileUploadReplyMessage({
+  required String id,
+  required String? uri,
+}) {
+  return BridgeMessage(
+    type: 'imageFileUpload.reply',
+    id: id,
+    payload: {'uri': uri},
+  );
+}
+
 /// aiAction — 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 才渲染）。
 class EditorAiAction {
   const EditorAiAction({

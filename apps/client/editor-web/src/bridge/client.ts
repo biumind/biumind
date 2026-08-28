@@ -16,6 +16,8 @@ import {
   type DocChangedPayload,
   type ImageUploadPayload,
   type ImageUploadReplyPayload,
+  type ImageFileUploadPayload,
+  type ImageFileUploadReplyPayload,
   type SelectionChangedPayload,
   type HostToEditorMessage,
   type InitPayload,
@@ -137,9 +139,26 @@ export class BridgeClient {
     )
   }
 
+  /** 粘贴/拖入图片上传（onUpload 链路）：File 已读成 base64，host 走
+   *  presign 直传后回规范 URI。上传耗时长，超时放宽到 120s（默认 5s
+   *  会误杀在途上传）；失败/超时回空对象 → uri undefined → null。 */
+  requestImageFileUpload(
+    payload: ImageFileUploadPayload,
+  ): Promise<ImageFileUploadReplyPayload> {
+    return this.request<ImageFileUploadPayload, ImageFileUploadReplyPayload>(
+      'imageFileUpload',
+      payload,
+      120_000,
+    )
+  }
+
   // Internal
 
-  private request<Req, Resp>(type: string, payload: Req): Promise<Resp> {
+  private request<Req, Resp>(
+    type: string,
+    payload: Req,
+    timeoutMs = this.replyTimeoutMs,
+  ): Promise<Resp> {
     const id = randomId()
     const msg = makeMessage(type, payload, id)
     return new Promise<Resp>((resolve) => {
@@ -151,7 +170,7 @@ export class BridgeClient {
           // have nothing to say (e.g. wikilink suggest with no matches).
           resolve({} as Resp)
         }
-      }, this.replyTimeoutMs)
+      }, timeoutMs)
       this.replyTimers.set(id, timer)
       this.send(msg)
     })
@@ -224,6 +243,9 @@ export class BridgeClient {
         // already handled by request() id matching above; defensively no-op
         return
       case 'imageUpload.reply':
+        // already handled by request() id matching above; defensively no-op
+        return
+      case 'imageFileUpload.reply':
         // already handled by request() id matching above; defensively no-op
         return
     }

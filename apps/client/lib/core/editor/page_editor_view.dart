@@ -34,6 +34,7 @@ class PageEditorView extends StatefulWidget {
     this.resolveWikilinks,
     this.resolvePresignGet,
     this.resolveImageUpload,
+    this.resolveImageFileUpload,
     this.controllerRef,
     this.features = const BridgeFeatures(),
     this.locale,
@@ -53,6 +54,11 @@ class PageEditorView extends StatefulWidget {
   /// 直传 → 返回 biu-file:// 规范 URI；取消/失败返回 null）。
   /// 接线时 host 应同时在 features 里传 `imageUpload: true`。
   final Future<String?> Function()? resolveImageUpload;
+
+  /// 粘贴/拖入图片上传回调（编辑器 onUpload 链路：File 已读成 bytes，
+  /// host 走同一条 presign 直传；失败返回 null，图片节点不插入）。
+  /// 接线时 host 应同时在 features 里传 `imageUpload: true`。
+  final ImageFileUploadResolver? resolveImageFileUpload;
 
   /// Feature toggles sent in the init message (wikilink / mermaid).
   /// Defaults keep the historical behavior; hosts like the note editor
@@ -90,7 +96,8 @@ class _PageEditorViewState extends State<PageEditorView> {
       ..onWikilinkTap = widget.onWikilinkTap
       ..resolveWikilinks = widget.resolveWikilinks
       ..resolvePresignGet = widget.resolvePresignGet
-      ..resolveImageUpload = widget.resolveImageUpload;
+      ..resolveImageUpload = widget.resolveImageUpload
+      ..resolveImageFileUpload = widget.resolveImageFileUpload;
     widget.controllerRef?.call(_controller);
   }
 
@@ -102,7 +109,8 @@ class _PageEditorViewState extends State<PageEditorView> {
       ..onWikilinkTap = widget.onWikilinkTap
       ..resolveWikilinks = widget.resolveWikilinks
       ..resolvePresignGet = widget.resolvePresignGet
-      ..resolveImageUpload = widget.resolveImageUpload;
+      ..resolveImageUpload = widget.resolveImageUpload
+      ..resolveImageFileUpload = widget.resolveImageFileUpload;
     if (oldWidget.theme != widget.theme) {
       _controller.setOptions(newTheme: widget.theme);
     }

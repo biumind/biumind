@@ -74,4 +74,43 @@ describe('bridge protocol', () => {
     const wire = JSON.parse(JSON.stringify(m)) as unknown
     expect(isMessage(wire)).toBe(true)
   })
+
+  it('imageFileUpload 请求带 id，reply 回显同一 id', () => {
+    const req = makeMessage(
+      'imageFileUpload',
+      { name: 'pic.png', mime: 'image/png', dataBase64: 'AQID' },
+      'req-9',
+    )
+    expect(req.id).toBe('req-9')
+    expect(req.payload).toEqual({
+      name: 'pic.png',
+      mime: 'image/png',
+      dataBase64: 'AQID',
+    })
+    const wire = JSON.parse(JSON.stringify(req)) as unknown
+    expect(isMessage(wire)).toBe(true)
+    // 成功 → uri；失败/未接线 → null（编辑器侧 onUpload 抛错，不插节点）
+    const reply = makeMessage(
+      'imageFileUpload.reply',
+      { uri: 'biu-file://3f6b1d2a-0000-4000-8000-000000000000' },
+      'req-9',
+    )
+    expect(reply.id).toBe('req-9')
+    const failed = makeMessage('imageFileUpload.reply', { uri: null }, 'req-10')
+    expect(failed.payload).toEqual({ uri: null })
+  })
+
+  it('clipboardWrite 带图片二进制字段（单图复制）', () => {
+    const m = makeMessage('clipboardWrite', {
+      text: '![a](biu-file://uuid)',
+      html: '<img src="https://signed">',
+      imageBase64: 'AQID',
+      imageMime: 'image/png',
+    })
+    const wire = JSON.parse(JSON.stringify(m)) as unknown
+    expect(isMessage(wire)).toBe(true)
+    expect((wire as { payload: Record<string, unknown> }).payload.imageMime).toBe(
+      'image/png',
+    )
+  })
 })

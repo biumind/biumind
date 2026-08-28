@@ -41,6 +41,21 @@ describe('native clipboard（bridge 实现）', () => {
     })
   })
 
+  it('write 带 image → payload 透传图片二进制（单图复制）', async () => {
+    const { bridge, sendClipboardWrite } = mockBridge({ text: null })
+    await createNativeClipboard(bridge).write({
+      text: '![a](biu-file://uuid)',
+      html: '<img src="https://signed">',
+      image: { base64: 'iVBORw0KGgo=', mime: 'image/png' },
+    })
+    expect(sendClipboardWrite).toHaveBeenCalledWith({
+      text: '![a](biu-file://uuid)',
+      html: '<img src="https://signed">',
+      imageBase64: 'iVBORw0KGgo=',
+      imageMime: 'image/png',
+    })
+  })
+
   it('read → clipboardRead.reply 有文本', async () => {
     const { bridge, requestClipboardRead } = mockBridge({ text: 'pasted' })
     await expect(createNativeClipboard(bridge).read()).resolves.toEqual({
@@ -169,6 +184,36 @@ describe('web clipboard（navigator.clipboard 实现）', () => {
       await createWebClipboard(vi.fn()).write({ text: 'plain' })
       expect(writeText).toHaveBeenCalledWith('plain')
       expect(instances).toHaveLength(0)
+      vi.unstubAllGlobals()
+    })
+
+    it('带 image（单图复制）→ ClipboardItem 含图片 MIME 三格式', async () => {
+      const instances = stubClipboardItem()
+      const write = vi.fn(async (_items: unknown[]) => {})
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ write, writeText } as never)
+      await createWebClipboard(vi.fn()).write({
+        text: '![a](biu-file://uuid)',
+        html: '<img src="https://signed">',
+        image: { base64: 'AQID', mime: 'image/png' },
+      })
+      expect(write).toHaveBeenCalledOnce()
+      expect(instances[0].types).toEqual(['text/plain', 'text/html', 'image/png'])
+      expect(writeText).not.toHaveBeenCalled()
+      vi.unstubAllGlobals()
+    })
+
+    it('只带 image 无 html → 同样走 ClipboardItem（text + image）', async () => {
+      const instances = stubClipboardItem()
+      const write = vi.fn(async (_items: unknown[]) => {})
+      const writeText = vi.fn(async (_text: string) => {})
+      mockNavigatorClipboard({ write, writeText } as never)
+      await createWebClipboard(vi.fn()).write({
+        text: '![a](biu-file://uuid)',
+        image: { base64: 'AQID', mime: 'image/png' },
+      })
+      expect(write).toHaveBeenCalledOnce()
+      expect(instances[0].types).toEqual(['text/plain', 'image/png'])
       vi.unstubAllGlobals()
     })
   })

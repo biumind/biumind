@@ -61,6 +61,7 @@ import { SelectionToolbar } from './context-menu/selection-toolbar'
 import { buildLocalizedFeatureConfigs } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
+import { createImageUploadConfig } from './plugins/image-upload'
 import { mermaidPlugins } from './plugins/mermaid'
 import { applyWikilinkRemark, wikilinkPlugins } from './plugins/wikilink'
 import { SourceModeController } from './source-mode'
@@ -282,6 +283,23 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   root.appendChild(editorWrap)
 
   const localizedConfigs = buildLocalizedFeatureConfigs(payload.locale)
+  // biu-file:// 附件渲染时换 presigned URL（文档里只存规范 URI），
+  // 过期 403 由 onImageLoadError 强刷重换。resolve 是同一缓存的
+  // Promise 化解析，供复制链路（单图/整篇 HTML flavor）换 URL 用。
+  const imagePresign = createImagePresignConfig((fileId) =>
+    bridge.requestPresignGet({ fileId }).then((r) => r.url ?? ''),
+  )
+  // 粘贴/拖入图片上传（notes 专属，host 声明 imageUpload 才接）：File →
+  // base64 → bridge → host presign 直传 → biu-file://。不接则维持 Crepe
+  // 默认（blob URL，wiki 现状）；上传失败 onUpload 抛错，节点不插入。
+  const imageUploadConfig =
+    payload.features.imageUpload === true
+      ? createImageUploadConfig(
+          (file) =>
+            bridge.requestImageFileUpload(file).then((r) => r.uri ?? null),
+          (msg) => bridge.sendLog({ level: 'warn', msg: `[image-upload] ${msg}` }),
+        )
+      : null
   const crepe = new Crepe({
     root: editorWrap,
     defaultValue: payload.markdown,
@@ -295,13 +313,12 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       // UI 文案本地化（字典 → featureConfigs，见 src/i18n）；宿主行为配置
       // 在其后展开，同名字段宿主优先。
       ...localizedConfigs,
-      // biu-file:// 附件渲染时换 presigned URL（文档里只存规范 URI），
-      // 过期 403 由 onImageLoadError 强刷重换。block/inline 一处配置都覆盖。
+      // block/inline 一处配置都覆盖（resolve 不展开进 config，见插件注释）。
       [Crepe.Feature.ImageBlock]: {
         ...localizedConfigs[Crepe.Feature.ImageBlock],
-        ...createImagePresignConfig((fileId) =>
-          bridge.requestPresignGet({ fileId }).then((r) => r.url ?? ''),
-        ),
+        proxyDomURL: imagePresign.proxyDomURL,
+        onImageLoadError: imagePresign.onImageLoadError,
+        ...(imageUploadConfig ? { onUpload: imageUploadConfig.onUpload } : {}),
       },
     },
   })
@@ -398,6 +415,8 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       aiActions: payload.features.aiActions === true,
       imageUpload: payload.features.imageUpload === true,
       locale: payload.locale,
+      // 复制链路换 URL（单图复制取图片本体、整篇 HTML flavor 换 presigned）
+      resolveImageUrl: imagePresign.resolve,
       // 移动端：contextmenu 只 swallow 不弹菜单，防与选区工具条双菜单叠出
       mobile: mobileCustom,
     })

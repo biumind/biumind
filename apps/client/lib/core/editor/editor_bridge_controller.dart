@@ -15,6 +15,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert' show base64Decode;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -31,6 +32,15 @@ typedef WikilinkResolver = Future<List<WikilinkSuggestion>> Function(
 /// 渲染时给 `biu-file://<uuid>` 图片换 presigned GET URL（15 分钟 TTL，
 /// 编辑器侧缓存 + 过期重换）。返回空串表示换取失败。
 typedef PresignGetResolver = Future<String> Function(String fileId);
+
+/// 粘贴/拖入图片上传（编辑器 onUpload 链路）：File 已读成 bytes，
+/// host 走 presign 直传后返回 `biu-file://<uuid>` 规范 URI；
+/// 失败返回 null（编辑器侧 onUpload 抛错，图片节点不插入）。
+typedef ImageFileUploadResolver = Future<String?> Function(
+  String name,
+  String mime,
+  Uint8List bytes,
+);
 
 class EditorBridgeController extends ChangeNotifier {
   EditorBridgeController({
@@ -83,6 +93,11 @@ class EditorBridgeController extends ChangeNotifier {
   Future<bool> Function(String text, String html) richClipboardWriter =
       writeRichClipboard;
 
+  /// 图片剪贴板写入（macOS method channel，单图复制）。返回 false = 平台
+  /// 不支持 / 通道失败，回退双格式/纯文本。测试可注入 mock。
+  Future<bool> Function(String text, String? html, Uint8List pngBytes)
+      richClipboardImageWriter = writeImageClipboard;
+
   /// 右键菜单 AI 动作（协议 P1 预留；菜单组 P2 渲染后才有真实流量）。
   void Function(EditorAiAction action)? onAiAction;
 
@@ -90,6 +105,10 @@ class EditorBridgeController extends ChangeNotifier {
   /// 返回 `biu-file://<uuid>` 规范 URI；取消/失败返回 null（编辑器不动节点）。
   /// 仅 notes 宿主页接线（wiki 无附件链路，features.imageUpload 保持 false）。
   Future<String?> Function()? resolveImageUpload;
+
+  /// 粘贴/拖入图片上传（编辑器 onUpload 链路）：File 已读成 bytes 发来，
+  /// host 走与「插入图片」同一条 presign 直传链路。仅 notes 宿主页接线。
+  ImageFileUploadResolver? resolveImageFileUpload;
 
   EditorSend? _send;
   final Completer<void> _readyCompleter = Completer<void>();
@@ -143,6 +162,8 @@ class EditorBridgeController extends ChangeNotifier {
         _onAiAction(msg);
       case 'imageUpload':
         await _onImageUpload(msg);
+      case 'imageFileUpload':
+        await _onImageFileUpload(msg);
       default:
         debugPrint('[editor-bridge] unknown message type: ${msg.type}');
     }
@@ -242,17 +263,34 @@ class EditorBridgeController extends ChangeNotifier {
   /// 自绘右键菜单「剪切/复制」：execCommand 在 WKWebView 常失败，编辑器
   /// 把文本经 bridge 送过来，这里落系统剪贴板。payload 带 html（P2 双格式）
   /// 时优先写 text+html（macOS NSPasteboard），不支持/失败回退纯文本。
+  /// payload 带 imageBase64（单图复制的 PNG 本体）时优先写图片格式，
+  /// 平台无能力时逐级回退 html → 纯文本。
   Future<void> _onClipboardWrite(BridgeMessage msg) async {
     final text = msg.payload['text'];
     if (text is! String) return;
     final html = msg.payload['html'];
+    final htmlStr = html is String && html.isNotEmpty ? html : null;
     final handler = onClipboardWrite;
     if (handler != null) {
-      await handler(text, html is String ? html : null);
+      await handler(text, htmlStr);
       return;
     }
-    if (html is String && html.isNotEmpty) {
-      if (await richClipboardWriter(text, html)) return;
+    final imageBase64 = msg.payload['imageBase64'];
+    final imageMime = msg.payload['imageMime'];
+    if (imageBase64 is String &&
+        imageBase64.isNotEmpty &&
+        imageMime == 'image/png') {
+      try {
+        if (await richClipboardImageWriter(
+            text, htmlStr, base64Decode(imageBase64))) {
+          return;
+        }
+      } catch (_) {
+        // base64 解码失败 / 通道异常 —— 继续回退链路
+      }
+    }
+    if (htmlStr != null) {
+      if (await richClipboardWriter(text, htmlStr)) return;
     }
     await Clipboard.setData(ClipboardData(text: text));
   }
@@ -302,6 +340,31 @@ class EditorBridgeController extends ChangeNotifier {
       }
     }
     await _send?.call(imageUploadReplyMessage(id: id, uri: uri));
+  }
+
+  /// 粘贴/拖入图片上传（onUpload 链路）：payload 带 base64 文件内容，
+  /// host 走 presign 直传。resolver 未接线/失败回 null —— 编辑器侧
+  /// onUpload 抛错，图片节点不插入（绝不回落 blob URL）。
+  Future<void> _onImageFileUpload(BridgeMessage msg) async {
+    final id = msg.id;
+    if (id == null) return;
+    String? uri;
+    final resolver = resolveImageFileUpload;
+    final name = msg.payload['name'];
+    final mime = msg.payload['mime'];
+    final dataBase64 = msg.payload['dataBase64'];
+    if (resolver != null &&
+        name is String &&
+        mime is String &&
+        dataBase64 is String) {
+      try {
+        final bytes = base64Decode(dataBase64);
+        uri = await resolver(name, mime, bytes);
+      } catch (_) {
+        uri = null;
+      }
+    }
+    await _send?.call(imageFileUploadReplyMessage(id: id, uri: uri));
   }
 
   /// Push a server-authoritative markdown into the editor (used after
