@@ -1,10 +1,12 @@
-// RepoWindowPage —— Repo App 伪独立窗口（Repo Apps M1.14）。
+// RepoWindowPage —— Repo App 打开页（路由 /apps/repo-window/:installId，
+// 注册在 ShellRoute 之外，先例 /suggestions）。
 //
-// 路由 /apps/repo-window/:installId，注册在 ShellRoute 之外（无侧边栏
-// 全屏页，先例 /suggestions）。结构：
-//   ┌ 自绘标题栏：应用名 + 关闭按钮（pop）
-//   ├ 等待页：checking runtime → `biu repo-app ensure`（显示进度行）
-//   └ WebViewPanel（Linux 自动走 _WebFallback 外部浏览器）
+// 两条出口：
+//   1. macOS（runner + webview 都有）→ 经 desktop_multi_window 开
+//      真·原生子窗口（repo_app_window.dart / repo_app_window_app.dart），
+//      本页落「已在新窗口打开」态；
+//   2. 其余（Linux / 开窗失败回退）→ 本页应用内全屏：自绘标题栏 +
+//      WebViewPanel（Linux 自动 _WebFallback 外部浏览器）。
 //
 // 启动链路（技术方案 §3.4）：先 GET /v1/apps/installs/{id}/runtime 快路
 // 径（runner 已在跑就直接拿 URL），否则经 RepoAppLauncher 执行
@@ -25,6 +27,7 @@ import '../../../core/platform/window_drag.dart';
 import '../../../data/agent_plane/repo_app_launcher.dart';
 import '../../../data/apps_providers.dart';
 import '../../../services/login_shell_env.dart';
+import '../host/repo_app_window.dart';
 import '../host/webview_panel.dart';
 
 class RepoWindowPage extends ConsumerStatefulWidget {
@@ -36,7 +39,7 @@ class RepoWindowPage extends ConsumerStatefulWidget {
   ConsumerState<RepoWindowPage> createState() => _RepoWindowPageState();
 }
 
-enum _Phase { checking, starting, ready, error }
+enum _Phase { checking, starting, ready, openedExternally, error }
 
 class _RepoWindowPageState extends ConsumerState<RepoWindowPage> {
   _Phase _phase = _Phase.checking;
@@ -65,6 +68,8 @@ class _RepoWindowPageState extends ConsumerState<RepoWindowPage> {
         final rt = await client.getRepoRuntime(
             installId: widget.installId, token: token);
         if (rt.isRunning) {
+          if (!mounted) return;
+          if (await _openNativeWindowIfCapable(rt.url)) return;
           if (!mounted) return;
           setState(() {
             _url = rt.url;
@@ -105,6 +110,8 @@ class _RepoWindowPageState extends ConsumerState<RepoWindowPage> {
           ..remove(widget.installId);
         ref.read(repoAppPendingEnvProvider.notifier).state = next;
       }
+      if (await _openNativeWindowIfCapable(res.url)) return;
+      if (!mounted) return;
       setState(() {
         _url = res.url;
         _phase = _Phase.ready;
@@ -116,6 +123,33 @@ class _RepoWindowPageState extends ConsumerState<RepoWindowPage> {
         _phase = _Phase.error;
       });
     }
+  }
+
+  /// macOS（有 runner 且有嵌入式 webview）→ 开真·原生窗口，本页落
+  /// "已在新窗口打开" 态。返回 true 表示已走原生路径（调用方不再
+  /// 进 ready）；平台不满足或开窗失败（插件通道异常）返回 false，
+  /// 回退应用内全屏 WebViewPanel。
+  Future<bool> _openNativeWindowIfCapable(String url) async {
+    final caps = ref.read(platformCapsProvider);
+    if (!shouldUseNativeRepoWindow(caps)) return false;
+    final install = await ref
+        .read(installationProvider(widget.installId).future)
+        .catchError((_) => null);
+    final title = (install?.identifier.isNotEmpty ?? false)
+        ? install!.identifier
+        : 'GitHub 应用';
+    try {
+      await openNativeRepoWindow(RepoAppWindowArgs(
+        title: title,
+        url: url,
+        installId: widget.installId,
+      ));
+    } catch (_) {
+      return false; // 回退应用内全屏
+    }
+    if (!mounted) return true;
+    setState(() => _phase = _Phase.openedExternally);
+    return true;
   }
 
   @override
@@ -174,6 +208,7 @@ class _RepoWindowPageState extends ConsumerState<RepoWindowPage> {
                         initialUrl: _url,
                         title: appName,
                       ),
+                    _Phase.openedExternally => const _OpenedExternallyBody(),
                     _Phase.error => _ErrorBody(
                         message: _error,
                         onRetry: () => unawaited(_boot()),
@@ -231,6 +266,41 @@ class _StartingBody extends StatelessWidget {
                 ),
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OpenedExternallyBody extends StatelessWidget {
+  const _OpenedExternallyBody();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(BiuTokens.space6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.open_in_new,
+                size: 32, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: BiuTokens.space3),
+            Text('已在新窗口打开', style: theme.textTheme.titleMedium),
+            const SizedBox(height: BiuTokens.space2),
+            Text(
+              '应用在独立窗口中运行；关闭窗口不影响后台服务，下次打开秒连。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: BiuTokens.space3),
+            TextButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('返回'),
+            ),
           ],
         ),
       ),

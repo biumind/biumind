@@ -16,6 +16,8 @@ import 'core/ui/biu_scroll_behavior.dart';
 import 'data/agent_plane/biu_daemon_manager.dart';
 import 'data/api/_http_helpers.dart' show authErrorHandler, billingErrorHandler;
 import 'data/api/hub_backend.dart';
+import 'features/apps/host/repo_app_window.dart';
+import 'features/apps/host/repo_app_window_app.dart';
 import 'features/chat/application/chat_preferences.dart';
 import 'features/chat/presentation/v2/insufficient_credits_modal.dart';
 import 'features/chat/sync/chat_sync_manager.dart';
@@ -33,13 +35,22 @@ import 'services/token_manager.dart'
         SessionExpiredReason;
 import 'services/token_refresher.dart';
 
-void main() {
+void main(List<String> args) {
   // 必须最先初始化 binding — 下面的 ProviderContainer 创建 + 启动块
   // (ensureOriginDevice/ensureInstallationId)会在 runApp 之前触发
   // settingsController.build() → keychain/shared_preferences 等平台通道调用,
   // 没有 binding 时这些调用直接抛 "Binding has not yet been initialized",
   // settings load 静默返回空 → 已登录会话被"藏"住并被启动写入覆盖。
   WidgetsFlutterBinding.ensureInitialized();
+
+  // desktop_multi_window 子窗口 engine 分发：插件原生侧以
+  // ["multi_window", windowId, argumentsJson] 作为 entrypoint args
+  // 起第二个 engine —— 检出即运行独立的 RepoAppWindowApp（全新
+  // Riverpod 树），绝不初始化主 app 的任何 provider/持久化状态。
+  if (RepoAppWindowArgs.isSubWindowEngineArgs(args)) {
+    unawaited(runRepoAppWindowApp(args));
+    return;
+  }
 
   // macOS 焦点桥：原生侧（MainFlutterWindow）监视到点击落在平台视图
   // （笔记编辑器 WKWebView）区域时通知这里。落在平台视图上的点击进不了

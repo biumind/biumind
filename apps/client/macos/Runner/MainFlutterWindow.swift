@@ -1,6 +1,7 @@
 import Cocoa
 import FlutterMacOS
 import WebKit
+import desktop_multi_window
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -10,6 +11,53 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+
+    // desktop_multi_window（Repo App 原生子窗口）：每个子窗口是独立
+    // Flutter engine，method channel 不共享 —— 新 engine 必须重新注册
+    // 全部插件，并挂上 `biumind/repo_window` 自检配通道（子窗口首帧
+    // 调用：尺寸/居中/标题/显示/关闭；插件原生只支持 show/hide）。
+    FlutterMultiWindowPlugin.setOnWindowCreatedCallback { controller in
+      RegisterGeneratedPlugins(registry: controller)
+      let repoChannel = FlutterMethodChannel(
+        name: "biumind/repo_window",
+        binaryMessenger: controller.engine.binaryMessenger)
+      repoChannel.setMethodCallHandler { call, result in
+        guard let window = controller.view.window else {
+          result(nil)
+          return
+        }
+        switch call.method {
+        case "configure":
+          let args = call.arguments as? [String: Any] ?? [:]
+          let w = args["width"] as? Double ?? 1280
+          let h = args["height"] as? Double ?? 800
+          window.setContentSize(NSSize(width: w, height: h))
+          if let title = args["title"] as? String, !title.isEmpty {
+            window.title = title
+          }
+          window.center()
+          window.makeKeyAndOrderFront(nil)
+          result(nil)
+        case "close":
+          window.close()
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
+
+    // 生命周期：主窗口关闭时连带关闭所有 Repo App 子窗口（子窗口关
+    // 闭不影响 runner 进程；全部窗口关闭后 app 经
+    // applicationShouldTerminateAfterLastWindowClosed 退出）。
+    NotificationCenter.default.addObserver(
+      forName: NSWindow.willCloseNotification, object: self, queue: .main
+    ) { [weak self] _ in
+      guard let self = self else { return }
+      for w in NSApp.windows where w !== self && w.isVisible {
+        w.close()
+      }
+    }
 
     // 红绿灯内嵌（WorkBuddy 风）: 内容延伸进标题栏区域, 标题栏透明 +
     // 隐藏标题文字。Flutter 侧顶部绘 40px 窗口条 (左侧为红绿灯留位),
