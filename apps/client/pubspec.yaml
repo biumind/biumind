@@ -68,7 +68,7 @@ dependencies:
 
   # M8.4 RSS Today TTS 简报播放. just_audio 7 端覆盖 + 直接从内存
   # bytes (StreamAudioSource) 播放, 跟我们 base64→Uint8List 流程契合.
-  just_audio: ^0.9.42
+  just_audio: ^0.10.6
 
   # Markdown rendering for AI chat replies (code blocks / lists / links).
   # gpt_markdown handles partial / streaming markdown gracefully (won't
