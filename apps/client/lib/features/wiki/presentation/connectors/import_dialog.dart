@@ -4,23 +4,32 @@
 /// cooper / Notion / Obsidian 树形 browse 工作流设计；biumind 当前不
 /// 需要那些 enterprise 数据源整合，本版只做最常见三种：
 ///
-///   - 单文件：file_selector 选一个 PDF/MD/HTML/TXT
+///   - 单文件：file_selector 选一个 PDF/DOCX/MD/HTML/TXT
 ///   - 多文件：file_selector 一次选多个，串行上传 + 进度条
 ///   - URL：输入 URL，http GET 抓字节，上传，external_id=url 入库
 ///
-/// 上传走 [FilesClient.uploadBytes/uploadFile] → [WikiClient.createSource]，
-/// 与 sources_page 单文件路径一致；只是这里支持批量 + URL 抓取。
+/// 处理位置（P1 本机解析，设计文档 BiuMind-Client-Docproc-Design §3.4）：
+///   - 本机解析（免费，默认）：docproc-web bundle 本地解析出文本后走
+///     createSource(rawText + contentHash + parseMeta)，跳过服务端解析
+///   - 云端（花积分）：现有 multipart 上传 + createSource(file_id) 不变
+/// 平台不支持本机解析（hasLocalDocproc=false）时不显示本机选项；
+/// 本机解析失败自动回退云端路径。
 library;
 
+import 'dart:convert' show utf8;
 import 'dart:io' show File;
 
+import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../../app/theme.dart';
+import '../../../../core/docproc/docproc_bridge_controller.dart';
+import '../../../../core/docproc/docproc_view.dart';
+import '../../../../core/platform/platform_caps.dart';
 import '../../../../core/ui/biu_text_field.dart';
 import '../../../../data/api/wiki_client.dart' show WikiClient;
 import '../../../../data/wiki_providers.dart'
@@ -46,6 +55,9 @@ class ImportDialog {
 
 enum _Tab { single, multi, url }
 
+/// 处理位置（设计文档 §3.4）：本机解析免费，云端花积分。
+enum _ProcessLocation { local, cloud }
+
 class _Dialog extends ConsumerStatefulWidget {
   const _Dialog({required this.projectId});
   final String projectId;
@@ -63,7 +75,22 @@ class _DialogState extends ConsumerState<_Dialog> {
   /// 当前是否在批量上传中（屏蔽切 tab + 关闭按钮）。
   bool _running = false;
 
+  /// 处理位置：hasLocalDocproc 时默认本机（§3.4 矩阵：桌面/Web ≤50MB、
+  /// 移动端 ≤10MB 默认本机；超限文件上传时自动走云端）。
+  _ProcessLocation _location = _ProcessLocation.local;
+
+  /// 本机解析引擎（docproc-web bundle，隐藏 webview 挂在 dialog 树里）。
+  late final DocprocBridgeController _docprocController;
+
   final TextEditingController _urlCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _docprocController = DocprocBridgeController(
+      caps: ref.read(platformCapsProvider),
+    );
+  }
 
   @override
   void dispose() {
@@ -73,6 +100,7 @@ class _DialogState extends ConsumerState<_Dialog> {
 
   @override
   Widget build(BuildContext context) {
+    final caps = ref.watch(platformCapsProvider);
     return Dialog(
       backgroundColor: BiuTokens.surface,
       shape: RoundedRectangleBorder(
@@ -84,11 +112,26 @@ class _DialogState extends ConsumerState<_Dialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 本机解析引擎：无 UI 隐藏 webview，挂在 dialog 树里随开随用。
+            if (caps.hasLocalDocproc)
+              SizedBox(
+                width: 0,
+                height: 0,
+                child: DocprocEngineView(controller: _docprocController),
+              ),
             _Header(onClose: _running ? null : _close),
             _TabBar(
               tab: _tab,
               onChanged: _running ? null : (t) => setState(() => _tab = t),
             ),
+            if (caps.hasLocalDocproc) ...[
+              const SizedBox(height: 8),
+              _LocationBar(
+                location: _location,
+                onChanged:
+                    _running ? null : (l) => setState(() => _location = l),
+              ),
+            ],
             Divider(height: 1, color: BiuTokens.borderSubtle),
             Flexible(
               child: SingleChildScrollView(
@@ -167,6 +210,7 @@ class _DialogState extends ConsumerState<_Dialog> {
   Future<void> _runUpload() async {
     final repo = ref.read(wikiRepositoryProvider);
     final filesClient = ref.read(filesClientProvider);
+    final caps = ref.read(platformCapsProvider);
     if (repo == null || filesClient == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('未配置后端凭证')),
@@ -178,7 +222,7 @@ class _DialogState extends ConsumerState<_Dialog> {
       if (_items[i].status == _ItemStatus.done) continue;
       _updateItem(i, status: _ItemStatus.uploading);
       try {
-        await _uploadOne(_items[i], i, filesClient, repo.client);
+        await _uploadOne(_items[i], i, filesClient, repo.client, caps);
         _updateItem(i, status: _ItemStatus.done);
       } on Exception catch (e) {
         _updateItem(i,
@@ -207,6 +251,7 @@ class _DialogState extends ConsumerState<_Dialog> {
     int index,
     FilesClient filesClient,
     WikiClient wikiClient,
+    PlatformCaps caps,
   ) async {
     // 1) 拿到字节
     final List<int> bytes;
@@ -235,7 +280,43 @@ class _DialogState extends ConsumerState<_Dialog> {
       }
     }
 
-    // 2) 上传到 brain.files
+    // 2) 本机解析路径（P1，设计文档 §3.1）：docproc-web 本地解析出文本，
+    //    sha256 幂等 hash + parse_meta 一并入库，跳过服务端解析。
+    //    失败（DocprocException 等任何异常）自动回退云端路径。
+    if (_shouldParseLocally(bytes.length, caps)) {
+      try {
+        final result = await _docprocController.parse(
+          fileName: filename,
+          bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+          mimeHint: mime,
+        );
+        final contentHash = sha256.convert(utf8.encode(result.text));
+        await wikiClient.createSource(
+          widget.projectId,
+          relPath: filename,
+          filename: filename,
+          mime: mime,
+          byteSize: bytes.length,
+          externalId: externalId,
+          rawText: result.text,
+          contentHash: contentHash.toString(),
+          // 本机解析已完成，明确标记 done —— 否则服务端默认 queued，
+          // sources 列表会把这条源显示为「待解析」。
+          parseStatus: 'done',
+          parseMeta: {
+            'parser': 'docproc-web',
+            'version': result.parserVersion,
+            'format': result.format,
+            'page_count': ?result.pageCount,
+          },
+        );
+        return;
+      } on Exception {
+        // 本机解析失败：回退云端 multipart 上传（§8 失败自动转云端兜底）。
+      }
+    }
+
+    // 3) 云端路径：上传到 brain.files
     final upload = await filesClient.uploadBytes(
       bytes: bytes,
       filename: filename,
@@ -250,7 +331,7 @@ class _DialogState extends ConsumerState<_Dialog> {
           _updateItem(index, sent: sent, total: total),
     );
 
-    // 3) 创建 wiki source 记录
+    // 4) 创建 wiki source 记录
     await wikiClient.createSource(
       widget.projectId,
       relPath: filename,
@@ -260,6 +341,16 @@ class _DialogState extends ConsumerState<_Dialog> {
       byteSize: upload.sizeBytes,
       externalId: externalId,
     );
+  }
+
+  /// §3.4 策略矩阵：hasLocalDocproc + 用户选本机 + 大小在阈值内
+  /// （桌面/Web ≤50MB，移动端 ≤10MB）才走本机解析。
+  bool _shouldParseLocally(int byteSize, PlatformCaps caps) {
+    if (!caps.hasLocalDocproc || _location != _ProcessLocation.local) {
+      return false;
+    }
+    final limit = caps.isMobile ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
+    return byteSize <= limit;
   }
 
   void _updateItem(
@@ -284,7 +375,7 @@ class _DialogState extends ConsumerState<_Dialog> {
 const List<XTypeGroup> _typeGroups = <XTypeGroup>[
   XTypeGroup(
     label: '文档',
-    extensions: ['pdf', 'md', 'txt', 'html', 'htm'],
+    extensions: ['pdf', 'docx', 'md', 'txt', 'html', 'htm'],
   ),
 ];
 
@@ -297,6 +388,10 @@ String _filenameFromUrl(Uri u) {
 String _guessMime(String filename) {
   final lower = filename.toLowerCase();
   if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument'
+        '.wordprocessingml.document';
+  }
   if (lower.endsWith('.md')) return 'text/markdown';
   if (lower.endsWith('.txt')) return 'text/plain';
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
@@ -484,17 +579,73 @@ class _TabButton extends StatelessWidget {
   }
 }
 
+/// 「处理位置」选择条：本机解析（免费）/ 云端（花积分）。
+/// 仅 hasLocalDocproc 的平台渲染（桌面/Web ≤50MB、移动端 ≤10MB 默认本机，
+/// 超限文件上传时自动走云端，见 _shouldParseLocally）。
+class _LocationBar extends StatelessWidget {
+  const _LocationBar({required this.location, required this.onChanged});
+  final _ProcessLocation location;
+  final ValueChanged<_ProcessLocation>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget chip(_ProcessLocation value, String label) {
+      final selected = location == value;
+      final brand = Theme.of(context).colorScheme.primary;
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: InkWell(
+          onTap: onChanged == null ? null : () => onChanged!(value),
+          borderRadius: BorderRadius.circular(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: selected ? brand.withValues(alpha: 0.12) : null,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: selected ? brand : BiuTokens.borderSubtle,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? brand : BiuTokens.textSecondary,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          Text(
+            '处理位置',
+            style: TextStyle(color: BiuTokens.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(width: 10),
+          chip(_ProcessLocation.local, '本机解析（免费）'),
+          chip(_ProcessLocation.cloud, '云端（花积分）'),
+        ],
+      ),
+    );
+  }
+}
+
 class _SingleTab extends StatelessWidget {
   const _SingleTab({required this.onPick});
   final VoidCallback onPick;
-
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '选择一个 PDF / Markdown / HTML 文档',
+          '选择一个 PDF / DOCX / Markdown / HTML 文档',
           style: TextStyle(color: BiuTokens.textSecondary, fontSize: 12),
         ),
         const SizedBox(height: 12),

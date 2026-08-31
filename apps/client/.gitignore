@@ -56,6 +56,17 @@ assets/editor/*
 assets/editor/assets/*
 !assets/editor/assets/.gitkeep
 
+# docproc-web（本机文档解析 bundle）— 同 editor-web 处理：
+# 产物由 `task docproc-web:build` 同步，不入仓（保留 .gitkeep 占位）
+docproc-web/dist/
+docproc-web/node_modules/
+web/docproc/
+assets/docproc/*
+!assets/docproc/assets/
+!assets/docproc/.gitkeep
+assets/docproc/assets/*
+!assets/docproc/assets/.gitkeep
+
 # 发布产物 (CI/本机验证生成; releases.json 不进 git, 见 docs/BiuMind-Client-Build.md)
 /biumind-*.apk
 /biumind-*.aab

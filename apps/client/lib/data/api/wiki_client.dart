@@ -969,6 +969,10 @@ class WikiClient {
 
   /// Create / upsert a source. Pass [fileId] from a prior /v1/files/upload
   /// call; same (projectId, relPath) replaces the previous row in place.
+  ///
+  /// 本机解析路径（docproc-web，设计文档 §3.1）：不传 fileId，改传
+  /// [rawText]（解析出的全文）+ [contentHash]（sha256 hex，幂等）+
+  /// [parseMeta]（{parser, version, format, page_count}）。
   Future<WikiSource> createSource(
     String projectId, {
     required String relPath,
@@ -978,6 +982,9 @@ class WikiClient {
     int? byteSize,
     String? externalId,
     String? parseStatus,
+    String? rawText,
+    String? contentHash,
+    Map<String, dynamic>? parseMeta,
   }) async {
     final body = <String, dynamic>{'rel_path': relPath};
     if (fileId != null) body['file_id'] = fileId;
@@ -986,6 +993,9 @@ class WikiClient {
     if (byteSize != null) body['byte_size'] = byteSize;
     if (externalId != null) body['external_id'] = externalId;
     if (parseStatus != null) body['parse_status'] = parseStatus;
+    if (rawText != null) body['raw_text'] = rawText;
+    if (contentHash != null) body['content_hash'] = contentHash;
+    if (parseMeta != null) body['parse_meta'] = parseMeta;
     final raw = await _post('/v1/wiki/projects/$projectId/sources', body);
     return WikiSource.fromJson(raw);
   }

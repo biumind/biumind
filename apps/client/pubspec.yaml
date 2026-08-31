@@ -181,3 +181,10 @@ flutter:
     # 取不到，编辑器白屏。
     - assets/editor/
     - assets/editor/assets/
+    # 本机文档解析 bundle（assets/docproc/）— 由 `task docproc-web:build`
+    # 从 apps/client/docproc-web/dist/ 同步过来。Web 端走 web/docproc/
+    # iframe，原生端复用共享 InAppLocalhostServer 加载
+    # assets/docproc/index.html。目录声明不递归，assets/ 子目录必须
+    # 单独声明（同 editor 先例）。
+    - assets/docproc/
+    - assets/docproc/assets/

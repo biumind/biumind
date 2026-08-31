@@ -1,0 +1,32 @@
+{
+  "name": "biumind-docproc-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "无 UI 纯计算文档解析 bundle（PDF/DOCX/HTML/MD/TXT），由 BiuMind Flutter 客户端内嵌（Web 走同源 iframe，原生走 inappwebview 无头 WebView）。产物经 sync-to-flutter 双写 client/web/docproc/ 与 client/assets/docproc/。",
+  "scripts": {
+    "dev": "vite --port 5175",
+    "build": "vite build && tsx scripts/sync-to-flutter.ts",
+    "build:bundle": "vite build",
+    "sync": "tsx scripts/sync-to-flutter.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "mammoth": "^1.9.0",
+    "pdfjs-dist": "^4.10.38",
+    "turndown": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@types/turndown": "^5.0.5",
+    "jsdom": "^26.0.0",
+    "jszip": "^3.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0"
+  }
+}

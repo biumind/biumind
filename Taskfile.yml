@@ -103,6 +103,25 @@ tasks:
     cmds:
       - npm run dev
 
+  # ─── Docproc bundle（客户端文档解析，BiuMind-Client-Docproc-Design §3.2）───
+  docproc-web:build:
+    desc: 构建文档解析 bundle（docproc-web → assets/docproc + web/docproc，双写）
+    dir: apps/client/docproc-web
+    cmds:
+      - npm run build
+
+  docproc-web:test:
+    desc: docproc-web 单元测试（格式分派 / pdf / docx / html / text 解析）
+    dir: apps/client/docproc-web
+    cmds:
+      - npm test
+
+  docproc-web:dev:
+    desc: docproc-web vite dev（bridge 调试）
+    dir: apps/client/docproc-web
+    cmds:
+      - npm run dev
+
   schema:validate:
     desc: 校验所有 JSON Schema（sdk/v1 协议 + release/v1 发行清单）
     cmds:

@@ -81,6 +81,12 @@ class PlatformCaps {
   /// 笔记分享弹层的「系统分享…」按钮据此显隐（S2）。
   final bool hasSystemShare;
 
+  /// True when 本机文档解析（docproc-web bundle，设计文档
+  /// BiuMind-Client-Docproc-Design §3.4）可用：macOS / iOS / Android 走
+  /// 无头 inappwebview，Web 走同源 iframe —— 四端 true。Windows / Linux
+  /// 无 WebView 方案，false，上传一律走云端解析。
+  final bool hasLocalDocproc;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -93,6 +99,7 @@ class PlatformCaps {
     this.hasRichClipboard = false,
     this.editorPlatform = 'web',
     this.hasSystemShare = false,
+    this.hasLocalDocproc = false,
   });
 
   factory PlatformCaps.detect() {
@@ -112,6 +119,7 @@ class PlatformCaps {
         hasEmbeddedWebView: false,
         hasRepoAppRunner: false,
         hasSystemShare: true, // navigator.share
+        hasLocalDocproc: true, // 同源 iframe 加载 docproc-web bundle
       );
     }
     final desktop = switch (defaultTargetPlatform) {
@@ -155,6 +163,14 @@ class PlatformCaps {
           true,
         _ => false,
       },
+      // 原生端 = hasEmbeddedWebView（无头 inappwebview 加载 assets/docproc）。
+      hasLocalDocproc: switch (defaultTargetPlatform) {
+        TargetPlatform.macOS ||
+        TargetPlatform.iOS ||
+        TargetPlatform.android =>
+          true,
+        _ => false,
+      },
     );
   }
 
@@ -164,7 +180,7 @@ class PlatformCaps {
       'notif=$hasNotifications, isolate=$supportsBackgroundIsolates, '
       'sqlite=$hasPersistentSqlite, webview=$hasEmbeddedWebView, '
       'repoRunner=$hasRepoAppRunner, mobile=$isMobile, '
-      'richClipboard=$hasRichClipboard)';
+      'richClipboard=$hasRichClipboard, docproc=$hasLocalDocproc)';
 }
 
 /// Riverpod provider — detected once at startup. Override in tests with

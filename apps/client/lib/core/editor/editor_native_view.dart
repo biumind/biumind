@@ -11,35 +11,10 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
+import '../platform/localhost_server.dart';
 import '../platform/platform_caps.dart';
 import 'editor_bridge_controller.dart';
 import 'editor_bridge_protocol.dart';
-
-/// Lazily-started localhost server shared across every editor instance.
-/// Closing it would kill any other live editor view, so we never close.
-class _LocalhostServer {
-  _LocalhostServer._();
-
-  static InAppLocalhostServer? _server;
-  static Future<void>? _starting;
-
-  /// Pick a port that's unlikely to collide with our dev tooling
-  /// (Vite is 5174, marketing 5173, server 8000, etc).
-  static const int port = 9728;
-
-  static Future<int> ensureStarted() async {
-    if (_server?.isRunning() ?? false) return port;
-    _starting ??= _start();
-    await _starting;
-    return port;
-  }
-
-  static Future<void> _start() async {
-    final s = InAppLocalhostServer(port: port, shared: true);
-    await s.start();
-    _server = s;
-  }
-}
 
 class EditorNativeView extends StatefulWidget {
   const EditorNativeView({
@@ -57,7 +32,7 @@ class EditorNativeView extends StatefulWidget {
   /// (e.g. from the notes home page), so the first webview doesn't pay
   /// the server startup cost. Fire-and-forget; the view itself also
   /// ensures the server in initState.
-  static Future<void> warmup() => _LocalhostServer.ensureStarted();
+  static Future<void> warmup() => WebviewLocalhostServer.ensureStarted();
 
   @override
   State<EditorNativeView> createState() => _EditorNativeViewState();
@@ -74,7 +49,7 @@ class _EditorNativeViewState extends State<EditorNativeView> {
     // 追加新 hash 文件后旧 hash 文件仍在——一旦 index.html 被缓存，旧入口
     // 会完整加载旧 bundle（菜单能跑但缺新功能，极难排查）。每次开编辑器
     // 换 query 强制回源；localhost 服务，无性能代价。
-    _bundleUri = _LocalhostServer.ensureStarted().then(
+    _bundleUri = WebviewLocalhostServer.ensureStarted().then(
       (port) => Uri.parse(
         'http://127.0.0.1:$port/${widget.bundlePath}'
         '?v=${DateTime.now().millisecondsSinceEpoch}',
@@ -125,7 +100,7 @@ class _EditorNativeViewState extends State<EditorNativeView> {
             // links — those should bubble up via the bridge `navigate`
             // message, not by following an href.
             final url = action.request.url?.toString() ?? '';
-            if (url.startsWith('http://127.0.0.1:${_LocalhostServer.port}')) {
+            if (url.startsWith('http://127.0.0.1:${WebviewLocalhostServer.port}')) {
               return NavigationActionPolicy.ALLOW;
             }
             return NavigationActionPolicy.CANCEL;
