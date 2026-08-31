@@ -855,7 +855,8 @@ func run() error {
 	// 给后续按批次（B2/B3/B4/B5/B6）迁前端代码用的路由骨架。每个模块
 	// 当前是 stub：handler 校验 401/ownership 通过后返回空数据或 501。
 	// 完整业务实现跟随每个 batch 激活。详见各 package 头注释。
-	wikisources.NewServer(sourcesStore, st, busPub, verifier, logger).Mount(mux)
+	sourcesSrv := wikisources.NewServer(sourcesStore, st, busPub, verifier, logger)
+	sourcesSrv.Mount(mux)
 	wikiactivity.NewServer(pool, st, verifier, logger).Mount(mux)
 	wikisynccp.NewServer(pool, verifier, logger).Mount(mux)
 	wikisearchproj.NewServer(verifier, logger).Mount(mux)
@@ -883,6 +884,8 @@ func run() error {
 
 	// Phase 3: wiki-parse worker parse done 后经 internal_api 查项目内 source dedup。
 	ingestInternal.Reviews = reviewsStore
+	// client-docproc: 客户端本机解析随 source 提交 extracted_text 时同查 dedup。
+	sourcesSrv.Reviews = reviewsStore
 
 	// Deep Research — always-mounted endpoint. Orchestrator only
 	// runs when SearxNG + model-relay LLM are both configured; without

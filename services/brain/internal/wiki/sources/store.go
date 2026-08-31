@@ -45,6 +45,7 @@ type Source struct {
 	ExternalID    string
 	PageID        *uuid.UUID
 	Metadata      map[string]any
+	ParseMeta     map[string]any // 解析 provenance：parser/version/format/page_count（00007）
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -59,18 +60,18 @@ func New(p *pgxpool.Pool) *Store {
 
 const selectCols = `id, project_id, kind, url, user_id, file_id, rel_path, filename,
     title, mime, byte_size, content_hash, extracted_text, parse_status,
-    parse_error, external_id, page_id, metadata, created_at, updated_at`
+    parse_error, external_id, page_id, metadata, parse_meta, created_at, updated_at`
 
 func scan(row pgx.Row) (*Source, error) {
 	var s Source
 	var url, title, mime, parseError, externalID, extracted *string
 	var userID, fileID, pageID *uuid.UUID
-	var mdRaw []byte
+	var mdRaw, pmRaw []byte
 	if err := row.Scan(
 		&s.ID, &s.ProjectID, &s.Kind, &url, &userID, &fileID,
 		&s.RelPath, &s.Filename, &title, &mime, &s.ByteSize,
 		&s.ContentHash, &extracted, &s.ParseStatus, &parseError,
-		&externalID, &pageID, &mdRaw, &s.CreatedAt, &s.UpdatedAt,
+		&externalID, &pageID, &mdRaw, &pmRaw, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -97,6 +98,9 @@ func scan(row pgx.Row) (*Source, error) {
 	s.PageID = pageID
 	if len(mdRaw) > 0 {
 		_ = json.Unmarshal(mdRaw, &s.Metadata)
+	}
+	if len(pmRaw) > 0 {
+		_ = json.Unmarshal(pmRaw, &s.ParseMeta)
 	}
 	return &s, nil
 }
@@ -132,17 +136,22 @@ type CreateInput struct {
 	ExtractedText string
 	ParseStatus   string // 默认 "queued"
 	ExternalID    string
+	ParseMeta     map[string]any // client-docproc 本机解析 provenance；nil → '{}'
 }
 
 func (s *Store) Upsert(ctx context.Context, in CreateInput) (*Source, error) {
 	if in.ParseStatus == "" {
 		in.ParseStatus = "queued"
 	}
+	pmJSON, _ := json.Marshal(in.ParseMeta)
+	if len(pmJSON) == 0 {
+		pmJSON = []byte("{}")
+	}
 	q := fmt.Sprintf(`
         INSERT INTO brain.wiki_sources
           (project_id, user_id, file_id, rel_path, filename, mime, byte_size,
-           content_hash, extracted_text, parse_status, external_id, kind)
-        VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,NULLIF($9,''),$10,NULLIF($11,''),'upload')
+           content_hash, extracted_text, parse_status, external_id, kind, parse_meta)
+        VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,NULLIF($9,''),$10,NULLIF($11,''),'upload',$12)
         ON CONFLICT (project_id, rel_path) WHERE kind = 'upload' DO UPDATE SET
           user_id         = COALESCE(EXCLUDED.user_id, wiki_sources.user_id),
           file_id         = EXCLUDED.file_id,
@@ -154,12 +163,13 @@ func (s *Store) Upsert(ctx context.Context, in CreateInput) (*Source, error) {
           parse_status    = EXCLUDED.parse_status,
           parse_error     = NULL,
           external_id     = EXCLUDED.external_id,
+          parse_meta      = EXCLUDED.parse_meta,
           updated_at      = now()
         RETURNING %s`, selectCols)
 	row := s.pool.QueryRow(ctx, q,
 		in.ProjectID, in.UserID, in.FileID, in.RelPath, in.Filename, in.Mime,
 		in.ByteSize, in.ContentHash, in.ExtractedText, in.ParseStatus,
-		in.ExternalID,
+		in.ExternalID, pmJSON,
 	)
 	return scan(row)
 }
