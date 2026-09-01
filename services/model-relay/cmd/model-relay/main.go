@@ -510,6 +510,15 @@ func run() error {
 		mux.Handle("POST /v1/internal/rerank",
 			api.InternalTokenMiddleware(cfg.InternalToken, internalRerank))
 		slog.Default().Info("model-relay /v1/internal/rerank mounted (platform infra; token-gated)")
+
+		// /v1/internal/usage/charge — 非 LLM 处理动作的计费代理（client-docproc
+		// W4：brain 为 wiki-parse 云端解析按页扣费）。价格走本地 pricing SoT，
+		// Hold+Settle 即时结算经 identity。billingClient 未配（无 identity）时
+		// 端点返 billing_not_configured。
+		mux.Handle("POST /v1/internal/usage/charge",
+			api.InternalTokenMiddleware(cfg.InternalToken,
+				&api.UsageChargeHandler{Billing: billingClient, Logger: slog.Default()}))
+		slog.Default().Info("model-relay /v1/internal/usage/charge mounted (token-gated)")
 	}
 
 	// v0.3 M3: POST /v1/images/generations (OpenAI 兼容). model.mode 必须

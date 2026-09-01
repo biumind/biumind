@@ -107,6 +107,12 @@ func (l *Lookuper) convert(refType, modelCode string, p *registry.Pricing) (*bil
 	case "rerank":
 		entry.CostBasis = "per_search_unit"
 		entry.CostInputPerUnit = int64(p.CostPerSearchUnit * multiplier)
+	case "parse_page":
+		// client-docproc W4：wiki 云端解析按页计费。复用 cost_per_search_unit
+		// 列（通用按单元价格），价格挂在 pseudo-model 上（wiki-parse-text /
+		// wiki-ocr 等），不同处理档位 = 不同 pseudo-model 不同单价。
+		entry.CostBasis = "per_page"
+		entry.CostInputPerUnit = int64(p.CostPerSearchUnit * multiplier)
 	case "audio_speech":
 		entry.CostBasis = "per_kchar"
 		if p.CostPerCharacter == nil || *p.CostPerCharacter <= 0 {

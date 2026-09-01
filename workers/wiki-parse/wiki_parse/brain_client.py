@@ -134,8 +134,14 @@ async def download_blob(
         try:
             async with c.stream("GET", presign_url) as resp:
                 if resp.status_code >= 400:
+                    # 流式响应未 read() 前不能碰 resp.text（ResponseNotRead）。
+                    # 读少量错误体用于诊断，读不动就算了 —— 状态码已是主要信息。
+                    try:
+                        err_body = (await resp.aread())[:200]
+                    except httpx.HTTPError:
+                        err_body = b""
                     raise BrainClientError(
-                        f"download HTTP {resp.status_code}: {resp.text[:200]}"
+                        f"download HTTP {resp.status_code}: {err_body!r}"
                     )
                 async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
                     body.extend(chunk)
@@ -151,7 +157,7 @@ async def download_blob(
 async def post_parse_result(
     cfg: BrainConfig, *, source_id: str, owner_id: str,
     extracted_text: str, content_hash: str, parse_status: str,
-    parse_error: str = "",
+    parse_error: str = "", page_count: Optional[int] = None,
 ) -> None:
     _require(cfg)
     url = (
@@ -166,6 +172,8 @@ async def post_parse_result(
         "parse_status": parse_status,
         "parse_error": parse_error,
     }
+    if page_count is not None:
+        payload["page_count"] = page_count
     async with _client(cfg) as c:
         try:
             resp = await c.post(url, headers=headers, params=params, json=payload)

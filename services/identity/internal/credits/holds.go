@@ -65,6 +65,8 @@ var validHoldRefTypes = map[LogRefType]struct{}{
 	RefAudioSpeechRequest: {},
 	RefImageRequest:       {},
 	RefVideoRequest:       {},
+	// client-docproc W4（migration 00019）
+	RefWikiParseRequest: {},
 }
 
 // DefaultHoldTTL — 5 分钟兜底; 长任务请走 Consume 一次性扣减.

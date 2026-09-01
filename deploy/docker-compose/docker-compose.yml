@@ -374,6 +374,9 @@ services:
       EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
       EMBED_DIMS: ${EMBED_DIMS:-1024}
       MODEL_RELAY_INTERNAL_TOKEN: ${MODEL_RELAY_INTERNAL_TOKEN:-biumind-dev-relay-internal-token-change-me}
+      # W4 云端解析计费：pseudo-model code（pricing 行在 model_relay.pricing 配，
+      # 空 = 免费兜底）。上线时在 .env 设 PARSE_BILLING_MODEL=wiki-parse-text
+      PARSE_BILLING_MODEL: ${PARSE_BILLING_MODEL:-}
       # websearch（可选）：compose 不带 SearxNG；自行部署后在 .env 设 SEARXNG_URL 注入即启用
       SEARXNG_URL: ${SEARXNG_URL:-}
       # BYOK P3: brain 按需从 identity /v1/internal/byok/* 取 user key（DESIGN.md §5）

@@ -84,6 +84,8 @@ const (
 	RefAudioSpeechRequest LogRefType = "audio_speech_request"
 	RefImageRequest       LogRefType = "image_request"
 	RefVideoRequest       LogRefType = "video_request"
+	// client-docproc W4：wiki 云端解析按页扣费（migration 00019）。
+	RefWikiParseRequest LogRefType = "wiki_parse_request"
 )
 
 type Balance struct {

@@ -315,6 +315,8 @@ func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 // extracted_text + content_hash) or error (with parse_error + bumped
 // retries). Empty ExtractedText/ContentHash preserve the existing
 // column via COALESCE so the error path doesn't clobber a partial run.
+// PageCount > 0 时写入 parse_meta.page_count（W4 云端按页计费依据 +
+// 观测元数据）。
 type UpdateParseInput struct {
 	ID            uuid.UUID
 	ParseStatus   string // processing | done | error
@@ -322,6 +324,7 @@ type UpdateParseInput struct {
 	ContentHash   []byte // done 时填（sha256(extracted_text)）
 	ParseError    string // error 时填异常信息
 	BumpRetries   bool   // error 时 true → retries++（ListParseQueue 按 retries<3 收）
+	PageCount     int    // PDF 页数；0 = 不写 parse_meta
 }
 
 // UpdateParseStatus mutates one row's parse lifecycle columns and
@@ -334,12 +337,15 @@ func (s *Store) UpdateParseStatus(ctx context.Context, in UpdateParseInput) (*So
             extracted_text = COALESCE(NULLIF($4, ''), extracted_text),
             content_hash   = COALESCE($5, content_hash),
             retries        = retries + CASE WHEN $6 THEN 1 ELSE 0 END,
+            parse_meta     = CASE WHEN $7 > 0
+                THEN jsonb_set(parse_meta, '{page_count}', to_jsonb($7), true)
+                ELSE parse_meta END,
             updated_at     = now()
         WHERE id = $1
         RETURNING %s`, selectCols)
 	row := s.pool.QueryRow(ctx, q,
 		in.ID, in.ParseStatus, in.ParseError, in.ExtractedText,
-		in.ContentHash, in.BumpRetries)
+		in.ContentHash, in.BumpRetries, in.PageCount)
 	src, err := scan(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

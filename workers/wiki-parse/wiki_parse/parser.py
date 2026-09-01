@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import io
 from html.parser import HTMLParser
-from typing import List
+from typing import List, Optional
 
 
 class ParseError(RuntimeError):
@@ -69,6 +69,22 @@ def _looks_html(data: bytes, mime: str, filename: str) -> bool:
         return True
     head = data[:512].lstrip().lower()
     return head.startswith(b"<!doctype html") or head.startswith(b"<html")
+
+
+def count_pages(data: bytes, *, mime: str = "", filename: str = "") -> Optional[int]:
+    """页数（云端解析按页计费用，client-docproc W4）。
+
+    仅 PDF 有页概念（pypdf len(pages)）；其他格式返回 None（调用方
+    自行兜底，如按 1 页或按字符）。解析失败同样 None —— 页数是计费
+    元数据，绝不让它阻断主解析流程。
+    """
+    if not _looks_pdf(mime, filename):
+        return None
+    try:
+        from pypdf import PdfReader
+        return len(PdfReader(io.BytesIO(data)).pages)
+    except Exception:  # noqa: BLE001 — 页数拿不到就当未知
+        return None
 
 
 def extract(data: bytes, *, mime: str = "", filename: str = "") -> str:

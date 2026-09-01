@@ -32,7 +32,7 @@ from .brain_client import (
 )
 from .config import Config
 from .job import ParseJob
-from .parser import ParseError, extract
+from .parser import ParseError, count_pages, extract
 
 
 logger = logging.getLogger("biumind.wiki_parse")
@@ -80,13 +80,14 @@ async def handle_job(
     if not text.strip():
         return "error", "extracted text empty"
 
-    # 3. hash + 回写 done（brain 同步做 dedup）
+    # 3. hash + 页数（计费用，W4）+ 回写 done（brain 同步做 dedup）
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    pages = count_pages(data, mime=job.mime, filename=job.filename)
     try:
         await post_parse_result(
             brain_cfg, source_id=job.source_id, owner_id=job.owner_id,
             extracted_text=text, content_hash=content_hash,
-            parse_status="done",
+            parse_status="done", page_count=pages,
         )
     except BrainClientError as e:
         logger.warning("wiki_parse: post done failed source=%s: %s",

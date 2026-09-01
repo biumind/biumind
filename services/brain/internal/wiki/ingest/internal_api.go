@@ -44,6 +44,7 @@ type InternalServer struct {
 	Sources *sources.Store
 	Blob    *files.Blob    // Phase 3：presign 给 wiki-parse 下载文件；nil → blob-presign 503
 	Reviews *reviews.Store // Phase 3：parse done 后查项目内 source dedup；nil → 跳过
+	Charger *UsageCharger  // W4：云端解析按页扣费（经 model-relay）；nil → 跳过
 	Token   string
 	Logger  *slog.Logger
 }
@@ -254,6 +255,7 @@ type parseResultReq struct {
 	ContentHash   string `json:"content_hash"` // hex（sha256(extracted_text)）
 	ParseStatus   string `json:"parse_status"` // done | error
 	ParseError    string `json:"parse_error,omitempty"`
+	PageCount     int    `json:"page_count,omitempty"` // W4 计费依据（PDF 页数；0 = 未知）
 }
 
 // handleParseResult 是 worker 解析完回写入口。done 回写 extracted_text +
@@ -290,6 +292,7 @@ func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Reques
 		ContentHash:   contentHash,
 		ParseError:    req.ParseError,
 		BumpRetries:   req.ParseStatus == "error",
+		PageCount:     req.PageCount,
 	})
 	if err != nil {
 		if errors.Is(err, sources.ErrNotFound) {
@@ -303,6 +306,11 @@ func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Reques
 	// dedup 漏检不阻塞主路径（下个 tick 不会重跑 done 行，但人工 review 可补）。
 	if req.ParseStatus == "done" && len(contentHash) > 0 && s.Reviews != nil {
 		sources.DetectSourceDupes(r.Context(), s.Sources, s.Reviews, s.Logger, updated, contentHash)
+	}
+	// W4 云端解析计费：done + 有页数 + charger 已配 → 经 model-relay 按页
+	// 扣费（后付费，幂等键 parse:<source_id>；失败只记日志不阻塞）。
+	if req.ParseStatus == "done" && req.PageCount > 0 && s.Charger != nil && updated.UserID != nil {
+		s.Charger.ChargeParse(r.Context(), updated.UserID.String(), src.ID.String(), int64(req.PageCount))
 	}
 	writeInternalJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,

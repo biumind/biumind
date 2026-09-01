@@ -326,6 +326,12 @@ type Config struct {
 	IngestStaleActiveSec    int `env:"INGEST_STALE_ACTIVE_SEC"    default:"600"`
 	IngestStaleClientSec    int `env:"INGEST_STALE_CLIENT_SEC"    default:"600"`
 	IngestMaxRequeue        int `env:"INGEST_MAX_REQUEUE"         default:"5"`
+
+	// ─── Wiki 云端解析计费（client-docproc W4）──────────────────────
+	// 云端 wiki-parse 完成后按页扣费，价格挂 model_relay.pricing 的
+	// pseudo-model（经 relay /v1/internal/usage/charge 代理，brain 不直读
+	// pricing 表）。空 = 禁用计费（解析照常，等同免费兜底）。
+	ParseBillingModel string `env:"PARSE_BILLING_MODEL" default:""`
 }
 
 func main() {
@@ -734,6 +740,15 @@ func run() error {
 	// BIUMIND_INTERNAL_TOKEN is empty; the worker falls back to inline
 	// raw_text in that case (see workers/wiki-llm/wiki_llm/runner.py).
 	ingestInternal := wikiingest.NewInternalServer(sourcesStore, cfg.InternalToken, logger)
+	// W4：云端解析按页计费（经 model-relay 代理）。PARSE_BILLING_MODEL 为空
+	// 则禁用（charger=nil，解析照常免费）。
+	if cfg.ParseBillingModel != "" {
+		ingestInternal.Charger = wikiingest.NewUsageCharger(
+			cfg.RelayURL, cfg.ModelRelayInternalToken, cfg.ParseBillingModel, logger)
+		if ingestInternal.Charger != nil {
+			logger.Info("wiki parse billing enabled", "model", cfg.ParseBillingModel)
+		}
+	}
 
 	// Ingest reaper：回收 publish 失败的 pending 任务 + worker 死亡的
 	// running/partial 任务并重发（api.go 注释里承诺的 "operator-level
