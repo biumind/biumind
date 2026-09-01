@@ -44,7 +44,7 @@ instead of staying pending forever.
 | `BIUMIND_WIKI_LLM_QUEUE` | `brain-wiki-llm` | NATS queue group; replicas share work |
 | `BIUMIND_WIKI_LLM_TIMEOUT_S` | `600` | Per-task budget (10 min) |
 | `BIUMIND_HUB_URL` | (empty) | biumind model-relay base URL for LLM calls |
-| `BIUMIND_HUB_TOKEN` | (empty) | Service token from identity |
+| `BIUMIND_RELAY_INTERNAL_TOKEN` | (empty) | model-relay 内部车道共享密钥（= relay 的 `IDENTITY_INTERNAL_TOKEN`）；LLM 计费按任务 owner（body `user_id`）归属 |
 | `BIUMIND_WIKI_LLM_MODEL` | `claude-haiku-4-5-20251001` | Default model |
 | `BIUMIND_LOG_LEVEL` | `INFO` | Python logging level |
 

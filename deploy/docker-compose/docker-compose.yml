@@ -708,12 +708,14 @@ services:
       brain:
         condition: service_healthy
 
-  # wiki-llm worker — 订阅 wiki.ingest.requested，调 model-relay 把 source
-  # 文本转成 wiki 页（ingest 链路的 LLM 生成段，唯一烧 token 的 worker）。
+  # wiki-llm worker — 订阅 wiki.ingest.requested，经 model-relay 内部车道
+  # /v1/internal/chat 把 source 文本转成 wiki 页（ingest 链路的 LLM 生成段，
+  # 唯一烧 token 的 worker）。计费按任务 owner 归属（payload owner_id →
+  # body user_id），BYOK 各用各的。
   # 用 profile 控制：默认开发栈不起（避免无意产生 API 费用），
   # `docker-compose --profile llm up -d worker-wiki-llm` 或验证/部署时起。
-  # BIUMIND_HUB_TOKEN 需为有效 JWT（静态服务 token，成本归属该 token 的
-  # 用户；P2 规划改为 brain 按任务 owner 现签）。
+  # BIUMIND_RELAY_INTERNAL_TOKEN = model-relay 的内部共享密钥
+  # （与其 IDENTITY_INTERNAL_TOKEN 同值），不再使用任何用户 token。
   worker-wiki-llm:
     image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-wiki-llm:${BIUMIND_TAG:-main}
     container_name: biu-worker-wiki-llm
@@ -726,7 +728,7 @@ services:
       BIUMIND_BRAIN_URL: http://brain:7003
       BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       BIUMIND_HUB_URL: ${WIKI_LLM_HUB_URL:-http://model-relay:7001}
-      BIUMIND_HUB_TOKEN: ${WIKI_LLM_HUB_TOKEN:-}
+      BIUMIND_RELAY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       BIUMIND_WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-claude-haiku-4-5-20251001}
       BIUMIND_WIKI_LLM_TIMEOUT_S: "600"
     networks: [biu-net]

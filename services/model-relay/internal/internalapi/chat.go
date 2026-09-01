@@ -13,10 +13,12 @@
 //	  "idempotency_key": "task-id", // 可选, 透传 X-Request-Id 让 Hold 幂等
 //	  "model": "claude-opus-4-8",
 //	  "messages": [...], "max_tokens": 2048,
-//	  "stream": false               // ★ 必须 false: bufferRecorder 仅一次性 JSON
+//	  "stream": false               // true → SSE 逐帧透传(见 streamForwarder)
 //	}
 //
-// 返回:原样转发 MessagesHandler 的 Anthropic 兼容响应 {content:[...], usage:{...}}。
+// 返回:原样转发 MessagesHandler 的响应 —— 非流式为 Anthropic 兼容 JSON
+// {content:[...], usage:{...}};流式为 unified frame SSE(delta/end/error 帧,
+// 与对外 /v1/messages 默认格式一致,wiki-llm worker 的 _iter_sse_deltas 消费)。
 
 package internalapi
 
@@ -33,6 +35,7 @@ import (
 type chatRoutePeek struct {
 	UserID         string `json:"user_id"`
 	IdempotencyKey string `json:"idempotency_key"`
+	Stream         bool   `json:"stream"`
 }
 
 // handleChat 复用对外 *api.MessagesHandler 执行实际 LLM 调用。
@@ -70,7 +73,31 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		inner.Header.Set("X-Request-Id", peek.IdempotencyKey)
 	}
 
+	if peek.Stream {
+		// 流式:直接透传外层 writer —— MessagesHandler 的 SSE 路径要求
+		// http.Flusher(bufferRecorder 不实现,这就是此前"必须 stream=false"
+		// 的原因)。头部/状态码/帧全部由内层 handler 直接写到真实响应。
+		fwd := &streamForwarder{w: w}
+		s.Messages.ServeHTTP(fwd, inner)
+		return
+	}
 	rec := &bufferRecorder{}
 	s.Messages.ServeHTTP(rec, inner)
 	rec.flushTo(w)
+}
+
+// streamForwarder 把内层 handler 的响应原样转发给外层 writer,并实现
+// http.Flusher 让 MessagesHandler 的流式(SSE)路径可用。
+type streamForwarder struct {
+	w http.ResponseWriter
+}
+
+func (f *streamForwarder) Header() http.Header         { return f.w.Header() }
+func (f *streamForwarder) WriteHeader(status int)      { f.w.WriteHeader(status) }
+func (f *streamForwarder) Write(p []byte) (int, error) { return f.w.Write(p) }
+
+func (f *streamForwarder) Flush() {
+	if fl, ok := f.w.(http.Flusher); ok {
+		fl.Flush()
+	}
 }

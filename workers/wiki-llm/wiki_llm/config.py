@@ -9,11 +9,17 @@ client tail tail-subscribes work uniformly across services::
     BIUMIND_WIKI_LLM_QUEUE    queue group; default "brain-wiki-llm"
     BIUMIND_WIKI_LLM_TIMEOUT_S per-task budget; default 600 (10 min)
 
-LLM endpoint — the worker calls biumind hub (not the model provider
-directly), so credential management stays in hub::
+LLM endpoint — the worker calls model-relay's internal lane
+``POST /v1/internal/chat`` (I6: never the model provider directly),
+authenticating with the shared internal token and attributing cost to
+the task owner via the body ``user_id`` field (same pattern as the aigc
+hotparse worker)::
 
-    BIUMIND_HUB_URL           e.g. http://hub:7001
-    BIUMIND_HUB_TOKEN         service-to-service token (issued by identity)
+    BIUMIND_HUB_URL               e.g. http://model-relay:7001
+    BIUMIND_RELAY_INTERNAL_TOKEN  shared internal bearer (same value as
+                                  model-relay's IDENTITY_INTERNAL_TOKEN);
+                                  supersedes the old per-user
+                                  BIUMIND_HUB_TOKEN
     BIUMIND_WIKI_LLM_MODEL    default "claude-haiku-4-5-20251001"
 """
 
@@ -31,7 +37,10 @@ class Config:
     timeout_s: int
 
     hub_url: str
-    hub_token: str
+    # model-relay 内部车道共享密钥（= model-relay IDENTITY_INTERNAL_TOKEN）。
+    # 计费归属不走 token —— 每个任务按 payload owner_id 在 body 里显式带
+    # user_id（见 llm.py / runner._default_streamer）。
+    relay_internal_token: str
     model: str
 
     # Brain reverse callback. Used by the source-id-only ingest path
@@ -63,7 +72,7 @@ class Config:
             queue_group=e.get("BIUMIND_WIKI_LLM_QUEUE", "brain-wiki-llm"),
             timeout_s=int(e.get("BIUMIND_WIKI_LLM_TIMEOUT_S", "600")),
             hub_url=e.get("BIUMIND_HUB_URL", ""),
-            hub_token=e.get("BIUMIND_HUB_TOKEN", ""),
+            relay_internal_token=e.get("BIUMIND_RELAY_INTERNAL_TOKEN", ""),
             model=e.get("BIUMIND_WIKI_LLM_MODEL", "claude-haiku-4-5-20251001"),
             brain_url=e.get("BIUMIND_BRAIN_URL", ""),
             internal_token=e.get("BIUMIND_INTERNAL_TOKEN", ""),

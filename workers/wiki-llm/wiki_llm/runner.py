@@ -153,7 +153,10 @@ async def handle_message(
             raw_text=req.raw_text, source_id=req.source_id,
         )
 
-    streamer = llm_stream if llm_stream is not None else _default_streamer(cfg)
+    streamer = (
+        llm_stream if llm_stream is not None
+        else _default_streamer(cfg, owner_id=req.owner_id, task_id=req.task_id)
+    )
 
     try:
         await _run_pipeline(
@@ -321,16 +324,21 @@ async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
     await publish(cfg.update_subject, body)
 
 
-def _default_streamer(cfg: Config) -> LLMStreamer:
-    """Return the production streamer that calls hub via ``llm`` module.
+def _default_streamer(cfg: Config, *, owner_id: str, task_id: str) -> LLMStreamer:
+    """Return the production streamer that calls model-relay via ``llm``.
 
     Lazily constructed so unit tests that pass ``llm_stream=`` never
-    touch the network configuration.
+    touch the network configuration. Per-task identity is baked in here:
+    ``user_id`` (= owner) drives billing/BYOK attribution on the relay
+    internal lane, ``idempotency_key`` (= task_id) dedups NATS
+    redeliveries.
     """
     llm_cfg = LLMConfig(
         base_url=cfg.hub_url,
-        token=cfg.hub_token,
+        token=cfg.relay_internal_token,
         model=cfg.model,
+        user_id=owner_id,
+        idempotency_key=task_id,
     )
 
     def _call(system: str, user: str):

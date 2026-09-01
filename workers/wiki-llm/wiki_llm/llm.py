@@ -1,7 +1,16 @@
-"""HTTP client for biumind hub's ``POST /v1/messages`` endpoint.
+"""HTTP client for model-relay's internal ``POST /v1/internal/chat``.
 
-Hub serializes streaming responses as Server-Sent Events with these
-event types (see services/hub/internal/api/messages.go):
+Internal-lane variant of ``/v1/messages`` (see
+services/model-relay/internal/internalapi/chat.go): the worker
+authenticates with the shared internal bearer token, and the body
+carries ``user_id`` (= task owner) so Hold/Settle billing and BYOK
+resolution attribute to that user — identical to the user-facing path.
+``idempotency_key`` (= task_id) makes NATS redeliveries safe against
+double-charging.
+
+Responses are Server-Sent Events in the unified frame format (same as
+the public endpoint's default; see
+services/model-relay/internal/api/messages.go):
 
   event: delta            data: {"text": "..."}
   event: tool_call_start  data: {"id": "...", "name": "..."}
@@ -36,7 +45,7 @@ logger = logging.getLogger("biumind.wiki_llm.llm")
 
 
 class LLMError(RuntimeError):
-    """Raised on any non-recoverable hub failure."""
+    """Raised on any non-recoverable model-relay failure."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,11 @@ class LLMConfig:
     base_url: str
     token: str
     model: str
+    # 计费归属：任务 owner（= ingest payload 的 owner_id）。内部车道
+    # 必填，model-relay 据此注入 claims 做 Hold/Settle + BYOK 查询。
+    user_id: str = ""
+    # 幂等键：task_id。NATS 重投同一任务时 model-relay 的 Hold 去重。
+    idempotency_key: str = ""
     # Cap output budget. Wiki pages are typically 200-1500 tokens each,
     # 5-15 pages per source → ~10K tokens of output. 16K is a safe
     # default that fits inside most provider context windows.
@@ -61,7 +75,7 @@ async def stream_messages(
     system: str,
     user: str,
 ) -> AsyncIterator[str]:
-    """Open a streaming chat with hub and yield text deltas.
+    """Open a streaming chat with model-relay and yield text deltas.
 
     Yields each ``delta.text`` as it arrives. Raises LLMError on any
     transport / status / SSE-error condition. The caller is responsible
@@ -74,7 +88,10 @@ async def stream_messages(
     connection will stop generation on disconnect.
     """
     if not cfg.base_url:
-        raise LLMError("hub base_url missing — set BIUMIND_HUB_URL")
+        raise LLMError("relay base_url missing — set BIUMIND_HUB_URL")
+    if not cfg.user_id:
+        # 内部车道硬要求：缺 user_id 端点直接 400，提前给出可读错误。
+        raise LLMError("relay user_id missing — task payload has no owner_id")
 
     payload = {
         "model": cfg.model,
@@ -84,8 +101,11 @@ async def stream_messages(
         "messages": [
             {"role": "user", "content": user},
         ],
+        "user_id": cfg.user_id,
     }
-    url = cfg.base_url.rstrip("/") + "/v1/messages"
+    if cfg.idempotency_key:
+        payload["idempotency_key"] = cfg.idempotency_key
+    url = cfg.base_url.rstrip("/") + "/v1/internal/chat"
     headers = {
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
@@ -107,13 +127,13 @@ async def stream_messages(
                     body = await resp.aread()
                     text = body.decode("utf-8", errors="replace")
                     raise LLMError(
-                        f"hub returned HTTP {resp.status_code}: {text[:500]}"
+                        f"relay returned HTTP {resp.status_code}: {text[:500]}"
                     )
 
                 async for chunk in _iter_sse_deltas(resp):
                     yield chunk
         except httpx.HTTPError as e:
-            raise LLMError(f"hub request failed: {e}") from e
+            raise LLMError(f"relay request failed: {e}") from e
 
 
 async def _iter_sse_deltas(resp: httpx.Response) -> AsyncIterator[str]:
@@ -155,7 +175,7 @@ async def _iter_sse_deltas(resp: httpx.Response) -> AsyncIterator[str]:
             elif cur_event == "error":
                 # Propagate to caller as exception. We still drain the
                 # connection by exiting the iterator cleanly.
-                raise LLMError(f"hub error frame: {data[:500]}")
+                raise LLMError(f"relay error frame: {data[:500]}")
             elif cur_event in ("end", "stop"):
                 # Treat as end-of-stream; httpx will close the connection
                 # naturally when we exit the async-for.
