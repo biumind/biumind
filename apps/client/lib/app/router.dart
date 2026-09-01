@@ -665,9 +665,16 @@ class _AppShell extends ConsumerWidget {
       children: [
         Positioned.fill(child: child),
         if (caps.hasLocalDocproc)
-          SizedBox(
-            width: 0,
-            height: 0,
+          // 必须 Positioned：Stack 有非定位子节点时会 shrink-wrap 到该
+          // 子节点尺寸（rendering/stack.dart _computeSize），Positioned.fill
+          // 的页面会被连带压成 1×1 → 整窗白屏（2026-09-01 两轮事故）。
+          // 尺寸保持 1×1 非零：0×0 的 WKWebView 被 WebKit 当离屏视图，
+          // JS 执行不可靠（见 docproc_native_view.dart 注释）。
+          Positioned(
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
             child: DocprocEngineView(
               controller: ref.watch(docprocEngineControllerProvider),
             ),

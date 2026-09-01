@@ -1,7 +1,8 @@
 /// Cross-platform entry for the docproc (document parsing) engine.
 ///
 /// Web → hidden same-origin iframe + postMessage.
-/// Native → headless InAppWebView fed by the shared WebviewLocalhostServer.
+/// Native → 1×1 平台视图 InAppWebView fed by the shared WebviewLocalhostServer
+/// （禁用 HeadlessInAppWebView，原因见 docproc_native_view.dart 与 §2.5）。
 ///
 /// 无 UI 纯计算 bundle：宿主（import_dialog 等）把这个 widget 挂在树里
 /// 任意不可见位置即可，解析经 [DocprocBridgeController.parse] 驱动。
