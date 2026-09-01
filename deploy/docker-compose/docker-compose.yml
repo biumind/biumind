@@ -705,3 +705,31 @@ services:
       brain:
         condition: service_healthy
 
+  # wiki-llm worker — 订阅 wiki.ingest.requested，调 model-relay 把 source
+  # 文本转成 wiki 页（ingest 链路的 LLM 生成段，唯一烧 token 的 worker）。
+  # 用 profile 控制：默认开发栈不起（避免无意产生 API 费用），
+  # `docker-compose --profile llm up -d worker-wiki-llm` 或验证/部署时起。
+  # BIUMIND_HUB_TOKEN 需为有效 JWT（静态服务 token，成本归属该 token 的
+  # 用户；P2 规划改为 brain 按任务 owner 现签）。
+  worker-wiki-llm:
+    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-wiki-llm:${BIUMIND_TAG:-main}
+    container_name: biu-worker-wiki-llm
+    <<: [*restart, *logging]
+    profiles: [llm]
+    environment:
+      BIUMIND_ENV: ${BIUMIND_ENV:-test}
+      BIUMIND_LOG_LEVEL: ${BIUMIND_LOG_LEVEL:-info}
+      NATS_URL: nats://nats:4222
+      BIUMIND_BRAIN_URL: http://brain:7003
+      BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      BIUMIND_HUB_URL: ${WIKI_LLM_HUB_URL:-http://model-relay:7001}
+      BIUMIND_HUB_TOKEN: ${WIKI_LLM_HUB_TOKEN:-}
+      BIUMIND_WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-claude-haiku-4-5-20251001}
+      BIUMIND_WIKI_LLM_TIMEOUT_S: "600"
+    networks: [biu-net]
+    depends_on:
+      nats:
+        condition: service_healthy
+      brain:
+        condition: service_healthy
+

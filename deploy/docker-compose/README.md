@@ -135,7 +135,7 @@ CI（`.github/workflows/release-images.yml`）发布**全部 19 个业务镜像*
 - **4 个前端**：site / web-client / admin-web / miniapp-h5
 - **4 个 worker**：worker-ingest / worker-wiki-parse / aigc-worker / worker-wiki-llm
 
-> compose 实际只编排其中 **16 个**（9 Go 服务 + 4 前端 + 3 worker）：`sandbox` / `deploy` / `worker-wiki-llm` 有镜像但不在 compose，按需自行取用。
+> compose 实际只编排其中 **16 个**（9 Go 服务 + 4 前端 + 3 worker）：`sandbox` / `deploy` 有镜像但不在 compose，按需自行取用。`worker-wiki-llm` 已编排但挂在 `llm` profile 下（唯一烧 LLM token 的 worker，避免默认栈产生 API 费用）：`docker-compose --profile llm up -d worker-wiki-llm` 启动，需配 `WIKI_LLM_HUB_TOKEN`（有效 JWT）。
 
 CI 推送三套仓库（namespace 均 `biumind`）：GHCR `ghcr.io/biumind/<name>`（必推）、Docker Hub `docker.io/biumind/<name>`、Aliyun 北京 `registry.cn-beijing.aliyuncs.com/biumind/<name>`（后两者需配 vars/secrets）。tag：`:sha-<short7>` + `:main`（每次 main push），release tag 时额外 `:v*` + `:latest`。
 
