@@ -87,6 +87,15 @@ class PlatformCaps {
   /// 无 WebView 方案，false，上传一律走云端解析。
   final bool hasLocalDocproc;
 
+  /// 本机解析队列（DocprocQueue，§3.5）背压字节上限：队列内未完成
+  /// （parsing/uploading）item 的总字节超上限时新 item 留在 queued。
+  /// 桌面 200MB / 移动 80MB。
+  final int docprocQueueMaxBytes;
+
+  /// 本机解析队列并发上限（流水线重叠：A 解析时 B 可上传/建源）。
+  /// 桌面 3 / 移动 1。docproc parse 本身经引擎串行，不伪造并行解析。
+  final int docprocQueueConcurrency;
+
   const PlatformCaps({
     required this.hasLocalPty,
     required this.hasFileSystem,
@@ -100,6 +109,8 @@ class PlatformCaps {
     this.editorPlatform = 'web',
     this.hasSystemShare = false,
     this.hasLocalDocproc = false,
+    this.docprocQueueMaxBytes = 200 * 1024 * 1024,
+    this.docprocQueueConcurrency = 3,
   });
 
   factory PlatformCaps.detect() {
@@ -128,6 +139,10 @@ class PlatformCaps {
       TargetPlatform.windows => true,
       _ => false,
     };
+    final mobile = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS || TargetPlatform.android => true,
+      _ => false,
+    };
     return PlatformCaps(
       hasLocalPty: desktop, // mobile sandboxes don't allow process spawn
       hasFileSystem: desktop,
@@ -145,10 +160,7 @@ class PlatformCaps {
         TargetPlatform.macOS || TargetPlatform.linux => true,
         _ => false,
       },
-      isMobile: switch (defaultTargetPlatform) {
-        TargetPlatform.iOS || TargetPlatform.android => true,
-        _ => false,
-      },
+      isMobile: mobile,
       hasRichClipboard: defaultTargetPlatform == TargetPlatform.macOS,
       editorPlatform: switch (defaultTargetPlatform) {
         TargetPlatform.iOS => 'ios',
@@ -171,6 +183,10 @@ class PlatformCaps {
           true,
         _ => false,
       },
+      // 队列分档（§3.5）：移动端字节 80MB / 并发 1；桌面与 Web 用默认
+      // 200MB / 3。
+      docprocQueueMaxBytes: mobile ? 80 * 1024 * 1024 : 200 * 1024 * 1024,
+      docprocQueueConcurrency: mobile ? 1 : 3,
     );
   }
 

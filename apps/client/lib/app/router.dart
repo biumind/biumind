@@ -19,6 +19,8 @@ import 'package:go_router/go_router.dart';
 
 import '../core/layout/form_factor.dart';
 import '../core/layout/phone_tab_bar.dart';
+import '../core/docproc/docproc_view.dart';
+import '../core/platform/platform_caps.dart';
 import '../core/platform/window_drag.dart';
 import '../core/ui/biu_pulse_dot.dart';
 import '../core/ui/popup_position.dart';
@@ -65,6 +67,7 @@ import '../features/membership/presentation/pages/referral_page.dart';
 import '../features/skills/presentation/skills_page.dart';
 import '../features/splash/presentation/splash_page.dart';
 import '../features/wiki/presentation/reviews_page.dart';
+import '../features/wiki/data/docproc_queue_controller.dart';
 import '../features/wiki/presentation/chat/project_chat_page.dart';
 import '../features/wiki/presentation/graph/project_graph_page.dart';
 import '../features/wiki/presentation/mirror/mirror_page.dart' as wikimirror;
@@ -655,9 +658,20 @@ class _AppShell extends ConsumerWidget {
     // 自身布局; online 状态下 widget 自动消失 (SizedBox.shrink),
     // 不影响 hit-testing。
     // 离线徽标浮在 page 右上角,不挤压 child 布局;在线时 shrink。
+    // DocprocEngineView: docproc 本机解析引擎（无 UI 隐藏 webview），
+    // 应用级常驻 —— import_dialog 关闭后队列仍在后台解析（§3.5 W1）。
+    final caps = ref.watch(platformCapsProvider);
     final content = Stack(
       children: [
         Positioned.fill(child: child),
+        if (caps.hasLocalDocproc)
+          SizedBox(
+            width: 0,
+            height: 0,
+            child: DocprocEngineView(
+              controller: ref.watch(docprocEngineControllerProvider),
+            ),
+          ),
         const Positioned(
           top: 8,
           right: 12,

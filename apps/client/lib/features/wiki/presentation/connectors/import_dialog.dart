@@ -5,39 +5,35 @@
 /// 需要那些 enterprise 数据源整合，本版只做最常见三种：
 ///
 ///   - 单文件：file_selector 选一个 PDF/DOCX/MD/HTML/TXT
-///   - 多文件：file_selector 一次选多个，串行上传 + 进度条
-///   - URL：输入 URL，http GET 抓字节，上传，external_id=url 入库
+///   - 多文件：file_selector 一次选多个，全部入队
+///   - URL：输入 URL，http GET 抓字节后入队，external_id=url 入库
+///
+/// P2 W1 起 dialog 不再自己跑串行上传循环：读字节 → enqueue 进应用级
+/// DocprocQueue（§3.5 背压队列）→ 立即关闭。处理在后台继续，进度经
+/// processor=client 镜像任务进 activity drawer。
 ///
 /// 处理位置（P1 本机解析，设计文档 BiuMind-Client-Docproc-Design §3.4）：
 ///   - 本机解析（免费，默认）：docproc-web bundle 本地解析出文本后走
 ///     createSource(rawText + contentHash + parseMeta)，跳过服务端解析
-///   - 云端（花积分）：现有 multipart 上传 + createSource(file_id) 不变
+///   - 云端（花积分）：multipart 上传 + createSource(file_id)
 /// 平台不支持本机解析（hasLocalDocproc=false）时不显示本机选项；
-/// 本机解析失败自动回退云端路径。
+/// 本机解析失败由队列自动回退云端路径。
 library;
 
-import 'dart:async' show unawaited;
-import 'dart:convert' show utf8;
 import 'dart:io' show File;
 
-import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../../../../app/theme.dart';
-import '../../../../core/docproc/docproc_bridge_controller.dart';
-import '../../../../core/docproc/docproc_view.dart';
 import '../../../../core/platform/platform_caps.dart';
 import '../../../../core/ui/biu_text_field.dart';
-import '../../../../data/api/wiki_client.dart' show WikiClient;
-import '../../../../data/wiki_providers.dart'
-    show sourcesListProvider, wikiRepositoryProvider;
-import '../../../../features/code/data/files_client.dart'
-    show FilesClient, filesClientProvider;
-import '../../data/docproc_task_mirror.dart';
+import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
+import '../../data/docproc_queue_controller.dart';
 
 class ImportDialog {
   ImportDialog._();
@@ -71,44 +67,22 @@ class _Dialog extends ConsumerStatefulWidget {
 class _DialogState extends ConsumerState<_Dialog> {
   _Tab _tab = _Tab.single;
 
-  /// 已选 / 已抓的待上传项；上传中 / 完成时同条目就地更新状态。
+  /// 已选 / 已抓的待入队项。
   final List<_ImportItem> _items = [];
 
-  /// 当前是否在批量上传中（屏蔽切 tab + 关闭按钮）。
+  /// 正在读字节/入队中（屏蔽切 tab + 关闭按钮）。
   bool _running = false;
 
   /// 处理位置：hasLocalDocproc 时默认本机（§3.4 矩阵：桌面/Web ≤50MB、
-  /// 移动端 ≤10MB 默认本机；超限文件上传时自动走云端）。
+  /// 移动端 ≤10MB 默认本机；超限文件由队列自动走云端）。
   _ProcessLocation _location = _ProcessLocation.local;
-
-  /// 本机解析引擎（docproc-web bundle，隐藏 webview 挂在 dialog 树里）。
-  late final DocprocBridgeController _docprocController;
-
-  /// 当前在途的镜像任务（用于 dialog 被关时 PATCH cancelled）。
-  DocprocTaskMirror? _activeMirror;
-
-  /// 用户在上传/解析中途关闭 dialog：停止批量循环、不回退云端、
-  /// 镜像任务 PATCH cancelled。
-  bool _userCancelled = false;
 
   final TextEditingController _urlCtrl = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _docprocController = DocprocBridgeController(
-      caps: ref.read(platformCapsProvider),
-    );
-  }
+  static const _uuid = Uuid();
 
   @override
   void dispose() {
-    if (_running) {
-      _userCancelled = true;
-      // 用户主动取消必须 PATCH cancelled（区别于进程死亡靠 reaper 检测）。
-      // fire-and-forget：dispose 不能 await。
-      unawaited(_activeMirror?.cancelled());
-    }
     _urlCtrl.dispose();
     super.dispose();
   }
@@ -127,13 +101,6 @@ class _DialogState extends ConsumerState<_Dialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 本机解析引擎：无 UI 隐藏 webview，挂在 dialog 树里随开随用。
-            if (caps.hasLocalDocproc)
-              SizedBox(
-                width: 0,
-                height: 0,
-                child: DocprocEngineView(controller: _docprocController),
-              ),
             _Header(onClose: _running ? null : _close),
             _TabBar(
               tab: _tab,
@@ -180,7 +147,7 @@ class _DialogState extends ConsumerState<_Dialog> {
               itemCount: _items.length,
               running: _running,
               onCancel: _running ? null : _close,
-              onUpload: _items.isEmpty || _running ? null : _runUpload,
+              onUpload: _items.isEmpty || _running ? null : _enqueueAll,
             ),
           ],
         ),
@@ -222,215 +189,78 @@ class _DialogState extends ConsumerState<_Dialog> {
     });
   }
 
-  Future<void> _runUpload() async {
+  /// 读字节 → 全部 enqueue 进应用级 DocprocQueue → 立即关闭 dialog。
+  /// 处理在后台继续（进度/取消/重试经 activity drawer），本方法只负责
+  /// 预检（凭证）与字节读取；读取失败的项就地标错，其余照常入队。
+  Future<void> _enqueueAll() async {
     final repo = ref.read(wikiRepositoryProvider);
-    final filesClient = ref.read(filesClientProvider);
-    final caps = ref.read(platformCapsProvider);
-    if (repo == null || filesClient == null) {
+    if (repo == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('未配置后端凭证')),
       );
       return;
     }
     setState(() => _running = true);
+    final batch = <DocprocQueueItem>[];
+    var readFailed = 0;
     for (var i = 0; i < _items.length; i++) {
-      if (_userCancelled) break;
       if (_items[i].status == _ItemStatus.done) continue;
-      _updateItem(i, status: _ItemStatus.uploading);
       try {
-        await _uploadOne(_items[i], i, filesClient, repo.client, caps);
-        _updateItem(i, status: _ItemStatus.done);
+        final read = await _readItem(_items[i]);
+        batch.add(DocprocQueueItem(
+          id: _uuid.v4(),
+          projectId: widget.projectId,
+          filename: read.filename,
+          bytes: read.bytes,
+          mime: read.mime,
+          externalId: read.externalId,
+          preferLocal: _location == _ProcessLocation.local,
+        ));
       } on Exception catch (e) {
-        _updateItem(i,
-            status: _ItemStatus.error, errorMessage: e.toString());
+        readFailed++;
+        _updateItem(i, status: _ItemStatus.error, errorMessage: e.toString());
       }
     }
-    setState(() => _running = false);
-    ref.invalidate(sourcesListProvider(widget.projectId));
+    ref.read(docprocQueueProvider).enqueue(batch);
     if (!mounted) return;
-    final ok = _items.where((it) => it.status == _ItemStatus.done).length;
-    final fail = _items.where((it) => it.status == _ItemStatus.error).length;
-    if (fail == 0) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已导入 $ok 项')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('完成 $ok / 失败 $fail')),
-      );
-    }
+    Navigator.of(context).pop();
+    final note = readFailed == 0
+        ? '已加入队列 ${batch.length} 个文件'
+        : '已加入队列 ${batch.length} 个文件，$readFailed 个读取失败';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
   }
 
-  Future<void> _uploadOne(
-    _ImportItem item,
-    int index,
-    FilesClient filesClient,
-    WikiClient wikiClient,
-    PlatformCaps caps,
-  ) async {
-    // 1) 拿到字节
-    final List<int> bytes;
-    final String filename;
-    final String mime;
-    String? externalId;
+  /// 读出待入队项的字节与元信息（URL 项此时才发起抓取）。
+  Future<({String filename, Uint8List bytes, String mime, String? externalId})>
+      _readItem(_ImportItem item) async {
     if (item.kind == _ItemKind.url) {
       final url = item.url!;
       final resp = await http.get(url).timeout(const Duration(seconds: 30));
       if (resp.statusCode >= 400) {
         throw Exception('HTTP ${resp.statusCode}');
       }
-      bytes = resp.bodyBytes;
-      filename = _filenameFromUrl(url);
-      mime = resp.headers['content-type']?.split(';').first.trim() ??
-          _guessMime(filename);
-      externalId = url.toString();
+      final filename = _filenameFromUrl(url);
+      return (
+        filename: filename,
+        bytes: resp.bodyBytes,
+        mime: resp.headers['content-type']?.split(';').first.trim() ??
+            _guessMime(filename),
+        externalId: url.toString(),
+      );
+    }
+    final f = item.file!;
+    final List<int> raw;
+    if (kIsWeb || f.path.isEmpty) {
+      raw = await f.readAsBytes();
     } else {
-      final f = item.file!;
-      filename = f.name;
-      mime = f.mimeType ?? _guessMime(filename);
-      if (kIsWeb || f.path.isEmpty) {
-        bytes = await f.readAsBytes();
-      } else {
-        bytes = await File(f.path).readAsBytes();
-      }
+      raw = await File(f.path).readAsBytes();
     }
-
-    // 2) 本机解析路径（P1 + W2 镜像，设计文档 §3.1/§3.5）：docproc-web
-    //    本地解析出文本，sha256 幂等 hash + parse_meta 一并入库，跳过
-    //    服务端解析；同时把生命周期镜像进 ingest_tasks（processor=client）。
-    //    失败（DocprocException 等任何异常）自动回退云端路径。
-    if (_shouldParseLocally(bytes.length, caps)) {
-      final ok = await _parseLocally(
-        wikiClient,
-        filename: filename,
-        mime: mime,
-        bytes: bytes,
-        externalId: externalId,
-      );
-      if (ok) return;
-      if (_userCancelled) throw Exception('已取消');
-      // else：本机解析失败，回退云端 multipart 上传（§8 失败自动转云端兜底）。
-    }
-
-    // 3) 云端路径：上传到 brain.files
-    final upload = await filesClient.uploadBytes(
-      bytes: bytes,
-      filename: filename,
-      contentType: mime,
-      source: 'wiki-source',
-      metadata: {
-        'project_id': widget.projectId,
-        'rel_path': filename,
-        'external_id': ?externalId,
-      },
-      onProgress: (sent, total) =>
-          _updateItem(index, sent: sent, total: total),
+    return (
+      filename: f.name,
+      bytes: raw is Uint8List ? raw : Uint8List.fromList(raw),
+      mime: f.mimeType ?? _guessMime(f.name),
+      externalId: null,
     );
-
-    // 4) 创建 wiki source 记录
-    await wikiClient.createSource(
-      widget.projectId,
-      relPath: filename,
-      fileId: upload.fileId,
-      filename: filename,
-      mime: upload.mimeType ?? mime,
-      byteSize: upload.sizeBytes,
-      externalId: externalId,
-    );
-  }
-
-  /// §3.4 策略矩阵：hasLocalDocproc + 用户选本机 + 大小在阈值内
-  /// （桌面/Web ≤50MB，移动端 ≤10MB）才走本机解析。
-  bool _shouldParseLocally(int byteSize, PlatformCaps caps) {
-    if (!caps.hasLocalDocproc || _location != _ProcessLocation.local) {
-      return false;
-    }
-    final limit = caps.isMobile ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
-    return byteSize <= limit;
-  }
-
-  /// 本机解析 + ingest_tasks 镜像（W2）。返回 true = 已入库（调用方
-  /// 直接结束）；false = 失败，调用方回退云端路径。
-  ///
-  /// 时序（设计文档 §3.5）：
-  ///   a. 占位 source（parseStatus=processing，无 file_id 无文本）
-  ///   b. 镜像任务 processor=client（best-effort，不 publish 给 wiki-llm）
-  ///   c. docproc parse；progress 回调节流 PATCH {phase, percent}
-  ///   d. 成功：同 relPath upsert（rawText + contentHash + parseMeta +
-  ///      parseStatus=done）→ PATCH done
-  ///   e. 失败：best-effort PATCH failed → 返回 false 走云端回退
-  Future<bool> _parseLocally(
-    WikiClient wikiClient, {
-    required String filename,
-    required String mime,
-    required List<int> bytes,
-    String? externalId,
-  }) async {
-    final mirror = DocprocTaskMirror(
-      client: wikiClient,
-      projectId: widget.projectId,
-    );
-    _activeMirror = mirror;
-    try {
-      // a. 占位 source —— 镜像任务要求 source_id；parseStatus=processing
-      //    让 sources 列表显示「解析中」而不是「待解析」。
-      final placeholder = await wikiClient.createSource(
-        widget.projectId,
-        relPath: filename,
-        filename: filename,
-        mime: mime,
-        byteSize: bytes.length,
-        externalId: externalId,
-        parseStatus: 'processing',
-      );
-
-      // b. 镜像任务（内部 best-effort；失败 taskId=null，后续 PATCH 全 no-op）
-      await mirror.start(sourceId: placeholder.id, title: filename);
-
-      // c. 本机解析 + 进度镜像（节流在 mirror 内）
-      _docprocController.onProgress = (id, phase, percent) {
-        unawaited(mirror.progress(phase, percent));
-      };
-      final result = await _docprocController.parse(
-        fileName: filename,
-        bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-        mimeHint: mime,
-      );
-
-      // d. 同 relPath upsert 真实内容 + PATCH done
-      final contentHash = sha256.convert(utf8.encode(result.text));
-      await wikiClient.createSource(
-        widget.projectId,
-        relPath: filename,
-        filename: filename,
-        mime: mime,
-        byteSize: bytes.length,
-        externalId: externalId,
-        rawText: result.text,
-        contentHash: contentHash.toString(),
-        // 本机解析已完成，明确标记 done —— 否则服务端默认 queued，
-        // sources 列表会把这条源显示为「待解析」。
-        parseStatus: 'done',
-        parseMeta: {
-          'parser': 'docproc-web',
-          'version': result.parserVersion,
-          'format': result.format,
-          'page_count': ?result.pageCount,
-        },
-      );
-      await mirror.done();
-      return true;
-    } on Exception catch (e) {
-      // e. 失败：镜像标 failed（best-effort）→ 回退云端路径。云端回退
-      //    会再次 createSource 同 relPath upsert 带 file_id，覆盖占位行，
-      //    这是对的。
-      await mirror.failed(e);
-      return false;
-    } finally {
-      _docprocController.onProgress = null;
-      if (identical(_activeMirror, mirror)) _activeMirror = null;
-    }
   }
 
   void _updateItem(
@@ -754,7 +584,7 @@ class _MultiTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '一次选多个文件，系统会按顺序串行上传 + 解析。',
+          '一次选多个文件，全部加入后台队列处理。',
           style: TextStyle(color: BiuTokens.textSecondary, fontSize: 12),
         ),
         const SizedBox(height: 12),
@@ -827,7 +657,7 @@ class _ItemRow extends StatelessWidget {
       _ItemStatus.pending => (
         Icons.hourglass_empty,
         BiuTokens.textMuted,
-        '待上传',
+        '待入队',
       ),
       _ItemStatus.uploading => (
         Icons.cloud_upload_outlined,
@@ -920,7 +750,7 @@ class _Footer extends StatelessWidget {
         children: [
           if (itemCount > 0)
             Text(
-              '$itemCount 项待上传',
+              '$itemCount 项待入队',
               style: TextStyle(color: BiuTokens.textMuted, fontSize: 12),
             ),
           const Spacer(),
@@ -944,7 +774,7 @@ class _Footer extends StatelessWidget {
                     ),
                   )
                 : const Icon(Icons.upload, size: 14),
-            label: Text(running ? '上传中…' : '上传 + 入库'),
+            label: Text(running ? '加入中…' : '加入队列'),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.primary,
               padding: const EdgeInsets.symmetric(

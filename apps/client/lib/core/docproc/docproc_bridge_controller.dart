@@ -20,7 +20,26 @@ import 'docproc_bridge_protocol.dart';
 
 typedef DocprocSend = Future<void> Function(DocprocMessage message);
 
-class DocprocBridgeController {
+/// docproc 引擎抽象：队列（DocprocQueue）依赖它而非具体 bridge
+/// controller，测试注入 fake 即可，不碰真 WebView。
+abstract class DocprocEngine {
+  /// 本机解析一个文件。[requestId] 由调用方给定时用于后续 [cancel]
+  /// 关联；缺省内部生成。
+  Future<DocprocResult> parse({
+    required String fileName,
+    required Uint8List bytes,
+    String? mimeHint,
+    String? requestId,
+  });
+
+  /// 取消在途解析（按 requestId 关联）。
+  void cancel(String requestId);
+
+  /// 解析进度回调（id = requestId）。bundle 单 JS 上下文，进度按 id 路由。
+  void Function(String id, String phase, int percent)? onProgress;
+}
+
+class DocprocBridgeController implements DocprocEngine {
   DocprocBridgeController({
     PlatformCaps? caps,
     this.parseTimeout = const Duration(seconds: 120),
@@ -36,6 +55,7 @@ class DocprocBridgeController {
   final Duration readyTimeout;
 
   /// bundle 上报的解析进度（phase: load / extract）。
+  @override
   void Function(String id, String phase, int percent)? onProgress;
 
   /// ready 握手拿到的 bundle 版本与支持格式（诊断 / parse_meta 用）。
@@ -99,11 +119,13 @@ class DocprocBridgeController {
   /// 本机解析一个文件：读字节 → base64 → bundle → [DocprocResult]。
   ///
   /// 失败抛 [DocprocException]（code 见类注释）；调用方据此决定是否
-  /// 回退云端路径。
+  /// 回退云端路径。[requestId] 由调用方（队列）给定时用于 cancel 关联。
+  @override
   Future<DocprocResult> parse({
     required String fileName,
     required Uint8List bytes,
     String? mimeHint,
+    String? requestId,
   }) async {
     await ensureReady();
     final send = _send;
@@ -113,7 +135,7 @@ class DocprocBridgeController {
         message: 'docproc 引擎未挂载',
       );
     }
-    final id = _uuid.v4();
+    final id = requestId ?? _uuid.v4();
     final completer = Completer<DocprocResult>();
     _pending[id] = completer;
     _timers[id] = Timer(parseTimeout, () {
@@ -141,6 +163,7 @@ class DocprocBridgeController {
   }
 
   /// 取消在途解析：通知 bundle 放弃，本地 future 立即以 cancelled 失败。
+  @override
   void cancel(String id) {
     final c = _pending.remove(id);
     _timers.remove(id)?.cancel();
