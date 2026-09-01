@@ -1024,21 +1024,57 @@ class WikiClient {
   /// 传 sourceId 时 worker 反查 brain internal_api 取 extracted_text（Phase 1
   /// 合并后 ingest_tasks.source_id → wiki_sources）。rawText 仅 free-form
   /// 粘贴文本 ingest 用。`title` 走 source filename 即可。
-  Future<({String taskId, String status})> createIngestTask(
+  ///
+  /// [processor] = 'client' 时创建**镜像任务**（本机解析可见性 + 云端接管，
+  /// 设计文档 §3.5）：任务建行但不 publish 给 wiki-llm，生命周期由客户端
+  /// 经 [patchIngestTask] 推进；默认 'server'（现有行为不变）。
+  Future<({String taskId, String status, String processor})> createIngestTask(
     String projectId, {
     String rawText = '',
     String title = '',
     String? sourceId,
+    String? processor,
   }) async {
     final body = <String, dynamic>{
       'raw_text': rawText,
       'title': title,
     };
     if (sourceId != null) body['source_id'] = sourceId;
+    if (processor != null) body['processor'] = processor;
     final raw = await _post('/v1/wiki/projects/$projectId/ingest', body);
     return (
       taskId: raw['id']?.toString() ?? '',
       status: raw['status']?.toString() ?? 'pending',
+      processor: raw['processor']?.toString() ?? 'server',
+    );
+  }
+
+  /// 推进 processor=client 的镜像任务（设计文档 §3.5 / W2 契约）：
+  /// [status] ∈ running/done/failed/cancelled；[progress] 是**整体替换**
+  /// 的完整进度对象（如 {phase, percent}），不是合并；[error] 仅 failed
+  /// 时有意义。status 与 progress 至少给一个。
+  ///
+  /// 仅 processor=client 的任务可 PATCH（否则 409 not_client_task）；
+  /// 任务已终态则 409 already_terminal。返回更新后的 task。
+  Future<({String taskId, String status, String processor})> patchIngestTask(
+    String projectId,
+    String taskId, {
+    String? status,
+    Map<String, dynamic>? progress,
+    String? error,
+  }) async {
+    final body = <String, dynamic>{};
+    if (status != null) body['status'] = status;
+    if (progress != null) body['progress'] = progress;
+    if (error != null) body['error'] = error;
+    final raw = await _patch(
+      '/v1/wiki/projects/$projectId/ingest/tasks/$taskId',
+      body,
+    );
+    return (
+      taskId: raw['id']?.toString() ?? taskId,
+      status: raw['status']?.toString() ?? status ?? '',
+      processor: raw['processor']?.toString() ?? 'client',
     );
   }
 
@@ -1283,6 +1319,13 @@ class WikiClient {
     Map<String, String>? headers,
   }) async {
     return _request('PUT', path, body: body, extraHeaders: headers);
+  }
+
+  Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    return _request('PATCH', path, body: body);
   }
 
   Future<void> _delete(String path) async {

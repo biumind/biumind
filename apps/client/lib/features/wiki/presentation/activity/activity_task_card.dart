@@ -56,6 +56,12 @@ class ActivityTaskCard extends StatelessWidget {
                   ),
                 ),
                 _StatusBadge(status: t.status),
+                // 本机解析任务（processor=client 镜像，docproc §3.5）：
+                // activity API 的 summary 带 processor 时标注「本机」。
+                if (t.summary['processor'] == 'client') ...[
+                  const SizedBox(width: 4),
+                  const _ProcessorBadge(),
+                ],
               ],
             ),
             const SizedBox(height: 6),
@@ -71,8 +77,7 @@ class ActivityTaskCard extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
+class _StatusBadge extends StatelessWidget {  const _StatusBadge({required this.status});
   final ActivityStatus status;
 
   @override
@@ -94,6 +99,31 @@ class _StatusBadge extends StatelessWidget {
         label,
         style: TextStyle(
           color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// 「本机」标签：processor=client 的本机解析镜像任务（docproc §3.5）。
+class _ProcessorBadge extends StatelessWidget {
+  const _ProcessorBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: BiuTokens.purple.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: BiuTokens.purple.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        '本机',
+        style: TextStyle(
+          color: BiuTokens.purple,
           fontSize: 10,
           fontWeight: FontWeight.w600,
         ),

@@ -16,6 +16,7 @@
 /// 本机解析失败自动回退云端路径。
 library;
 
+import 'dart:async' show unawaited;
 import 'dart:convert' show utf8;
 import 'dart:io' show File;
 
@@ -36,6 +37,7 @@ import '../../../../data/wiki_providers.dart'
     show sourcesListProvider, wikiRepositoryProvider;
 import '../../../../features/code/data/files_client.dart'
     show FilesClient, filesClientProvider;
+import '../../data/docproc_task_mirror.dart';
 
 class ImportDialog {
   ImportDialog._();
@@ -82,6 +84,13 @@ class _DialogState extends ConsumerState<_Dialog> {
   /// 本机解析引擎（docproc-web bundle，隐藏 webview 挂在 dialog 树里）。
   late final DocprocBridgeController _docprocController;
 
+  /// 当前在途的镜像任务（用于 dialog 被关时 PATCH cancelled）。
+  DocprocTaskMirror? _activeMirror;
+
+  /// 用户在上传/解析中途关闭 dialog：停止批量循环、不回退云端、
+  /// 镜像任务 PATCH cancelled。
+  bool _userCancelled = false;
+
   final TextEditingController _urlCtrl = TextEditingController();
 
   @override
@@ -94,6 +103,12 @@ class _DialogState extends ConsumerState<_Dialog> {
 
   @override
   void dispose() {
+    if (_running) {
+      _userCancelled = true;
+      // 用户主动取消必须 PATCH cancelled（区别于进程死亡靠 reaper 检测）。
+      // fire-and-forget：dispose 不能 await。
+      unawaited(_activeMirror?.cancelled());
+    }
     _urlCtrl.dispose();
     super.dispose();
   }
@@ -219,6 +234,7 @@ class _DialogState extends ConsumerState<_Dialog> {
     }
     setState(() => _running = true);
     for (var i = 0; i < _items.length; i++) {
+      if (_userCancelled) break;
       if (_items[i].status == _ItemStatus.done) continue;
       _updateItem(i, status: _ItemStatus.uploading);
       try {
@@ -280,40 +296,21 @@ class _DialogState extends ConsumerState<_Dialog> {
       }
     }
 
-    // 2) 本机解析路径（P1，设计文档 §3.1）：docproc-web 本地解析出文本，
-    //    sha256 幂等 hash + parse_meta 一并入库，跳过服务端解析。
+    // 2) 本机解析路径（P1 + W2 镜像，设计文档 §3.1/§3.5）：docproc-web
+    //    本地解析出文本，sha256 幂等 hash + parse_meta 一并入库，跳过
+    //    服务端解析；同时把生命周期镜像进 ingest_tasks（processor=client）。
     //    失败（DocprocException 等任何异常）自动回退云端路径。
     if (_shouldParseLocally(bytes.length, caps)) {
-      try {
-        final result = await _docprocController.parse(
-          fileName: filename,
-          bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-          mimeHint: mime,
-        );
-        final contentHash = sha256.convert(utf8.encode(result.text));
-        await wikiClient.createSource(
-          widget.projectId,
-          relPath: filename,
-          filename: filename,
-          mime: mime,
-          byteSize: bytes.length,
-          externalId: externalId,
-          rawText: result.text,
-          contentHash: contentHash.toString(),
-          // 本机解析已完成，明确标记 done —— 否则服务端默认 queued，
-          // sources 列表会把这条源显示为「待解析」。
-          parseStatus: 'done',
-          parseMeta: {
-            'parser': 'docproc-web',
-            'version': result.parserVersion,
-            'format': result.format,
-            'page_count': ?result.pageCount,
-          },
-        );
-        return;
-      } on Exception {
-        // 本机解析失败：回退云端 multipart 上传（§8 失败自动转云端兜底）。
-      }
+      final ok = await _parseLocally(
+        wikiClient,
+        filename: filename,
+        mime: mime,
+        bytes: bytes,
+        externalId: externalId,
+      );
+      if (ok) return;
+      if (_userCancelled) throw Exception('已取消');
+      // else：本机解析失败，回退云端 multipart 上传（§8 失败自动转云端兜底）。
     }
 
     // 3) 云端路径：上传到 brain.files
@@ -351,6 +348,89 @@ class _DialogState extends ConsumerState<_Dialog> {
     }
     final limit = caps.isMobile ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
     return byteSize <= limit;
+  }
+
+  /// 本机解析 + ingest_tasks 镜像（W2）。返回 true = 已入库（调用方
+  /// 直接结束）；false = 失败，调用方回退云端路径。
+  ///
+  /// 时序（设计文档 §3.5）：
+  ///   a. 占位 source（parseStatus=processing，无 file_id 无文本）
+  ///   b. 镜像任务 processor=client（best-effort，不 publish 给 wiki-llm）
+  ///   c. docproc parse；progress 回调节流 PATCH {phase, percent}
+  ///   d. 成功：同 relPath upsert（rawText + contentHash + parseMeta +
+  ///      parseStatus=done）→ PATCH done
+  ///   e. 失败：best-effort PATCH failed → 返回 false 走云端回退
+  Future<bool> _parseLocally(
+    WikiClient wikiClient, {
+    required String filename,
+    required String mime,
+    required List<int> bytes,
+    String? externalId,
+  }) async {
+    final mirror = DocprocTaskMirror(
+      client: wikiClient,
+      projectId: widget.projectId,
+    );
+    _activeMirror = mirror;
+    try {
+      // a. 占位 source —— 镜像任务要求 source_id；parseStatus=processing
+      //    让 sources 列表显示「解析中」而不是「待解析」。
+      final placeholder = await wikiClient.createSource(
+        widget.projectId,
+        relPath: filename,
+        filename: filename,
+        mime: mime,
+        byteSize: bytes.length,
+        externalId: externalId,
+        parseStatus: 'processing',
+      );
+
+      // b. 镜像任务（内部 best-effort；失败 taskId=null，后续 PATCH 全 no-op）
+      await mirror.start(sourceId: placeholder.id, title: filename);
+
+      // c. 本机解析 + 进度镜像（节流在 mirror 内）
+      _docprocController.onProgress = (id, phase, percent) {
+        unawaited(mirror.progress(phase, percent));
+      };
+      final result = await _docprocController.parse(
+        fileName: filename,
+        bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        mimeHint: mime,
+      );
+
+      // d. 同 relPath upsert 真实内容 + PATCH done
+      final contentHash = sha256.convert(utf8.encode(result.text));
+      await wikiClient.createSource(
+        widget.projectId,
+        relPath: filename,
+        filename: filename,
+        mime: mime,
+        byteSize: bytes.length,
+        externalId: externalId,
+        rawText: result.text,
+        contentHash: contentHash.toString(),
+        // 本机解析已完成，明确标记 done —— 否则服务端默认 queued，
+        // sources 列表会把这条源显示为「待解析」。
+        parseStatus: 'done',
+        parseMeta: {
+          'parser': 'docproc-web',
+          'version': result.parserVersion,
+          'format': result.format,
+          'page_count': ?result.pageCount,
+        },
+      );
+      await mirror.done();
+      return true;
+    } on Exception catch (e) {
+      // e. 失败：镜像标 failed（best-effort）→ 回退云端路径。云端回退
+      //    会再次 createSource 同 relPath upsert 带 file_id，覆盖占位行，
+      //    这是对的。
+      await mirror.failed(e);
+      return false;
+    } finally {
+      _docprocController.onProgress = null;
+      if (identical(_activeMirror, mirror)) _activeMirror = null;
+    }
   }
 
   void _updateItem(
