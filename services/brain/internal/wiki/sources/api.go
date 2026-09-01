@@ -84,7 +84,7 @@ type createReq struct {
 	ByteSize       int64          `json:"byte_size,omitempty"`
 	ContentHashHex string         `json:"content_hash,omitempty"` // sha256 hex（与 internal parse-result 一致）
 	ExtractedText  string         `json:"extracted_text,omitempty"`
-	RawText        string         `json:"raw_text,omitempty"` // extracted_text 的别名（docproc-web 客户端契约）
+	RawText        string         `json:"raw_text,omitempty"`     // extracted_text 的别名（docproc-web 客户端契约）
 	ParseStatus    string         `json:"parse_status,omitempty"` // 默认 queued
 	ExternalID     string         `json:"external_id,omitempty"`
 	ParseMeta      map[string]any `json:"parse_meta,omitempty"` // client-docproc：parser/version/format/page_count
