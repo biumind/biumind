@@ -118,7 +118,7 @@ func (s *Server) fetchIngest(ctx context.Context, pid uuid.UUID) ([]item, error)
 	rows, err := s.Pool.Query(ctx, `
 		SELECT id, status, title, progress, result_pages,
 		       cancel_requested_at, started_at, finished_at, created_at, updated_at,
-		       error
+		       error, processor
 		FROM brain.ingest_tasks
 		WHERE project_id = $1
 		ORDER BY created_at DESC
@@ -139,9 +139,11 @@ func (s *Server) fetchIngest(ctx context.Context, pid uuid.UUID) ([]item, error)
 			finished             *time.Time
 			createdAt, updatedAt time.Time
 			errMsg               string
+			processor            string
 		)
 		if err := rows.Scan(&id, &status, &title, &progressJSON, &resultPages,
-			&cancelReq, &started, &finished, &createdAt, &updatedAt, &errMsg); err != nil {
+			&cancelReq, &started, &finished, &createdAt, &updatedAt, &errMsg,
+			&processor); err != nil {
 			return nil, err
 		}
 		var prog map[string]any
@@ -151,6 +153,7 @@ func (s *Server) fetchIngest(ctx context.Context, pid uuid.UUID) ([]item, error)
 		summary := map[string]any{
 			"task_id":         id.String(),
 			"pages_completed": len(resultPages),
+			"processor":       processor,
 		}
 		if title != "" {
 			summary["source_filename"] = title

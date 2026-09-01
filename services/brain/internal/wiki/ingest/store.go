@@ -73,6 +73,7 @@ type Task struct {
 	Error             string
 	Progress          map[string]any
 	ResultPages       []uuid.UUID
+	Processor         string // server（worker 驱动）| client（客户端镜像，00007）
 	CancelRequestedAt *time.Time
 	StartedAt         *time.Time
 	FinishedAt        *time.Time
@@ -95,6 +96,7 @@ type CreateInput struct {
 	SourceID  *uuid.UUID
 	RawText   string
 	Title     string
+	Processor string // 默认 "server"；"client" = 客户端镜像任务（W2）
 }
 
 func (s *Store) Create(ctx context.Context, in CreateInput) (*Task, error) {
@@ -104,18 +106,18 @@ func (s *Store) Create(ctx context.Context, in CreateInput) (*Task, error) {
 	if in.SourceID == nil && strings.TrimSpace(in.RawText) == "" {
 		return nil, fmt.Errorf("source_id or raw_text required")
 	}
+	if in.Processor == "" {
+		in.Processor = "server"
+	}
 	t := &Task{}
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO brain.ingest_tasks
-		    (project_id, owner_id, source_id, raw_text, title, status)
-		VALUES ($1, $2, $3, $4, $5, 'pending')
-		RETURNING id, project_id, owner_id, source_id, raw_text, title,
-		          status, error, progress, result_pages,
-		          cancel_requested_at, started_at, finished_at,
-		          created_at, updated_at
-	`, in.ProjectID, in.OwnerID, in.SourceID, in.RawText, in.Title).Scan(
+		    (project_id, owner_id, source_id, raw_text, title, status, processor)
+		VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+		RETURNING `+taskCols, in.ProjectID, in.OwnerID, in.SourceID,
+		in.RawText, in.Title, in.Processor).Scan(
 		&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
-		&t.Status, &t.Error, &t.Progress, &t.ResultPages,
+		&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
 		&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
 		&t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -127,14 +129,11 @@ func (s *Store) Create(ctx context.Context, in CreateInput) (*Task, error) {
 func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Task, error) {
 	t := &Task{}
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, project_id, owner_id, source_id, raw_text, title,
-		       status, error, progress, result_pages,
-		       cancel_requested_at, started_at, finished_at,
-		       created_at, updated_at
+		SELECT `+taskCols+`
 		FROM brain.ingest_tasks WHERE id = $1
 	`, id).Scan(
 		&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
-		&t.Status, &t.Error, &t.Progress, &t.ResultPages,
+		&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
 		&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
 		&t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -153,10 +152,7 @@ func (s *Store) ListByProject(ctx context.Context, projectID uuid.UUID, limit in
 		limit = 50
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, project_id, owner_id, source_id, raw_text, title,
-		       status, error, progress, result_pages,
-		       cancel_requested_at, started_at, finished_at,
-		       created_at, updated_at
+		SELECT `+taskCols+`
 		FROM brain.ingest_tasks
 		WHERE project_id = $1
 		ORDER BY created_at DESC
@@ -171,7 +167,7 @@ func (s *Store) ListByProject(ctx context.Context, projectID uuid.UUID, limit in
 		t := &Task{}
 		if err := rows.Scan(
 			&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
-			&t.Status, &t.Error, &t.Progress, &t.ResultPages,
+			&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
 			&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
 			&t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
@@ -266,6 +262,117 @@ func (s *Store) MarkTerminal(ctx context.Context, id uuid.UUID, status, errMsg s
 		       finished_at = now(), updated_at = now()
 		 WHERE id = $1 AND status NOT IN ('done','failed','cancelled')
 	`, id, status, errMsg)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ─── Reaper path ─────────────────────────────────────────────────
+// The reaper (reaper.go) recovers tasks that will never make progress
+// on their own: 'pending' rows whose publish failed or message was lost,
+// and 'running'/'partial' rows whose worker died mid-task.
+
+const taskCols = `id, project_id, owner_id, source_id, raw_text, title,
+       status, error, progress, result_pages, processor,
+       cancel_requested_at, started_at, finished_at,
+       created_at, updated_at`
+
+// ListStuck returns non-terminal tasks that have gone quiet:
+//   - 'pending'   with updated_at < pendingBefore（publish 失败/消息丢失）
+//   - 'running'/'partial' with updated_at < activeBefore（worker/客户端中途死亡）
+//
+// processor 参数区分两类处置：'server' 走重发（Requeue + publish），
+// 'client' 走接管（reaper.takeOverClient，不 publish）。updated_at 即惰性
+// 心跳：worker/客户端每次推进都会刷新它。
+func (s *Store) ListStuck(ctx context.Context, processor string, pendingBefore, activeBefore time.Time, limit int) ([]*Task, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT `+taskCols+`
+		FROM brain.ingest_tasks
+		WHERE processor = $1
+		  AND cancel_requested_at IS NULL
+		  AND (
+		    (status = 'pending' AND updated_at < $2)
+		    OR (status IN ('running','partial') AND updated_at < $3)
+		  )
+		ORDER BY updated_at ASC
+		LIMIT $4
+	`, processor, pendingBefore, activeBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Task
+	for rows.Next() {
+		t := &Task{}
+		if err := rows.Scan(
+			&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
+			&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
+			&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
+			&t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// RequeueCount reads progress.requeue_count（无则 0）。
+func (t *Task) RequeueCount() int {
+	if t.Progress == nil {
+		return 0
+	}
+	if v, ok := t.Progress["requeue_count"].(float64); ok {
+		return int(v)
+	}
+	return 0
+}
+
+// Requeue resets a stuck task to pending and bumps progress.requeue_count，
+// 返回更新后的任务供 reaper 重组 publish payload。已终态/已取消的行返回
+// ErrNotFound（并发下 worker 可能刚好完结，不再重发）。
+func (s *Store) Requeue(ctx context.Context, id uuid.UUID) (*Task, error) {
+	t := &Task{}
+	err := s.pool.QueryRow(ctx, `
+		UPDATE brain.ingest_tasks
+		   SET status = 'pending',
+		       progress = jsonb_set(
+		         progress, '{requeue_count}',
+		         to_jsonb(COALESCE((progress->>'requeue_count')::int, 0) + 1)),
+		       updated_at = now()
+		 WHERE id = $1 AND status IN ('pending','running','partial')
+		RETURNING `+taskCols, id).Scan(
+		&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
+		&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
+		&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
+		&t.CreatedAt, &t.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// UpdateProgress replaces progress on a non-terminal task. 客户端镜像
+// 任务（processor=client）经 PATCH 调用 —— updated_at 顺带刷新，充当
+// reaper 的惰性心跳。
+func (s *Store) UpdateProgress(ctx context.Context, id uuid.UUID, progress map[string]any) error {
+	if progress == nil {
+		progress = map[string]any{}
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE brain.ingest_tasks
+		   SET progress = $2::jsonb, updated_at = now()
+		 WHERE id = $1 AND status NOT IN ('done','failed','cancelled')
+	`, id, progress)
 	if err != nil {
 		return err
 	}

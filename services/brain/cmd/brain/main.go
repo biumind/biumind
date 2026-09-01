@@ -316,6 +316,16 @@ type Config struct {
 	SemanticModel string `env:"SEMANTIC_LLM_MODEL" default:"claude-sonnet-4-6"`
 	// SelectionModel powers inline selection edit/ask (S3 P1-6).
 	SelectionModel string `env:"SELECTION_LLM_MODEL" default:"claude-sonnet-4-6"`
+
+	// ─── Wiki ingest reaper ─────────────────────────────────────────
+	// 回收卡死的 ingest 任务（publish 失败的 pending / worker 死亡的
+	// running/partial）并重发给 wiki-llm；progress.requeue_count 超
+	// MaxRequeue 标 failed 防毒丸。0s 禁用。
+	IngestReaperIntervalSec int `env:"INGEST_REAPER_INTERVAL_SEC" default:"60"`
+	IngestStalePendingSec   int `env:"INGEST_STALE_PENDING_SEC"   default:"120"`
+	IngestStaleActiveSec    int `env:"INGEST_STALE_ACTIVE_SEC"    default:"600"`
+	IngestStaleClientSec    int `env:"INGEST_STALE_CLIENT_SEC"    default:"600"`
+	IngestMaxRequeue        int `env:"INGEST_MAX_REQUEUE"         default:"5"`
 }
 
 func main() {
@@ -724,6 +734,21 @@ func run() error {
 	// BIUMIND_INTERNAL_TOKEN is empty; the worker falls back to inline
 	// raw_text in that case (see workers/wiki-llm/wiki_llm/runner.py).
 	ingestInternal := wikiingest.NewInternalServer(sourcesStore, cfg.InternalToken, logger)
+
+	// Ingest reaper：回收 publish 失败的 pending 任务 + worker 死亡的
+	// running/partial 任务并重发（api.go 注释里承诺的 "operator-level
+	// reaper"）。0s 禁用。
+	if cfg.IngestReaperIntervalSec > 0 {
+		reaper := wikiingest.NewReaper(ingestStore, busPub, wikiingest.ReaperConfig{
+			Interval:     time.Duration(cfg.IngestReaperIntervalSec) * time.Second,
+			PendingStale: time.Duration(cfg.IngestStalePendingSec) * time.Second,
+			ActiveStale:  time.Duration(cfg.IngestStaleActiveSec) * time.Second,
+			ClientStale:  time.Duration(cfg.IngestStaleClientSec) * time.Second,
+			MaxRequeue:   cfg.IngestMaxRequeue,
+			Logger:       logger,
+		}).WithSources(sourcesStore)
+		go reaper.Run(ctx)
+	}
 
 	// Wiki ingest worker → brain update subscriber. Listens on
 	// brain.wiki.ingest.update and applies running/page/done/failed/

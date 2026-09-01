@@ -228,9 +228,8 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// Phase 3：upload 带 file_id 的源入库后触发 wiki-parse worker 解析。
 	// 只对有文件的 upload 行触发（webclip 入库即 done，不进 parse 队列）。
-	// topic/kind 用 "wiki.parse"/"requested" 两段（不重复），subject 拼成
-	// biumind.<env>.brain.wiki.parse.requested，避开 wiki.ingest.requested 的
-	// topic=kind 重复段 bug。publish 失败只 warn —— 行已落库，tick rescan 兜底。
+	// topic/kind 两段式（与 wiki-llm 订阅同 subject 规范；wiki.ingest 发布端
+	// 的重复段 bug 已修）。publish 失败只 warn —— 行已落库，tick rescan 兜底。
 	// client-docproc：客户端已随请求提交解析文本时不再触发服务端解析。
 	if s.Publisher != nil && fileID != nil && req.ExtractedText == "" {
 		payload := map[string]any{

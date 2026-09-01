@@ -51,6 +51,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest", s.requireAuth(s.handleCreate))
 	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks", s.requireAuth(s.handleList))
 	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks/{tid}", s.requireAuth(s.handleGet))
+	mux.HandleFunc("PATCH /v1/wiki/projects/{pid}/ingest/tasks/{tid}", s.requireAuth(s.handlePatch))
 	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks/{tid}/events", s.requireAuth(s.handleEvents))
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel", s.requireAuth(s.handleCancel))
 }
@@ -58,9 +59,20 @@ func (s *Server) Mount(mux *http.ServeMux) {
 // ─── Wire payloads ──────────────────────────────────────────────
 
 type createReq struct {
-	SourceID *string `json:"source_id"`
-	RawText  string  `json:"raw_text"`
-	Title    string  `json:"title"`
+	SourceID  *string `json:"source_id"`
+	RawText   string  `json:"raw_text"`
+	Title     string  `json:"title"`
+	Processor string  `json:"processor,omitempty"` // 默认 server；"client" = 客户端镜像（W2，不 publish）
+}
+
+// patchReq 是客户端镜像任务的状态推进请求（W2）。status 与 progress
+// 至少给一个；status ∈ running/done/failed/cancelled；error 仅 failed
+// 时有意义。仅 processor=client 的任务接受 PATCH（服务端任务由 worker
+// 经 NATS 推进，409）。
+type patchReq struct {
+	Status   string         `json:"status,omitempty"`
+	Progress map[string]any `json:"progress,omitempty"`
+	Error    string         `json:"error,omitempty"`
 }
 
 // taskOut is the public projection. We hide owner_id (already implied
@@ -74,6 +86,7 @@ type taskOut struct {
 	Error             string         `json:"error,omitempty"`
 	Progress          map[string]any `json:"progress,omitempty"`
 	ResultPages       []string       `json:"result_pages"`
+	Processor         string         `json:"processor"`
 	CancelRequestedAt *string        `json:"cancel_requested_at,omitempty"`
 	StartedAt         *string        `json:"started_at,omitempty"`
 	FinishedAt        *string        `json:"finished_at,omitempty"`
@@ -87,6 +100,7 @@ func taskJSON(t *Task) taskOut {
 		Title: t.Title, Status: t.Status, Error: t.Error,
 		Progress:    t.Progress,
 		ResultPages: make([]string, 0, len(t.ResultPages)),
+		Processor:   t.Processor,
 		CreatedAt:   t.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:   t.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -124,14 +138,25 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.Publisher == nil {
-		writeErr(w, http.StatusServiceUnavailable, "no_publisher",
-			"ingest worker bus not configured on this brain")
-		return
-	}
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	processor := req.Processor
+	if processor == "" {
+		processor = "server"
+	}
+	if processor != "server" && processor != "client" {
+		writeErr(w, http.StatusBadRequest, "bad_processor",
+			"processor must be server or client")
+		return
+	}
+	// 服务端任务要 publish 给 wiki-llm，没有 bus 直接 503；客户端镜像
+	// 任务由客户端自己推进，不需要 publisher。
+	if processor == "server" && s.Publisher == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_publisher",
+			"ingest worker bus not configured on this brain")
 		return
 	}
 	var sid *uuid.UUID
@@ -150,17 +175,26 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.Store.Create(r.Context(), CreateInput{
 		ProjectID: pid, OwnerID: uid, SourceID: sid,
-		RawText: req.RawText, Title: req.Title,
+		RawText: req.RawText, Title: req.Title, Processor: processor,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	// 客户端镜像任务由客户端自己推进（PATCH），不 publish —— 否则
+	// wiki-llm 会接走同一个任务双跑。
+	if processor == "client" {
+		s.Logger.DebugContext(r.Context(), "wiki ingest: client task created",
+			"task_id", t.ID, "project_id", pid, "user_id", uid,
+			"source_id", sid, "title", t.Title)
+		writeJSON(w, http.StatusCreated, taskJSON(t))
+		return
+	}
 	// Publish to NATS so workers/wiki-llm picks it up. We *do not* roll
 	// back the row on publish failure — the row is still useful (user
-	// sees it as pending), and an operator-level reaper can republish
-	// stuck pending tasks. Keeping create transactional with publish
-	// would tie the API SLA to NATS uptime; cheaper to accept this.
+	// sees it as pending), and the reaper (reaper.go) republishes stuck
+	// pending tasks. Keeping create transactional with publish would tie
+	// the API SLA to NATS uptime; cheaper to accept this.
 	payload := map[string]any{
 		"task_id":    t.ID.String(),
 		"project_id": t.ProjectID.String(),
@@ -173,8 +207,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	pubCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	// topic/kind 两段式：subject 拼成 biumind.<env>.brain.wiki.ingest.requested，
+	// 与 wiki-llm 的订阅地址一致（重复段 bug 已修，勿再 topic=kind 同传）。
 	if err := s.Publisher.Publish(pubCtx,
-		"wiki.ingest.requested", "wiki.ingest.requested", payload); err != nil {
+		"wiki.ingest", "requested", payload); err != nil {
 		s.Logger.Warn("wiki ingest publish failed",
 			"task_id", t.ID, "err", err)
 	}
@@ -218,6 +254,73 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, taskJSON(t))
+}
+
+// handlePatch 推进客户端镜像任务（W2）。仅 processor=client 的任务可
+// PATCH —— 服务端任务由 wiki-llm 经 NATS 推进，允许客户端改会与 worker
+// 写入打架。每次成功 PATCH 刷新 updated_at，即 reaper 的惰性心跳。
+func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadOwnedTask(w, r)
+	if !ok {
+		return
+	}
+	if t.Processor != "client" {
+		writeErr(w, http.StatusConflict, "not_client_task",
+			"only processor=client tasks accept PATCH")
+		return
+	}
+	var req patchReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if req.Status == "" && req.Progress == nil {
+		writeErr(w, http.StatusBadRequest, "empty_patch",
+			"provide status and/or progress")
+		return
+	}
+	if req.Progress != nil {
+		if err := s.Store.UpdateProgress(r.Context(), t.ID, req.Progress); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeErr(w, http.StatusConflict, "already_terminal", t.Status)
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+	}
+	switch req.Status {
+	case "":
+		// 纯 progress 心跳
+	case StatusRunning:
+		if err := s.Store.MarkRunning(r.Context(), t.ID); err != nil {
+			writeErr(w, statusErrCode(err), "already_terminal", err.Error())
+			return
+		}
+	case StatusDone, StatusFailed, StatusCancelled:
+		if err := s.Store.MarkTerminal(r.Context(), t.ID, req.Status, req.Error); err != nil {
+			writeErr(w, statusErrCode(err), "already_terminal", err.Error())
+			return
+		}
+	default:
+		writeErr(w, http.StatusBadRequest, "bad_status",
+			"status must be running/done/failed/cancelled")
+		return
+	}
+	updated, err := s.Store.Get(r.Context(), t.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, taskJSON(updated))
+}
+
+// statusErrCode maps store errors from PATCH transitions to HTTP status.
+func statusErrCode(err error) int {
+	if errors.Is(err, ErrNotFound) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {

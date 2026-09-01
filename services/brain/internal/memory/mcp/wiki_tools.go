@@ -571,8 +571,10 @@ func (s *Server) callWikiIngest(ctx context.Context, uid uuid.UUID, raw json.Raw
 	}
 	pubCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	// topic/kind 两段式：subject = biumind.<env>.brain.wiki.ingest.requested，
+	// 与 wiki-llm 订阅地址一致（重复段 bug 已修，勿再 topic=kind 同传）。
 	if err := s.Publisher.Publish(pubCtx,
-		"wiki.ingest.requested", "wiki.ingest.requested", payload); err != nil {
+		"wiki.ingest", "requested", payload); err != nil {
 		// Soft-warn via the text content; structured field still has
 		// the task id so callers know what to poll.
 		return mcpResult([]map[string]any{{
