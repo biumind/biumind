@@ -659,6 +659,42 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsNavChat => 'Chat';
 
   @override
+  String get settingsNavDocproc => 'Document Processing';
+
+  @override
+  String get settingsDocprocSubtitle =>
+      'Where imported knowledge-base documents (PDF/DOCX/HTML/MD/TXT) are parsed.';
+
+  @override
+  String get settingsDocprocAuto => 'Auto';
+
+  @override
+  String get settingsDocprocAutoDesc =>
+      'Small files are parsed on-device (free; ≤50MB desktop / ≤10MB mobile); larger files go to the cloud.';
+
+  @override
+  String get settingsDocprocPreferLocal => 'Prefer on-device';
+
+  @override
+  String get settingsDocprocPreferLocalDesc =>
+      'Parse on-device whenever possible (free); only very large files (>200MB / >80MB mobile) go to the cloud.';
+
+  @override
+  String get settingsDocprocPreferCloud => 'Prefer cloud';
+
+  @override
+  String get settingsDocprocPreferCloudDesc =>
+      'Always upload for cloud parsing; billed per page in credits.';
+
+  @override
+  String get settingsDocprocUnsupported =>
+      'On-device processing is not available on this platform; cloud parsing will always be used.';
+
+  @override
+  String get settingsDocprocNote =>
+      'On-device parsing is free; cloud parsing costs credits per page. Scanned-document OCR and audio/video transcription are cloud-only.';
+
+  @override
   String get settingsNavProxy => 'Proxy';
 
   @override

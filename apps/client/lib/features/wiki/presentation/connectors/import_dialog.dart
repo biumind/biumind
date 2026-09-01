@@ -12,12 +12,10 @@
 /// DocprocQueue（§3.5 背压队列）→ 立即关闭。处理在后台继续，进度经
 /// processor=client 镜像任务进 activity drawer。
 ///
-/// 处理位置（P1 本机解析，设计文档 BiuMind-Client-Docproc-Design §3.4）：
-///   - 本机解析（免费，默认）：docproc-web bundle 本地解析出文本后走
-///     createSource(rawText + contentHash + parseMeta)，跳过服务端解析
-///   - 云端（花积分）：multipart 上传 + createSource(file_id)
-/// 平台不支持本机解析（hasLocalDocproc=false）时不显示本机选项；
-/// 本机解析失败由队列自动回退云端路径。
+/// 处理位置（设计文档 BiuMind-Client-Docproc-Design §3.4）收口在全局设置
+/// （设置 > 通用 > 文档处理，W3）：本机解析免费 / 云端按页花积分；
+/// dialog 不再逐项选择，队列在 enqueue 时刻快照设置。平台不支持本机解析
+/// （hasLocalDocproc=false）时一切走云端；本机解析失败由队列自动回退云端。
 library;
 
 import 'dart:io' show File;
@@ -30,7 +28,6 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../../../app/theme.dart';
-import '../../../../core/platform/platform_caps.dart';
 import '../../../../core/ui/biu_text_field.dart';
 import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../data/docproc_queue_controller.dart';
@@ -53,9 +50,6 @@ class ImportDialog {
 
 enum _Tab { single, multi, url }
 
-/// 处理位置（设计文档 §3.4）：本机解析免费，云端花积分。
-enum _ProcessLocation { local, cloud }
-
 class _Dialog extends ConsumerStatefulWidget {
   const _Dialog({required this.projectId});
   final String projectId;
@@ -73,10 +67,6 @@ class _DialogState extends ConsumerState<_Dialog> {
   /// 正在读字节/入队中（屏蔽切 tab + 关闭按钮）。
   bool _running = false;
 
-  /// 处理位置：hasLocalDocproc 时默认本机（§3.4 矩阵：桌面/Web ≤50MB、
-  /// 移动端 ≤10MB 默认本机；超限文件由队列自动走云端）。
-  _ProcessLocation _location = _ProcessLocation.local;
-
   final TextEditingController _urlCtrl = TextEditingController();
 
   static const _uuid = Uuid();
@@ -89,7 +79,6 @@ class _DialogState extends ConsumerState<_Dialog> {
 
   @override
   Widget build(BuildContext context) {
-    final caps = ref.watch(platformCapsProvider);
     return Dialog(
       backgroundColor: BiuTokens.surface,
       shape: RoundedRectangleBorder(
@@ -106,14 +95,6 @@ class _DialogState extends ConsumerState<_Dialog> {
               tab: _tab,
               onChanged: _running ? null : (t) => setState(() => _tab = t),
             ),
-            if (caps.hasLocalDocproc) ...[
-              const SizedBox(height: 8),
-              _LocationBar(
-                location: _location,
-                onChanged:
-                    _running ? null : (l) => setState(() => _location = l),
-              ),
-            ],
             Divider(height: 1, color: BiuTokens.borderSubtle),
             Flexible(
               child: SingleChildScrollView(
@@ -214,7 +195,8 @@ class _DialogState extends ConsumerState<_Dialog> {
           bytes: read.bytes,
           mime: read.mime,
           externalId: read.externalId,
-          preferLocal: _location == _ProcessLocation.local,
+          // 处理位置不在 item 上指定 —— 队列在 enqueue 时刻快照全局
+          // 设置（docprocPreferencesProvider，设置 > 通用 > 文档处理）。
         ));
       } on Exception catch (e) {
         readFailed++;
@@ -484,63 +466,6 @@ class _TabButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// 「处理位置」选择条：本机解析（免费）/ 云端（花积分）。
-/// 仅 hasLocalDocproc 的平台渲染（桌面/Web ≤50MB、移动端 ≤10MB 默认本机，
-/// 超限文件上传时自动走云端，见 _shouldParseLocally）。
-class _LocationBar extends StatelessWidget {
-  const _LocationBar({required this.location, required this.onChanged});
-  final _ProcessLocation location;
-  final ValueChanged<_ProcessLocation>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget chip(_ProcessLocation value, String label) {
-      final selected = location == value;
-      final brand = Theme.of(context).colorScheme.primary;
-      return Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: InkWell(
-          onTap: onChanged == null ? null : () => onChanged!(value),
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: selected ? brand.withValues(alpha: 0.12) : null,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: selected ? brand : BiuTokens.borderSubtle,
-              ),
-            ),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected ? brand : BiuTokens.textSecondary,
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Text(
-            '处理位置',
-            style: TextStyle(color: BiuTokens.textSecondary, fontSize: 12),
-          ),
-          const SizedBox(width: 10),
-          chip(_ProcessLocation.local, '本机解析（免费）'),
-          chip(_ProcessLocation.cloud, '云端（花积分）'),
-        ],
       ),
     );
   }

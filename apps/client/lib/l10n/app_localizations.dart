@@ -1285,6 +1285,66 @@ abstract class AppLocalizations {
   /// **'Chat'**
   String get settingsNavChat;
 
+  /// No description provided for @settingsNavDocproc.
+  ///
+  /// In en, this message translates to:
+  /// **'Document Processing'**
+  String get settingsNavDocproc;
+
+  /// No description provided for @settingsDocprocSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Where imported knowledge-base documents (PDF/DOCX/HTML/MD/TXT) are parsed.'**
+  String get settingsDocprocSubtitle;
+
+  /// No description provided for @settingsDocprocAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get settingsDocprocAuto;
+
+  /// No description provided for @settingsDocprocAutoDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Small files are parsed on-device (free; ≤50MB desktop / ≤10MB mobile); larger files go to the cloud.'**
+  String get settingsDocprocAutoDesc;
+
+  /// No description provided for @settingsDocprocPreferLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer on-device'**
+  String get settingsDocprocPreferLocal;
+
+  /// No description provided for @settingsDocprocPreferLocalDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Parse on-device whenever possible (free); only very large files (>200MB / >80MB mobile) go to the cloud.'**
+  String get settingsDocprocPreferLocalDesc;
+
+  /// No description provided for @settingsDocprocPreferCloud.
+  ///
+  /// In en, this message translates to:
+  /// **'Prefer cloud'**
+  String get settingsDocprocPreferCloud;
+
+  /// No description provided for @settingsDocprocPreferCloudDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Always upload for cloud parsing; billed per page in credits.'**
+  String get settingsDocprocPreferCloudDesc;
+
+  /// No description provided for @settingsDocprocUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'On-device processing is not available on this platform; cloud parsing will always be used.'**
+  String get settingsDocprocUnsupported;
+
+  /// No description provided for @settingsDocprocNote.
+  ///
+  /// In en, this message translates to:
+  /// **'On-device parsing is free; cloud parsing costs credits per page. Scanned-document OCR and audio/video transcription are cloud-only.'**
+  String get settingsDocprocNote;
+
   /// No description provided for @settingsNavProxy.
   ///
   /// In en, this message translates to:

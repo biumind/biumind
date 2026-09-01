@@ -642,6 +642,38 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsNavChat => '聊天平台';
 
   @override
+  String get settingsNavDocproc => '文档处理';
+
+  @override
+  String get settingsDocprocSubtitle => '导入知识库文档（PDF/DOCX/HTML/MD/TXT）的解析位置。';
+
+  @override
+  String get settingsDocprocAuto => '自动';
+
+  @override
+  String get settingsDocprocAutoDesc =>
+      '小文件本机解析（免费，桌面 ≤50MB / 移动端 ≤10MB），大文件自动走云端。';
+
+  @override
+  String get settingsDocprocPreferLocal => '优先本机';
+
+  @override
+  String get settingsDocprocPreferLocalDesc =>
+      '尽量在本机解析（免费），仅超大文件（>200MB / 移动端 >80MB）走云端。';
+
+  @override
+  String get settingsDocprocPreferCloud => '优先云端';
+
+  @override
+  String get settingsDocprocPreferCloudDesc => '全部上传云端解析，按页扣积分。';
+
+  @override
+  String get settingsDocprocUnsupported => '当前平台不支持本机处理，将始终使用云端解析。';
+
+  @override
+  String get settingsDocprocNote => '本机解析免费；云端解析按页花积分。扫描件 OCR 与音视频转写仅支持云端。';
+
+  @override
   String get settingsNavProxy => '网络代理';
 
   @override

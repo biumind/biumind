@@ -26,6 +26,7 @@ import '../../../data/api/wiki_client.dart';
 import '../../../data/wiki_providers.dart'
     show sourcesListProvider, wikiRepositoryProvider;
 import '../../code/data/files_client.dart' show filesClientProvider;
+import '../application/docproc_preferences.dart';
 import 'docproc_task_mirror.dart';
 
 /// 队列条目的处理位置偏好（dialog 的「处理位置」选择）。
@@ -39,7 +40,7 @@ class DocprocQueueItem {
     required this.bytes,
     required this.mime,
     this.externalId,
-    this.preferLocal = true,
+    this.location = DocprocProcessLocation.auto,
     this.status = DocprocItemStatus.queued,
     this.error,
     this.mirrorTaskId,
@@ -54,8 +55,9 @@ class DocprocQueueItem {
   final String mime;
   final String? externalId;
 
-  /// 用户选择「本机解析（免费）」；队列仍按 §3.4 矩阵做大小/平台兜底。
-  final bool preferLocal;
+  /// 「文档处理位置」设置（docprocPreferencesProvider）在 **enqueue 时刻**
+  /// 的快照 —— 设置变化不追溯已在队列里的 item（§3.4 / W3）。
+  final DocprocProcessLocation location;
 
   final DocprocItemStatus status;
   final String? error;
@@ -75,6 +77,7 @@ class DocprocQueueItem {
       status == DocprocItemStatus.uploading;
 
   DocprocQueueItem copyWith({
+    DocprocProcessLocation? location,
     DocprocItemStatus? status,
     Object? error = _unset,
     Object? mirrorTaskId = _unset,
@@ -88,7 +91,7 @@ class DocprocQueueItem {
         bytes: bytes,
         mime: mime,
         externalId: externalId,
-        preferLocal: preferLocal,
+        location: location ?? this.location,
         status: status ?? this.status,
         error: identical(error, _unset) ? this.error : error as String?,
         mirrorTaskId: identical(mirrorTaskId, _unset)
@@ -119,6 +122,7 @@ class DocprocQueueDeps {
     required this.engine,
     required this.wikiClient,
     required this.uploadToCloud,
+    this.location = DocprocProcessLocation.auto,
   });
 
   final PlatformCaps caps;
@@ -131,6 +135,10 @@ class DocprocQueueDeps {
 
   /// null = FilesClient 不可用（本机解析失败的云端回退也不可用 → failed）。
   final CloudUploadFn? uploadToCloud;
+
+  /// 当前「文档处理位置」设置（enqueue 时快照到 item 上，见
+  /// [DocprocQueueItem.location]）。
+  final DocprocProcessLocation location;
 }
 
 enum _LocalOutcome { success, fallback, cancelled }
@@ -172,7 +180,9 @@ class DocprocQueue extends ChangeNotifier {
 
   void enqueue(List<DocprocQueueItem> batch) {
     if (batch.isEmpty) return;
-    _items.addAll(batch);
+    // 设置快照在 enqueue 时刻：之后改「文档处理位置」不影响这批 item。
+    final location = _resolveDeps().location;
+    _items.addAll(batch.map((i) => i.copyWith(location: location)));
     notifyListeners();
     _pump();
   }
@@ -383,13 +393,16 @@ class DocprocQueue extends ChangeNotifier {
 
   // ─── 内部 ───────────────────────────────────────────────
 
-  /// §3.4 策略矩阵：hasLocalDocproc + 用户选本机 + 引擎可用 + 大小在
-  /// 阈值内（桌面/Web ≤50MB，移动端 ≤10MB）才走本机解析。
+  /// §3.4 策略矩阵（W3 起三态设置驱动，矩阵实现收敛在
+  /// docproc_preferences.dart 的 [docprocShouldParseLocally]）：
+  /// 引擎可用 + item 入队时的设置快照 + 平台/大小判定。
   bool _shouldParseLocally(DocprocQueueItem item, DocprocQueueDeps deps) {
-    if (!deps.caps.hasLocalDocproc || !item.preferLocal) return false;
     if (deps.engine == null) return false;
-    final limit = deps.caps.isMobile ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
-    return item.byteSize <= limit;
+    return docprocShouldParseLocally(
+      location: item.location,
+      caps: deps.caps,
+      byteSize: item.byteSize,
+    );
   }
 
   /// bundle 进度按 requestId(=item.id) 路由：item 进度 + 镜像 PATCH。
@@ -448,6 +461,7 @@ final docprocQueueProvider = ChangeNotifierProvider<DocprocQueue>((ref) {
         engine: caps.hasLocalDocproc
             ? ref.read(docprocEngineControllerProvider)
             : null,
+        location: ref.read(docprocPreferencesProvider).location,
         wikiClient: repo?.client,
         uploadToCloud: files == null
             ? null

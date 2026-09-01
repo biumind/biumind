@@ -17,6 +17,7 @@ import 'package:biumind/core/docproc/docproc_bridge_controller.dart';
 import 'package:biumind/core/docproc/docproc_bridge_protocol.dart';
 import 'package:biumind/core/platform/platform_caps.dart';
 import 'package:biumind/data/api/wiki_client.dart';
+import 'package:biumind/features/wiki/application/docproc_preferences.dart';
 import 'package:biumind/features/wiki/data/docproc_queue_controller.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -155,6 +156,7 @@ class _Harness {
     bool withWiki = true,
     int maxBytes = 200 * 1024 * 1024,
     int concurrency = 3,
+    DocprocProcessLocation location = DocprocProcessLocation.auto,
   }) async {
     final brain = await _FakeBrain.start();
     final engine = _FakeEngine();
@@ -174,6 +176,7 @@ class _Harness {
     final deps = DocprocQueueDeps(
       caps: caps,
       engine: engine,
+      location: location,
       wikiClient: withWiki ? WikiClient(brain.url, 'tok') : null,
       uploadToCloud: ({
         required projectId,
@@ -195,7 +198,6 @@ class _Harness {
 DocprocQueueItem item(
   String id, {
   int byteSize = 10,
-  bool preferLocal = true,
   String? filename,
 }) =>
     DocprocQueueItem(
@@ -204,7 +206,6 @@ DocprocQueueItem item(
       filename: filename ?? '$id.txt',
       bytes: Uint8List(byteSize),
       mime: 'text/plain',
-      preferLocal: preferLocal,
     );
 
 Future<void> pump([int rounds = 10]) async {
@@ -411,7 +412,7 @@ void main() {
     h.engine.gates['a'] = Completer<DocprocResult>();
     h.queue.enqueue([
       item('a'), // 本机解析（挂闸门）
-      item('b', preferLocal: false), // 直接云端
+      item('b', byteSize: 60 * 1024 * 1024), // 超 auto 桌面 50MB → 云端
     ]);
     // B 应该在 A 还挂着的时候就完成（重叠），不用等 A 的闸门放行
     final b = await settle(h.queue, 'b');
@@ -428,7 +429,7 @@ void main() {
   test('并发上限 1（移动档）：B 等 A 终态后才启动', () async {
     h = await _Harness.create(concurrency: 1);
     h.engine.gates['a'] = Completer<DocprocResult>();
-    h.queue.enqueue([item('a'), item('b', preferLocal: false)]);
+    h.queue.enqueue([item('a'), item('b', byteSize: 60 * 1024 * 1024)]);
     await pump();
     expect(h.queue.itemById('a')!.status, DocprocItemStatus.parsing);
     expect(h.queue.itemById('b')!.status, DocprocItemStatus.queued);
@@ -448,5 +449,33 @@ void main() {
     final it = await settle(h.queue, 'a');
     expect(it.status, DocprocItemStatus.failed);
     expect(it.error, contains('未配置后端凭证'));
+  });
+
+  test('W3 设置优先云端：小文件也直接走云端，不调引擎', () async {
+    h = await _Harness.create(location: DocprocProcessLocation.preferCloud);
+    h.queue.enqueue([item('a')]);
+    final it = await settle(h.queue, 'a');
+    expect(it.status, DocprocItemStatus.done);
+    expect(h.engine.parseCalls, isEmpty);
+    expect(h.cloudCalls, ['a.txt']);
+    final sources = h.brain.bodies('POST', 'sources');
+    expect(sources.single['file_id'], 'file-a.txt');
+  });
+
+  test('W3 设置快照不追溯：入队时盖章 auto，item 保留该设置', () async {
+    h = await _Harness.create();
+    h.engine.gates['a'] = Completer<DocprocResult>();
+    h.queue.enqueue([item('a'), item('b')]);
+    await pump();
+    // enqueue 时刻快照 auto（item.location 由队列盖章）。
+    expect(h.queue.itemById('b')!.location, DocprocProcessLocation.auto);
+    h.engine.gates.remove('a')!.complete(
+          const DocprocResult(
+              text: 'x', format: 'txt', parserVersion: 'fake'),
+        );
+    await settle(h.queue, 'a');
+    final b = await settle(h.queue, 'b');
+    expect(b.status, DocprocItemStatus.done);
+    expect(h.engine.parseCalls, containsAll(['a', 'b'])); // 都走了本机
   });
 }

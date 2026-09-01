@@ -32,6 +32,7 @@ import 'appearance_pane.dart';
 import 'chat_settings_pane.dart';
 import '../../code/code_module.dart';
 import 'data_statistics_pane.dart';
+import 'docproc_pane.dart';
 import 'my_shares_pane.dart';
 import 'search_settings_pane.dart';
 import 'security_pane.dart';
@@ -42,6 +43,7 @@ import 'tokens_pane.dart';
 enum SettingsTab {
   statistics,
   appearance,
+  docproc,
   chat,
   credentials,
   apiKeys,
@@ -90,6 +92,8 @@ class _Body extends StatelessWidget {
         return const DataStatisticsPane();
       case SettingsTab.appearance:
         return const AppearancePane();
+      case SettingsTab.docproc:
+        return const DocprocPane();
       case SettingsTab.chat:
         return const ChatSettingsPane();
       case SettingsTab.credentials:
@@ -170,6 +174,12 @@ class _NavColumn extends ConsumerWidget {
             icon: Icons.share_outlined,
             selected: active == SettingsTab.myShares,
             onTap: () => go(SettingsTab.myShares),
+          ),
+          _NavItem(
+            label: t.settingsNavDocproc,
+            icon: Icons.article_outlined,
+            selected: active == SettingsTab.docproc,
+            onTap: () => go(SettingsTab.docproc),
           ),
 
           // ─── 智能体 ───────────────────────────────
@@ -394,6 +404,8 @@ String _tabLabel(AppLocalizations t, SettingsTab tab) {
       return t.settingsNavStatistics;
     case SettingsTab.appearance:
       return t.settingsNavAppearance;
+    case SettingsTab.docproc:
+      return t.settingsNavDocproc;
     case SettingsTab.chat:
       return t.settingsNavChat;
     case SettingsTab.credentials:
