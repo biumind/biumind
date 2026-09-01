@@ -110,6 +110,11 @@ async def handle_message(
     except json.JSONDecodeError as e:
         logger.warning("wiki_parse: bad json: %s", e)
         return None
+    # brain 的 BusPublisher 把业务 payload 包进 {topic, kind, payload} 信封
+    # （services/brain/internal/publisher/bus.go）；parse-queue rescan 路径
+    # 直接给业务层。两种形态都接受。
+    if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
+        payload = payload["payload"]
     try:
         job = ParseJob.from_payload(payload)
     except ValueError as e:

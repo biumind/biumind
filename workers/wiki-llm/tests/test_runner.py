@@ -37,11 +37,18 @@ def _make_request(**overrides) -> bytes:
 
 
 def _capture():
-    """Returns (publish, captured) where captured is a list of (subject, payload-dict)."""
+    """Returns (publish, captured) where captured is a list of (subject, payload-dict).
+
+    生产 wire format 是 {topic, kind, payload} 信封（对齐 brain
+    BusPublisher / subscriber envWire）；这里解包后再记录，断言直接面向
+    业务 payload。线格式本身由 test_emit_wraps_envelope 单独钉住。"""
     captured: List[Tuple[str, dict]] = []
 
     async def publish(subject: str, body: bytes) -> None:
-        captured.append((subject, json.loads(body)))
+        data = json.loads(body)
+        if isinstance(data, dict) and isinstance(data.get("payload"), dict):
+            data = data["payload"]
+        captured.append((subject, data))
 
     return publish, captured
 
@@ -71,6 +78,52 @@ async def test_invalid_payload_drops_silently():
     req = await handle_message(body, cfg=_cfg(), publish=publish)
     assert req is None
     assert captured == []
+
+
+@pytest.mark.asyncio
+async def test_envelope_wrapped_message_is_unwrapped():
+    """brain 的 BusPublisher 把业务 payload 包进 {topic, kind, payload}
+    信封（publisher/bus.go）。worker 必须解包后再走完整管线。"""
+    publish, captured = _capture()
+    inner = json.loads(_make_request())
+    body = json.dumps({
+        "topic": "wiki.ingest", "kind": "requested", "payload": inner,
+    }).encode()
+    deltas = [
+        "---FILE: wiki/concepts/x.md---\n# X\nbody\n---END FILE---\n",
+    ]
+    req = await handle_message(
+        body, cfg=_cfg(), publish=publish,
+        llm_stream=_scripted_llm(*deltas),
+    )
+    assert req is not None
+    assert req.task_id == inner["task_id"]
+    kinds = [p["kind"] for _, p in captured]
+    assert kinds == ["running", "page", "done"]
+
+
+@pytest.mark.asyncio
+async def test_emit_wraps_envelope():
+    """钉住出站 wire format：worker 发给 brain 的每条 update 必须是
+    {topic, kind, payload} 信封（subscriber.go envWire 的解包约定）。"""
+    raw_captured: List[Tuple[str, dict]] = []
+
+    async def publish(subject: str, body: bytes) -> None:
+        raw_captured.append((subject, json.loads(body)))
+
+    deltas = [
+        "---FILE: wiki/concepts/x.md---\n# X\nbody\n---END FILE---\n",
+    ]
+    await handle_message(
+        _make_request(), cfg=_cfg(), publish=publish,
+        llm_stream=_scripted_llm(*deltas),
+    )
+    assert raw_captured, "worker should emit updates"
+    for _, msg in raw_captured:
+        assert set(msg.keys()) == {"topic", "kind", "payload"}
+        assert msg["topic"] == "wiki.ingest.update"
+        assert msg["kind"] == msg["payload"]["kind"]
+        assert "task_id" in msg["payload"]
 
 
 @pytest.mark.asyncio

@@ -83,6 +83,11 @@ async def handle_message(
     except json.JSONDecodeError as e:
         logger.warning("wiki_llm: bad json: %s", e)
         return None
+    # brain 的 BusPublisher 把业务 payload 包进 {topic, kind, payload} 信封
+    # （services/brain/internal/publisher/bus.go）；rescan/测试路径直接给
+    # 业务层。两种形态都接受。
+    if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
+        payload = payload["payload"]
     try:
         req = IngestRequest.from_payload(payload)
     except ValueError as e:
@@ -304,7 +309,15 @@ def _extract_title(block: FileBlock) -> str:
 
 
 async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
-    body = json.dumps(update.to_payload(), ensure_ascii=False).encode("utf-8")
+    payload = update.to_payload()
+    # brain 侧 subscriber（ingest/subscriber.go envWire）按 BusPublisher 约定
+    # 解 {topic, kind, payload} 信封 —— 本 worker 作为 bus 发布者对齐同一
+    # 线格式（信封 kind 与 payload.kind 同值）。
+    body = json.dumps({
+        "topic": "wiki.ingest.update",
+        "kind": str(payload.get("kind", "")),
+        "payload": payload,
+    }, ensure_ascii=False).encode("utf-8")
     await publish(cfg.update_subject, body)
 
 

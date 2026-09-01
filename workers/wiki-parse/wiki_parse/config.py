@@ -31,7 +31,7 @@ class Config:
     def request_subject(self) -> str:
         # 对齐 brain publisher 用法：topic="wiki.parse" + kind="requested"
         # → biumind.<env>.brain.wiki.parse.requested（两段，不重复）。
-        # 避开 wiki.ingest.requested 的 topic=kind 重复段 bug（pre-existing）。
+        # （wiki.ingest 发布端曾有的 topic=kind 重复段 bug 已修，统一两段式。）
         return f"biumind.{self.env}.brain.wiki.parse.requested"
 
     @classmethod
