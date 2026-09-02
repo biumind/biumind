@@ -2,8 +2,8 @@
 // 设计文档 docs/BiuMind-Chat-UI-Benchmark-Optimization.md（v2 一次成型）。
 //
 // 包含的 action（assistant 消息底部 footer）：
-//   * 复制 / 重新生成 / 引用回复 / 翻译 / TTS / 分享 / 😊 emoji 反应 / ⭐ 收藏 /
-//     Token usage chip
+//   * 复制 / 重新生成 / 引用回复 / 翻译 / TTS / 存为 Wiki 页 / 分享 /
+//     😊 emoji 反应 / ⭐ 收藏 / Token usage chip
 // 鼠标悬停 hover bar（仅 desktop / web）：
 //   * 复制 / 重新生成 / 分享 / 😊 emoji 反应
 //
@@ -30,6 +30,7 @@ import '../../application/chat_controller.dart';
 import '../../application/draft_history_controller.dart';
 import '../../application/tts_controller.dart';
 import '../../domain/chat_models.dart';
+import 'save_to_wiki_dialog.dart';
 import 'share_message_modal.dart';
 
 /// Assistant message footer —— 一排小图标。仅 status==completed 显示。
@@ -104,6 +105,14 @@ class AssistantFooterV2 extends ConsumerWidget {
           _SpeakBtn(messageId: message.id, text: content),
           if (!phone)
             _IconBtn(
+              icon: Icons.library_add_outlined,
+              tooltip: '存为 Wiki 页',
+              onPressed: content.trim().isEmpty
+                  ? null
+                  : () => showSaveToWikiDialog(context, ref, content: content),
+            ),
+          if (!phone)
+            _IconBtn(
               icon: Icons.ios_share,
               tooltip: '分享为图片',
               onPressed: content.trim().isEmpty
@@ -134,6 +143,8 @@ class AssistantFooterV2 extends ConsumerWidget {
                         .inject('${_quote(content)}\n\n');
                   case 'translate':
                     _openTranslate(content);
+                  case 'save-wiki':
+                    showSaveToWikiDialog(context, ref, content: content);
                   case 'share':
                     showShareMessageDialog(
                       context,
@@ -156,6 +167,7 @@ class AssistantFooterV2 extends ConsumerWidget {
                   value: 'translate',
                   child: Text('翻译（在 Google Translate 打开）'),
                 ),
+                PopupMenuItem(value: 'save-wiki', child: Text('存为 Wiki 页')),
                 PopupMenuItem(value: 'share', child: Text('分享为图片')),
               ],
             ),
