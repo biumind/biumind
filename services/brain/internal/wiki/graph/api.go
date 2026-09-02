@@ -4,7 +4,7 @@
 // 路由：
 //
 //	GET  /v1/wiki/projects/{pid}/graph          nodes + edges（读 brain.pages + page_relevance）
-//	POST /v1/wiki/projects/{pid}/graph/recompute trigger Louvain（B3 批次，仍 501）
+//	POST /v1/wiki/projects/{pid}/graph/recompute 手动触发单项目 Louvain 重算（202 异步）
 //	POST /v1/wiki/projects/{pid}/graph/insights  结构启发式 surprising connections + knowledge gaps
 //
 // insights 是纯算法（结构启发式，零 LLM），
@@ -13,9 +13,12 @@
 package graph
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -26,15 +29,28 @@ import (
 
 const moduleName = "wiki.graph"
 
+// RecomputeFunc 单项目重算入口（relevance.Worker.RecomputeProject）。
+type RecomputeFunc func(ctx context.Context, projectID uuid.UUID) (int, error)
+
 type Server struct {
 	Store    *Store
 	Wiki     *wikistore.Store
 	Verifier *bauth.Verifier
 	Logger   *slog.Logger
+
+	recompute RecomputeFunc
+	inflight  sync.Map // projectID → struct{}，在飞去重
 }
 
 func NewServer(store *Store, w *wikistore.Store, v *bauth.Verifier, l *slog.Logger) *Server {
 	return &Server{Store: store, Wiki: w, Verifier: v, Logger: l}
+}
+
+// WithRecompute 接线手动重算（main.go 在 relevance worker 建好后来调）。
+// 未接线时 recompute 端点保持 501。
+func (s *Server) WithRecompute(fn RecomputeFunc) *Server {
+	s.recompute = fn
+	return s
 }
 
 func (s *Server) Mount(mux *http.ServeMux) {
@@ -75,10 +91,35 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	wikicommon.WriteJSON(w, http.StatusOK, ComputeInsights(g))
 }
 
-// handleRecompute — B3 批次，仍 501。relevance worker 周期重算，
-// 手动触发单项目重算待 B3 落地（需把 relevance.Worker.scanProject 暴露）。
+// handleRecompute —— 手动触发单项目重算：异步执行，立即 202。
+// 同项目在飞则去重（仍 202，幂等语义）；未接线 recompute（relevance
+// worker 被禁用）时保持 501 诚实降级。
 func (s *Server) handleRecompute(w http.ResponseWriter, r *http.Request) {
-	wikicommon.NotImplemented(w, moduleName, "recompute")
+	pid, ok := s.parseProject(w, r)
+	if !ok {
+		return
+	}
+	if s.recompute == nil {
+		wikicommon.NotImplemented(w, moduleName, "recompute")
+		return
+	}
+	if _, loaded := s.inflight.LoadOrStore(pid, struct{}{}); loaded {
+		wikicommon.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "already_running"})
+		return
+	}
+	go func() {
+		defer s.inflight.Delete(pid)
+		// 脱离请求 ctx（响应即关）；上限放宽到 5min 覆盖大项目。
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		n, err := s.recompute(ctx, pid)
+		if err != nil {
+			s.Logger.Warn("graph recompute failed", "project_id", pid, "err", err)
+			return
+		}
+		s.Logger.Info("graph recompute done", "project_id", pid, "pairs", n)
+	}()
+	wikicommon.WriteJSON(w, http.StatusAccepted, map[string]any{"status": "recomputing"})
 }
 
 // ─── helpers ───────────────────────────────────────────────────

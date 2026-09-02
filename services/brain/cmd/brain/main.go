@@ -900,7 +900,8 @@ func run() error {
 	wikiactivity.NewServer(pool, st, verifier, logger).Mount(mux)
 	wikisynccp.NewServer(pool, verifier, logger).Mount(mux)
 	wikisearchproj.NewServer(verifier, logger).Mount(mux)
-	wikigraphproj.NewServer(wikigraphproj.NewStore(pool), st, verifier, logger).Mount(mux)
+	wikigraphSrv := wikigraphproj.NewServer(wikigraphproj.NewStore(pool), st, verifier, logger)
+	wikigraphSrv.Mount(mux)
 	wikichat.NewServer(wikichat.New(pool), st, pool, verifier, logger).Mount(mux)
 	wikillmsettings.NewServer(verifier, logger).Mount(mux)
 	wikiapitokens.NewServer(verifier, logger).Mount(mux)
@@ -1110,23 +1111,25 @@ func run() error {
 		logger.Info("sweep worker disabled (SWEEP_INTERVAL_HOURS=0)")
 	}
 
-	// Periodic relevance worker — page-pair scoring, 6h default.
+	// Relevance worker — page-pair scoring。无论周期 tick 是否启用都创建：
+	// 手动「重建关系」（POST /graph/recompute）依赖它做按需单项目重算。
+	rw := wikirelevance.NewWorker(pool, relevanceStore, wikirelevance.WorkerConfig{
+		Interval: time.Duration(cfg.RelevanceIntervalHours) * time.Hour,
+		ScoreOpts: wikirelevance.ScoreOptions{
+			MinScore:            float32(cfg.RelevanceMinScore),
+			MaxNeighborsPerPage: cfg.RelevanceMaxNeighbours,
+		},
+		Logger: logger,
+	})
+	wikigraphSrv.WithRecompute(rw.RecomputeProject)
 	if cfg.RelevanceIntervalHours > 0 {
-		rw := wikirelevance.NewWorker(pool, relevanceStore, wikirelevance.WorkerConfig{
-			Interval: time.Duration(cfg.RelevanceIntervalHours) * time.Hour,
-			ScoreOpts: wikirelevance.ScoreOptions{
-				MinScore:            float32(cfg.RelevanceMinScore),
-				MaxNeighborsPerPage: cfg.RelevanceMaxNeighbours,
-			},
-			Logger: logger,
-		})
 		go rw.Run(ctx)
 		logger.Info("relevance worker enabled",
 			"interval_h", cfg.RelevanceIntervalHours,
 			"min_score", cfg.RelevanceMinScore,
 			"max_neighbours_per_page", cfg.RelevanceMaxNeighbours)
 	} else {
-		logger.Info("relevance worker disabled (RELEVANCE_INTERVAL_HOURS=0)")
+		logger.Info("relevance worker periodic tick disabled (RELEVANCE_INTERVAL_HOURS=0); manual recompute still available")
 	}
 
 	// Periodic enrich worker — LLM-driven [[wikilink]] insertion. Runs

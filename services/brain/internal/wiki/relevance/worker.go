@@ -103,6 +103,12 @@ func (w *Worker) RunOnce(ctx context.Context) {
 	}
 }
 
+// RecomputeProject scores a single project on demand —— 手动「重建关系」入口
+// （POST /graph/recompute）。与周期 tick 共用 scanProject（UPSERT 幂等）。
+func (w *Worker) RecomputeProject(ctx context.Context, projectID uuid.UUID) (int, error) {
+	return w.scanProject(ctx, projectID)
+}
+
 func (w *Worker) candidateProjects(ctx context.Context) ([]uuid.UUID, error) {
 	// Same shape as dedup/lint workers: projects with ≥2 live pages.
 	// Single page → no pairs to score.
