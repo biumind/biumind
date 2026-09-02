@@ -279,7 +279,7 @@ func WikiMergePages(st *wikistore.Store) tools.Tool {
 	return tools.Tool{
 		Descriptor: tools.Descriptor{
 			Name:        "wiki_merge_pages",
-			Description: "Merge two wiki pages: fold duplicate_id into canonical_id (migrate blocks, relink chunks/vectors, soft-delete the duplicate). Both pages must belong to the same project you own. Use to resolve duplicate / near-duplicate pages flagged by the dedup review queue.",
+			Description: "Merge two wiki pages: fold duplicate_id into canonical_id (migrate blocks, relink chunks/vectors, rewrite [[duplicate-title]] wikilinks in other pages to the canonical title, soft-delete the duplicate). Both pages must belong to the same project you own. Use to resolve duplicate / near-duplicate pages flagged by the dedup review queue.",
 			Source:      "builtin",
 			InputSchema: schema,
 			Runtime:     tools.RuntimeCloud,

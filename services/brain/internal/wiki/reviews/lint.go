@@ -36,6 +36,7 @@ const (
 	RuleMissingFrontmatter = "missing_frontmatter"
 	RuleDuplicateTitle     = "duplicate_title"
 	RuleOrphanPage         = "orphan_page"
+	RuleNoOutlinks         = "no_outlinks"
 )
 
 // Finding is one detection from one rule against one page.
@@ -73,6 +74,12 @@ type LintInput struct {
 	// orphan_page flags pages whose title never appears here. nil = not
 	// computed → rule degrades to silence.
 	IncomingLinkTitles map[string]struct{}
+	// KnownTitles lists the original-case (trimmed) titles of all live
+	// pages in the project, sorted. dead_wikilink uses it to compute a
+	// suggested_target for each dead link (trigram similarity in-memory —
+	// no extra DB round trip, no LLM call). nil/empty ⇒ payload simply
+	// carries no suggestion.
+	KnownTitles []string
 }
 
 // PageView is the rule-side projection of brain.pages.
@@ -103,6 +110,7 @@ func LintAll(in LintInput) []Finding {
 	out = append(out, lintMissingFrontmatter(in)...)
 	out = append(out, lintDuplicateTitle(in)...)
 	out = append(out, lintOrphanPage(in)...)
+	out = append(out, lintNoOutlinks(in)...)
 	return out
 }
 
@@ -218,17 +226,24 @@ func lintDeadWikilinks(in LintInput) []Finding {
 				continue // one finding per target per page
 			}
 			seen[normalised] = true
+			payload := map[string]any{
+				"target":            target,
+				"target_normalised": normalised,
+			}
+			// Suggested fix target (P2 #20 ②): closest live title by
+			// trigram similarity. Powers the apply-fix endpoint; absent
+			// when nothing is similar enough.
+			if s := SuggestLinkTarget(normalised, in.KnownTitles); s != "" {
+				payload["suggested_target"] = s
+			}
 			findings = append(findings, Finding{
 				PageID: in.Page.ID,
 				RuleID: RuleDeadWikilink,
 				Title:  "wikilink 找不到目标：[[" + target + "]]",
 				Description: "本页引用 [[" + target + "]] 但项目里没有这个页面。" +
 					"考虑创建该页或修正 wikilink 文本。",
-				SubKey: hashSubKey(normalised),
-				Payload: map[string]any{
-					"target":            target,
-					"target_normalised": normalised,
-				},
+				SubKey:  hashSubKey(normalised),
+				Payload: payload,
 			})
 		}
 	}
@@ -319,6 +334,38 @@ func lintOrphanPage(in LintInput) []Finding {
 		RuleID:      RuleOrphanPage,
 		Title:       "页面无入链（孤儿页）",
 		Description: "这个页没有被任何其它页 [[引用]] — 是孤儿页吗？考虑补充入链或合并。",
+	}}
+}
+
+// ─── Rule: no_outlinks ──────────────────────────────────────────
+
+// lintNoOutlinks flags substantial pages that link to nothing — the
+// complement of orphan_page (no inbound links): a page with no outbound
+// [[wikilink]] is a dead end in the knowledge graph. Gated on content
+// volume (anything stub_page/empty_page already covers stays silent) so
+// sparse pages aren't double-flagged. Any `[[...]]` occurrence counts as
+// an outlink regardless of whether it resolves — dead targets are
+// dead_wikilink's job.
+func lintNoOutlinks(in LintInput) []Finding {
+	total := 0
+	hasOutlink := false
+	for _, b := range in.Blocks {
+		total += utf8.RuneCountInString(b.Text)
+		total += utf8.RuneCountInString(b.Caption)
+		if !hasOutlink && wikilinkRE.MatchString(b.Text) {
+			hasOutlink = true
+		}
+	}
+	if hasOutlink || total <= stubPageMaxChars {
+		return nil
+	}
+	return []Finding{{
+		PageID: in.Page.ID,
+		RuleID: RuleNoOutlinks,
+		Title:  "页面没有任何出链",
+		Description: "页面内容不算少，但没有任何 [[wikilink]] 指向其它页面——" +
+			"在知识图谱里是个死角。考虑补充相关页面的交叉引用。",
+		Payload: map[string]any{"outlinks": 0},
 	}}
 }
 

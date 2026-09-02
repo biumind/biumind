@@ -170,7 +170,8 @@ var wikiToolSchemas = []map[string]any{
 		"name": "wiki.merge_pages",
 		"description": "Fold the `duplicate_id` page into `canonical_id`: " +
 			"all of duplicate's blocks move to canonical (appended past the existing tail), " +
-			"vector chunks are re-linked, and duplicate is soft-deleted with a `merged_into` " +
+			"vector chunks are re-linked, [[duplicate-title]] wikilinks in other pages are " +
+			"rewritten to the canonical title, and duplicate is soft-deleted with a `merged_into` " +
 			"frontmatter hint. Any open dedup review for the pair is auto-resolved. " +
 			"Both pages must live in the same project.",
 		"inputSchema": map[string]any{

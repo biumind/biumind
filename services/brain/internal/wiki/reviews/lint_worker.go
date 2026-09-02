@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -162,13 +163,13 @@ func (w *LintWorker) scanProject(ctx context.Context, p lintProject) int {
 	pctx, cancel := context.WithTimeout(ctx, w.cfg.PerProjectTimeout)
 	defer cancel()
 
-	titles, groups, err := w.fetchPageTitles(pctx, p.id)
+	titles, groups, originalTitles, err := w.fetchPageTitles(pctx, p.id)
 	if err != nil {
 		w.logger.Warn("lint: title fetch failed",
 			"project_id", p.id, "err", err)
 		return 0
 	}
-	views, err := w.fetchPagesWithBlocks(pctx, p.id, w.cfg.MaxBlocksPerPage)
+	views, truncated, err := w.fetchPagesWithBlocks(pctx, p.id, w.cfg.MaxBlocksPerPage)
 	if err != nil {
 		w.logger.Warn("lint: page fetch failed",
 			"project_id", p.id, "err", err)
@@ -177,6 +178,11 @@ func (w *LintWorker) scanProject(ctx context.Context, p lintProject) int {
 	incoming := buildIncomingLinkTitles(views)
 
 	created := 0
+	// currentKeys accumulates every lint dedupe_key this scan produces,
+	// pre-LLM-filter — the auto-resolve pass treats "key absent" as
+	// "condition gone", and a filtered-out finding is still a present
+	// condition (the filter judges actionability, not existence).
+	currentKeys := map[string]struct{}{}
 	for _, view := range views {
 		findings := LintAll(LintInput{
 			Page:               view.page,
@@ -184,7 +190,11 @@ func (w *LintWorker) scanProject(ctx context.Context, p lintProject) int {
 			KnownPageTitles:    titles,
 			TitleGroups:        groups,
 			IncomingLinkTitles: incoming,
+			KnownTitles:        originalTitles,
 		})
+		for _, f := range findings {
+			currentKeys[LintDedupeKey(f.PageID, f.RuleID, f.SubKey)] = struct{}{}
+		}
 		// LLM precision filter (P2-tail-3). Drops "false-positive"
 		// stub_page / orphaned_page findings the model considers
 		// not actionable. Errors → keep all (recall over precision).
@@ -222,6 +232,13 @@ func (w *LintWorker) scanProject(ctx context.Context, p lintProject) int {
 			}
 		}
 	}
+	// Closing pass (P2 #20 ①): resolve open reviews whose trigger
+	// condition this full scan proved gone. Only runs after a successful
+	// scan — the early returns above bail before any keys were trusted.
+	if resolved := w.autoresolveProject(pctx, p.id, currentKeys, truncated); resolved > 0 {
+		w.logger.Info("lint: auto-resolved stale reviews",
+			"project_id", p.id, "resolved", resolved)
+	}
 	return created
 }
 
@@ -236,28 +253,30 @@ func (w *LintWorker) ScanProject(ctx context.Context, projectID, ownerID uuid.UU
 
 // fetchPageTitles loads { lowercase(title): {} } for every live page
 // in the project (used by dead_wikilink) AND a title→pageIDs grouping
-// (used by duplicate_title). One round trip; the two maps fall out of
-// the same scan.
+// (used by duplicate_title) AND the sorted original-case title list
+// (used by dead_wikilink's suggested_target). One round trip; the three
+// views fall out of the same scan.
 func (w *LintWorker) fetchPageTitles(
 	ctx context.Context, projectID uuid.UUID,
-) (map[string]struct{}, map[string][]uuid.UUID, error) {
+) (map[string]struct{}, map[string][]uuid.UUID, []string, error) {
 	rows, err := w.pool.Query(ctx, `
 		SELECT id, title FROM brain.pages
 		 WHERE project_id = $1 AND deleted_at IS NULL
 	`, projectID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	titles := map[string]struct{}{}
 	groups := map[string][]uuid.UUID{}
+	var originals []string
 	for rows.Next() {
 		var (
 			id    uuid.UUID
 			title string
 		)
 		if err := rows.Scan(&id, &title); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		key := strings.TrimSpace(strings.ToLower(title))
 		if key == "" {
@@ -265,8 +284,14 @@ func (w *LintWorker) fetchPageTitles(
 		}
 		titles[key] = struct{}{}
 		groups[key] = append(groups[key], id)
+		originals = append(originals, strings.TrimSpace(title))
 	}
-	return titles, groups, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	// Sorted so SuggestLinkTarget tie-breaking is deterministic.
+	sort.Strings(originals)
+	return titles, groups, originals, nil
 }
 
 // buildIncomingLinkTitles scans every block's text for [[wikilink]]
@@ -299,18 +324,20 @@ type lintPageView struct {
 // fetchPagesWithBlocks pulls every live page in the project plus its
 // live blocks (capped per-page). One round trip per project: pages
 // first, then blocks in a single query keyed by page_id IN (...).
+// Also returns the set of page ids whose block list hit the cap — the
+// auto-resolve pass must not trust "finding absent" for those pages.
 func (w *LintWorker) fetchPagesWithBlocks(
 	ctx context.Context,
 	projectID uuid.UUID,
 	maxBlocksPerPage int,
-) ([]lintPageView, error) {
+) ([]lintPageView, map[uuid.UUID]bool, error) {
 	pageRows, err := w.pool.Query(ctx, `
 		SELECT id, title, frontmatter
 		  FROM brain.pages
 		 WHERE project_id = $1 AND deleted_at IS NULL
 	`, projectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer pageRows.Close()
 
@@ -323,7 +350,7 @@ func (w *LintWorker) fetchPagesWithBlocks(
 			fmRaw []byte
 		)
 		if err := pageRows.Scan(&id, &title, &fmRaw); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var fm map[string]any
 		if len(fmRaw) > 0 {
@@ -335,10 +362,10 @@ func (w *LintWorker) fetchPagesWithBlocks(
 		pageIDs = append(pageIDs, id)
 	}
 	if err := pageRows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(pageIDs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Block fetch — one query, ORDER BY page + position so we can
@@ -350,10 +377,11 @@ func (w *LintWorker) fetchPagesWithBlocks(
 		 ORDER BY page_id, position
 	`, pageIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer blockRows.Close()
 
+	truncated := map[uuid.UUID]bool{}
 	for blockRows.Next() {
 		var (
 			id     uuid.UUID
@@ -362,13 +390,14 @@ func (w *LintWorker) fetchPagesWithBlocks(
 			cRaw   []byte
 		)
 		if err := blockRows.Scan(&id, &pageID, &typ, &cRaw); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		view := views[pageID]
 		if view == nil {
 			continue
 		}
 		if len(view.blocks) >= maxBlocksPerPage {
+			truncated[pageID] = true
 			continue
 		}
 		var content map[string]any
@@ -383,14 +412,14 @@ func (w *LintWorker) fetchPagesWithBlocks(
 		})
 	}
 	if err := blockRows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	out := make([]lintPageView, 0, len(views))
 	for _, v := range views {
 		out = append(out, *v)
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 func stringField(m map[string]any, key string) string {

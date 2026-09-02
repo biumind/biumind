@@ -353,3 +353,44 @@ func (s *Store) CountOpen(ctx context.Context, projectID uuid.UUID) (int, error)
 	`, projectID).Scan(&n)
 	return n, err
 }
+
+// ListOpenByKinds returns open items for one project filtered to the
+// given kinds, oldest first (deterministic processing order for the
+// lint worker's auto-resolve pass — P2 #20 ①).
+func (s *Store) ListOpenByKinds(ctx context.Context, projectID uuid.UUID, kinds []string) ([]*Item, error) {
+	if projectID == uuid.Nil {
+		return nil, fmt.Errorf("project_id required")
+	}
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+	for _, k := range kinds {
+		if !ValidKind(k) {
+			return nil, fmt.Errorf("invalid kind %q", k)
+		}
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, project_id, owner_id, kind, status, title, description,
+		       page_ids, payload, dedupe_key, resolved_at, created_at, updated_at
+		FROM brain.review_items
+		WHERE project_id = $1 AND status = 'open' AND kind = ANY($2)
+		ORDER BY created_at
+	`, projectID, kinds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Item
+	for rows.Next() {
+		it := &Item{}
+		if err := rows.Scan(
+			&it.ID, &it.ProjectID, &it.OwnerID, &it.Kind, &it.Status,
+			&it.Title, &it.Description, &it.PageIDs, &it.Payload,
+			&it.DedupeKey, &it.ResolvedAt, &it.CreatedAt, &it.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}

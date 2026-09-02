@@ -3,6 +3,7 @@
 //	GET    /v1/wiki/projects/{pid}/reviews                    list (filter by ?kind, ?status)
 //	POST   /v1/wiki/reviews/{id}/resolve                      mark resolved
 //	POST   /v1/wiki/reviews/{id}/dismiss                      mark dismissed
+//	POST   /v1/wiki/reviews/{id}/apply-fix                    apply the suggested fix (dead_wikilink)
 //
 // The status-mutation endpoints take no body — the action is encoded
 // in the URL. We could collapse to a single POST /reviews/{id}/status
@@ -64,6 +65,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/wiki/reviews/{id}/dismiss", s.requireAuth(s.handleDismiss))
 	mux.HandleFunc("POST /v1/wiki/reviews/{id}/delete-page",
 		s.requireAuth(s.handleDeletePageAction))
+	mux.HandleFunc("POST /v1/wiki/reviews/{id}/apply-fix",
+		s.requireAuth(s.handleApplyFix))
 	mux.HandleFunc("POST /v1/wiki/pages/{id}/merge", s.requireAuth(s.handleMerge))
 }
 
@@ -273,6 +276,106 @@ func (s *Server) handleDeletePageAction(w http.ResponseWriter, r *http.Request) 
 		"review_id": id.String(),
 		"page_id":   pageID.String(),
 		"deleted":   true,
+	})
+}
+
+// ─── Apply-fix (dead_wikilink rewrite, P2 #20 ②) ───────────────
+
+// handleApplyFix applies the suggested fix attached to a review, on
+// human demand — there is deliberately NO unattended content rewrite.
+// v1 supports exactly one fixable rule: kind=lint + rule_id
+// dead_wikilink carrying a suggested_target. Every `[[target]]` /
+// `[[target|alias]]` in the page body is rewritten to the suggestion
+// (alias preserved, exact-target match via wikistore.RewriteWikilinks)
+// through UpdatePageBody — the authoritative body_md write path with
+// revision snapshot + blocks reconcile + page.updated event, so the
+// blocks projection never drifts. The suggestion is re-validated
+// against live pages first: it may have been renamed or deleted since
+// the lint scan ran. The review is resolved on success; replacements==0
+// (link already fixed out-of-band) also resolves.
+func (s *Server) handleApplyFix(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_id", "")
+		return
+	}
+	it, err := s.Store.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "not_found", "")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	uid := mustUserID(r)
+	if it.OwnerID != uid {
+		// Indistinguishable 404 to avoid existence leaks (same as
+		// transitionStatus).
+		writeErr(w, http.StatusNotFound, "not_found", "")
+		return
+	}
+	if it.Status != StatusOpen {
+		writeErr(w, http.StatusConflict, "conflict", "review already "+it.Status)
+		return
+	}
+	if it.Kind != KindLint || it.Payload["rule_id"] != RuleDeadWikilink {
+		writeErr(w, http.StatusBadRequest, "not_fixable",
+			"only dead_wikilink reviews have an automatic fix")
+		return
+	}
+	target, _ := it.Payload["target"].(string)
+	suggested, _ := it.Payload["suggested_target"].(string)
+	if strings.TrimSpace(target) == "" || strings.TrimSpace(suggested) == "" {
+		writeErr(w, http.StatusConflict, "no_suggestion",
+			"该审查没有建议的修复目标——请手动修正 wikilink 或创建目标页")
+		return
+	}
+	if len(it.PageIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "no_page_ids",
+			"this review has no associated page")
+		return
+	}
+	pageID := it.PageIDs[0]
+	page, err := s.Wiki.GetPage(r.Context(), pageID)
+	if err != nil || page.ProjectID != it.ProjectID {
+		writeErr(w, http.StatusNotFound, "not_found", "page")
+		return
+	}
+	// Re-validate the suggestion against live state; use the live page's
+	// current title casing as the rewrite target.
+	live, err := s.Wiki.FindLivePageByTitle(r.Context(), page.ProjectID, suggested)
+	if err != nil {
+		if errors.Is(err, wikistore.ErrNotFound) {
+			writeErr(w, http.StatusConflict, "suggestion_stale",
+				"建议目标页面已不存在——请重新扫描或手动修正")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	newBody, replaced := wikistore.RewriteWikilinks(page.BodyMd, target, live.Title)
+	if replaced > 0 {
+		if _, err := s.Wiki.UpdatePageBody(r.Context(), wikistore.UpdatePageBodyInput{
+			PageID: pageID, BodyMd: newBody, ActorID: uid.String(),
+		}); err != nil {
+			writeErr(w, http.StatusInternalServerError, "rewrite_failed", err.Error())
+			return
+		}
+	}
+	// Best-effort resolve — same rationale as handleDeletePageAction:
+	// the content change (or its prior absence) is the source of truth.
+	if rerr := s.Store.SetStatus(r.Context(), id, StatusResolved); rerr != nil {
+		s.Logger.Warn("apply-fix: resolve review failed",
+			"review_id", id, "err", rerr)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"review_id":    id.String(),
+		"page_id":      pageID.String(),
+		"target":       target,
+		"rewritten_to": live.Title,
+		"replacements": replaced,
+		"resolved":     true,
 	})
 }
 

@@ -391,6 +391,97 @@ func TestLintOrphanPage_SkipsEmptyTitle(t *testing.T) {
 	}
 }
 
+// ── no_outlinks ────────────────────────────────────────────────
+
+func TestLintNoOutlinks_FlagsSubstantialPageWithoutLinks(t *testing.T) {
+	in := LintInput{
+		Page: PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{
+			{Text: strings.Repeat("一段没有链接的长正文。", 20)},
+		},
+	}
+	if !findingsContainRule(LintAll(in), RuleNoOutlinks) {
+		t.Errorf("substantial page with zero outlinks should flag no_outlinks")
+	}
+}
+
+func TestLintNoOutlinks_NoFlagWhenOutlinkPresent(t *testing.T) {
+	in := LintInput{
+		Page: PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{
+			{Text: strings.Repeat("正文。", 40) + " 见 [[Some Page]]"},
+		},
+	}
+	if findingsContainRule(LintAll(in), RuleNoOutlinks) {
+		t.Errorf("page with an outlink shouldn't flag no_outlinks")
+	}
+}
+
+func TestLintNoOutlinks_DeadOutlinkStillCounts(t *testing.T) {
+	// A dead [[link]] is still an outgoing reference attempt —
+	// dead_wikilink flags the resolution problem; no_outlinks must not
+	// double-flag the page as linkless.
+	in := LintInput{
+		Page: PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{
+			{Text: strings.Repeat("正文。", 40) + " 见 [[Ghost Page]]"},
+		},
+		KnownPageTitles: map[string]struct{}{},
+	}
+	if findingsContainRule(LintAll(in), RuleNoOutlinks) {
+		t.Errorf("dead outlink still counts as an outlink")
+	}
+}
+
+func TestLintNoOutlinks_SkipsShortPages(t *testing.T) {
+	// stub_page / empty_page already cover sparse pages; don't pile on.
+	in := LintInput{
+		Page:   PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{{Text: "tiny"}},
+	}
+	if findingsContainRule(LintAll(in), RuleNoOutlinks) {
+		t.Errorf("stub-sized page shouldn't flag no_outlinks")
+	}
+}
+
+// ── dead_wikilink suggested_target ─────────────────────────────
+
+func TestLintDeadWikilink_PopulatesSuggestedTarget(t *testing.T) {
+	in := LintInput{
+		Page: PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{
+			{Text: "see [[Getting Startd]]"},
+		},
+		KnownPageTitles: map[string]struct{}{"getting started": {}},
+		KnownTitles:     []string{"Getting Started"},
+	}
+	dead := findingsByRule(LintAll(in), RuleDeadWikilink)
+	if len(dead) != 1 {
+		t.Fatalf("want 1 dead wikilink, got %d", len(dead))
+	}
+	if dead[0].Payload["suggested_target"] != "Getting Started" {
+		t.Errorf("suggested_target wrong: %v", dead[0].Payload)
+	}
+}
+
+func TestLintDeadWikilink_NoSuggestionWhenNothingClose(t *testing.T) {
+	in := LintInput{
+		Page: PageView{ID: uuid.New(), Title: "T"},
+		Blocks: []BlockView{
+			{Text: "see [[Xyzzy Nothing]]"},
+		},
+		KnownPageTitles: map[string]struct{}{"unrelated page": {}},
+		KnownTitles:     []string{"Unrelated Page"},
+	}
+	dead := findingsByRule(LintAll(in), RuleDeadWikilink)
+	if len(dead) != 1 {
+		t.Fatalf("want 1 dead wikilink, got %d", len(dead))
+	}
+	if _, ok := dead[0].Payload["suggested_target"]; ok {
+		t.Errorf("no suggestion expected, payload=%v", dead[0].Payload)
+	}
+}
+
 // ── dedupe_key ─────────────────────────────────────────────────
 
 func TestLintDedupeKey_OmitsEmptySub(t *testing.T) {

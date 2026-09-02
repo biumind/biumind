@@ -354,6 +354,74 @@ func (s *Store) ListPages(ctx context.Context, projectID uuid.UUID, limit int) (
 	return out, rows.Err()
 }
 
+// PageIndexEntry is one row of the lightweight page index consumed by
+// the ingest-context internal endpoint: title + frontmatter type only,
+// no body — the worker feeds this list into the stage-1 analysis prompt
+// so the LLM can link to (and avoid duplicating) existing pages.
+type PageIndexEntry struct {
+	Title string
+	Type  string // COALESCE(frontmatter->>'type', '') — "" when untyped
+}
+
+// ListPageIndex returns up to `limit` alive pages of a project (oldest
+// first, so the original — usually most canonical — pages survive
+// truncation) plus the total alive-page count regardless of the limit.
+func (s *Store) ListPageIndex(ctx context.Context, projectID uuid.UUID, limit int) ([]PageIndexEntry, int, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT title, COALESCE(frontmatter->>'type', ''), COUNT(*) OVER ()
+		FROM brain.pages
+		WHERE project_id = $1 AND deleted_at IS NULL
+		ORDER BY created_at ASC
+		LIMIT $2
+	`, projectID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]PageIndexEntry, 0, 32)
+	total := 0
+	for rows.Next() {
+		var e PageIndexEntry
+		if err := rows.Scan(&e.Title, &e.Type, &total); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, e)
+	}
+	return out, total, rows.Err()
+}
+
+// GetPageByType returns the oldest alive page of a project whose
+// frontmatter `type` equals `typ` (e.g. "purpose" / "schema" seeded by
+// templates). Oldest-first because template seed pages are written at
+// project creation; later user pages of the same type are derivatives.
+// ErrNotFound when the project has no such page (e.g. blank template).
+func (s *Store) GetPageByType(ctx context.Context, projectID uuid.UUID, typ string) (*Page, error) {
+	p := &Page{}
+	frontmatter := []byte("{}")
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, project_id, parent_id, title, frontmatter, body_md, share_mode, version, created_at, updated_at
+		FROM brain.pages
+		WHERE project_id = $1 AND deleted_at IS NULL
+		  AND frontmatter->>'type' = $2
+		ORDER BY created_at ASC
+		LIMIT 1
+	`, projectID, typ).Scan(
+		&p.ID, &p.ProjectID, &p.ParentID, &p.Title, &frontmatter, &p.BodyMd, &p.ShareMode, &p.Version,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(frontmatter, &p.Frontmatter)
+	return p, nil
+}
+
 // UpdatePage applies title/frontmatter changes with If-Match.
 type UpdatePageInput struct {
 	PageID         uuid.UUID
@@ -469,18 +537,17 @@ func (s *Store) MarkEnrichStale(ctx context.Context, pageID, projectID uuid.UUID
 //     but until then we don't want stale page links in search hits)
 //  3. duplicate page is soft-deleted with a `merged_into` frontmatter
 //     hint so any UI / wikilink resolver can present a redirect
-//  4. canonical's version is bumped + page.merged event emitted on its
+//  4. every OTHER live page in the project gets its `[[duplicate-title]]`
+//     wikilinks rewritten to `[[canonical-title]]` (exact-target match,
+//     alias-preserving — see wikilink.go), each through the same
+//     pipeline as UpdatePageBody: revision snapshot → body_md update →
+//     blocks re-projection → page.updated event
+//  5. canonical's version is bumped + page.merged event emitted on its
 //     scope so subscribers see the change and can refresh caches
 //
 // Both pages must exist, be non-deleted, and live in the same project.
 // Caller (reviews API / MCP wiki.merge_pages) is responsible for
 // ownership checks; this layer enforces the structural invariants.
-//
-// Wikilink rewriting (find every "[[duplicate-title]]" and update to
-// canonical) is intentionally NOT done here — it's an expensive
-// content scan that's better handled as a background pass against the
-// merged_into hint. P2-D-extended will add a wikilink-rewriter worker
-// once the link-graph index lands.
 func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UUID, actor string) error {
 	if canonicalID == duplicateID {
 		return fmt.Errorf("canonical and duplicate must differ")
@@ -615,6 +682,17 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		return fmt.Errorf("soft-delete duplicate: %w", err)
 	}
 
+	// Rewrite `[[duplicate-title]]` → `[[canonical-title]]` in every other
+	// live page of the project (P2 #20 ③). Same tx, full body_md pipeline
+	// per page (snapshot + reconcile + event) so body_md 权威与 blocks 投影
+	// 不漂移。在 duplicate soft-delete 之后跑，改写扫描天然排除它。
+	rewrittenPages, err := rewriteMergeBacklinksTx(ctx, tx,
+		canonical.projectID, canonicalID, duplicateID,
+		duplicate.title, canonical.title, actor)
+	if err != nil {
+		return fmt.Errorf("rewrite merge backlinks: %w", err)
+	}
+
 	// Bump canonical version + emit events. version bump invalidates
 	// any in-flight If-Match update on the canonical page so an editor
 	// session that pre-loaded canonical sees a 409 on save and reloads
@@ -629,10 +707,11 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 
 	if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
 		"page.merged", map[string]any{
-			"canonical_id": canonicalID,
-			"duplicate_id": duplicateID,
-			"moved_blocks": movedBlocks,
-			"canonical_v":  canonical.version + 1,
+			"canonical_id":    canonicalID,
+			"duplicate_id":    duplicateID,
+			"moved_blocks":    movedBlocks,
+			"rewritten_pages": rewrittenPages,
+			"canonical_v":     canonical.version + 1,
 		}); err != nil {
 		return err
 	}
@@ -1120,6 +1199,12 @@ func blockToMarkdownLine(b *Block) string {
 		}
 		lang, _ := b.Content["lang"].(string)
 		return "```" + lang + "\n" + raw + "\n```"
+	case "table":
+		// content.text 是原始 GFM 表格 markdown（mdparse 保留 verbatim），
+		// 原样回吐即完成往返保真——重解析会再得到同一个 table block。
+		// 与 default 行为一致，单列以钉死 table 类型的输出契约。
+		raw, _ := b.Content["text"].(string)
+		return raw
 	default:
 		raw, _ := b.Content["text"].(string)
 		return raw
