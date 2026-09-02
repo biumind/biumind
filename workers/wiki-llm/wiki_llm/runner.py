@@ -15,13 +15,15 @@ and emit whichever appeared. This is O(n²) in chunk count but n is
 small (typical CoT response: 5-15 blocks, ~50 chunks). When that
 stops being true we'll switch to a true incremental parser.
 
-Cancellation: brain's ingest API sets ``cancel_requested_at`` on the
-task row but the worker doesn't poll the DB. For P1-8 cancel only
-takes effect for tasks that haven't been picked up yet (NATS queue
-group dispatch); already-running tasks run to completion. P2 will
-add a NATS broadcast subject (``brain.wiki.ingest.cancel.<task_id>``)
-that the runner subscribes to so already-running tasks abort at the
-next chunk boundary.
+Cancellation: brain's cancel API sets ``cancel_requested_at`` on the
+task row AND publishes a broadcast on ``biumind.<env>.brain.wiki.
+ingest.cancel``. ``run`` feeds that subject into a ``CancelRegistry``
+which this pipeline consults at two points: on pickup (skip queued
+tasks already cancelled, no LLM call burned) and at every stream chunk
+boundary (abort in-flight streams, emit ``cancelled``; pages already
+emitted stay saved per streaming partial-save semantics). The
+fire-and-forget hole (no worker connected when the broadcast fired) is
+closed brain-side by the reaper's cancel sweep.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import logging
 from typing import Awaitable, Callable, Iterable, Optional
 
 from .brain import BrainClientError, BrainConfig, fetch_source
+from .cancellation import CancelRegistry, parse_cancel_task_id
 from .config import Config
 from .domain.frontmatter import parse_frontmatter
 from .domain.ingest_parse import FileBlock, parse_file_blocks
@@ -42,6 +45,7 @@ from .job import (
     KIND_PAGE,
     KIND_DONE,
     KIND_FAILED,
+    KIND_CANCELLED,
 )
 from .llm import LLMConfig, LLMError, stream_messages
 
@@ -71,6 +75,7 @@ async def handle_message(
     publish: Publisher,
     llm_stream: Optional[LLMStreamer] = None,
     source_resolver: Optional[SourceResolver] = None,
+    cancel_registry: Optional[CancelRegistry] = None,
 ) -> Optional[IngestRequest]:
     """Decode one inbound NATS message and run the full pipeline.
 
@@ -97,6 +102,14 @@ async def handle_message(
     logger.info("wiki_llm: accepted task=%s project=%s source=%s text_chars=%d",
                 req.task_id, req.project_id, req.source_id,
                 len(req.raw_text))
+
+    # Cancelled while still queued → don't burn an LLM call. The
+    # ``cancelled`` update flips the brain row terminal (the API only
+    # sets a flag; the worker owns the transition).
+    if cancel_registry is not None and cancel_registry.is_cancelled(req.task_id):
+        logger.info("wiki_llm: task=%s cancelled before pickup", req.task_id)
+        await _emit(publish, cfg, Update(task_id=req.task_id, kind=KIND_CANCELLED))
+        return req
 
     await _emit(publish, cfg, Update(task_id=req.task_id, kind=KIND_RUNNING))
 
@@ -165,6 +178,7 @@ async def handle_message(
             streamer=streamer,
             cfg=cfg,
             publish=publish,
+            cancel_registry=cancel_registry,
         )
     except LLMError as e:
         logger.warning("wiki_llm: llm error task=%s: %s", req.task_id, e)
@@ -187,6 +201,7 @@ async def _run_pipeline(
     streamer: LLMStreamer,
     cfg: Config,
     publish: Publisher,
+    cancel_registry: Optional[CancelRegistry] = None,
 ) -> None:
     """Stream the LLM, emit per-page updates, finish with done."""
     from .prompts import SYSTEM_PROMPT, build_user_prompt
@@ -204,6 +219,16 @@ async def _run_pipeline(
     first_delta_at: Optional[float] = None
 
     async for delta in streamer(SYSTEM_PROMPT, user):
+        # Chunk boundary cancel check: abort the stream promptly instead
+        # of running a paid LLM call to completion.
+        if cancel_registry is not None and cancel_registry.is_cancelled(req.task_id):
+            logger.info("wiki_llm: task=%s cancelled mid-stream at delta=%d pages=%d",
+                        req.task_id, delta_count, page_index)
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_CANCELLED,
+                progress={"pages_total": page_index},
+            ))
+            return
         if not delta:
             continue
         delta_count += 1
@@ -242,6 +267,18 @@ async def _run_pipeline(
     if final.warnings:
         logger.info("wiki_llm: task=%s parse warnings: %s",
                     req.task_id, "; ".join(final.warnings))
+
+    # Stream truncation = task failure. Pages already emitted stay saved
+    # (partial-save), but the task must not report success with pages
+    # silently dropped — the user retries to get the full set.
+    truncated = [w for w in final.warnings if "not closed (stream truncated)" in w]
+    if truncated:
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED,
+            error=("LLM stream truncated: " + "; ".join(truncated) +
+                   f" ({page_index} page(s) saved before truncation)"),
+        ))
+        return
 
     if not emitted_paths:
         # The model output zero parseable FILE blocks — typically means
@@ -377,16 +414,30 @@ async def run(cfg: Config) -> None:
     logger.info("wiki_llm worker connected nats=%s sub=%s queue=%s",
                 cfg.nats_url, cfg.request_subject, cfg.queue_group)
 
+    cancels = CancelRegistry()
+
     async def _publish(subject: str, body: bytes) -> None:
         await nc.publish(subject, body)
 
     async def _handle(msg) -> None:  # noqa: ANN001 — nats msg dynamic
         try:
-            await handle_message(msg.data, cfg=cfg, publish=_publish)
+            await handle_message(msg.data, cfg=cfg, publish=_publish,
+                                 cancel_registry=cancels)
         except Exception:  # noqa: BLE001 — one bad job mustn't kill loop
             logger.exception("wiki_llm: handler crashed")
 
+    async def _handle_cancel(msg) -> None:  # noqa: ANN001 — nats msg dynamic
+        tid = parse_cancel_task_id(msg.data)
+        if tid is None:
+            logger.warning("wiki_llm: bad cancel broadcast: %r", msg.data[:200])
+            return
+        logger.info("wiki_llm: cancel signal task=%s", tid)
+        cancels.add(tid)
+
     await nc.subscribe(cfg.request_subject, queue=cfg.queue_group, cb=_handle)
+    # Broadcast subscription — intentionally NO queue group: every worker
+    # instance must observe every cancel, not just the one holding the task.
+    await nc.subscribe(cfg.cancel_subject, cb=_handle_cancel)
     try:
         stop = asyncio.Event()
         await stop.wait()

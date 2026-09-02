@@ -61,6 +61,12 @@ class Config:
         # Published to (worker → brain): status / page-added / terminal.
         return f"biumind.{self.env}.brain.wiki.ingest.update"
 
+    @property
+    def cancel_subject(self) -> str:
+        # Subscribed to (brain → worker, broadcast): task cancel signals.
+        # No queue group — every worker instance must hear every cancel.
+        return f"biumind.{self.env}.brain.wiki.ingest.cancel"
+
     @classmethod
     def from_env(cls, env: dict | None = None) -> "Config":
         e = env if env is not None else os.environ

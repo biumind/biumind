@@ -16,6 +16,7 @@
 //
 //	brain.wiki.ingest.requested  brain → worker  (task start)
 //	brain.wiki.ingest.update     worker → brain  (status/progress/page)
+//	brain.wiki.ingest.cancel     brain → worker  (cancel broadcast, no queue group)
 //
 // The "update" subscriber is wired in P1-8 once the worker exists; this
 // file only owns the table + the requested-side publish.
@@ -359,6 +360,54 @@ func (s *Store) Requeue(ctx context.Context, id uuid.UUID) (*Task, error) {
 		return nil, err
 	}
 	return t, nil
+}
+
+// Retry resets a failed/cancelled task to pending for a manual retry
+// （POST …/tasks/{tid}/retry）。清空 error / cancel 标记 / 起止时间，
+// 并归零 requeue_count —— 手动重试是用户显式判断"这次能成"，毒丸计数
+// 不应让重试任务一卡就被 reaper 再判死。返回更新后的任务供 API 层重发。
+func (s *Store) Retry(ctx context.Context, id uuid.UUID) (*Task, error) {
+	t := &Task{}
+	err := s.pool.QueryRow(ctx, `
+		UPDATE brain.ingest_tasks
+		   SET status = 'pending',
+		       error = '',
+		       progress = progress - 'requeue_count',
+		       cancel_requested_at = NULL,
+		       started_at = NULL,
+		       finished_at = NULL,
+		       updated_at = now()
+		 WHERE id = $1 AND status IN ('failed','cancelled')
+		RETURNING `+taskCols, id).Scan(
+		&t.ID, &t.ProjectID, &t.OwnerID, &t.SourceID, &t.RawText, &t.Title,
+		&t.Status, &t.Error, &t.Progress, &t.ResultPages, &t.Processor,
+		&t.CancelRequestedAt, &t.StartedAt, &t.FinishedAt,
+		&t.CreatedAt, &t.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// SweepCancelRequested 把取消信号超龄（worker 始终未观测到）的非终态
+// 任务标 cancelled。取消广播是 fire-and-forget：广播时无 worker 在线
+// 信号即丢，而 ListStuck 又跳过 cancel_requested 的行 —— 没有本清扫，
+// 这类任务会永远卡在 pending/running。返回清扫行数。
+func (s *Store) SweepCancelRequested(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE brain.ingest_tasks
+		   SET status = 'cancelled', finished_at = now(), updated_at = now()
+		 WHERE cancel_requested_at IS NOT NULL
+		   AND cancel_requested_at < $1
+		   AND status NOT IN ('done','failed','cancelled')
+	`, before)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // UpdateProgress replaces progress on a non-terminal task. 客户端镜像

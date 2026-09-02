@@ -129,6 +129,15 @@ func (r *Reaper) RunOnce(ctx context.Context) {
 	for _, task := range clientStuck {
 		r.takeOverClient(ctx, task)
 	}
+
+	// 第三遍：取消清扫。取消广播是 fire-and-forget —— 广播时无 worker
+	// 在线信号即丢，而 ListStuck 又跳过 cancel_requested 的行。超龄未
+	// 被 worker 观测的取消任务在这里落终态，否则永远卡 pending/running。
+	if n, err := r.store.SweepCancelRequested(ctx, now.Add(-r.cfg.ActiveStale)); err != nil {
+		r.logger.Warn("ingest reaper: cancel sweep", "err", err)
+	} else if n > 0 {
+		r.logger.Info("ingest reaper: cancel sweep", "swept", n)
+	}
 }
 
 // takeOverClient 接管卡死的客户端镜像任务。客户端解析的产物是 source 的

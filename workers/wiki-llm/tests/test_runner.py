@@ -412,3 +412,89 @@ async def test_title_empty_when_neither_frontmatter_nor_h1():
     page = next(p for _, p in captured if p["kind"] == "page")
     # Empty / missing title → field stripped.
     assert "title" not in page or page["title"] == ""
+
+
+# ── Cancellation ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_cancelled_before_pickup_skips_llm():
+    """Task cancelled while still queued → no LLM call burned, one
+    ``cancelled`` update flips the brain row terminal."""
+    from wiki_llm.cancellation import CancelRegistry
+
+    publish, captured = _capture()
+    reg = CancelRegistry()
+    body = json.loads(_make_request())
+    reg.add(body["task_id"])
+    called = False
+
+    async def llm(system: str, user: str) -> AsyncIterator[str]:
+        nonlocal called
+        called = True
+        yield "x"
+
+    req = await handle_message(
+        json.dumps(body).encode(),
+        cfg=_cfg(), publish=publish,
+        llm_stream=llm, cancel_registry=reg,
+    )
+    assert req is not None
+    assert not called
+    assert [p["kind"] for _, p in captured] == ["cancelled"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_mid_stream_aborts_and_reports():
+    """User cancels after the first page lands → stream aborts at the
+    next chunk boundary; the saved page stays, terminal = cancelled."""
+    from wiki_llm.cancellation import CancelRegistry
+
+    publish, captured = _capture()
+    reg = CancelRegistry()
+    body = json.loads(_make_request())
+
+    async def llm(system: str, user: str) -> AsyncIterator[str]:
+        yield "---FILE: wiki/a.md---\n# A\nbody\n---END FILE---\n"
+        reg.add(body["task_id"])  # cancel arrives while streaming
+        yield "---FILE: wiki/b.md---\n# B\n"
+
+    req = await handle_message(
+        json.dumps(body).encode(),
+        cfg=_cfg(), publish=publish,
+        llm_stream=llm, cancel_registry=reg,
+    )
+    assert req is not None
+    assert [p["kind"] for _, p in captured] == ["running", "page", "cancelled"]
+
+
+# ── Truncation = failure ──────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_truncated_stream_is_failed_not_done():
+    """An unclosed FILE block at stream end used to silently report
+    ``done`` with pages dropped. Now: saved pages stay, task = failed."""
+    publish, captured = _capture()
+    deltas = [
+        "---FILE: wiki/a.md---\n# A\nbody\n---END FILE---\n",
+        "---FILE: wiki/b.md---\n# B\nnever closed\n",
+    ]
+    await handle_message(
+        _make_request(),
+        cfg=_cfg(), publish=publish,
+        llm_stream=_scripted_llm(*deltas),
+    )
+    assert [p["kind"] for _, p in captured] == ["running", "page", "failed"]
+    assert "truncated" in captured[-1][1]["error"]
+
+
+@pytest.mark.asyncio
+async def test_truncation_with_zero_saved_pages_is_failed():
+    publish, captured = _capture()
+    deltas = ["---FILE: wiki/b.md---\n# B\nnever closed\n"]
+    await handle_message(
+        _make_request(),
+        cfg=_cfg(), publish=publish,
+        llm_stream=_scripted_llm(*deltas),
+    )
+    assert [p["kind"] for _, p in captured] == ["running", "failed"]
+    assert "truncated" in captured[-1][1]["error"]

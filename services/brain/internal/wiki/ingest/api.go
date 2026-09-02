@@ -4,7 +4,8 @@
 //	GET   /v1/wiki/projects/{pid}/ingest/tasks                 list (newest first)
 //	GET   /v1/wiki/projects/{pid}/ingest/tasks/{tid}           detail
 //	GET   /v1/wiki/projects/{pid}/ingest/tasks/{tid}/events    SSE 历史重放
-//	POST  /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel    request cancel
+//	POST  /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel    request cancel + broadcast
+//	POST  /v1/wiki/projects/{pid}/ingest/tasks/{tid}/retry     failed/cancelled → pending + republish
 //
 // 旧 /v1/wiki/ingest/{taskId} 形态已废弃（B0.5 决策），客户端必须带 project
 // 上下文调用。
@@ -54,6 +55,7 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/wiki/projects/{pid}/ingest/tasks/{tid}", s.requireAuth(s.handlePatch))
 	mux.HandleFunc("GET /v1/wiki/projects/{pid}/ingest/tasks/{tid}/events", s.requireAuth(s.handleEvents))
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest/tasks/{tid}/cancel", s.requireAuth(s.handleCancel))
+	mux.HandleFunc("POST /v1/wiki/projects/{pid}/ingest/tasks/{tid}/retry", s.requireAuth(s.handleRetry))
 }
 
 // ─── Wire payloads ──────────────────────────────────────────────
@@ -190,11 +192,17 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, taskJSON(t))
 		return
 	}
-	// Publish to NATS so workers/wiki-llm picks it up. We *do not* roll
-	// back the row on publish failure — the row is still useful (user
-	// sees it as pending), and the reaper (reaper.go) republishes stuck
-	// pending tasks. Keeping create transactional with publish would tie
-	// the API SLA to NATS uptime; cheaper to accept this.
+	s.publishTask(r, t)
+	s.Logger.DebugContext(r.Context(), "wiki ingest: task created",
+		"task_id", t.ID, "project_id", pid, "user_id", uid,
+		"source_id", sid, "raw_bytes", len(req.RawText), "title", t.Title)
+	writeJSON(w, http.StatusCreated, taskJSON(t))
+}
+
+// publishTask 把任务按创建时的 payload 形态发给 wiki-llm（两段式 subject，
+// 对齐 handleCreate 的修复）。失败不回滚行 —— reaper 会重发卡 pending
+// 的任务。供 handleCreate / handleRetry 共用。
+func (s *Server) publishTask(r *http.Request, t *Task) {
 	payload := map[string]any{
 		"task_id":    t.ID.String(),
 		"project_id": t.ProjectID.String(),
@@ -214,10 +222,6 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		s.Logger.Warn("wiki ingest publish failed",
 			"task_id", t.ID, "err", err)
 	}
-	s.Logger.DebugContext(r.Context(), "wiki ingest: task created",
-		"task_id", t.ID, "project_id", pid, "user_id", uid,
-		"source_id", sid, "raw_bytes", len(req.RawText), "title", t.Title)
-	writeJSON(w, http.StatusCreated, taskJSON(t))
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -339,8 +343,59 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	// 广播取消信号：wiki-llm 所有实例订阅 cancel subject（非 queue
+	// group），在任务拾取 / 流式 chunk 边界处检查并中止。fire-and-forget
+	// 的洞（广播时无 worker 在线）由 reaper 的取消清扫兜底。
+	if s.Publisher != nil {
+		pubCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := s.Publisher.Publish(pubCtx,
+			"wiki.ingest", "cancel",
+			map[string]any{"task_id": t.ID.String()}); err != nil {
+			s.Logger.Warn("wiki ingest cancel broadcast failed",
+				"task_id", t.ID, "err", err)
+		}
+	}
 	writeJSON(w, http.StatusAccepted,
 		map[string]any{"id": t.ID.String(), "cancel_requested": true})
+}
+
+// handleRetry 把 failed/cancelled 的服务端任务重置回 pending 并重发。
+// 客户端镜像任务（processor=client）由客户端自己的队列重试，走 PATCH
+// 而非本端点；done 任务无重试语义。
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadOwnedTask(w, r)
+	if !ok {
+		return
+	}
+	if t.Processor == "client" {
+		writeErr(w, http.StatusConflict, "client_task",
+			"client-mirror tasks are retried from the client queue, not here")
+		return
+	}
+	if t.Status != StatusFailed && t.Status != StatusCancelled {
+		writeErr(w, http.StatusConflict, "not_retryable",
+			"only failed/cancelled tasks can be retried")
+		return
+	}
+	if s.Publisher == nil {
+		writeErr(w, http.StatusServiceUnavailable, "no_publisher",
+			"ingest worker bus not configured on this brain")
+		return
+	}
+	rt, err := s.Store.Retry(r.Context(), t.ID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeErr(w, http.StatusConflict, "not_retryable", t.Status)
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	s.publishTask(r, rt)
+	s.Logger.DebugContext(r.Context(), "wiki ingest: task retried",
+		"task_id", rt.ID, "project_id", rt.ProjectID)
+	writeJSON(w, http.StatusAccepted, taskJSON(rt))
 }
 
 // ─── Auth helpers ──────────────────────────────────────────────
