@@ -49,7 +49,8 @@ func WebSearch(client *searxng.Client) tools.Tool {
 			InputSchema: schema,
 			Runtime:     tools.RuntimeBoth,
 		},
-		ReadOnly: true,
+		ReadOnly:  true,
+		Retrieval: true,
 		Invoke: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			var args struct {
 				Query string `json:"query"`

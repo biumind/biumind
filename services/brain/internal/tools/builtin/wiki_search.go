@@ -59,7 +59,8 @@ func WikiSearch(store *chunks.Store, embedder embed.Embedder) tools.Tool {
 			InputSchema: schema,
 			Runtime:     tools.RuntimeBoth,
 		},
-		ReadOnly: true,
+		ReadOnly:  true,
+		Retrieval: true,
 		Invoke: func(ctx context.Context, raw json.RawMessage) (any, error) {
 			ownerID := tools.UserIDFromContext(ctx)
 			if ownerID == uuid.Nil {

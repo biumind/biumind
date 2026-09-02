@@ -253,6 +253,28 @@ func TestChunkPage_CodeBlockIndivisible(t *testing.T) {
 	}
 }
 
+func TestChunkPage_TableBlockIndivisible(t *testing.T) {
+	// A GFM table over MaxChars must stay ONE chunk — the split ladder
+	// would tear it mid-row, and a header row orphaned from its body
+	// embeds as garbage (the pre-table-type behaviour).
+	var sb strings.Builder
+	sb.WriteString("| Name | Value |\n| --- | --- |\n")
+	for i := 0; i < 100; i++ {
+		sb.WriteString("| row-name-that-is-fairly-long | some cell value here |\n")
+	}
+	huge := sb.String() // ~6k chars
+	got := ChunkPage("", []BlockSlice{
+		{Type: "table", Text: huge},
+	}, Options{TargetChars: 100, MaxChars: 200, MinChars: 1, OverlapChars: 0})
+	if len(got) != 1 {
+		t.Fatalf("oversized table block must stay 1 chunk, got %d", len(got))
+	}
+	if got[0].Text != strings.TrimSpace(huge) {
+		t.Errorf("table chunk text was altered (len %d vs %d)",
+			len(got[0].Text), len(huge))
+	}
+}
+
 func TestChunkPage_ListBlockEmitted(t *testing.T) {
 	got := ChunkPage("P", []BlockSlice{
 		{Type: "list", Items: []string{"alpha", "beta", "gamma"}},

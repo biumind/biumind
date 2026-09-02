@@ -189,3 +189,62 @@ func TestParseBlocks_EmptyCodeBlockDropped(t *testing.T) {
 		t.Errorf("empty fence should produce no block, got %+v", got)
 	}
 }
+
+// ── GFM tables ─────────────────────────────────────────────────
+
+func TestParseBlocks_GFMTable(t *testing.T) {
+	src := "# Spec\n\n" +
+		"| Name | Type | Notes |\n" +
+		"| :--- | ---: | :---: |\n" +
+		"| alpha | int | *first* |\n" +
+		"| beta | string | [[link]] |\n" +
+		"\ntrailing paragraph."
+	got := ParseBlocks(src)
+	if len(got) != 3 {
+		t.Fatalf("want 3 blocks (heading/table/text), got %d: %+v", len(got), got)
+	}
+	if got[1].Type != "table" {
+		t.Fatalf("block 1 type = %q, want table (full: %+v)", got[1].Type, got)
+	}
+	raw, _ := got[1].Content["text"].(string)
+	want := "| Name | Type | Notes |\n" +
+		"| :--- | ---: | :---: |\n" +
+		"| alpha | int | *first* |\n" +
+		"| beta | string | [[link]] |"
+	if raw != want {
+		t.Errorf("table raw markdown mismatch:\ngot:  %q\nwant: %q", raw, want)
+	}
+	if got[2].Type != "text" {
+		t.Errorf("block 2 type = %q, want text", got[2].Type)
+	}
+}
+
+func TestParseBlocks_TableRoundTrip(t *testing.T) {
+	// mdparse → (verbatim text) → mdparse must reproduce the same table
+	// block. This pins the BlocksToMarkdown round-trip contract on the
+	// parse side: the stored raw markdown re-parses to a table, not a
+	// run of text blocks.
+	src := "| a | b |\n| - | - |\n| 1 | 2 |"
+	first := ParseBlocks(src)
+	if len(first) != 1 || first[0].Type != "table" {
+		t.Fatalf("want 1 table block, got %+v", first)
+	}
+	raw, _ := first[0].Content["text"].(string)
+	second := ParseBlocks(raw)
+	if len(second) != 1 || second[0].Type != "table" {
+		t.Fatalf("re-parse must yield 1 table block, got %+v", second)
+	}
+	raw2, _ := second[0].Content["text"].(string)
+	if raw2 != raw {
+		t.Errorf("round-trip drifted:\nfirst:  %q\nsecond: %q", raw, raw2)
+	}
+}
+
+func TestParseBlocks_PipeTextIsNotATable(t *testing.T) {
+	// A single pipe-y line without a delimiter row is plain paragraph
+	// text, not a table — make sure the extension doesn't over-trigger.
+	got := ParseBlocks("a | b | c")
+	if len(got) != 1 || got[0].Type != "text" {
+		t.Fatalf("want 1 text block, got %+v", got)
+	}
+}
