@@ -115,16 +115,28 @@ func (s *Store) CountForPage(ctx context.Context, pageID uuid.UUID) (int, error)
 
 // ─── Embedding backfill ─────────────────────────────────────────
 
+// MaxEmbedAttempts bounds how many times the embed worker retries one
+// chunk before treating it as a poison pill (bad input the provider
+// always rejects). Mirrors the partial-index predicate in
+// migrations/00008_embed_retry.sql — change both together.
+const MaxEmbedAttempts = 5
+
 // Pending is the projection the embed worker needs.
 type Pending struct {
 	ID   uuid.UUID
 	Text string
+	// Attempts is how many times embedding this chunk has already
+	// failed. The worker uses it to log the moment a chunk crosses
+	// MaxEmbedAttempts and becomes a skipped poison pill.
+	Attempts int
 }
 
 // ClaimUnembedded grabs up to `batch` chunks that still need an embedding,
 // locking them with FOR UPDATE SKIP LOCKED so multiple brain replicas don't
-// double-embed the same row. Caller MUST commit the returned tx via
-// SetEmbeddings (or rollback) so locks release.
+// double-embed the same row. Chunks that already failed MaxEmbedAttempts
+// times (poison pills) are excluded — they stay NULL-embedded forever and
+// are observable via CountEmbedExhausted. Caller MUST commit the returned
+// tx via SetEmbeddings (or rollback) so locks release.
 func (s *Store) ClaimUnembedded(ctx context.Context, batch int) ([]Pending, pgx.Tx, error) {
 	if batch <= 0 {
 		batch = 32
@@ -133,14 +145,16 @@ func (s *Store) ClaimUnembedded(ctx context.Context, batch int) ([]Pending, pgx.
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err := tx.Query(ctx, `
-		SELECT id, COALESCE(heading_path || E'\n\n', '') || text
+	q := fmt.Sprintf(`
+		SELECT id, COALESCE(heading_path || E'\n\n', '') || text, embed_attempts
 		FROM brain.wiki_chunks
 		WHERE embedding IS NULL
+		  AND embed_attempts < %d
 		ORDER BY created_at
 		LIMIT $1
 		FOR UPDATE SKIP LOCKED
-	`, batch)
+	`, MaxEmbedAttempts)
+	rows, err := tx.Query(ctx, q, batch)
 	if err != nil {
 		_ = tx.Rollback(ctx)
 		return nil, nil, err
@@ -149,7 +163,7 @@ func (s *Store) ClaimUnembedded(ctx context.Context, batch int) ([]Pending, pgx.
 	var out []Pending
 	for rows.Next() {
 		var p Pending
-		if err := rows.Scan(&p.ID, &p.Text); err != nil {
+		if err := rows.Scan(&p.ID, &p.Text, &p.Attempts); err != nil {
 			_ = tx.Rollback(ctx)
 			return nil, nil, err
 		}
@@ -160,6 +174,29 @@ func (s *Store) ClaimUnembedded(ctx context.Context, batch int) ([]Pending, pgx.
 		return nil, nil, err
 	}
 	return out, tx, nil
+}
+
+// MarkEmbedFailures increments embed_attempts for chunks whose embed
+// attempt failed, inside the claim transaction (the commit happens in
+// SetEmbeddings). Once a row reaches MaxEmbedAttempts it stops being
+// reclaimed — see ClaimUnembedded.
+//
+// updated_at is deliberately NOT bumped: findStalePages compares block
+// vs chunk updated_at to decide re-chunking, and touching it here would
+// mask a genuinely stale page from the rechunk pass.
+func (s *Store) MarkEmbedFailures(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE brain.wiki_chunks
+		   SET embed_attempts = embed_attempts + 1
+		 WHERE id = ANY($1)
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("mark embed failures: %w", err)
+	}
+	return nil
 }
 
 // SetEmbeddings writes the embeddings produced for a batch and commits
@@ -184,12 +221,27 @@ func (s *Store) SetEmbeddings(ctx context.Context, tx pgx.Tx, vecs map[uuid.UUID
 }
 
 // CountUnembedded reports how many chunks still need an embedding.
-// Used by /healthz and tests to assert worker progress.
+// Used by /healthz and tests to assert worker progress. Note this
+// includes poison-pill rows (embed_attempts exhausted) — use
+// CountEmbedExhausted to break that subset out.
 func (s *Store) CountUnembedded(ctx context.Context) (int64, error) {
 	var n int64
 	err := s.pool.QueryRow(ctx,
 		`SELECT count(*) FROM brain.wiki_chunks WHERE embedding IS NULL`).
 		Scan(&n)
+	return n, err
+}
+
+// CountEmbedExhausted reports chunks the embed worker has given up on
+// (embed_attempts >= MaxEmbedAttempts, embedding still NULL) — the
+// poison-pill backlog permanently excluded from reclaim. Observability
+// only; the worker logs it when the claim queue runs dry.
+func (s *Store) CountEmbedExhausted(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.pool.QueryRow(ctx, fmt.Sprintf(
+		`SELECT count(*) FROM brain.wiki_chunks
+		  WHERE embedding IS NULL AND embed_attempts >= %d`,
+		MaxEmbedAttempts)).Scan(&n)
 	return n, err
 }
 

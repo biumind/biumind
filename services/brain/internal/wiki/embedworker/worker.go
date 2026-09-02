@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/biumind/biumind/packages/go-sdk/biu/embed"
@@ -53,6 +54,9 @@ type Worker struct {
 	embedder embed.Embedder
 	cfg      Config
 	logger   *slog.Logger
+	// lastExhausted dedupes the poison-pill backlog log (single-goroutine
+	// tick, no lock needed).
+	lastExhausted int64
 }
 
 func New(pool *pgxpool.Pool, w *wikistore.Store, c *chunks.Store, e embed.Embedder, cfg Config) *Worker {
@@ -258,6 +262,15 @@ func extractBlockFields(content map[string]any) (text, caption, lang string, lev
 
 // embedPass mirrors memory/worker/worker.go: claim a batch with FOR
 // UPDATE SKIP LOCKED, embed each, write back in one tx.
+//
+// Two differences from the memory worker (both anti-poison-pill):
+//
+//  1. Oversize inputs ("input too long" / context-length rejections) are
+//     retried at half length within the same per-row timeout — same idea
+//     as reference/llm_wiki embedding.ts fetchEmbedding, rewritten here.
+//  2. Every failure increments wiki_chunks.embed_attempts (committed in
+//     the same tx); chunks that reach chunks.MaxEmbedAttempts stop being
+//     reclaimed, so one bad chunk can't be retried forever every tick.
 func (w *Worker) embedPass(ctx context.Context) int {
 	pending, tx, err := w.chunks.ClaimUnembedded(ctx, w.cfg.EmbedBatch)
 	if err != nil {
@@ -266,29 +279,44 @@ func (w *Worker) embedPass(ctx context.Context) int {
 	}
 	if len(pending) == 0 {
 		_ = tx.Rollback(ctx)
+		w.logExhausted(ctx)
 		return 0
 	}
 
 	vecs := make(map[uuid.UUID][]float32, len(pending))
+	var failed []uuid.UUID
 	for _, p := range pending {
 		ec, cancel := context.WithTimeout(ctx, w.cfg.EmbedTO)
-		v, err := w.embedder.Embed(ec, p.Text)
+		v, err := w.embedWithHalve(ec, p.ID, p.Text)
 		cancel()
 		if err != nil {
 			if !errors.Is(err, context.Canceled) {
 				w.logger.Warn("wiki embed: provider error",
 					"chunk_id", p.ID, "err", err)
 			}
+			failed = append(failed, p.ID)
+			if p.Attempts+1 >= chunks.MaxEmbedAttempts {
+				w.logger.Warn("wiki embed: chunk exhausted retries, giving up (poison pill)",
+					"chunk_id", p.ID, "attempts", p.Attempts+1)
+			}
 			continue
 		}
 		if len(v) != w.embedder.Dim() {
 			w.logger.Warn("wiki embed: bad dim",
 				"chunk_id", p.ID, "got", len(v), "want", w.embedder.Dim())
+			failed = append(failed, p.ID)
 			continue
 		}
 		vecs[p.ID] = v
 	}
-	if len(vecs) == 0 {
+	if len(vecs) == 0 && len(failed) == 0 {
+		_ = tx.Rollback(ctx)
+		return 0
+	}
+	// Failure bookkeeping rides the same tx so a crash mid-batch doesn't
+	// lose attempt counts (the rows stay locked until commit).
+	if err := w.chunks.MarkEmbedFailures(ctx, tx, failed); err != nil {
+		w.logger.Warn("wiki embed: mark failures failed", "err", err)
 		_ = tx.Rollback(ctx)
 		return 0
 	}
@@ -297,6 +325,83 @@ func (w *Worker) embedPass(ctx context.Context) int {
 		return 0
 	}
 	w.logger.Info("wiki embed batch",
-		"claimed", len(pending), "embedded", len(vecs))
+		"claimed", len(pending), "embedded", len(vecs), "failed", len(failed))
 	return len(vecs)
+}
+
+// maxHalveRetries caps how many times one oversize input is halved before
+// giving up (4 halvings = down to 1/16 of the original text).
+const maxHalveRetries = 4
+
+// minHalveRunes stops halving once the input is down to a stub — if a
+// provider still rejects ~30 runes as "too long" the problem is not the
+// input size.
+const minHalveRunes = 32
+
+// embedWithHalve embeds text; on an oversize rejection it retries with
+// the rune-halved text up to maxHalveRetries times. The returned vector
+// represents the (possibly truncated) text that actually got through —
+// a safety net, not the main line of defence (chunker config should keep
+// chunks under the provider limit).
+func (w *Worker) embedWithHalve(ctx context.Context, chunkID uuid.UUID, text string) ([]float32, error) {
+	v, err := w.embedder.Embed(ctx, text)
+	for i := 0; i < maxHalveRetries && err != nil && looksLikeOversizeError(err); i++ {
+		runes := []rune(text)
+		if len(runes) <= minHalveRunes {
+			break
+		}
+		text = string(runes[:len(runes)/2])
+		w.logger.Info("wiki embed: oversize input, retrying at half length",
+			"chunk_id", chunkID, "runes", len(runes)/2)
+		v, err = w.embedder.Embed(ctx, text)
+	}
+	return v, err
+}
+
+// looksLikeOversizeError heuristically matches "input too long / exceeds
+// model context / payload too large" rejections from OpenAI-compatible
+// providers (incl. HTTP 413 — the embed package folds status + body into
+// the error string). Safer to over-match than under-match: a false
+// positive just means a retry at half size, which fails the same way.
+func looksLikeOversizeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	for _, sub := range []string{
+		"413",
+		"too long",
+		"maximum context",
+		"max_tokens",
+		"max tokens",
+		"context length",
+		"token limit",
+		"exceeds",
+		"input length",
+		"payload too large",
+		"request too large",
+	} {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// logExhausted surfaces the poison-pill backlog when the claim queue runs
+// dry. Logged only when the count changes so a stuck backlog doesn't spam
+// every tick.
+func (w *Worker) logExhausted(ctx context.Context) {
+	n, err := w.chunks.CountEmbedExhausted(ctx)
+	if err != nil {
+		return
+	}
+	if n == w.lastExhausted {
+		return
+	}
+	w.lastExhausted = n
+	if n > 0 {
+		w.logger.Warn("wiki embed: poison-pill chunks skipped (retries exhausted)",
+			"count", n, "max_attempts", chunks.MaxEmbedAttempts)
+	}
 }
