@@ -247,7 +247,7 @@ class _ReviewCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: BiuTokens.space3),
-          _PageLinks(pageIds: review.pageIds),
+          _PageLinks(projectId: review.projectId, pageIds: review.pageIds),
           const SizedBox(height: BiuTokens.space3),
           _Actions(review: review, isPending: isPending, ref: ref),
         ],
@@ -303,7 +303,8 @@ class _KindBadge extends StatelessWidget {
 }
 
 class _PageLinks extends StatelessWidget {
-  const _PageLinks({required this.pageIds});
+  const _PageLinks({required this.projectId, required this.pageIds});
+  final String projectId;
   final List<String> pageIds;
 
   @override
@@ -320,10 +321,9 @@ class _PageLinks extends StatelessWidget {
       children: [
         for (var i = 0; i < pageIds.length; i++)
           InkWell(
-            // P2-H-wiki: deep link via ?pageId=. WikiPage reads the
-            // query param on build, calls selectPageById to switch
-            // project + page, then strips the param.
-            onTap: () => context.go('/wiki?pageId=${pageIds[i]}'),
+            // 深链到项目浏览器的页面详情（路由已支持 pageId 路径参数）。
+            onTap: () =>
+                context.go('/wiki/p/$projectId/pages/${pageIds[i]}'),
             child: Container(
               padding: const EdgeInsets.symmetric(
                 horizontal: BiuTokens.space2,
