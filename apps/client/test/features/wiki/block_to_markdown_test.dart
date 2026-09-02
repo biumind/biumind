@@ -7,15 +7,14 @@ RepoBlock _block({
   required Map<String, dynamic> content,
   String id = 'b1',
   double position = 1,
-}) =>
-    RepoBlock(
-      id: id,
-      pageId: 'p1',
-      position: position,
-      type: type,
-      content: content,
-      version: 1,
-    );
+}) => RepoBlock(
+  id: id,
+  pageId: 'p1',
+  position: position,
+  type: type,
+  content: content,
+  version: 1,
+);
 
 void main() {
   group('blocksToMarkdown', () {
@@ -53,28 +52,34 @@ void main() {
 
     test('list renders dash-prefixed items', () {
       final md = blocksToMarkdown([
-        _block(type: 'list', content: {
-          'items': ['one', 'two', 'three']
-        }),
+        _block(
+          type: 'list',
+          content: {
+            'items': ['one', 'two', 'three'],
+          },
+        ),
       ]);
       expect(md, '- one\n- two\n- three');
     });
 
     test('list drops blank items', () {
       final md = blocksToMarkdown([
-        _block(type: 'list', content: {
-          'items': ['one', '', '  ', 'two']
-        }),
+        _block(
+          type: 'list',
+          content: {
+            'items': ['one', '', '  ', 'two'],
+          },
+        ),
       ]);
       expect(md, '- one\n- two');
     });
 
     test('code preserves verbatim including [[brackets]]', () {
       final md = blocksToMarkdown([
-        _block(type: 'code', content: {
-          'text': 'x = [[Page]]',
-          'lang': 'python',
-        }),
+        _block(
+          type: 'code',
+          content: {'text': 'x = [[Page]]', 'lang': 'python'},
+        ),
       ]);
       expect(md, '```python\nx = [[Page]]\n```');
     });
@@ -97,7 +102,11 @@ void main() {
 
     test('multiple blocks separated by blank line', () {
       final md = blocksToMarkdown([
-        _block(type: 'heading', content: {'text': 'Title', 'level': 1}, id: 'a'),
+        _block(
+          type: 'heading',
+          content: {'text': 'Title', 'level': 1},
+          id: 'a',
+        ),
         _block(type: 'text', content: {'text': 'body'}, id: 'b'),
       ]);
       expect(md, '# Title\n\nbody');
@@ -108,6 +117,33 @@ void main() {
         _block(type: 'callout', content: {'text': 'fyi'}),
       ]);
       expect(md, 'fyi');
+    });
+
+    test('table emits raw GFM markdown verbatim', () {
+      const raw = '| Name | Type |\n| --- | --- |\n| alpha | int |';
+      final md = blocksToMarkdown([
+        _block(type: 'table', content: {'text': raw}),
+      ]);
+      expect(md, raw);
+    });
+
+    test('table rewrites wikilinks inside cells', () {
+      final md = blocksToMarkdown([
+        _block(
+          type: 'table',
+          content: {'text': '| Page | Link |\n| --- | --- |\n| a | [[Foo]] |'},
+        ),
+      ]);
+      expect(md, contains('[Foo](wiki://Foo)'));
+      expect(md, contains('| a | '));
+    });
+
+    test('blank table block is dropped', () {
+      final md = blocksToMarkdown([
+        _block(type: 'text', content: {'text': 'before'}, id: 'a'),
+        _block(type: 'table', content: {'text': '  '}, id: 'b'),
+      ]);
+      expect(md, 'before');
     });
   });
 
@@ -135,17 +171,19 @@ void main() {
 
     test('wikilinks inside heading body get rewritten', () {
       final md = blocksToMarkdown([
-        _block(type: 'heading',
-            content: {'text': 'see [[X]]', 'level': 2}),
+        _block(type: 'heading', content: {'text': 'see [[X]]', 'level': 2}),
       ]);
       expect(md, '## see [X](wiki://X)');
     });
 
     test('wikilinks inside list items get rewritten', () {
       final md = blocksToMarkdown([
-        _block(type: 'list', content: {
-          'items': ['link to [[A]]', 'plain']
-        }),
+        _block(
+          type: 'list',
+          content: {
+            'items': ['link to [[A]]', 'plain'],
+          },
+        ),
       ]);
       expect(md, '- link to [A](wiki://A)\n- plain');
     });
@@ -187,11 +225,9 @@ void main() {
   group('extractHeadings', () {
     test('only heading blocks surface', () {
       final hs = extractHeadings([
-        _block(type: 'heading',
-            content: {'text': 'A', 'level': 1}, id: 'h1'),
+        _block(type: 'heading', content: {'text': 'A', 'level': 1}, id: 'h1'),
         _block(type: 'text', content: {'text': 'p'}, id: 't1'),
-        _block(type: 'heading',
-            content: {'text': 'B', 'level': 3}, id: 'h2'),
+        _block(type: 'heading', content: {'text': 'B', 'level': 3}, id: 'h2'),
       ]);
       expect(hs, hasLength(2));
       expect(hs[0].level, 1);
@@ -203,18 +239,15 @@ void main() {
 
     test('blank-text headings skipped', () {
       final hs = extractHeadings([
-        _block(type: 'heading',
-            content: {'text': '   ', 'level': 1}, id: 'h1'),
+        _block(type: 'heading', content: {'text': '   ', 'level': 1}, id: 'h1'),
       ]);
       expect(hs, isEmpty);
     });
 
     test('level clamped to 1..6', () {
       final hs = extractHeadings([
-        _block(type: 'heading',
-            content: {'text': 'X', 'level': 99}, id: 'h1'),
-        _block(type: 'heading',
-            content: {'text': 'Y', 'level': -1}, id: 'h2'),
+        _block(type: 'heading', content: {'text': 'X', 'level': 99}, id: 'h1'),
+        _block(type: 'heading', content: {'text': 'Y', 'level': -1}, id: 'h2'),
       ]);
       expect(hs[0].level, 6);
       expect(hs[1].level, 1);

@@ -70,8 +70,9 @@ func (o Options) withDefaults() Options {
 //   - "heading" — updates the headingPath stack but emits no chunk itself
 //     (headings carry no body to embed; their context flows into the
 //     HeadingPath of the body chunks that follow).
-//   - "code" / "list" — indivisible: emitted as one chunk even when over
-//     MaxChars (splitting a code block mid-statement wrecks embeddings).
+//   - "code" / "list" / "table" — indivisible: emitted as one chunk even
+//     when over MaxChars (splitting a code block mid-statement or a GFM
+//     table mid-row wrecks embeddings).
 //   - "text" / "" — recursive splitByLength ladder (default; back-compat
 //     for callers that don't populate Type).
 type BlockSlice struct {
@@ -82,8 +83,9 @@ type BlockSlice struct {
 	// image/code blocks). Concatenated to Text with a separator so the
 	// caption survives into the embedding.
 	Caption string
-	// Type is the block taxonomy label ("heading"/"text"/"code"/"list").
-	// Empty is treated as "text".
+	// Type is the block taxonomy label
+	// ("heading"/"text"/"code"/"list"/"table"). Empty is treated as
+	// "text".
 	Type string
 	// Level is the heading level (1..6) when Type=="heading".
 	Level int
@@ -122,8 +124,8 @@ type headingEntry struct {
 // embeds with its section context — a strict improvement on the previous
 // "prepend # Title to the first chunk only" behaviour.
 //
-// code / list blocks are indivisible (emitted whole even over MaxChars);
-// text blocks go through the recursive splitByLength ladder. Pages with
+// code / list / table blocks are indivisible (emitted whole even over
+// MaxChars); text blocks go through the recursive splitByLength ladder. Pages with
 // zero blocks but a non-empty title still emit a single title-only chunk
 // so the page is at least retrievable.
 func ChunkPage(title string, blocks []BlockSlice, opts Options) []Chunk {
@@ -188,7 +190,7 @@ func ChunkPage(title string, blocks []BlockSlice, opts Options) []Chunk {
 			// into subsequent chunks. No chunk emitted.
 			continue
 
-		case "code", "list":
+		case "code", "list", "table":
 			text := strings.TrimSpace(blockBodyText(b))
 			if text == "" {
 				continue

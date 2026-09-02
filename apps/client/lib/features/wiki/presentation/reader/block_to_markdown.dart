@@ -2,11 +2,12 @@
 // markdown string suitable for GptMarkdown rendering, plus a heading
 // outline for the right-side TOC panel.
 //
-// Block-type contract (matches block_editor.dart):
+// Block-type contract (matches store.BlocksToMarkdown on the Go side):
 //   * heading — content['text'] + content['level'] (1..6, default 2)
 //   * text    — content['text'] (multi-line paragraph)
 //   * list    — content['items'] as List<String>
 //   * code    — content['text'] + optional content['lang']
+//   * table   — content['text'] holding the raw GFM table markdown
 //   * other   — falls back to content['text'] as paragraph
 //
 // Wikilink rewriting:
@@ -66,11 +67,7 @@ List<WikiHeading> extractHeadings(List<RepoBlock> blocks) {
     final text = (b.content['text'] as String? ?? '').trim();
     if (text.isEmpty) continue;
     final lvl = (b.content['level'] as num?)?.toInt() ?? 2;
-    out.add(WikiHeading(
-      level: lvl.clamp(1, 6),
-      text: text,
-      blockId: b.id,
-    ));
+    out.add(WikiHeading(level: lvl.clamp(1, 6), text: text, blockId: b.id));
   }
   return out;
 }
@@ -135,6 +132,13 @@ String _renderBlock(RepoBlock b) {
       // Code content is preserved verbatim — wikilinks inside fences
       // are intentional literals (e.g. doc samples).
       return '```$lang\n$src\n```';
+    case 'table':
+      // Raw GFM table markdown (mdparse keeps it verbatim). Emitted
+      // as-is so GptMarkdown renders a real table; wikilinks inside
+      // cells still get rewritten so they stay tappable.
+      final raw = (b.content['text'] as String? ?? '');
+      if (raw.trim().isEmpty) return '';
+      return rewriteWikilinksToMarkdownLinks(raw);
     default:
       // text + unknown types → paragraph rendering with wikilink rewrite.
       final raw = (b.content['text'] as String? ?? '');
