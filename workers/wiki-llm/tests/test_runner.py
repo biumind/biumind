@@ -22,6 +22,10 @@ def _cfg() -> Config:
     return Config.from_env({
         "BIUMIND_NATS_URL": "nats://test",
         "BIUMIND_ENV": "test",
+        # 本文件钉的是 P1-8 单阶段管线形状；P2 #17 两阶段形状由
+        # test_two_stage.py 覆盖（默认开）。显式关掉避免这批用例
+        # 被 stage-1 网络调用绊倒。
+        "BIUMIND_WIKI_LLM_TWO_STAGE": "0",
     })
 
 

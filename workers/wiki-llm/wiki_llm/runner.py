@@ -3,11 +3,21 @@
 Per task:
 
   1. ``running`` update — flips brain task to running
-  2. Stream LLM via hub; accumulate text into a buffer
-  3. After each delta, re-run ``parse_file_blocks`` on the cumulative
+  2. (two-stage only) fetch the project's ingest context from brain
+     (purpose / schema / page index), then run stage-1 analysis:
+     a one-shot LLM call producing entities / concepts / relations /
+     conflicts / suggested page split. Stage-1 failure = task failed
+     (quality gate — no degraded bare stage-2 run).
+  3. Stream stage 2 (FILE-block generation, prompt carries the stage-1
+     analysis + wiki context) via hub; accumulate text into a buffer
+  4. After each delta, re-run ``parse_file_blocks`` on the cumulative
      buffer; emit one ``page`` update per NEW closed block
-  4. Stream ends → ``done`` update (or ``failed`` on exception, or
+  5. Stream ends → ``done`` update (or ``failed`` on exception, or
      ``cancelled`` if the runner observed the task's cancel signal)
+
+The two-stage shape (P2 #17) is on by default;
+``BIUMIND_WIKI_LLM_TWO_STAGE=0`` falls back to the legacy single-stage
+pipeline (steps 2 skipped) for prod A/B comparison.
 
 Streaming partial-save trick: the parser is pure + idempotent, so on
 each call we simply diff "blocks now" vs "blocks emitted last call"
@@ -33,7 +43,13 @@ import json
 import logging
 from typing import Awaitable, Callable, Iterable, Optional
 
-from .brain import BrainClientError, BrainConfig, fetch_source
+from .brain import (
+    BrainClientError,
+    BrainConfig,
+    IngestContext,
+    fetch_ingest_context,
+    fetch_source,
+)
 from .cancellation import CancelRegistry, parse_cancel_task_id
 from .config import Config
 from .domain.frontmatter import parse_frontmatter
@@ -48,7 +64,7 @@ from .job import (
     KIND_FAILED,
     KIND_CANCELLED,
 )
-from .llm import LLMConfig, LLMError, stream_messages
+from .llm import LLMConfig, LLMError, complete_messages, stream_messages
 
 
 logger = logging.getLogger("biumind.wiki_llm")
@@ -61,6 +77,15 @@ Publisher = Callable[[str, bytes], Awaitable[None]]
 # Receives (system, user) → AsyncIterator[str] of text deltas.
 LLMStreamer = Callable[[str, str], "AsyncStr"]
 AsyncStr = Iterable[str]  # actually AsyncIterator[str]; named loosely for type-hints
+
+# Type alias for the one-shot (non-streaming) LLM callable used by the
+# stage-1 analysis of the two-stage pipeline. Receives (system, user)
+# → full response text. Errors raise LLMError.
+LLMCompleter = Callable[[str, str], Awaitable[str]]
+
+# Type alias for the ingest-context callable so tests can swap a fake
+# without spinning brain. Receives (project_id, owner_id) → context.
+ContextFetcher = Callable[[str, str], Awaitable[IngestContext]]
 
 # Type alias for the source-resolution callable so tests can swap a fake
 # without spinning brain. Receives (source_id, owner_id) → text body or
@@ -75,14 +100,17 @@ async def handle_message(
     cfg: Config,
     publish: Publisher,
     llm_stream: Optional[LLMStreamer] = None,
+    llm_complete: Optional[LLMCompleter] = None,
     source_resolver: Optional[SourceResolver] = None,
+    context_fetcher: Optional[ContextFetcher] = None,
     cancel_registry: Optional[CancelRegistry] = None,
 ) -> Optional[IngestRequest]:
     """Decode one inbound NATS message and run the full pipeline.
 
     Returns the parsed request on success, None on bad payload. Tests
-    pass ``llm_stream`` to inject a deterministic fake; production
-    uses the default which calls hub via ``llm.stream_messages``.
+    pass ``llm_stream`` / ``llm_complete`` to inject deterministic
+    fakes; production uses the defaults which call hub via
+    ``llm.stream_messages`` / ``llm.complete_messages``.
     """
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -167,6 +195,65 @@ async def handle_message(
             raw_text=req.raw_text, source_id=req.source_id,
         )
 
+    # P2 #17 两阶段 CoT（默认开，BIUMIND_WIKI_LLM_TWO_STAGE=0 关）：
+    #   stage 1 — 非流式分析调用（实体/概念/与现有 wiki 关联/矛盾/建议
+    #             页面划分），输入带项目上下文（purpose/schema/页面索引）
+    #   stage 2 — 现有流式 FILE 块生成，prompt 吃 stage 1 分析 + 同一上下文
+    # Stage 1 失败 = 任务 failed（质量门，不降级裸跑 stage 2）；上下文
+    # 拉取失败只 warn 降级为空上下文（滚动发布容忍：旧 brain 无端点）。
+    analysis: Optional[str] = None
+    context: Optional[IngestContext] = None
+    if cfg.two_stage:
+        fetcher = context_fetcher if context_fetcher is not None \
+            else _default_context_fetcher(cfg)
+        try:
+            context = await fetcher(req.project_id, req.owner_id)
+        except BrainClientError as e:
+            logger.warning("wiki_llm: ingest-context fetch failed task=%s: %s "
+                           "(degrading to empty context)", req.task_id, e)
+            context = None
+        except Exception as e:  # noqa: BLE001 — test stubs may raise anything
+            logger.warning("wiki_llm: ingest-context fetch error task=%s: %s "
+                           "(degrading to empty context)", req.task_id, e)
+            context = None
+
+        completer = (
+            llm_complete if llm_complete is not None
+            else _default_completer(cfg, owner_id=req.owner_id,
+                                    task_id=req.task_id)
+        )
+        from .prompts import ANALYZE_SYSTEM_PROMPT, build_analyze_prompt
+        try:
+            analysis = await completer(
+                ANALYZE_SYSTEM_PROMPT,
+                build_analyze_prompt(
+                    source_title=req.title or "",
+                    source_text=source_text,
+                    context=context,
+                ),
+            )
+        except LLMError as e:
+            # 质量门：stage 1 失败 = 任务 failed，不降级裸跑 stage 2
+            # （否则两阶段形同虚设，且静默质量回退无法观测）。
+            logger.warning("wiki_llm: stage-1 llm error task=%s: %s",
+                           req.task_id, e)
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_FAILED,
+                error=f"stage-1 analysis failed: {e}",
+            ))
+            return req
+        if not (analysis or "").strip():
+            # 质量门：空分析等于 stage 1 失败——裸跑 stage 2 就退回
+            # 单阶段质量，违背两阶段的存在意义。
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_FAILED,
+                error="stage-1 analysis returned empty (quality gate)",
+            ))
+            return req
+        logger.info("wiki_llm: stage-1 analysis done task=%s chars=%d "
+                    "context_pages=%d", req.task_id, len(analysis),
+                    len(context.pages) if context else 0)
+
     streamer = (
         llm_stream if llm_stream is not None
         else _default_streamer(cfg, owner_id=req.owner_id, task_id=req.task_id)
@@ -180,6 +267,8 @@ async def handle_message(
             cfg=cfg,
             publish=publish,
             cancel_registry=cancel_registry,
+            analysis=analysis,
+            context=context,
         )
     except LLMError as e:
         logger.warning("wiki_llm: llm error task=%s: %s", req.task_id, e)
@@ -203,6 +292,8 @@ async def _run_pipeline(
     cfg: Config,
     publish: Publisher,
     cancel_registry: Optional[CancelRegistry] = None,
+    analysis: Optional[str] = None,
+    context: Optional[IngestContext] = None,
 ) -> None:
     """Stream the LLM, emit per-page updates, finish with done."""
     from .prompts import SYSTEM_PROMPT, build_user_prompt
@@ -210,6 +301,8 @@ async def _run_pipeline(
     user = build_user_prompt(
         source_title=req.title or "",
         source_text=source_text,
+        analysis=analysis,
+        context=context,
     )
 
     buffer = ""
@@ -387,6 +480,56 @@ def _default_streamer(cfg: Config, *, owner_id: str, task_id: str) -> LLMStreame
 
     def _call(system: str, user: str):
         return stream_messages(llm_cfg, system=system, user=user)
+
+    return _call
+
+
+def _default_completer(cfg: Config, *, owner_id: str, task_id: str) -> LLMCompleter:
+    """Return the production one-shot caller for the stage-1 analysis.
+
+    Same internal lane as the stage-2 streamer (user_id=owner for
+    billing/BYOK attribution). The idempotency key gets an ``:analyze``
+    suffix so the two LLM calls of one task never collide on the
+    relay's Hold dedup — stage 2 keeps the bare task_id (unchanged from
+    the single-stage era, so reaper redeliveries of pre-P2 tasks still
+    dedup against their original Hold). Output budget is cut to 4K
+    tokens: the analysis prompt demands ≤ 600 words, and a runaway
+    stage-1 response only burns money without improving stage 2.
+    """
+    llm_cfg = LLMConfig(
+        base_url=cfg.hub_url,
+        token=cfg.relay_internal_token,
+        model=cfg.model,
+        user_id=owner_id,
+        idempotency_key=f"{task_id}:analyze",
+        max_tokens=4096,
+    )
+
+    async def _call(system: str, user: str) -> str:
+        return await complete_messages(llm_cfg, system=system, user=user)
+
+    return _call
+
+
+def _default_context_fetcher(cfg: Config) -> ContextFetcher:
+    """Return the production ingest-context fetcher that calls brain.
+
+    When brain isn't configured (no URL / token) the fetcher returns an
+    empty context instead of raising — inline-raw_text tasks are
+    perfectly usable without project context, and the stage-1 prompt
+    simply omits the wiki sections.
+    """
+    brain_cfg = BrainConfig(
+        base_url=cfg.brain_url,
+        internal_token=cfg.internal_token,
+    )
+
+    async def _call(project_id: str, owner_id: str) -> IngestContext:
+        if not cfg.brain_url or not cfg.internal_token:
+            return IngestContext()
+        return await fetch_ingest_context(
+            brain_cfg, project_id=project_id, owner_id=owner_id,
+        )
 
     return _call
 

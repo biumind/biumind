@@ -70,6 +70,89 @@ class SourceRow:
         )
 
 
+@dataclass(frozen=True)
+class IngestContext:
+    """Project context for the two-stage ingest pipeline (P2 #17).
+
+    Returned by ``GET /v1/internal/wiki/projects/{pid}/ingest-context``:
+
+      * ``purpose`` / ``schema`` — the project's seeded purpose / page-
+        convention pages (body_md, brain-side truncated to 4000 runes
+        each; empty string when the project has no such page).
+      * ``pages`` — (title, type) index of existing wiki pages, capped
+        brain-side at 200 entries; ``pages_total`` is the untruncated
+        count so prompts can say "… and N more".
+
+    Stage 1 (analysis) and stage 2 (FILE-block generation) both embed
+    this so the model links to existing pages by exact title instead of
+    inventing near-duplicates.
+    """
+    purpose: str = ""
+    schema: str = ""
+    pages: tuple = ()  # tuple[tuple[str, str], ...] — (title, type)
+    pages_total: int = 0
+
+    @classmethod
+    def from_payload(cls, p: dict) -> "IngestContext":
+        pages = []
+        for entry in p.get("pages") or []:
+            if not isinstance(entry, dict):
+                continue
+            title = str(entry.get("title", "") or "").strip()
+            if title:
+                pages.append((title, str(entry.get("type", "") or "")))
+        return cls(
+            purpose=str(p.get("purpose", "") or ""),
+            schema=str(p.get("schema", "") or ""),
+            pages=tuple(pages),
+            pages_total=int(p.get("pages_total", 0) or 0),
+        )
+
+
+async def fetch_ingest_context(
+    cfg: BrainConfig,
+    *,
+    project_id: str,
+    owner_id: str,
+) -> IngestContext:
+    """GET the project's ingest context. Raises BrainClientError on any
+    failure — the runner degrades to an empty context (warn + proceed),
+    because a missing/misconfigured context endpoint must not fail the
+    whole ingest task (rolling-deploy tolerance: old brain, new worker).
+    """
+    if not cfg.base_url:
+        raise BrainClientError("brain base_url missing — set BIUMIND_BRAIN_URL")
+    if not cfg.internal_token:
+        raise BrainClientError(
+            "brain internal token missing — "
+            "set BIUMIND_INTERNAL_TOKEN to match the brain env",
+        )
+    url = (
+        cfg.base_url.rstrip("/")
+        + f"/v1/internal/wiki/projects/{project_id}/ingest-context"
+    )
+    headers = {"X-Biumind-Internal-Token": cfg.internal_token}
+    params = {"owner_id": owner_id}
+
+    timeout = httpx.Timeout(connect=5.0, read=cfg.timeout_s,
+                            write=5.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            resp = await client.get(url, headers=headers, params=params)
+        except httpx.HTTPError as e:
+            raise BrainClientError(f"brain request failed: {e}") from e
+
+    if resp.status_code >= 400:
+        raise BrainClientError(
+            f"brain ingest-context returned HTTP {resp.status_code}: "
+            f"{resp.text[:300]}",
+        )
+    try:
+        return IngestContext.from_payload(resp.json())
+    except (ValueError, TypeError) as e:
+        raise BrainClientError(f"bad ingest-context payload: {e}") from e
+
+
 async def fetch_source(
     cfg: BrainConfig,
     *,

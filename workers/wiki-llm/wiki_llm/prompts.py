@@ -1,15 +1,21 @@
-"""Prompt builder for the wiki-llm pipeline.
+"""Prompt builders for the wiki-llm pipeline.
 
-P1-8 ships a single-stage prompt: the model is told to plan internally
-(chain-of-thought hidden) then emit FILE blocks directly. Two-stage CoT
-(separate analyze + generate calls) buys little for streaming
-partial-save — the model already does the planning before the first
-FILE block lands, and adding a round trip just delays time-to-first-page.
+P2 #17 ships the two-stage CoT pipeline (mirroring reference llm_wiki's
+ingest.ts, reimplemented — no code forked):
 
-When the wiki gets large enough that the LLM needs a wiki-index in
-context to avoid duplicates, we'll add stage 1 back. P2 territory.
+  * Stage 1 — ``build_analyze_prompt``: the model reads the source
+    TOGETHER with the project's context (purpose page, schema page,
+    existing page index) and emits a structured analysis: entities,
+    concepts, relations to existing pages, potential conflicts, and a
+    suggested page split. Non-streaming; capped output length.
+  * Stage 2 — ``build_user_prompt``: the model receives the stage-1
+    analysis plus the same wiki context and emits the FILE blocks
+    (streaming partial-save unchanged).
 
-The output contract this prompt enforces matches
+The single-stage path (``build_user_prompt`` without analysis/context)
+is kept for the BIUMIND_WIKI_LLM_TWO_STAGE=0 kill-switch.
+
+The output contract stage 2 enforces matches
 ``wiki_llm.domain.ingest_parse``:
 
   * the response BEGINS with ``---FILE:`` (no preamble, no apology)
@@ -27,6 +33,102 @@ the first FILE block out of position-1 and confuse downstream tooling.
 
 from __future__ import annotations
 
+from typing import Optional
+
+from .brain import IngestContext
+
+
+# ─── Stage 1: analysis ─────────────────────────────────────────────
+
+ANALYZE_SYSTEM_PROMPT = (
+    "You are a wiki analyst. You read one source document plus the "
+    "current state of the wiki it will be ingested into, and produce a "
+    "structured analysis that a downstream writer stage will follow to "
+    "generate wiki pages. Output ONLY the analysis sections — no "
+    "preamble, no commentary."
+)
+
+# Fixed section headings of the analysis. The runner does NOT parse the
+# analysis — it is fed verbatim into the stage-2 prompt — so the
+# structure exists to discipline the model, not to satisfy a parser.
+# Keeping it prose-in-fixed-sections (instead of strict JSON) removes a
+# whole failure class (JSON truncation / fence wrapping) from the
+# quality gate.
+_ANALYZE_SECTIONS = """\
+## Entities
+Named entities (people, products, organizations, datasets) substantive
+enough to warrant their own page — one line each, with a few words of
+disambiguation.
+
+## Concepts
+Key concepts worth a dedicated page — one line each.
+
+## Related existing pages
+Which pages from the existing-wiki index this source touches, BY EXACT
+TITLE from the index — and how (extends / contradicts / duplicates).
+Only list titles that appear in the index; write "none" when unrelated.
+
+## Potential conflicts
+Contradictions or heavy overlaps between this source and the existing
+wiki (or the project's purpose/schema). Write "none" if clean.
+
+## Suggested page split
+The final list of pages the writer stage should produce — one line per
+page: `wiki/{sources,entities,concepts}/<kebab-name>.md — one-line
+scope`. Follow the project's schema conventions when they exist."""
+
+
+def build_analyze_prompt(
+    *,
+    source_title: str,
+    source_text: str,
+    context: Optional[IngestContext] = None,
+) -> str:
+    """Build the stage-1 (analysis) user message.
+
+    Carries the wiki context (purpose / schema / existing page index)
+    so the analysis can ground relations and conflicts in real pages,
+    plus the source itself. Output length is capped by instruction
+    (~600 words) — stage 1 doubles token cost per task, so its output
+    budget is deliberately tight (the runner also uses a smaller
+    max_tokens for this call).
+    """
+    parts: list[str] = []
+
+    parts.append(
+        "Analyze the source below for ingestion into a wiki. Produce "
+        "EXACTLY these sections, in this order, with these headings:"
+    )
+    parts.append("")
+    parts.append(_ANALYZE_SECTIONS)
+    parts.append("")
+    parts.append(
+        "Rules:\n"
+        "1. Total output ≤ 600 words. Be terse — one line per item.\n"
+        "2. Match the language of the source (Chinese source → Chinese "
+        "analysis, including page titles).\n"
+        "3. Ground every claim in the source or the wiki context — do "
+        "not invent pages or facts.\n"
+        "4. Page paths use kebab-case under "
+        "`wiki/{sources,entities,concepts}/`."
+    )
+    parts.append("")
+
+    _append_wiki_context(parts, context)
+
+    parts.append("## Source")
+    parts.append("")
+    if source_title:
+        parts.append(f"Title: {source_title}")
+        parts.append("")
+    parts.append("```")
+    parts.append(source_text)
+    parts.append("```")
+
+    return "\n".join(parts)
+
+
+# ─── Stage 2: FILE-block generation ────────────────────────────────
 
 SYSTEM_PROMPT = (
     "You are a wiki maintainer. You take one source document and "
@@ -64,13 +166,14 @@ def build_user_prompt(
     *,
     source_title: str,
     source_text: str,
+    analysis: Optional[str] = None,
+    context: Optional[IngestContext] = None,
 ) -> str:
-    """Build the user message for one ingest task.
+    """Build the stage-2 (generation) user message.
 
-    The system prompt is constant; the user prompt carries the source
-    payload + the strict output rules. Keeping rules out of the system
-    prompt lets us tune them per-task in the future (e.g. include a
-    project-specific schema as part of stage 1).
+    ``analysis`` (stage-1 output) and ``context`` (project purpose /
+    schema / page index) are None on the legacy single-stage path —
+    the prompt then degrades to the P1-8 shape exactly.
     """
     parts: list[str] = []
 
@@ -80,26 +183,45 @@ def build_user_prompt(
     )
     parts.append("")
 
+    _append_wiki_context(parts, context)
+
     parts.append("## What to generate")
     parts.append("")
-    parts.append(
-        "1. A source summary page at "
-        "`wiki/sources/<kebab-case-source-name>.md` summarising the "
-        "input (200-400 words, key claims + provenance)."
-    )
-    parts.append(
-        "2. Entity pages in `wiki/entities/<kebab-name>.md` for each "
-        "named entity (people, products, organizations, datasets) "
-        "that's substantive enough to warrant its own page."
-    )
-    parts.append(
-        "3. Concept pages in `wiki/concepts/<kebab-name>.md` for each "
-        "key concept worth its own dedicated page."
-    )
+    if analysis:
+        parts.append(
+            "Follow the planning analysis below for the page split, "
+            "the pages to create, and the linking decisions. It was "
+            "produced from the same source with full wiki context — "
+            "treat its suggested page split as the authoritative plan, "
+            "deviating only when a suggested page would be empty or "
+            "redundant."
+        )
+    else:
+        parts.append(
+            "1. A source summary page at "
+            "`wiki/sources/<kebab-case-source-name>.md` summarising the "
+            "input (200-400 words, key claims + provenance)."
+        )
+        parts.append(
+            "2. Entity pages in `wiki/entities/<kebab-name>.md` for each "
+            "named entity (people, products, organizations, datasets) "
+            "that's substantive enough to warrant its own page."
+        )
+        parts.append(
+            "3. Concept pages in `wiki/concepts/<kebab-name>.md` for each "
+            "key concept worth its own dedicated page."
+        )
     parts.append(
         "Skip topics that wouldn't earn a useful standalone page; "
         "minor mentions can stay as wikilinks inside other pages."
     )
+    if context and context.pages:
+        parts.append(
+            "Do NOT create a page that duplicates an existing one from "
+            "the index above — link to it with `[[Exact Title]]` "
+            "instead. When your body mentions a topic that has an "
+            "existing page, always wikilink it by its exact title."
+        )
     parts.append("")
 
     parts.append("## Frontmatter rules (STRICT — parser is anchored)")
@@ -121,6 +243,12 @@ def build_user_prompt(
     parts.append("  * updated  — same as created")
     parts.append("  * tags     — array of bare strings, e.g. `tags: [ai, ml]`")
     parts.append("")
+
+    if analysis:
+        parts.append("## Planning analysis (from stage 1)")
+        parts.append("")
+        parts.append(analysis.strip())
+        parts.append("")
 
     parts.append("## Source")
     parts.append("")
@@ -159,3 +287,55 @@ def build_user_prompt(
     )
 
     return "\n".join(parts)
+
+
+# ─── shared context section ────────────────────────────────────────
+
+def _append_wiki_context(parts: list[str],
+                         context: Optional[IngestContext]) -> None:
+    """Append the project's wiki context sections (purpose / schema /
+    existing page index) to a prompt under construction.
+
+    Both stages share this so stage 1's relations/conflicts and stage
+    2's wikilinks are grounded in the same snapshot. Sections with no
+    content are omitted entirely (blank-template projects have no
+    purpose/schema pages).
+    """
+    if context is None:
+        return
+    if context.purpose:
+        parts.append("## Wiki purpose")
+        parts.append("")
+        parts.append(
+            "The project owner declared this wiki's purpose as follows "
+            "— new pages must serve it:"
+        )
+        parts.append("")
+        parts.append(context.purpose.strip())
+        parts.append("")
+    if context.schema:
+        parts.append("## Wiki schema (page conventions)")
+        parts.append("")
+        parts.append(
+            "These are the project's page-type conventions — follow "
+            "them when deciding which pages to create and how to name "
+            "them:"
+        )
+        parts.append("")
+        parts.append(context.schema.strip())
+        parts.append("")
+    if context.pages:
+        parts.append("## Existing wiki pages (index)")
+        parts.append("")
+        parts.append(
+            "The wiki already contains these pages (`title (type)`). "
+            "Reference them by EXACT title:"
+        )
+        parts.append("")
+        for title, typ in context.pages:
+            parts.append(f"- {title} ({typ})" if typ else f"- {title}")
+        if context.pages_total > len(context.pages):
+            parts.append(
+                f"- … and {context.pages_total - len(context.pages)} more"
+            )
+        parts.append("")

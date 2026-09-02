@@ -136,6 +136,26 @@ async def stream_messages(
             raise LLMError(f"relay request failed: {e}") from e
 
 
+async def complete_messages(
+    cfg: LLMConfig,
+    *,
+    system: str,
+    user: str,
+) -> str:
+    """One-shot (non-streaming) chat: collect the full response text.
+
+    Implemented as a collect over ``stream_messages`` so it shares the
+    exact same wire path, auth, and billing semantics — the stage-1
+    analysis call of the two-stage pipeline uses this because nothing
+    consumes its output incrementally, and a plain string is simpler to
+    feed into the stage-2 prompt than an async iterator.
+    """
+    parts: list[str] = []
+    async for delta in stream_messages(cfg, system=system, user=user):
+        parts.append(delta)
+    return "".join(parts)
+
+
 async def _iter_sse_deltas(resp: httpx.Response) -> AsyncIterator[str]:
     """Parse the SSE stream and yield text deltas only.
 

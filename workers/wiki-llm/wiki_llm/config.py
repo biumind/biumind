@@ -21,6 +21,15 @@ hotparse worker)::
                                   supersedes the old per-user
                                   BIUMIND_HUB_TOKEN
     BIUMIND_WIKI_LLM_MODEL    default "claude-haiku-4-5-20251001"
+
+Pipeline shape (P2 #17)::
+
+    BIUMIND_WIKI_LLM_TWO_STAGE  "1" (default) = two-stage CoT: stage 1
+                                structured analysis (non-streaming) fed
+                                into stage 2 FILE-block generation
+                                (streaming partial-save). "0"/"false"/
+                                "off" = legacy single-stage, kept as a
+                                kill-switch for prod A/B comparison.
 """
 
 from __future__ import annotations
@@ -50,6 +59,11 @@ class Config:
     # rejecting source-id-only tasks with a clear failure reason.
     brain_url: str
     internal_token: str
+
+    # P2 #17 两阶段管线开关。默认开：stage 1 分析（非流式）+ stage 2
+    # FILE 块生成（流式 partial-save）。BIUMIND_WIKI_LLM_TWO_STAGE=0
+    # 回退到旧单阶段（直接产 FILE 块），便于线上 A/B 对比输出质量。
+    two_stage: bool = True
 
     @property
     def request_subject(self) -> str:
@@ -82,4 +96,6 @@ class Config:
             model=e.get("BIUMIND_WIKI_LLM_MODEL", "claude-haiku-4-5-20251001"),
             brain_url=e.get("BIUMIND_BRAIN_URL", ""),
             internal_token=e.get("BIUMIND_INTERNAL_TOKEN", ""),
+            two_stage=e.get("BIUMIND_WIKI_LLM_TWO_STAGE", "1").strip().lower()
+                      not in ("0", "false", "no", "off"),
         )
