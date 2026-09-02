@@ -16,6 +16,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -57,6 +58,18 @@ type Server struct {
 	// (string), value = context.CancelFunc. sync.Map zero-value is ready;
 	// entries are removed by the run's defer and by cancel's LoadAndDelete.
 	AgentRuns sync.Map
+	// Semantic (S3 P1) is triggered automatically after a successful wiki
+	// agent run so contradiction / lint findings land server-side without
+	// relying on the client to POST /reviews/scan. nil ⇒ skip (semantic
+	// lint disabled). Wired by main.go via WithSemantic.
+	Semantic SemanticScanner
+}
+
+// SemanticScanner is the subset of reviews.SemanticRunner the agent-run
+// hook needs. Declared as an interface (not the concrete runner) so the
+// api package doesn't import reviews and tests can stub it.
+type SemanticScanner interface {
+	Run(ctx context.Context, projectID, ownerID uuid.UUID) error
 }
 
 func NewServer(s *store.Store, src *sources.Store, v *bauth.Verifier, l *slog.Logger) *Server {
@@ -83,6 +96,14 @@ func (s *Server) WithSelection(caller *enrich.RelayLLMCaller) *Server {
 // be nil — Ask then runs without KB citations.
 func (s *Server) WithBM25(searcher *bm25.Searcher) *Server {
 	s.BM25 = searcher
+	return s
+}
+
+// WithSemantic wires the semantic lint runner that fires automatically
+// after a successful wiki agent run (POST .../agent/run). scanner may be
+// nil — the post-run hook then no-ops. Returns s for chaining.
+func (s *Server) WithSemantic(sc SemanticScanner) *Server {
+	s.Semantic = sc
 	return s
 }
 

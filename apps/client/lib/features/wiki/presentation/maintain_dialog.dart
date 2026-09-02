@@ -30,7 +30,6 @@ import '../../../core/ui/biu_text_field.dart';
 import '../../chat/application/chat_preferences.dart' show chatPreferencesProvider;
 import '../../../data/api/_http_helpers.dart' show ApiError;
 import '../../../data/api/chat_client.dart';
-import '../../../data/api/reviews_client.dart' show ReviewsClient;
 import '../../../data/api/wiki_agent_client.dart';
 import '../../../data/providers_providers.dart' show relayCatalogListProvider;
 import '../../../data/wiki_providers.dart';
@@ -223,11 +222,10 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
           _summary = _joinedText();
         });
         _sub?.cancel();
-        // Deep 模式跑完顺手触发一次 semantic contradiction 扫描（agent 改完
-        // 页后矛盾可能变化）。best-effort — 失败不挡 UI；用户也能手动从
-        // 审阅队列触发。后端 agent loop 无 hook 点（RunAgentLoop 写 SSE 头
-        // 后无回调），故在 client 终端事件处触发。
-        if (_mode == 'deep') _triggerSemanticScan();
+        // semantic contradiction 扫描由服务端在 agent run 成功后自动触发
+        // （brain wiki/api triggerSemanticScan，全 mode 覆盖），客户端不再
+        // 补调 /reviews/scan —— 避免双跑，也覆盖客户端崩溃/关窗的场景。
+        // 用户仍可手动从审阅队列触发重扫。
       case ChatDone():
         // legacy terminal event (wiki path dual-emits done + message.done).
         setState(() {
@@ -242,17 +240,6 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
         // Not emitted on the wiki agent path (no thread/placeholder), or
         // legacy duplicates of v2 block events — ignore.
         break;
-    }
-  }
-
-  Future<void> _triggerSemanticScan() async {
-    final repo = ref.read(wikiRepositoryProvider);
-    if (repo == null) return;
-    final c = ReviewsClient(repo.client.baseUrl, repo.client.bearerToken);
-    try {
-      await c.triggerScan(projectId: widget.projectId, family: 'semantic');
-    } catch (_) {
-      // best-effort — 失败不挡 dialog；用户可从审阅队列手动重扫。
     }
   }
 

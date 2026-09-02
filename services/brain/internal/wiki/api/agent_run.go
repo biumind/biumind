@@ -36,6 +36,10 @@ import (
 // Once RunAgentLoop opens the SSE stream (200 + headers) it owns the writer;
 // failures after that point are surfaced as block.error / MessageError events,
 // NOT via writeErr (headers are already sent). We only log here.
+//
+// On success the handler fires a server-side semantic lint scan
+// (triggerSemanticScan) so contradiction findings persist even if the
+// client disconnects right after the stream closes.
 func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 	pid, err := uuid.Parse(r.PathValue("pid"))
 	if err != nil {
@@ -96,7 +100,33 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 			s.Logger.WarnContext(r.Context(), "wiki agent run failed",
 				"project_id", pid, "user_id", uid, "err", err)
 		}
+		return
 	}
+	// S3 P1: agent run succeeded → fire a semantic lint scan server-side.
+	// Before this hook the scan was triggered by the client (maintain_dialog)
+	// after deep runs only — a crashed / closed client lost it entirely.
+	s.triggerSemanticScan(pid, uid)
+}
+
+// triggerSemanticScan fires one semantic lint scan in a detached goroutine.
+// Called after RunAgentLoop returns success — the SSE stream is finished at
+// that point, so the scan never blocks the response.
+//
+// All modes (fast / standard / deep) trigger: the scan is a single LLM call
+// over ≤60 page summaries, and SemanticRunner is safe against duplicates —
+// per-project inflight guard (ErrSemanticAlreadyRunning) plus
+// review_items.dedupe_key UNIQUE make re-fires idempotent. nil Semantic
+// (model-relay / JWT unconfigured) ⇒ silent no-op.
+func (s *Server) triggerSemanticScan(projectID, ownerID uuid.UUID) {
+	if s.Semantic == nil {
+		return
+	}
+	go func() {
+		if err := s.Semantic.Run(context.Background(), projectID, ownerID); err != nil && s.Logger != nil {
+			s.Logger.Warn("wiki agent: post-run semantic scan failed",
+				"project_id", projectID, "err", err)
+		}
+	}()
 }
 
 // handleWikiAgentCancel — POST /v1/wiki/projects/{pid}/agent/run/cancel.
