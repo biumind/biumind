@@ -684,61 +684,6 @@ class WikiChatMessage {
       );
 }
 
-/// Deep Research task。status ∈ pending/running/done/failed。`pageId` 是
-/// LLM 综合后落地到 wiki 的 page id（可点跳）。
-class WikiResearchTask {
-  final String id;
-  final String projectId;
-  final String topic;
-  final List<String> queries;
-  final String status;
-  final String? pageId;
-  final String synthesis;
-  final String? error;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-
-  const WikiResearchTask({
-    required this.id,
-    required this.projectId,
-    required this.topic,
-    required this.queries,
-    required this.status,
-    required this.synthesis,
-    required this.createdAt,
-    required this.updatedAt,
-    this.pageId,
-    this.error,
-  });
-
-  factory WikiResearchTask.fromJson(Map<String, dynamic> j) {
-    return WikiResearchTask(
-      id: j['id']?.toString() ?? '',
-      projectId: j['project_id']?.toString() ?? '',
-      topic: j['topic']?.toString() ?? '',
-      queries: (j['queries'] as List? ?? const [])
-          .map((e) => e.toString())
-          .toList(),
-      status: j['status']?.toString() ?? 'pending',
-      pageId: (j['page_id'] as String?)?.isNotEmpty == true
-          ? j['page_id'] as String
-          : null,
-      synthesis: j['synthesis']?.toString() ?? '',
-      error: j['error'] as String?,
-      createdAt:
-          DateTime.tryParse(j['created_at'] as String? ?? '')?.toUtc() ??
-              DateTime.now().toUtc(),
-      updatedAt:
-          DateTime.tryParse(j['updated_at'] as String? ?? '')?.toUtc() ??
-              DateTime.now().toUtc(),
-    );
-  }
-
-  bool get isRunning => status == 'pending' || status == 'running';
-  bool get isFailed => status == 'failed';
-  bool get isDone => status == 'done';
-}
-
 class WikiClient {
   WikiClient(this.baseUrl, this.bearerToken);
 
@@ -1228,39 +1173,6 @@ class WikiClient {
       '/v1/wiki/projects/$projectId/conversations/$conversationId/messages/$messageId/regenerate',
       const {},
     );
-  }
-
-  // ─── Research (B5.3) ────────────────────────────────────
-
-  Future<List<WikiResearchTask>> listResearch(String projectId) async {
-    final raw = await _get('/v1/wiki/projects/$projectId/research');
-    return (raw['tasks'] as List? ?? raw['items'] as List? ?? const [])
-        .whereType<Map>()
-        .map((m) => WikiResearchTask.fromJson(m.cast()))
-        .toList();
-  }
-
-  Future<WikiResearchTask> createResearch(
-    String projectId, {
-    required String topic,
-    List<String>? queries,
-  }) async {
-    final body = <String, dynamic>{'topic': topic};
-    if (queries != null) body['queries'] = queries;
-    final raw = await _post(
-      '/v1/wiki/projects/$projectId/research',
-      body,
-    );
-    return WikiResearchTask.fromJson(raw);
-  }
-
-  Future<WikiResearchTask> getResearch(
-    String projectId,
-    String taskId,
-  ) async {
-    final raw =
-        await _get('/v1/wiki/projects/$projectId/research/$taskId');
-    return WikiResearchTask.fromJson(raw);
   }
 
   /// 项目内搜索 —— 直接走 brain 顶层 `POST /v1/search`（已支持

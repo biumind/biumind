@@ -5,8 +5,8 @@
 ///   POST /v1/wiki/projects/{pid}/research      kick off (topic + queries)
 ///   GET  /v1/wiki/projects/{pid}/research/{id} read single
 ///
-/// 任务状态：pending / running / done / failed。done 时 page_id 链入
-/// /wiki/p/:pid/pages/:pid 查看 LLM 综合后落地的 wiki 页。
+/// 任务状态：queued / searching / synthesizing / saving / done / error。
+/// done 时 page_id 链入 /wiki/p/:pid/pages/:pageId 查看 LLM 综合后落地的 wiki 页。
 library;
 
 import 'package:flutter/material.dart';
@@ -15,15 +15,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../core/layout/phone_nav.dart';
-import '../../../../data/api/wiki_client.dart' show WikiResearchTask;
+import '../../../../data/api/research_client.dart';
 import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 
 final _researchListProvider =
-    FutureProvider.family<List<WikiResearchTask>, String>(
+    FutureProvider.family<List<ResearchTask>, String>(
   (ref, projectId) async {
     final repo = ref.watch(wikiRepositoryProvider);
     if (repo == null || projectId.isEmpty) return const [];
-    return repo.client.listResearch(projectId);
+    // 与 research_dialog 同款：复用 wiki client 的 baseUrl + bearer。
+    return ResearchClient(repo.client.baseUrl, repo.client.bearerToken)
+        .listTasks(projectId);
   },
 );
 
@@ -130,10 +132,11 @@ class ResearchPage extends ConsumerWidget {
     final repo = ref.read(wikiRepositoryProvider);
     if (repo == null) return;
     try {
-      await repo.client.createResearch(
+      await ResearchClient(repo.client.baseUrl, repo.client.bearerToken)
+          .startTask(
         projectId,
         topic: topic,
-        queries: queries.isEmpty ? null : queries,
+        queries: queries,
       );
       ref.invalidate(_researchListProvider(projectId));
       if (!context.mounted) return;
@@ -203,16 +206,18 @@ class _Header extends StatelessWidget {
 
 class _TaskCard extends StatelessWidget {
   const _TaskCard({required this.task, required this.projectId});
-  final WikiResearchTask task;
+  final ResearchTask task;
   final String projectId;
 
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (task.status) {
-      'pending' => ('排队中', BiuTokens.textMuted),
-      'running' => ('研究中', BiuTokens.purple),
+      'queued' => ('排队中', BiuTokens.textMuted),
+      'searching' => ('搜索中', BiuTokens.purple),
+      'synthesizing' => ('综合中', BiuTokens.purple),
+      'saving' => ('落页中', BiuTokens.purple),
       'done' => ('完成', BiuTokens.success),
-      'failed' => ('失败', BiuTokens.error),
+      'error' => ('失败', BiuTokens.error),
       _ => (task.status, BiuTokens.textMuted),
     };
     return Container(
