@@ -383,3 +383,134 @@ func TestPageRevisions_GetRevisionCrossPageRejected(t *testing.T) {
 
 // strPtr 便捷取 *string（UpdatePageInput.Title 用）。
 func strPtr(s string) *string { return &s }
+
+// TestPageRevisions_RestorePreservesBodyMd —— 回归：RestorePageRevision 曾 SELECT 不含
+// body_md 却以 rev.BodyMd（零值）覆盖 pages.body_md，restore 后一编辑即二次抹掉内容；
+// 恢复前备份行同样不写 body_md，二次恢复链断。本测试锁死两条路径。
+func TestPageRevisions_RestorePreservesBodyMd(t *testing.T) {
+	h := newWikiTestHarness(t)
+	owner := uuid.New()
+	proj := h.createProject(t, owner, "restore-bodymd")
+	defer h.cleanupProject(t, proj.ID)
+
+	page := h.createPage(t, proj.ID, owner, "页")
+
+	const v1Body = "# 第一版\n\n正文一"
+	const v2Body = "# 第二版\n\n正文二"
+
+	// v1 → backdate 跳窗口合并 → v2（快照捕获 v1 旧态，含 body_md）。
+	if _, err := h.st.UpdatePageBody(context.Background(), UpdatePageBodyInput{
+		PageID: page.ID, BodyMd: v1Body, ActorID: owner.String(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backdateLastPageEditRevision(t, h, page.ID, 6*time.Minute)
+	if _, err := h.st.UpdatePageBody(context.Background(), UpdatePageBodyInput{
+		PageID: page.ID, BodyMd: v2Body, ActorID: owner.String(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 找含 v1 body_md 的快照。
+	var targetID uuid.UUID
+	for _, r := range listPageRevisions(t, h, page.ID) {
+		full, err := h.st.GetPageRevision(context.Background(), page.ID, r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if full.BodyMd == v1Body {
+			targetID = r.ID
+			break
+		}
+	}
+	if targetID == uuid.Nil {
+		t.Fatal("no revision carrying v1 body_md found")
+	}
+
+	// Restore → pages.body_md 必须回到 v1（GetPage 复查，不信 RETURNING）。
+	if _, err := h.st.RestorePageRevision(context.Background(), page.ID, targetID, owner.String()); err != nil {
+		t.Fatalf("RestorePageRevision: %v", err)
+	}
+	got, err := h.st.GetPage(context.Background(), page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BodyMd != v1Body {
+		t.Errorf("body_md after restore = %q, want v1 body", got.BodyMd)
+	}
+
+	// 恢复前自动备份的 restore 版本必须带 v2 body_md（二次恢复链不断）。
+	var backupID uuid.UUID
+	for _, r := range listPageRevisions(t, h, page.ID) {
+		if r.ChangeType == "restore" {
+			backupID = r.ID
+			break
+		}
+	}
+	if backupID == uuid.Nil {
+		t.Fatal("restore auto-backup not found")
+	}
+	backup, err := h.st.GetPageRevision(context.Background(), page.ID, backupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backup.BodyMd != v2Body {
+		t.Errorf("backup body_md = %q, want v2 body", backup.BodyMd)
+	}
+}
+
+// TestPageRevisions_SaveAsCopyPreservesBodyMd —— 回归：SavePageRevisionAsCopy 曾不传
+// BodyMd，副本页编辑态打开空白。body_md 非空时 CreatePage 自动投影 blocks，
+// 逐块复制会翻倍——断言副本 blocks 恰好等于 mdparse 投影量。
+func TestPageRevisions_SaveAsCopyPreservesBodyMd(t *testing.T) {
+	h := newWikiTestHarness(t)
+	owner := uuid.New()
+	proj := h.createProject(t, owner, "copy-bodymd")
+	defer h.cleanupProject(t, proj.ID)
+
+	page := h.createPage(t, proj.ID, owner, "原标题")
+
+	const v1Body = "# 标题\n\n正文"
+	if _, err := h.st.UpdatePageBody(context.Background(), UpdatePageBodyInput{
+		PageID: page.ID, BodyMd: v1Body, ActorID: owner.String(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backdateLastPageEditRevision(t, h, page.ID, 6*time.Minute)
+	if _, err := h.st.UpdatePageBody(context.Background(), UpdatePageBodyInput{
+		PageID: page.ID, BodyMd: "后续改动", ActorID: owner.String(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var targetID uuid.UUID
+	for _, r := range listPageRevisions(t, h, page.ID) {
+		full, err := h.st.GetPageRevision(context.Background(), page.ID, r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if full.BodyMd == v1Body {
+			targetID = r.ID
+			break
+		}
+	}
+	if targetID == uuid.Nil {
+		t.Fatal("no revision carrying v1 body_md found")
+	}
+
+	cp, err := h.st.SavePageRevisionAsCopy(context.Background(), page.ID, targetID, owner.String())
+	if err != nil {
+		t.Fatalf("SavePageRevisionAsCopy: %v", err)
+	}
+	if cp.BodyMd != v1Body {
+		t.Errorf("copy body_md = %q, want v1 body", cp.BodyMd)
+	}
+	cpBlocks, err := h.st.ListBlocks(context.Background(), cp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// mdparse("# 标题\n\n正文") = heading + text 两块；若 body 投影与逐块复制叠加则为 4。
+	if len(cpBlocks) != 2 {
+		t.Errorf("copy blocks = %d, want 2 (mdparse projection only, no duplicate copy)", len(cpBlocks))
+	}
+}

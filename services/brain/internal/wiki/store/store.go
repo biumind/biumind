@@ -1286,14 +1286,14 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. 当前 page（tx-scoped 读，保证一致态）。
+	// 1. 当前 page（tx-scoped 读，保证一致态；body_md 供恢复前备份用）。
 	cur := &Page{}
 	curFM := []byte("{}")
 	err = tx.QueryRow(ctx, `
-		SELECT id, project_id, parent_id, title, frontmatter, share_mode, version, created_at, updated_at
+		SELECT id, project_id, parent_id, title, frontmatter, body_md, share_mode, version, created_at, updated_at
 		FROM brain.pages WHERE id = $1 AND deleted_at IS NULL
 	`, pageID).Scan(
-		&cur.ID, &cur.ProjectID, &cur.ParentID, &cur.Title, &curFM, &cur.ShareMode, &cur.Version,
+		&cur.ID, &cur.ProjectID, &cur.ParentID, &cur.Title, &curFM, &cur.BodyMd, &cur.ShareMode, &cur.Version,
 		&cur.CreatedAt, &cur.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1304,13 +1304,14 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 	}
 	_ = json.Unmarshal(curFM, &cur.Frontmatter)
 
-	// 2. 目标版本（含 blocks_json），严格 page_id 匹配。
+	// 2. 目标版本（含 body_md + blocks_json），严格 page_id 匹配。
+	// body_md 必须读出：步骤 5 以 rev.BodyMd 覆盖 pages.body_md，漏读会零值清空权威列。
 	rev := &Revision{}
 	var revFM, revBlocks []byte
 	err = tx.QueryRow(ctx, `
-		SELECT id, page_id, project_id, title, frontmatter, blocks_json
+		SELECT id, page_id, project_id, title, frontmatter, body_md, blocks_json
 		FROM brain.page_revisions WHERE id = $1 AND page_id = $2
-	`, revisionID, pageID).Scan(&rev.ID, &rev.PageID, &rev.ProjectID, &rev.Title, &revFM, &revBlocks)
+	`, revisionID, pageID).Scan(&rev.ID, &rev.PageID, &rev.ProjectID, &rev.Title, &revFM, &rev.BodyMd, &revBlocks)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1335,9 +1336,9 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 		return nil, fmt.Errorf("marshal current blocks: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, blocks_json, change_type, change_summary)
-		VALUES ($1, $2, $3, $4, $5, $6, 'restore', $7)
-	`, pageID, cur.ProjectID, actorID, cur.Title, curFM, curBlocksJSON, RevisionRestoreSummary); err != nil {
+		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, change_summary)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8)
+	`, pageID, cur.ProjectID, actorID, cur.Title, curFM, cur.BodyMd, curBlocksJSON, RevisionRestoreSummary); err != nil {
 		return nil, fmt.Errorf("backup before restore: %w", err)
 	}
 
@@ -1426,8 +1427,9 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 }
 
 // SavePageRevisionAsCopy —— 以该版本内容新建页：同 project、同 parent、标题追加
-// RevisionCopySuffix、复制 frontmatter + 全部 snap blocks。走 CreatePage + CreateBlock
-// （各开自身事务，顺序执行），block 用新生成的 id（副本页无既有 graph 引用，不需保 id）。
+// RevisionCopySuffix、复制 frontmatter + body_md + 全部 snap blocks。body_md 非空时
+// 交给 CreatePage 事务内 mdparse 自动投影 blocks（§⑤ Path C 权威派生，副本块 id 全新）；
+// 仅当旧版本无 body_md（迁移前快照）才退化逐块复制 snap。
 func (s *Store) SavePageRevisionAsCopy(ctx context.Context, pageID, revisionID uuid.UUID, actorID string) (*Page, error) {
 	rev, err := s.GetPageRevision(ctx, pageID, revisionID)
 	if err != nil {
@@ -1448,10 +1450,15 @@ func (s *Store) SavePageRevisionAsCopy(ctx context.Context, pageID, revisionID u
 		ParentID:    orig.ParentID,
 		Title:       rev.Title + RevisionCopySuffix,
 		Frontmatter: rev.Frontmatter,
+		BodyMd:      rev.BodyMd,
 		ActorID:     actorID,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if rev.BodyMd != "" {
+		// CreatePage 已从事权威 body_md 投影 blocks，逐块复制会翻倍。
+		return p, nil
 	}
 	for _, b := range snap {
 		if _, err := s.CreateBlock(ctx, CreateBlockInput{
