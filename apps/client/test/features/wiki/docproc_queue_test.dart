@@ -109,6 +109,9 @@ class _FakeEngine implements DocprocEngine {
   final List<String> cancelCalls = [];
   Object? errorForNext;
 
+  /// 非 null 时 parse 返回该文本（模拟空文本结果）。
+  String? textOverride;
+
   @override
   Future<DocprocResult> parse({
     required String fileName,
@@ -125,6 +128,15 @@ class _FakeEngine implements DocprocEngine {
     }
     final gate = gates[id];
     if (gate != null) return gate.future;
+    final override = textOverride;
+    if (override != null) {
+      textOverride = null;
+      return Future.value(DocprocResult(
+        text: override,
+        format: 'txt',
+        parserVersion: 'fake-engine@1',
+      ));
+    }
     return Future.value(DocprocResult(
       text: 'text of $fileName',
       format: 'txt',
@@ -271,6 +283,26 @@ void main() {
     expect(patches.any((p) => p['status'] == 'failed'), isTrue);
     final sources = h.brain.bodies('POST', 'sources');
     expect(sources.last['file_id'], 'file-a.txt');
+  });
+
+  test('空文本守卫：引擎返回空 → 不上传 done 空文本，回退云端', () async {
+    // 回归 2026-09-01 线上事故：解析器空文本成功返回 → 客户端标
+    // parse_status=done 上传空 source → ingest 永远 "no content"。
+    h = await _Harness.create();
+    h.engine.textOverride = '   ';
+    h.queue.enqueue([item('a')]);
+    final it = await settle(h.queue, 'a');
+
+    expect(it.status, DocprocItemStatus.done); // 云端兜底成功
+    expect(h.cloudCalls, ['a.txt']);
+    final sources = h.brain.bodies('POST', 'sources');
+    // 只有占位 + 云端 file_id upsert，绝不存在 done+空文本的中间态。
+    expect(sources.length, 2);
+    expect(sources[0]['parse_status'], 'processing');
+    expect(sources[1]['file_id'], 'file-a.txt');
+    expect(sources.any((s) => s['parse_status'] == 'done'), isFalse);
+    final patches = h.brain.bodies('PATCH', 'tasks');
+    expect(patches.any((p) => p['status'] == 'failed'), isTrue);
   });
 
   test('parse 失败 + 云端也失败 → failed + error', () async {

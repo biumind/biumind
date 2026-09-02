@@ -19,7 +19,12 @@ export const PARSER_VERSION = 'docproc-web@0.1.0'
 export const SUPPORTED_FORMATS = ['pdf', 'docx', 'html', 'md', 'txt'] as const
 export type DocFormat = (typeof SUPPORTED_FORMATS)[number]
 
-export type DocprocErrorCode = 'unsupported' | 'encrypted' | 'corrupt' | 'oom'
+export type DocprocErrorCode =
+  | 'unsupported'
+  | 'encrypted'
+  | 'corrupt'
+  | 'oom'
+  | 'no-text-layer'
 
 // Host → Docproc
 

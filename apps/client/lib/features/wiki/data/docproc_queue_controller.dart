@@ -21,6 +21,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/docproc/docproc_bridge_controller.dart';
+import '../../../core/docproc/docproc_bridge_protocol.dart'
+    show DocprocException;
 import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/wiki_client.dart';
 import '../../../data/wiki_providers.dart'
@@ -333,6 +335,16 @@ class DocprocQueue extends ChangeNotifier {
           requestId: item.id,
         ),
       );
+
+      // 空文本守卫：任何解析器返回空都视为失败回退云端，绝不上传
+      // parseStatus=done 的空 source——否则 ingest 永远 "no content"
+      // 失败且 wiki-parse 不会接管（无 file_id）（2026-09-01 线上事故）。
+      if (result.text.trim().isEmpty) {
+        throw const DocprocException(
+          code: 'empty-result',
+          message: '本机解析结果为空（可能无文本层），转云端处理',
+        );
+      }
 
       final contentHash = sha256.convert(utf8.encode(result.text));
       await wiki.createSource(

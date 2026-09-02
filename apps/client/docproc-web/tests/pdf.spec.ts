@@ -57,6 +57,17 @@ describe('parseDocument: pdf', () => {
     expect(out.text).toContain('Hello BiuMind')
   })
 
+  it('无文本层（扫描件）报 no-text-layer', async () => {
+    // 空 content stream：结构合法但抽不出任何文字。必须抛错而不是
+    // 空文本成功——否则 host 会标 done 上传空 source（2026-09-01 事故）。
+    const err = await parseDocument({
+      fileName: 'scan.pdf',
+      data: makeMinimalPdf(''),
+    }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(DocprocError)
+    expect((err as DocprocError).code).toBe('no-text-layer')
+  })
+
   it('损坏文件报 corrupt', async () => {
     const err = await parseDocument({
       fileName: 'broken.pdf',
