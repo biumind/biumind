@@ -38,6 +38,7 @@ from .cancellation import CancelRegistry, parse_cancel_task_id
 from .config import Config
 from .domain.frontmatter import parse_frontmatter
 from .domain.ingest_parse import FileBlock, parse_file_blocks
+from .domain.sanitize import sanitize_ingested_content
 from .job import (
     IngestRequest,
     Update,
@@ -314,14 +315,20 @@ async def _emit_page(
     block: FileBlock,
     index: int,
 ) -> None:
-    """Send one page update for a closed FILE block."""
+    """Send one page update for a closed FILE block.
+
+    Content passes through the write-time sanitizer first — real-corpus
+    audits show ~45% of LLM pages carry malformed frontmatter (fence
+    wrappers / stray keys / missing openers); brain stores body_md
+    verbatim, so this is the only point the corruption can be stopped.
+    """
     title = _extract_title(block)
     update = Update(
         task_id=task_id,
         kind=KIND_PAGE,
         path=block.path,
         title=title,
-        content=block.content,
+        content=sanitize_ingested_content(block.content),
         index=index,
     )
     await _emit(publish, cfg, update)
