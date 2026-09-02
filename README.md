@@ -84,7 +84,7 @@ biumind/
 ├── web/site/             # 官网 biumind.ai（Astro + Tailwind，中英双语）
 ├── admin/                # 实例管理后台（Vue 3 + Element Plus）
 ├── services/             # 后端 Go 服务（见上表，11 个）
-├── workers/              # Python workers：ingest / aigc / wiki-llm / wiki-parse / risk-control
+├── workers/              # Python workers：aigc / wiki-llm / wiki-parse / risk-control
 ├── packages/             # 跨产品共享：proto（buf）/ go-sdk / skills-stdlib
 ├── schema/               # SDK Protocol JSON Schema（sdk/v1）+ 发布 manifest（release/v1）
 ├── sdks/                 # 公共集成 SDK（go / python / node，Apache-2.0）

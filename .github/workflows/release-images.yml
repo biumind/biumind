@@ -12,12 +12,12 @@
 # A missing namespace/secret silently skips that registry, so GHCR
 # always works and the others are clean opt-in.
 #
-# 镜像清单（19 个，与 deploy/docker-compose/docker-compose.yml 的 image 名一致，
+# 镜像清单（18 个，与 deploy/docker-compose/docker-compose.yml 的 image 名一致，
 # 私有化部署设 BIUMIND_REGISTRY=ghcr.io/biumind 即可纯拉取）:
 #   * 11 Go 服务: identity / model-relay / brain / runtime / realtime /
 #     app-center / aigc / authz / channels / sandbox / deploy
 #   * 4 前端:     site / web-client / admin-web / miniapp-h5
-#   * 4 worker:   worker-ingest / worker-wiki-parse / aigc-worker /
+#   * 3 worker:   worker-wiki-parse / aigc-worker /
 #     worker-wiki-llm（wiki-llm 不在 compose，按需取用）
 #
 # Triggered by:
@@ -64,7 +64,7 @@ on:
       # :sha-<short> + :main (rolling). Release tags below still
       # produce :v* + :latest; the two never collide.
       - main
-    # Skip the full 19-image rebuild for doc/metadata-only changes
+    # Skip the full 18-image rebuild for doc/metadata-only changes
     # (README, CHANGELOG, LICENSE, …). A real code push still triggers;
     # release tags below are tag-scoped and unaffected in practice.
     # CAVEAT: paths-ignore also gates tag pushes, so never tag a
@@ -96,7 +96,6 @@ on:
       - "web-client-v*"
       - "admin-web-v*"
       - "miniapp-h5-v*"
-      - "worker-ingest-v*"
       - "worker-wiki-parse-v*"
       - "aigc-worker-v*"
       - "worker-wiki-llm-v*"
@@ -123,7 +122,6 @@ on:
           - web-client
           - admin-web
           - miniapp-h5
-          - worker-ingest
           - worker-wiki-parse
           - aigc-worker
           - worker-wiki-llm
@@ -178,7 +176,6 @@ jobs:
       web-client: ${{ steps.detect.outputs.web-client }}
       admin-web: ${{ steps.detect.outputs.admin-web }}
       miniapp-h5: ${{ steps.detect.outputs.miniapp-h5 }}
-      worker-ingest: ${{ steps.detect.outputs.worker-ingest }}
       worker-wiki-parse: ${{ steps.detect.outputs.worker-wiki-parse }}
       aigc-worker: ${{ steps.detect.outputs.aigc-worker }}
       worker-wiki-llm: ${{ steps.detect.outputs.worker-wiki-llm }}
@@ -234,7 +231,6 @@ jobs:
             [web-client]="apps/client"
             [admin-web]="admin"
             [miniapp-h5]="apps/miniapp"
-            [worker-ingest]="workers/ingest"
             [worker-wiki-parse]="workers/wiki-parse"
             [aigc-worker]="workers/aigc"
             [worker-wiki-llm]="workers/wiki-llm"
@@ -337,9 +333,6 @@ jobs:
             dockerfile: apps/miniapp/Dockerfile.h5
             context: apps/miniapp
           # ── Python workers（context = 各自目录）
-          - name: worker-ingest
-            dockerfile: workers/ingest/Dockerfile
-            context: workers/ingest
           - name: worker-wiki-parse
             dockerfile: workers/wiki-parse/Dockerfile
             context: workers/wiki-parse

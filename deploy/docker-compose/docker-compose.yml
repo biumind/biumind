@@ -641,22 +641,9 @@ services:
       start_period: 10s
 
   # ═══ Python workers（workers profile）══════════════════════════════
-  # 文档摄入 / AIGC / wiki-parse（向量化、视觉描述、图抽取已内建于 brain）
+  # AIGC / wiki-parse（wiki 源文件解析走 worker-wiki-parse；向量化、视觉
+  # 描述、图抽取已内建于 brain）
   # NATS JetStream 收任务，写回 Postgres + MinIO。设计见 DESIGN.md。
-
-  # ingest worker：PDF / Word / Markdown / HTML 解析
-  worker-ingest:
-    image: ${BIUMIND_REGISTRY:-registry.cn-beijing.aliyuncs.com}/biumind/worker-ingest:${BIUMIND_TAG:-main}
-    container_name: biu-worker-ingest
-    <<: [*restart, *logging]
-    environment:
-      <<: *worker-env
-      WORKER_NAME: ingest
-      WORKER_CONCURRENCY: 2
-      NATS_SUBJECT: biumind.${BIUMIND_ENV:-test}.brain.ingest.requested
-      NATS_DURABLE: ingest-worker
-    networks: [biu-net]
-    depends_on: *worker-depends
 
   # aigc worker — 订阅 aigc.task.submit，走 P4.S1.3 注入的 NATS payload 凭证调上游（DESIGN.md §11）
   # DASHSCOPE/VOLCENGINE env 仅 fallback；payload 凭证优先

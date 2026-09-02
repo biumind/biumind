@@ -21,7 +21,7 @@
 |------|------|--------------|
 | **infra** | postgres / minio(+bootstrap) / nats | `docker compose up -d postgres minio nats minio-bootstrap` |
 | **services** | 9 Go 服务 + 前端 4 个（site/web-client/admin-web/miniapp-h5） | 裸 `docker compose up -d` 即含 |
-| **workers** | 3 Python worker（ingest/aigc/wiki-parse） | `docker compose up -d worker-ingest worker-aigc worker-wiki-parse` |
+| **workers** | 2 Python worker（aigc/wiki-parse） | `docker compose up -d worker-aigc worker-wiki-parse` |
 
 Makefile 包了便捷入口：`make up`（完整栈）/ `make up-infra`（只 infra，本地开发用）/ `make up-workers`（只 workers，依赖 infra 由 `depends_on` 自动带起）/ `make up-all`（= `up`）。
 
@@ -214,7 +214,7 @@ durable consumer 让**服务重启不丢消息**：
 - runtime inbound channel envelope（Telegram / Slack 不再因重启丢）
 - channels publish inbound envelopes via JetStream
 
-无中央 subject 命名约定，自律用 `<service>.<entity>.<event>`（如 `biumind.test.brain.ingest.requested`）。
+无中央 subject 命名约定，自律用 `<service>.<entity>.<event>`（如 `biumind.test.brain.wiki.parse.requested`）。
 
 NATS 测试环境无认证（生产用 NKey + accounts）。`max_payload: 8MB`。
 

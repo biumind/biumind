@@ -36,13 +36,13 @@ make clean         # 停容器 + 删 volume（⚠️ 数据全清，二次确认
 
 ## 启动范围
 
-无 `profiles`——裸 `docker compose up -d` 默认起**完整栈**（infra + 9 Go 服务 + 4 前端 + 3 worker）。要子集就点名服务：
+无 `profiles`——裸 `docker compose up -d` 默认起**完整栈**（infra + 9 Go 服务 + 4 前端 + 2 worker）。要子集就点名服务：
 
 | 想起什么 | 命令 |
 |---------|------|
 | 完整栈 | `docker compose up -d`（= `make up`） |
 | 只基础设施（本地开发，服务在宿主跑） | `docker compose up -d postgres minio nats minio-bootstrap`（= `make up-infra`） |
-| 只 workers（依赖 infra 自动带起） | `docker compose up -d worker-ingest worker-aigc worker-wiki-parse`（= `make up-workers`） |
+| 只 workers（依赖 infra 自动带起） | `docker compose up -d worker-aigc worker-wiki-parse`（= `make up-workers`） |
 
 > `sandbox` / `deploy` / `presence` / `billing` 服务**不在 compose**（依赖 K8s / 外部 SaaS）。`sandbox` / `deploy` 有 Dockerfile 且 CI 会发布镜像（见下「镜像构建」），但无单机编排。
 
@@ -129,13 +129,13 @@ make build-images
 docker build -t biumind/model-relay:dev -f ../../services/model-relay/Dockerfile ../..
 ```
 
-CI（`.github/workflows/release-images.yml`）发布**全部 19 个业务镜像**，与 compose 的 `image:` 字段一一对应；namespace 统一 `biumind`：
+CI（`.github/workflows/release-images.yml`）发布**全部 18 个业务镜像**，与 compose 的 `image:` 字段一一对应；namespace 统一 `biumind`：
 
 - **11 个 Go 服务**：identity / model-relay / brain / runtime / realtime / app-center / aigc / authz / channels / sandbox / deploy
 - **4 个前端**：site / web-client / admin-web / miniapp-h5
-- **4 个 worker**：worker-ingest / worker-wiki-parse / aigc-worker / worker-wiki-llm
+- **3 个 worker**：worker-wiki-parse / aigc-worker / worker-wiki-llm
 
-> compose 实际只编排其中 **16 个**（9 Go 服务 + 4 前端 + 3 worker）：`sandbox` / `deploy` 有镜像但不在 compose，按需自行取用。`worker-wiki-llm` 已编排但挂在 `llm` profile 下（唯一烧 LLM token 的 worker，避免默认栈产生 API 费用）：`docker-compose --profile llm up -d worker-wiki-llm` 启动，需配 `WIKI_LLM_HUB_TOKEN`（有效 JWT）。
+> compose 实际只编排其中 **15 个**（9 Go 服务 + 4 前端 + 2 worker）：`sandbox` / `deploy` 有镜像但不在 compose，按需自行取用。`worker-wiki-llm` 已编排但挂在 `llm` profile 下（唯一烧 LLM token 的 worker，避免默认栈产生 API 费用）：`docker-compose --profile llm up -d worker-wiki-llm` 启动，需配 `WIKI_LLM_HUB_TOKEN`（有效 JWT）。
 
 CI 推送三套仓库（namespace 均 `biumind`）：GHCR `ghcr.io/biumind/<name>`（必推）、Docker Hub `docker.io/biumind/<name>`、Aliyun 北京 `registry.cn-beijing.aliyuncs.com/biumind/<name>`（后两者需配 vars/secrets）。tag：`:sha-<short7>` + `:main`（每次 main push），release tag 时额外 `:v*` + `:latest`。
 

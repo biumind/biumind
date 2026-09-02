@@ -9,13 +9,14 @@ wiki pages via two-stage CoT prompting:
                       blocks streamed back so each finished block lands
                       as a wiki page IMMEDIATELY (streaming partial-save).
 
-Why a separate worker instead of extending services/brain/internal/ingestbus:
+Why a separate worker instead of wiring the CoT loop into brain (Go):
 
-  * Multi-page output ≠ single-page direct ingest contract
+  * Multi-page output ≠ single-page direct parse contract
+    (workers/wiki-parse owns source file → extracted text)
   * CoT prompts iterate fast in Python with hot-reload; Go service deploy
     is slower
   * Streaming partial-save needs cooperative cancel + chunk-boundary
-    state, easier to model in async Python than in Go's ingestbus loop
+    state, easier to model in async Python than in a Go service loop
   * License hygiene: knowcode's reference algorithms are GPL; we
     re-implement from llm_wiki TS source, which is easier to audit when
     each domain module is its own file.

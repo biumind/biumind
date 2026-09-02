@@ -4,10 +4,10 @@ Multi-page CoT wiki ingest worker. Subscribes to NATS, drives one
 source through analyze/generate prompts via biumind model-relay, streams
 emitted wiki pages back as they finish (streaming partial-save).
 
-Sits alongside `workers/ingest`:
+Sits alongside `workers/wiki-parse`:
 
-- `workers/ingest` (existing): binary → text (PDF / OCR / Whisper),
-  re-publishes to `brain.ingest.requested` for single-page direct write.
+- `workers/wiki-parse`: source file → extracted text (PDF / DOCX / XLSX /
+  PPTX / EPUB / MD / TXT / HTML), written back to `wiki_sources`.
 - `workers/wiki-llm` (this): text → many wiki pages via two-stage CoT;
   consumes `brain.wiki.ingest.requested`.
 

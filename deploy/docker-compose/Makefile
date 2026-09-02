@@ -28,7 +28,7 @@ up: check-env ## 拉起完整栈（infra + 全部 Go 服务 + 前端 + workers�
 
 .PHONY: up-workers
 up-workers: check-env ## 只拉 workers（依赖的 infra 由 depends_on 自动带起）
-	$(COMPOSE) up -d worker-ingest worker-aigc worker-wiki-parse
+	$(COMPOSE) up -d worker-aigc worker-wiki-parse
 	@$(MAKE) wait-healthy
 
 .PHONY: up-all

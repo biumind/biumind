@@ -2,9 +2,8 @@
 // the API surface plus the NATS coordination layer for tasks consumed
 // by workers/wiki-llm.
 //
-// This package complements (does not replace) services/brain/internal/ingestbus,
-// which still serves single-page direct ingest from biu CLI / channels.
-// What's new here:
+// Single-page source-file parsing is owned by workers/wiki-parse
+// (file → extracted_text); this package owns the multi-page CoT path:
 //
 //   - brain.ingest_tasks table — durable task with progress, cancel,
 //     and result_pages tracking

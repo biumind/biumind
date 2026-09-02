@@ -1,8 +1,8 @@
 """``python -m wiki_llm`` launcher.
 
-Mirrors workers/ingest's __main__ — set up logging from BIUMIND_LOG_LEVEL
-then hand off to asyncio. Config loads from env at boot; failures here
-should crash the container, not start a silent worker.
+Set up logging from BIUMIND_LOG_LEVEL then hand off to asyncio. Config
+loads from env at boot; failures here should crash the container, not
+start a silent worker.
 """
 
 from __future__ import annotations

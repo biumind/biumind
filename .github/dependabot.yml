@@ -154,11 +154,6 @@ updates:
 
   # ─── Python ──────────────────────────────────────────────
   - package-ecosystem: pip
-    directory: /workers/ingest
-    schedule: { interval: weekly, day: tuesday }
-    labels: ["dependencies", "python"]
-
-  - package-ecosystem: pip
     directory: /sdks/python
     schedule: { interval: weekly, day: tuesday }
     labels: ["dependencies", "python", "sdk"]
@@ -174,11 +169,3 @@ updates:
     directory: /
     schedule: { interval: weekly, day: wednesday }
     labels: ["dependencies", "ci"]
-
-  # ─── Docker base images ──────────────────────────────────
-  # Picks up FROM lines in every Dockerfile so we get nudges when a
-  # new patch release of distroless / python:3.12-slim drops.
-  - package-ecosystem: docker
-    directory: /workers/ingest
-    schedule: { interval: weekly, day: wednesday }
-    labels: ["dependencies", "docker"]
