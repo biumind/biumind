@@ -740,6 +740,8 @@ func run() error {
 	// BIUMIND_INTERNAL_TOKEN is empty; the worker falls back to inline
 	// raw_text in that case (see workers/wiki-llm/wiki_llm/runner.py).
 	ingestInternal := wikiingest.NewInternalServer(sourcesStore, cfg.InternalToken, logger)
+	// P2 #17：两阶段 ingest 的上下文端点（purpose/schema + 页面索引）。
+	ingestInternal.Wiki = st
 	// W4：云端解析按页计费（经 model-relay 代理）。PARSE_BILLING_MODEL 为空
 	// 则禁用（charger=nil，解析照常免费）。
 	if cfg.ParseBillingModel != "" {

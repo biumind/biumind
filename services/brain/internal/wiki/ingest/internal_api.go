@@ -34,6 +34,7 @@ import (
 	"github.com/biumind/biumind/services/brain/internal/files"
 	"github.com/biumind/biumind/services/brain/internal/wiki/reviews"
 	"github.com/biumind/biumind/services/brain/internal/wiki/sources"
+	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 	"github.com/google/uuid"
 )
 
@@ -45,8 +46,11 @@ type InternalServer struct {
 	Blob    *files.Blob    // Phase 3：presign 给 wiki-parse 下载文件；nil → blob-presign 503
 	Reviews *reviews.Store // Phase 3：parse done 后查项目内 source dedup；nil → 跳过
 	Charger *UsageCharger  // W4：云端解析按页扣费（经 model-relay）；nil → 跳过
-	Token   string
-	Logger  *slog.Logger
+	// Wiki：P2 #17 两阶段 ingest 的上下文端点（purpose/schema 正文 +
+	// 页面索引）；nil → ingest-context 503，worker 降级为空上下文。
+	Wiki   *wikistore.Store
+	Token  string
+	Logger *slog.Logger
 }
 
 func NewInternalServer(s *sources.Store, token string, l *slog.Logger) *InternalServer {
@@ -66,6 +70,7 @@ func (s *InternalServer) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/internal/wiki/sources/{id}", s.requireToken(s.handleGetSource))
 	mux.HandleFunc("GET /v1/internal/wiki/sources/{id}/blob-presign", s.requireToken(s.handleBlobPresign))
 	mux.HandleFunc("POST /v1/internal/wiki/sources/{id}/parse-result", s.requireToken(s.handleParseResult))
+	mux.HandleFunc("GET /v1/internal/wiki/projects/{pid}/ingest-context", s.requireToken(s.handleIngestContext))
 }
 
 // handleGetSource returns the source row identified by `id`. Required
