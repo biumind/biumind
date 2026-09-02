@@ -2,8 +2,8 @@
 ///
 ///   ┌────────────────┬───────────────────────────┐
 ///   │ 项目名 + 搜索   │                          │
-///   ├────────────────┤  右栏: WikiReaderView     │
-///   │ 过滤框         │  （选中页 blocks → md）    │
+///   ├────────────────┤  右栏: WikiPageDetail     │
+///   │ 过滤框         │  （读/编切换 + 工具条）    │
 ///   ├────────────────┤                          │
 ///   │ ▼ 概览  (2)    │                          │
 ///   │   Wiki 总览    │                          │
@@ -14,14 +14,15 @@
 ///   └────────────────┴───────────────────────────┘
 ///
 /// 手机形态 (<600px)：320px master 收进 bottom sheet（顶行列表按钮打开，
-/// 选中自动关），detail 全宽 —— 与 wiki_page / WikiShell 同一套范式
+/// 选中自动关），detail 全宽 —— 与 WikiShell 同一套范式
 /// (docs/BiuMind-Mobile-Adaptation-Plan.md §4.6)。
 ///
 /// Master 部分采用分组 page list（按 frontmatter.type 聚合）+ 展开/收起
-/// 状态持久化到 SharedPreferences。Detail 部分目前接 biumind 现有的 WikiReaderView
-/// （blocks → markdown 渲染）。完整编辑器（PageEditorView + Milkdown
-/// WYSIWYG）已在 features/wiki/presentation/pages/ 下，但接入要等
-/// blocks ↔ markdown 双向桥接落地（B1.x 补做）。
+/// 状态持久化到 SharedPreferences。Detail 部分接 [WikiPageDetail]：默认
+/// WikiReaderView 只读，标题行切「编辑」进 PageEditorView（Milkdown
+/// WYSIWYG + autosave → PUT body_md），并挂 selection-edit / 版本历史 /
+/// frontmatter / related / 大纲等全套已有能力。无选中页面时 detail 落
+/// ProjectChatPanel（项目默认工作区 = 对话）。
 library;
 
 import 'dart:async';
@@ -38,10 +39,11 @@ import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../../../data/wiki_repository.dart' show RepoPage;
 import '../../application/sync_provider.dart' show wikiSyncEventsProvider;
 import '../../application/wiki_controller.dart';
+import '../chat/project_chat_panel.dart';
 import '../pages/page_type_config.dart';
 import '../pages/pages_providers.dart';
-import '../reader/wiki_reader_view.dart';
 import '../sync/page_banners.dart';
+import 'wiki_page_detail.dart';
 
 class ProjectBrowserPage extends ConsumerStatefulWidget {
   const ProjectBrowserPage({
@@ -138,7 +140,7 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
   }
 
   /// 手机形态：master（桌面 320px 左栏）收进 bottom sheet 按需查看，
-  /// 选中页面后自动关 sheet。写法与 wiki_page 的页面列表 sheet 一致。
+  /// 选中页面后自动关 sheet（§4.6 bottom sheet 范式）。
   void _openMasterSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -181,21 +183,26 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
 
     final pages = ref.watch(pagesListProvider(widget.projectId));
     final state = ref.watch(wikiControllerProvider);
-    final activeProject = state.valueOrNull?.activeProject;
-    final activePage = state.valueOrNull?.activePage;
-    final blocks = state.valueOrNull?.blocks ?? const [];
+    final s = state.valueOrNull;
+    final activeProject = s?.activeProject;
     final phone = isPhoneLayout(context);
 
     final projectName = activeProject?.name ?? '加载中…';
     void openSearch() => enterSubPage(context, '/wiki/p/${widget.projectId}/search');
 
-    final detail = activePage == null
-        ? const _DetailPlaceholder()
-        : _PageDetail(
-            page: activePage,
-            blocks: blocks,
-            projectId: widget.projectId,
-          );
+    // 无选中页面时 detail 落 ProjectChatPanel（项目默认工作区 = 对话，
+    // 与旧 wiki_page 行为一致）；controller 还没 load 完时给占位。
+    final Widget detail;
+    if (s?.activePage != null) {
+      detail = _PageDetail(state: s!, projectId: widget.projectId);
+    } else if (activeProject != null) {
+      detail = ProjectChatPanel(
+        projectId: activeProject.id,
+        projectName: activeProject.name,
+      );
+    } else {
+      detail = const _DetailPlaceholder();
+    }
 
     // 手机形态：320px master 不常驻 —— 顶行留项目名 + 搜索 + 页面列表
     // 入口（开 bottom sheet），detail 全宽；桌面 master/detail 双栏原样。
@@ -223,7 +230,7 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
             projectName: projectName,
             projectId: widget.projectId,
             pages: pages,
-            selectedPageId: widget.pageId ?? activePage?.id,
+            selectedPageId: widget.pageId ?? s?.activePage?.id,
             onSearch: openSearch,
           ),
         ),
@@ -833,15 +840,16 @@ class _DetailPlaceholder extends StatelessWidget {
   }
 }
 
+/// 右栏 detail —— 实时条幅 + [WikiPageDetail]（读/编切换、工具条、
+/// frontmatter / related / backlinks / 大纲全套）。调用方保证
+/// state.activePage != null。
 class _PageDetail extends StatelessWidget {
   const _PageDetail({
-    required this.page,
-    required this.blocks,
+    required this.state,
     required this.projectId,
   });
 
-  final RepoPage page;
-  final dynamic blocks;
+  final WikiState state;
   final String projectId;
 
   @override
@@ -850,16 +858,8 @@ class _PageDetail extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         // 实时条幅：ingest 进行中 / 刚 LLM 重写完。
-        PageRealtimeBanners(projectId: projectId, pageId: page.id),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-          child: Text(
-            page.title.isEmpty ? '(未命名)' : page.title,
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-        ),
-        Divider(height: 1, color: BiuTokens.borderSubtle),
-        Expanded(child: WikiReaderView(blocks: blocks)),
+        PageRealtimeBanners(projectId: projectId, pageId: state.activePage!.id),
+        Expanded(child: WikiPageDetail(state: state)),
       ],
     );
   }

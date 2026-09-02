@@ -15,11 +15,62 @@ import '../../application/wiki_controller.dart';
 import '../../../../data/wiki_repository.dart' show RepoProject;
 import 'welcome_screen.dart';
 
-class ProjectsPage extends ConsumerWidget {
+class ProjectsPage extends ConsumerStatefulWidget {
   const ProjectsPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProjectsPage> createState() => _ProjectsPageState();
+}
+
+class _ProjectsPageState extends ConsumerState<ProjectsPage> {
+  /// The pageId we last applied. Tracking it lets a repeated build with
+  /// the same query param skip the controller call (it's a no-op anyway,
+  /// but preventing the call avoids spurious network refreshes).
+  String? _appliedPageId;
+
+  /// `/wiki?pageId=` 深链消费（全局搜索 / 全局搜图 / reviews 的页面命中
+  /// 都走这里）。selectPageById 会跨项目扫描并切换 activeProject，选中
+  /// 后落到规范路径 /wiki/p/:pid/pages/:pageId；找不到则提示并剥掉参数。
+  /// （逻辑自旧 wiki_page.dart 迁入 —— 它是该参数此前唯一的消费方。）
+  void _maybeApplyPageIdFromQuery(BuildContext context) {
+    final pageId = GoRouterState.of(context).uri.queryParameters['pageId'];
+    if (pageId == null || pageId.isEmpty) return;
+    if (pageId == _appliedPageId) return;
+    _appliedPageId = pageId;
+
+    // Defer the async controller call out of the build phase.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final ok = await ref
+          .read(wikiControllerProvider.notifier)
+          .selectPageById(pageId);
+      // context.mounted (not just `mounted`) is what the analyzer
+      // tracks for BuildContext-bound async-gap safety.
+      if (!context.mounted) return;
+      if (!ok) {
+        // Surface a brief snackbar so the user knows the deep link didn't
+        // resolve (e.g. the page was already merged away).
+        final short =
+            pageId.length > 8 ? pageId.substring(0, 8) : pageId;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('找不到页面 $short…')),
+        );
+        context.go('/wiki');
+        return;
+      }
+      final pid =
+          ref.read(wikiControllerProvider).valueOrNull?.activeProject?.id;
+      if (!context.mounted) return;
+      if (pid == null) {
+        context.go('/wiki');
+        return;
+      }
+      context.go('/wiki/p/$pid/pages/$pageId');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _maybeApplyPageIdFromQuery(context);
     final stateAsync = ref.watch(wikiControllerProvider);
 
     return stateAsync.when(

@@ -1,13 +1,12 @@
-// WikiShell / WikiPage / ProjectBrowserPage 手机形态测试 — 手机适配 P1 (§4.6)。
+// WikiShell / ProjectBrowserPage 手机形态测试 — 手机适配 P1 (§4.6)。
 //
 // 覆盖:
 //   * 桌面 (1200×800): 220px rail 常驻、无 ☰、内容宽 = 屏宽-221、⌘K 提示在;
 //   * 手机 (390×844): rail 收进 WikiShell 自己的 Drawer (宽 304)、☰ 可开、
 //     内容全宽、⌘K 提示隐藏、点条目先关抽屉再跳转;
-//   * WikiPage: 手机 280px 左栏收进 bottom sheet、大纲进 bottom sheet;
-//     桌面双栏 + 内联 OutlinePanel 原样。
 //   * ProjectBrowserPage: 手机 320px master 收进 bottom sheet (顶行列表
-//     按钮, 选中自动关); 桌面 master/detail 双栏原样。
+//     按钮, 选中自动关); 桌面 master/detail 双栏原样。detail = WikiPageDetail
+//     (旧 wiki_page.dart 右栏抽取, 含读/编切换 + 大纲), 手机大纲进 bottom sheet。
 //
 // 后端依赖全部用 fake/override 隔掉 (wikiController / activity 计数 /
 // pending 写入数 / settings repo), 无网络。
@@ -20,7 +19,6 @@ import 'package:biumind/features/wiki/presentation/activity/activity_provider.da
 import 'package:biumind/features/wiki/presentation/reviews_page.dart';
 import 'package:biumind/features/wiki/presentation/project_browser/project_browser_page.dart';
 import 'package:biumind/features/wiki/presentation/sources/sources_page.dart';
-import 'package:biumind/features/wiki/presentation/wiki_page.dart';
 import 'package:biumind/features/wiki/shell/wiki_nav_rail.dart';
 import 'package:biumind/features/wiki/shell/wiki_shell.dart';
 import 'package:biumind/services/settings_repo.dart';
@@ -194,78 +192,6 @@ void main() {
     });
   });
 
-  group('WikiPage', () {
-    GoRouter pageRouter() => GoRouter(
-          initialLocation: '/wiki',
-          routes: [
-            // Scaffold 提供 Material 祖先 (_LeftPane 的 ListTile 需要) ——
-            // 生产上由 WikiShell 的 Scaffold 提供。
-            GoRoute(
-              path: '/wiki',
-              builder: (_, _) => const Scaffold(body: WikiPage()),
-            ),
-          ],
-        );
-
-    testWidgets('桌面: 280 左栏常驻 + 内联大纲, 无列表按钮', (tester) async {
-      _setView(tester, const Size(1200, 800));
-      await tester.pumpWidget(_wrap(pageRouter()));
-      await _pumpFrames(tester);
-
-      // 左栏项目切换器 + 面包屑各出现一次项目名 → 左栏在。
-      expect(find.text('Demo'), findsNWidgets(2));
-      expect(find.byIcon(Icons.format_list_bulleted), findsNothing);
-      // 2 个 heading → 内联 OutlinePanel (标题「大纲」)。
-      expect(find.text('大纲'), findsOneWidget);
-    });
-
-    testWidgets('手机: 左栏收进 bottom sheet, 大纲进 bottom sheet',
-        (tester) async {
-      _setView(tester, const Size(390, 844));
-      await tester.pumpWidget(_wrap(pageRouter()));
-      await _pumpFrames(tester);
-
-      // 内容单栏: 项目名只剩面包屑一处; 内联大纲不在, 入口按钮在。
-      expect(find.text('Demo'), findsOneWidget);
-      expect(find.text('大纲'), findsNothing);
-      expect(find.byIcon(Icons.format_list_bulleted), findsOneWidget);
-      expect(find.byIcon(Icons.list_alt), findsOneWidget);
-
-      // 页面列表 sheet: 打开 → 选中 → 自动关。
-      await tester.tap(find.byIcon(Icons.format_list_bulleted));
-      await _pumpFrames(tester);
-      expect(find.byType(BottomSheet), findsOneWidget);
-      // 面包屑 + 标题 + sheet 列表项（阅读视图渲的是 block 内容, 不含页名）。
-      expect(find.text('第一页'), findsNWidgets(3));
-      await tester.tap(find.text('第一页').last);
-      await _pumpFrames(tester);
-      expect(find.byType(BottomSheet), findsNothing);
-
-      // 大纲 sheet: 两级标题在 sheet 内可见 (阅读模式纯查看, 不可点)。
-      // 注意阅读视图本身也渲「第一章/第二章」, 断言必须限定在 sheet 内。
-      await tester.tap(find.byIcon(Icons.list_alt));
-      await _pumpFrames(tester);
-      expect(find.byType(BottomSheet), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(BottomSheet),
-          matching: find.text('第一章'),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(BottomSheet),
-          matching: find.text('第二章'),
-        ),
-        findsOneWidget,
-      );
-      await tester.tapAt(const Offset(195, 50)); // 点遮罩关掉
-      await _pumpFrames(tester);
-      expect(find.byType(BottomSheet), findsNothing);
-    });
-  });
-
   group('ProjectBrowserPage', () {
     // 与生产一致挂 Scaffold 祖先 (InkWell/IconButton 需要 Material);
     // pages/:pageId 子路由供 sheet 里点行后 context.go 落位。
@@ -307,6 +233,10 @@ void main() {
       expect(find.byIcon(Icons.format_list_bulleted), findsNothing);
       // PhoneBackButton 桌面 shrink 不占位。
       expect(find.byIcon(Icons.arrow_back), findsNothing);
+      // detail = WikiPageDetail: 读/编切换在; 2 个 heading → 内联 OutlinePanel。
+      expect(find.text('阅读'), findsOneWidget);
+      expect(find.text('编辑'), findsOneWidget);
+      expect(find.text('大纲'), findsOneWidget);
     });
 
     testWidgets('手机: master 收进 bottom sheet, 选中自动关', (tester) async {
@@ -344,6 +274,32 @@ void main() {
       await _pumpFrames(tester);
       expect(find.byType(BottomSheet), findsNothing);
       expect(find.text('第一页'), findsOneWidget);
+
+      // detail 大纲（WikiPageDetail）: 内联 OutlinePanel 不在, 入口按钮在;
+      // 打开 sheet 两级标题可见 (阅读模式纯查看, 不可点)。注意阅读视图
+      // 本身也渲「第一章/第二章」, 断言必须限定在 sheet 内。
+      expect(find.text('大纲'), findsNothing);
+      expect(find.byIcon(Icons.list_alt), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.list_alt));
+      await _pumpFrames(tester);
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('第一章'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.text('第二章'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tapAt(const Offset(195, 50)); // 点遮罩关掉
+      await _pumpFrames(tester);
+      expect(find.byType(BottomSheet), findsNothing);
     });
   });
 
