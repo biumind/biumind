@@ -1,5 +1,7 @@
 ARG INFRA_REGISTRY=docker.io
-# Lean image — wiki-parse worker。无原生依赖（pypdf 纯 Python），slim base 够用。
+# Lean image — wiki-parse worker。解析库全走 wheel（pypdf/mammoth/openpyxl
+# 纯 Python；python-pptx 依赖的 lxml/Pillow 有预编译 wheel），slim base 够用。
+# 依赖声明在 pyproject.toml，`pip install .` 自动带上。
 # 多阶段对齐 wiki-llm 形态，build cache 不泄进 runtime。
 
 FROM ${INFRA_REGISTRY}/library/python:3.12-slim AS builder

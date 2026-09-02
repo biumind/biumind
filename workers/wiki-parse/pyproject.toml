@@ -5,19 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "biumind-wiki-parse-worker"
 version = "0.1.0"
-description = "Wiki source parser worker (PDF/MD/TXT/HTML → extracted_text) for BiuMind Brain"
+description = "Wiki source parser worker (PDF/DOCX/XLSX/PPTX/EPUB/MD/TXT/HTML → extracted_text) for BiuMind Brain"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "BiuMind" }]
 
-# NATS 触发 + httpx 调 brain internal 端点 + pypdf 提取 PDF 文本层。
+# NATS 触发 + httpx 调 brain internal 端点 + 解析库：
+# pypdf（PDF 文本层）/ mammoth（DOCX，对齐 docproc-web 的 mammoth.js）/
+# openpyxl（XLSX）/ python-pptx（PPTX）/ ebooklib（EPUB，章节 HTML 复用
+# parser 的 stdlib tag-strip）。
 # 不直连 MinIO —— presigned URL 由 brain 签发，worker httpx 流式下载，
 # 保持 4 worker 形态一致（只 NATS + brain HTTP，无存储凭据）。
 dependencies = [
   "nats-py>=2.7,<3",
   "httpx>=0.27,<0.30",
   "pypdf>=6.14,<7",
+  "mammoth>=1.6,<2",
+  "openpyxl>=3.1,<4",
+  "python-pptx>=1.0,<2",
+  "ebooklib>=0.18,<1",
 ]
 
 [project.optional-dependencies]

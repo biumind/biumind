@@ -1,13 +1,14 @@
-"""File → extracted text. MVP parsers: PDF (pypdf) + MD/TXT (utf-8) +
-HTML (stdlib tag-strip).
+"""File → extracted text. Parsers: PDF (pypdf) + DOCX (mammoth，对齐
+docproc-web 客户端侧 mammoth.js) + XLSX (openpyxl) + PPTX (python-pptx)
++ EPUB (ebooklib + stdlib tag-strip) + MD/TXT (utf-8) + HTML (stdlib tag-strip)。
 
 分派按 mime + filename 扩展名 + 内容探测。失败抛 ``ParseError``，runner
 捕获后回写 ``parse_status='error'``。
 
-MVP 边界（llm_wiki 有而我们暂未做的）：
+边界（llm_wiki 有而我们暂未做的）：
 - HTML 只 stdlib strip tag，无 readability/trafilatura 正文抽取
 - PDF 只 pypdf 文本层提取，扫描版/复杂表格效果差（pdfplumber/MinerU 排期）
-- 无 DOCX/XLSX/PPTX/EPUB/OCR（均排期）
+- 无 OCR / MOBI（OCR 走 B1 MinerU 方案另行立项；MOBI 排期）
 
 content_hash = sha256(extracted_text)（不是文件字节），所以同内容不同格式
 会被判重 —— 这是产品决策（用户已确认）。
@@ -61,6 +62,22 @@ def _looks_pdf(mime: str, filename: str) -> bool:
     return "pdf" in mime or filename.lower().endswith(".pdf")
 
 
+def _looks_docx(mime: str, filename: str) -> bool:
+    return "wordprocessingml" in mime or filename.lower().endswith(".docx")
+
+
+def _looks_xlsx(mime: str, filename: str) -> bool:
+    return "spreadsheetml" in mime or filename.lower().endswith(".xlsx")
+
+
+def _looks_pptx(mime: str, filename: str) -> bool:
+    return "presentationml" in mime or filename.lower().endswith(".pptx")
+
+
+def _looks_epub(mime: str, filename: str) -> bool:
+    return "epub" in mime or filename.lower().endswith(".epub")
+
+
 def _looks_html(data: bytes, mime: str, filename: str) -> bool:
     if "html" in mime:
         return True
@@ -90,7 +107,8 @@ def count_pages(data: bytes, *, mime: str = "", filename: str = "") -> Optional[
 def extract(data: bytes, *, mime: str = "", filename: str = "") -> str:
     """从文件字节提取纯文本。
 
-    分派：PDF（mime/扩展名）→ HTML（探测）→ 其余按 utf-8 decode（MD/TXT/code/JSON…）。
+    分派：PDF（mime/扩展名）→ DOCX/XLSX/PPTX/EPUB（mime/扩展名）→
+    HTML（探测）→ 其余按 utf-8 decode（MD/TXT/code/JSON…）。
     空文件或无文本抛 ParseError。
     """
     if not data:
@@ -98,6 +116,18 @@ def extract(data: bytes, *, mime: str = "", filename: str = "") -> str:
 
     if _looks_pdf(mime, filename):
         return _extract_pdf(data)
+
+    if _looks_docx(mime, filename):
+        return _extract_docx(data)
+
+    if _looks_xlsx(mime, filename):
+        return _extract_xlsx(data)
+
+    if _looks_pptx(mime, filename):
+        return _extract_pptx(data)
+
+    if _looks_epub(mime, filename):
+        return _extract_epub(data)
 
     if _looks_html(data, mime, filename):
         return _extract_html(data)
@@ -153,3 +183,106 @@ def _extract_html(data: bytes) -> str:
     if not text:
         raise ParseError("HTML stripped to empty (boilerplate-only or no body)")
     return text
+
+
+def _strip_html_bytes(raw: bytes) -> str:
+    """HTML 字节 → 纯文本（EPUB 章节复用；解析失败返回空串，由调用方兜底）。"""
+    stripper = _TagStripper()
+    try:
+        stripper.feed(raw.decode("utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001 — 单章畸形不致命，跳过
+        return ""
+    return stripper.text().strip()
+
+
+def _extract_docx(data: bytes) -> str:
+    try:
+        import mammoth
+    except ImportError as e:
+        raise ParseError("mammoth not installed — add mammoth to worker deps") from e
+    try:
+        result = mammoth.extract_raw_text(io.BytesIO(data))
+    except Exception as e:
+        raise ParseError(f"open DOCX failed: {e}") from e
+    text = (result.value or "").strip()
+    if not text:
+        raise ParseError("DOCX contained no extractable text")
+    return text
+
+
+def _extract_xlsx(data: bytes) -> str:
+    try:
+        from openpyxl import load_workbook
+    except ImportError as e:
+        raise ParseError("openpyxl not installed — add openpyxl to worker deps") from e
+    try:
+        wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as e:
+        raise ParseError(f"open XLSX failed: {e}") from e
+    try:
+        sheets: List[str] = []
+        for ws in wb.worksheets:
+            rows: List[str] = []
+            for row in ws.iter_rows(values_only=True):
+                cells = [
+                    str(c).strip()
+                    for c in row
+                    if c is not None and str(c).strip()
+                ]
+                if cells:
+                    rows.append(" | ".join(cells))
+            if rows:
+                sheets.append(f"--- sheet: {ws.title} ---\n" + "\n".join(rows))
+    finally:
+        wb.close()
+    if not sheets:
+        raise ParseError("XLSX contained no extractable text")
+    return "\n\n".join(sheets)
+
+
+def _extract_pptx(data: bytes) -> str:
+    try:
+        from pptx import Presentation
+    except ImportError as e:
+        raise ParseError(
+            "python-pptx not installed — add python-pptx to worker deps"
+        ) from e
+    try:
+        prs = Presentation(io.BytesIO(data))
+    except Exception as e:
+        raise ParseError(f"open PPTX failed: {e}") from e
+    slides: List[str] = []
+    for i, slide in enumerate(prs.slides):
+        texts: List[str] = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                t = shape.text_frame.text.strip()
+                if t:
+                    texts.append(t)
+        if texts:
+            slides.append(f"--- slide {i + 1} ---\n" + "\n".join(texts))
+    if not slides:
+        raise ParseError("PPTX contained no extractable text")
+    return "\n\n".join(slides)
+
+
+def _extract_epub(data: bytes) -> str:
+    try:
+        import ebooklib
+        from ebooklib import epub
+    except ImportError as e:
+        raise ParseError("ebooklib not installed — add ebooklib to worker deps") from e
+    try:
+        book = epub.read_epub(io.BytesIO(data))
+    except Exception as e:
+        raise ParseError(f"open EPUB failed: {e}") from e
+    chapters: List[str] = []
+    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        if isinstance(item, epub.EpubNav):
+            continue  # nav.xhtml 是目录 boilerplate，不是正文
+        text = _strip_html_bytes(item.get_content())
+        if text:
+            chapters.append(f"--- {item.get_name()} ---\n{text}")
+    if not chapters:
+        raise ParseError("EPUB contained no extractable text")
+    return "\n\n".join(chapters)

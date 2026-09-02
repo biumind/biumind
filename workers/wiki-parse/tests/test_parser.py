@@ -1,11 +1,14 @@
-"""wiki-parse parser 单测。覆盖 MVP 分派：MD/TXT/HTML + PDF 缺失分支。
+"""wiki-parse parser 单测。覆盖分派：MD/TXT/HTML + PDF 缺失分支 +
+DOCX/XLSX/PPTX/EPUB（样本文件由对应库在测试内现造，不提交二进制 fixture）。
 
 真 PDF 文本提取需 fixture（reportlab 构造或 sample.pdf），MVP 跳，排期补。
 """
 
 from __future__ import annotations
 
+import io
 import sys
+import zipfile
 
 import pytest
 
@@ -66,3 +69,200 @@ def test_extract_pdf_missing_pypdf_raises(monkeypatch):
 def test_extract_decoded_empty_raises():
     with pytest.raises(ParseError, match="decoded text empty"):
         extract(b"   \n\t  ", filename="blank.txt")
+
+
+# ─── Office / EPUB 格式（样本由对应库现造）─────────────────────────────
+
+
+def _make_docx(paragraphs: list[str]) -> bytes:
+    """最小合法 DOCX（只 content-types + rels + document.xml）。"""
+    body = "".join(
+        f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>",
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+            "</Relationships>",
+        )
+        z.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f"<w:body>{body}</w:body></w:document>",
+        )
+    return buf.getvalue()
+
+
+def _make_xlsx(sheets: dict[str, list[list[str]]]) -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, rows in sheets.items():
+        ws = wb.create_sheet(title=title)
+        for row in rows:
+            ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _make_pptx(slide_texts: list[list[str]]) -> bytes:
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prs = Presentation()
+    for texts in slide_texts:
+        slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+        box = slide.shapes.add_textbox(
+            Inches(1), Inches(1), Inches(4), Inches(2)
+        )
+        box.text_frame.text = "\n".join(texts)
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+def _make_epub(chapters: dict[str, str]) -> bytes:
+    from ebooklib import epub
+
+    book = epub.EpubBook()
+    book.set_identifier("test-book")
+    book.set_title("Test Book")
+    book.set_language("en")
+    items = []
+    for name, html in chapters.items():
+        c = epub.EpubHtml(title=name, file_name=f"{name}.xhtml", lang="en")
+        c.content = html
+        book.add_item(c)
+        items.append(c)
+    book.toc = items
+    book.spine = ["nav", *items]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    buf = io.BytesIO()
+    epub.write_epub(buf, book)
+    return buf.getvalue()
+
+
+def test_extract_docx_by_extension():
+    data = _make_docx(["Hello DOCX world", "second paragraph"])
+    out = extract(data, filename="report.docx")
+    assert "Hello DOCX world" in out
+    assert "second paragraph" in out
+
+
+def test_extract_docx_by_mime_without_extension():
+    data = _make_docx(["mime dispatch works"])
+    out = extract(
+        data,
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="blob",
+    )
+    assert "mime dispatch works" in out
+
+
+def test_extract_docx_empty_raises():
+    with pytest.raises(ParseError, match="DOCX"):
+        extract(_make_docx([]), filename="empty.docx")
+
+
+def test_extract_docx_missing_mammoth_raises(monkeypatch):
+    monkeypatch.setitem(sys.modules, "mammoth", None)
+    with pytest.raises(ParseError, match="mammoth"):
+        extract(b"fake", filename="x.docx")
+
+
+def test_extract_xlsx_multiple_sheets():
+    data = _make_xlsx(
+        {
+            "Summary": [["name", "score"], ["alpha", "42"]],
+            "Empty": [],
+            "Detail": [["only cell"]],
+        }
+    )
+    out = extract(data, filename="book.xlsx")
+    assert "--- sheet: Summary ---" in out
+    assert "name | score" in out
+    assert "alpha | 42" in out
+    assert "--- sheet: Detail ---" in out
+    assert "Empty" not in out  # 空 sheet 不产出段落
+
+
+def test_extract_xlsx_empty_raises():
+    with pytest.raises(ParseError, match="XLSX"):
+        extract(_make_xlsx({"S": []}), filename="empty.xlsx")
+
+
+def test_extract_xlsx_missing_openpyxl_raises(monkeypatch):
+    monkeypatch.setitem(sys.modules, "openpyxl", None)
+    with pytest.raises(ParseError, match="openpyxl"):
+        extract(b"fake", filename="x.xlsx")
+
+
+def test_extract_pptx_per_slide():
+    data = _make_pptx([["Title one", "bullet A"], ["Second slide text"]])
+    out = extract(data, filename="deck.pptx")
+    assert "--- slide 1 ---" in out
+    assert "Title one" in out and "bullet A" in out
+    assert "--- slide 2 ---" in out
+    assert "Second slide text" in out
+
+
+def test_extract_pptx_empty_raises():
+    with pytest.raises(ParseError, match="PPTX"):
+        extract(_make_pptx([]), filename="empty.pptx")
+
+
+def test_extract_pptx_missing_python_pptx_raises(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pptx", None)
+    with pytest.raises(ParseError, match="python-pptx"):
+        extract(b"fake", filename="x.pptx")
+
+
+def test_extract_epub_chapters_stripped():
+    data = _make_epub(
+        {
+            "ch1": "<html><body><h1>Chapter One</h1>"
+                   "<p>EPUB body text here</p>"
+                   "<script>ignore_me()</script></body></html>",
+            "ch2": "<html><body><p>second chapter content</p></body></html>",
+        }
+    )
+    out = extract(data, filename="book.epub")
+    assert "EPUB body text here" in out
+    assert "second chapter content" in out
+    assert "ignore_me" not in out  # script 被 tag-strip 掉
+
+
+def test_extract_epub_by_mime_without_extension():
+    data = _make_epub({"c": "<html><body><p>epub mime dispatch</p></body></html>"})
+    out = extract(data, mime="application/epub+zip", filename="blob")
+    assert "epub mime dispatch" in out
+
+
+def test_extract_epub_missing_ebooklib_raises(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ebooklib", None)
+    with pytest.raises(ParseError, match="ebooklib"):
+        extract(b"fake", filename="x.epub")
+
+
+def test_extract_epub_empty_raises():
+    # 唯一章节只有 script（tag-strip 后无正文；nav 目录被跳过）→ ParseError。
+    # 注意不能写真空 body —— ebooklib write_epub 对空文档自身就抛 lxml ParserError。
+    data = _make_epub({"c": "<html><body><script>only_script()</script></body></html>"})
+    with pytest.raises(ParseError, match="EPUB"):
+        extract(data, filename="empty.epub")
