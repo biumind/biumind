@@ -36,6 +36,18 @@ type AgentLoop struct {
 	Registry *tools.Registry
 	MaxTurns int // safety cap; 0 → 8
 
+	// RetrievalBudget (P2 #19) caps retrieval-class tool calls
+	// (tools.Tool.Retrieval) per run, independently of MaxTurns. 0 →
+	// no retrieval budget (default; plain chat keeps prior behaviour).
+	// The wiki agent run wires mode tiers fast=2/standard=4/deep=6 —
+	// see wiki/api wikiAgentRetrievalBudget. When active, the loop also
+	// rejects duplicate retrieval signatures and early-stops after
+	// NoYieldStreakLimit consecutive empty results (retrieval_guard.go).
+	RetrievalBudget int
+	// NoYieldStreakLimit is the consecutive-empty-results threshold for
+	// early stop. 0 → 3 (only meaningful when RetrievalBudget > 0).
+	NoYieldStreakLimit int
+
 	// ChatToolAllowlist is the chat-mode tool whitelist (Q1, Runtime v3
 	// §4). When non-nil it default-denies: both kernels (Run / RunV2)
 	// advertise only tools whose name is in the set. nil = no restriction
@@ -110,6 +122,13 @@ func (a *AgentLoop) Run(ctx context.Context, in AgentRunInput) (*AgentRunResult,
 	history := append([]hubMessage(nil), in.History...)
 	result := &AgentRunResult{}
 
+	// P2 #19: per-run retrieval budget guard. Active only when the caller
+	// opted in via RetrievalBudget; nil otherwise (invoke skips it).
+	var guard *retrievalGuard
+	if a.RetrievalBudget > 0 && a.Registry != nil {
+		guard = newRetrievalGuard(a.RetrievalBudget, a.NoYieldStreakLimit)
+	}
+
 	for turn := 0; turn < maxTurns; turn++ {
 		req := hubReq{
 			Model:         in.Model,
@@ -155,7 +174,7 @@ func (a *AgentLoop) Run(ctx context.Context, in AgentRunInput) (*AgentRunResult,
 		// Execute every tool the model requested, in order, append a
 		// tool_result message each time, and let the loop continue.
 		for _, c := range calls {
-			toolResult, toolErr := a.invoke(ctx, in.Emitter, c, in.Mode)
+			toolResult, toolErr := a.invoke(ctx, in.Emitter, c, in.Mode, guard)
 			history = append(history, hubMessage{
 				Role:       "tool",
 				ToolCallID: c.ID,
@@ -255,8 +274,13 @@ func (a *AgentLoop) consumeStream(ctx context.Context, stream <-chan hubFrame,
 // tool_result payload to feed back to the model. Errors are folded
 // into the result string so the model can recover (e.g. by trying a
 // different tool) rather than aborting the loop.
+//
+// guard (P2 #19, may be nil) gates retrieval-class calls: duplicate /
+// over-budget / no-yield rejections are surfaced as ToolFailed steps
+// (visible in the client's tool-step UI) and fed back as error text so
+// the model wraps up instead of looping on search.
 func (a *AgentLoop) invoke(ctx context.Context, emitter *BlockEmitter,
-	c hubToolCall, mode tools.ExecutionMode,
+	c hubToolCall, mode tools.ExecutionMode, guard *retrievalGuard,
 ) (string, error) {
 	// Surface to the user before we run, so a slow tool shows
 	// "calling…" immediately rather than waiting on the result.
@@ -285,8 +309,19 @@ func (a *AgentLoop) invoke(ctx context.Context, emitter *BlockEmitter,
 		}
 	}
 
+	isRetrieval := guard != nil && a.Registry.IsRetrieval(c.Name)
+	if isRetrieval {
+		if msg := guard.check(c.Name, c.Input); msg != "" {
+			emitter.ToolFailed(blockID, msg, time.Since(start).Milliseconds())
+			return fmt.Sprintf("error: %s", msg), errors.New(msg)
+		}
+	}
+
 	result, err := a.Registry.Invoke(ctx, mode, c.Name, c.Input)
 	dur := time.Since(start).Milliseconds()
+	if isRetrieval {
+		guard.record(c.Name, c.Input, result, err)
+	}
 	if err != nil {
 		emitter.ToolFailed(blockID, err.Error(), dur)
 		// Feed the error back to the model — that's how it learns

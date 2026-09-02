@@ -141,10 +141,18 @@ type Invoker func(ctx context.Context, input json.RawMessage) (any, error)
 // true; wiki write tools (create/update/merge_page) set it false.
 // Pure server-runtime attribute — intentionally NOT in Descriptor, so
 // it never leaks into the client tool catalog.
+//
+// Retrieval (P2 #19) marks "search-class" tools (websearch / wiki_search /
+// memory_recall) whose calls go out to a knowledge source and return
+// ranked hits. chat.AgentLoop uses it to enforce a per-run retrieval
+// budget: counted calls, duplicate-signature rejection, and empty-result
+// early stop (see chat/retrieval_guard.go). Same server-only treatment
+// as ReadOnly — not in Descriptor, never leaves the process.
 type Tool struct {
 	Descriptor
-	Invoke   Invoker
-	ReadOnly bool
+	Invoke    Invoker
+	ReadOnly  bool
+	Retrieval bool
 }
 
 // Registry is a goroutine-safe, in-memory tool catalog. New() returns
@@ -206,6 +214,16 @@ func (r *Registry) Get(name string) (Descriptor, bool) {
 		return Descriptor{}, false
 	}
 	return t.Descriptor, true
+}
+
+// IsRetrieval reports whether the named tool is a registered
+// retrieval-class tool (Tool.Retrieval). Unknown names → false, so a
+// hallucinated tool name never trips the retrieval budget path.
+func (r *Registry) IsRetrieval(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	t, ok := r.tools[name]
+	return ok && t.Retrieval
 }
 
 // All returns a stable-ordered snapshot of every tool descriptor.

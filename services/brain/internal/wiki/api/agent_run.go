@@ -95,6 +95,10 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 		Model:     req.Model,
 		Allowlist: tools.WikiAgentToolAllowlist,
 		MaxTurns:  maxTurns,
+		// P2 #19: retrieval-class tools (websearch / wiki_search /
+		// memory_recall) get their own per-run budget, so a model that
+		// loops on search can't burn the whole MaxTurns allowance.
+		RetrievalBudget: wikiAgentRetrievalBudget(req.Mode),
 	}); err != nil {
 		if s.Logger != nil {
 			s.Logger.WarnContext(r.Context(), "wiki agent run failed",
@@ -200,6 +204,23 @@ func wikiAgentMaxTurns(mode string) int {
 		return 12
 	default: // standard / empty / unknown
 		return 8
+	}
+}
+
+// wikiAgentRetrievalBudget maps mode → retrieval-class tool budget
+// (P2 #19), independent of wikiAgentMaxTurns. Tiers: Fast=2/Standard=4/
+// Deep=6 — half the MaxTurns ratio, inside reference/llm_wiki's 2~8
+// retrieval-step band (agent/runtime.rs:2822-2851). Over-budget /
+// duplicate / no-yield retrieval calls are rejected by the loop's
+// retrieval guard (chat/retrieval_guard.go) with a wrap-up hint.
+func wikiAgentRetrievalBudget(mode string) int {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "fast":
+		return 2
+	case "deep":
+		return 6
+	default: // standard / empty / unknown
+		return 4
 	}
 }
 

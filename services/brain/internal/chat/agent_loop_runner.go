@@ -48,6 +48,10 @@ type AgentLoopRunInput struct {
 	// MaxTurns caps the loop. 0 → AgentLoop default (8). Wiki maps
 	// mode Fast/Standard/Deep to 4/8/12 (see wiki/api wikiAgentMaxTurns).
 	MaxTurns int
+	// RetrievalBudget (P2 #19) caps retrieval-class tool calls per run,
+	// independent of MaxTurns. 0 → no retrieval budget. Wiki maps
+	// mode Fast/Standard/Deep to 2/4/6 (wiki/api wikiAgentRetrievalBudget).
+	RetrievalBudget int
 }
 
 // ErrStreamingUnsupported is returned by RunAgentLoop when the ResponseWriter
@@ -88,6 +92,7 @@ func (h *HTTPSender) RunAgentLoop(ctx context.Context, w http.ResponseWriter,
 	loop := NewAgentLoop(h, h.Tools)
 	loop.ChatToolAllowlist = in.Allowlist
 	loop.MaxTurns = in.MaxTurns
+	loop.RetrievalBudget = in.RetrievalBudget
 
 	bearer := h.StaticBearer
 	if h.PassThroughAuth {
