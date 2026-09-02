@@ -373,6 +373,11 @@ services:
       EMBED_PROVIDER: ${EMBED_PROVIDER:-openai}
       EMBED_MODEL: ${EMBED_MODEL:-bge-m3}
       EMBED_DIMS: ${EMBED_DIMS:-1024}
+      # 搜索 rerank：cohere 协议走 model-relay internal lane（I6，与 embedding
+      # 同链）。空 = 关闭保持 RRF 原序。启用前提：model_relay.models 有
+      # mode='rerank' 的模型 + pricing 行（否则静默零扣费，见 modality_billing）
+      RERANK_PROVIDER: ${RERANK_PROVIDER:-}
+      RERANK_MODEL: ${RERANK_MODEL:-BAAI/bge-reranker-v2-m3}
       MODEL_RELAY_INTERNAL_TOKEN: ${MODEL_RELAY_INTERNAL_TOKEN:-biumind-dev-relay-internal-token-change-me}
       # W4 云端解析计费：pseudo-model code（pricing 行在 model_relay.pricing 配，
       # 空 = 免费兜底）。上线时在 .env 设 PARSE_BILLING_MODEL=wiki-parse-text
