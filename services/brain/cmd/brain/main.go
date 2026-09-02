@@ -945,7 +945,7 @@ func run() error {
 		researchOrch = wikiresearch.NewOrchestrator(
 			pool, researchStore, st, sxClient, caller,
 			wikiresearch.Config{Logger: logger},
-		)
+		).WithReviews(reviewsStore)
 		logger.Info("deep research enabled",
 			"model", cfg.ResearchModel,
 			"searx", cfg.SearxNGURL)
@@ -1012,12 +1012,17 @@ func run() error {
 		// Semantic lint runner 搬入 reviews 包（wiki/lint 收敛 B-10 后），
 		// 经 reviewsSrv.SetSemantic 注入；/reviews/scan family=semantic 触发。
 		// handleScan 检测 Semantic==nil 返 503 —— 所以仅在此分支注入。
+		// 同一实例也注入 wiki apiSrv：agent run 成功后服务端自动触发扫描
+		// （S3 P1，不再依赖客户端 deep 跑完后调 /reviews/scan）。runner 的
+		// per-project inflight 防重入，两个入口并发安全。
 		semanticCaller := wikireviews.NewRelaySemanticCaller(
 			cfg.RelayURL, cfg.SemanticModel, signer, logger,
 		)
-		reviewsSrv.SetSemantic(wikireviews.NewSemanticRunner(
+		semanticRunner := wikireviews.NewSemanticRunner(
 			pool, reviewsStore, semanticCaller, logger,
-		))
+		)
+		reviewsSrv.SetSemantic(semanticRunner)
+		apiSrv = apiSrv.WithSemantic(semanticRunner)
 		logger.Info("semantic lint enabled", "model", cfg.SemanticModel)
 
 		// S3 P1-6 inline selection edit/ask — same RelayLLMCaller shape as

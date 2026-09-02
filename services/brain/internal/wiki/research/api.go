@@ -44,17 +44,18 @@ func (s *Server) Mount(mux *http.ServeMux) {
 // ─── Wire types ────────────────────────────────────────────────
 
 type taskOut struct {
-	ID         string   `json:"id"`
-	ProjectID  string   `json:"project_id"`
-	Topic      string   `json:"topic"`
-	Queries    []string `json:"queries"`
-	Status     string   `json:"status"`
-	PageID     *string  `json:"page_id,omitempty"`
-	WebResults []WebHit `json:"web_results,omitempty"`
-	Synthesis  string   `json:"synthesis,omitempty"`
-	Error      string   `json:"error,omitempty"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
+	ID             string   `json:"id"`
+	ProjectID      string   `json:"project_id"`
+	Topic          string   `json:"topic"`
+	Queries        []string `json:"queries"`
+	Status         string   `json:"status"`
+	PageID         *string  `json:"page_id,omitempty"`
+	WebResults     []WebHit `json:"web_results,omitempty"`
+	Synthesis      string   `json:"synthesis,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	SourceReviewID *string  `json:"source_review_id,omitempty"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
 }
 
 func taskJSON(t *Task) taskOut {
@@ -74,6 +75,10 @@ func taskJSON(t *Task) taskOut {
 		v := t.PageID.String()
 		out.PageID = &v
 	}
+	if t.SourceReviewID != nil {
+		v := t.SourceReviewID.String()
+		out.SourceReviewID = &v
+	}
 	if out.Queries == nil {
 		out.Queries = []string{}
 	}
@@ -85,6 +90,10 @@ func taskJSON(t *Task) taskOut {
 type createReq struct {
 	Topic   string   `json:"topic"`
 	Queries []string `json:"queries"`
+	// SourceReviewID marks the task as spawned from a review queue entry
+	// (reviews_page「研究」action). The orchestrator auto-resolves that
+	// review once the research page lands. Optional.
+	SourceReviewID string `json:"source_review_id"`
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +128,16 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			"deep research is not configured on this server")
 		return
 	}
-	task, err := s.Store.Create(r.Context(), pid, uid, topic, queries)
+	var sourceReviewID *uuid.UUID
+	if raw := strings.TrimSpace(req.SourceReviewID); raw != "" {
+		rid, err := uuid.Parse(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "bad_source_review_id", "")
+			return
+		}
+		sourceReviewID = &rid
+	}
+	task, err := s.Store.Create(r.Context(), pid, uid, topic, queries, sourceReviewID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return

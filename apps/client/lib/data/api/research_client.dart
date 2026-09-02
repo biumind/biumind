@@ -16,6 +16,9 @@ class ResearchTask {
   final String synthesis;
   final String? error;
   final List<ResearchHit> webResults;
+  /// 来源审阅项 id（review → research 入口创建的任务才有）。研究落页后
+  /// 服务端会自动 resolve 该审阅项。
+  final String? sourceReviewId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -31,6 +34,7 @@ class ResearchTask {
     required this.webResults,
     required this.createdAt,
     required this.updatedAt,
+    this.sourceReviewId,
   });
 
   bool get isRunning => switch (status) {
@@ -57,6 +61,9 @@ class ResearchTask {
             .cast<Map<String, dynamic>>()
             .map(ResearchHit.fromJson)
             .toList(),
+        sourceReviewId: (j['source_review_id'] as String?)?.isNotEmpty == true
+            ? j['source_review_id'] as String
+            : null,
         createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
             DateTime.now(),
         updatedAt: DateTime.tryParse(j['updated_at'] as String? ?? '') ??
@@ -95,6 +102,7 @@ class ResearchClient {
     String projectId, {
     required String topic,
     List<String> queries = const [],
+    String? sourceReviewId,
   }) async {
     final raw = await apiRequest(
       method: 'POST',
@@ -103,6 +111,8 @@ class ResearchClient {
       body: {
         'topic': topic,
         if (queries.isNotEmpty) 'queries': queries,
+        if (sourceReviewId != null && sourceReviewId.isNotEmpty)
+          'source_review_id': sourceReviewId,
       },
     );
     return ResearchTask.fromJson(raw);

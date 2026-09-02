@@ -45,10 +45,15 @@ type Task struct {
 	WebResults   []WebHit
 	Synthesis    string
 	ErrorMessage string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	StartedAt    *time.Time // nil until the task first leaves 'queued'
-	FinishedAt   *time.Time // nil until Complete/Fail stamps it
+	// SourceReviewID links the task back to the review queue entry it
+	// was spawned from (reviews_page「研究」action). Nil for manually
+	// started research. The orchestrator auto-resolves this review once
+	// the research page lands.
+	SourceReviewID *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	StartedAt      *time.Time // nil until the task first leaves 'queued'
+	FinishedAt     *time.Time // nil until Complete/Fail stamps it
 }
 
 var ErrNotFound = errors.New("research task not found")
@@ -61,17 +66,19 @@ func New(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-// Create inserts a queued task and returns the row.
-func (s *Store) Create(ctx context.Context, projectID, ownerID uuid.UUID, topic string, queries []string) (*Task, error) {
+// Create inserts a queued task and returns the row. sourceReviewID is
+// nil for manually started research; non-nil marks the task as spawned
+// from a review queue entry (auto-resolved on completion).
+func (s *Store) Create(ctx context.Context, projectID, ownerID uuid.UUID, topic string, queries []string, sourceReviewID *uuid.UUID) (*Task, error) {
 	if queries == nil {
 		queries = []string{}
 	}
 	var t Task
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO brain.research_tasks (project_id, owner_id, topic, queries, status)
-		VALUES ($1, $2, $3, $4, 'queued')
+		INSERT INTO brain.research_tasks (project_id, owner_id, topic, queries, status, source_review_id)
+		VALUES ($1, $2, $3, $4, 'queued', $5)
 		RETURNING id, created_at, updated_at
-	`, projectID, ownerID, topic, queries).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
+	`, projectID, ownerID, topic, queries, sourceReviewID).Scan(&t.ID, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +87,7 @@ func (s *Store) Create(ctx context.Context, projectID, ownerID uuid.UUID, topic 
 	t.Topic = topic
 	t.Queries = queries
 	t.Status = StatusQueued
+	t.SourceReviewID = sourceReviewID
 	return &t, nil
 }
 
@@ -88,7 +96,7 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Task, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, project_id, owner_id, topic, queries, status,
 		       page_id, web_results, synthesis,
-		       COALESCE(error_message, ''), created_at, updated_at,
+		       COALESCE(error_message, ''), source_review_id, created_at, updated_at,
 		       started_at, finished_at
 		FROM brain.research_tasks WHERE id = $1
 	`, id)
@@ -108,7 +116,7 @@ func (s *Store) ListByProject(ctx context.Context, projectID uuid.UUID, limit in
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, project_id, owner_id, topic, queries, status,
 		       page_id, web_results, synthesis,
-		       COALESCE(error_message, ''), created_at, updated_at,
+		       COALESCE(error_message, ''), source_review_id, created_at, updated_at,
 		       started_at, finished_at
 		FROM brain.research_tasks
 		WHERE project_id = $1
@@ -204,7 +212,7 @@ func (s *Store) ListStuck(ctx context.Context, olderThan time.Duration) ([]*Task
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, project_id, owner_id, topic, queries, status,
 		       page_id, web_results, synthesis,
-		       COALESCE(error_message, ''), created_at, updated_at,
+		       COALESCE(error_message, ''), source_review_id, created_at, updated_at,
 		       started_at, finished_at
 		FROM brain.research_tasks
 		WHERE status IN ('queued', 'searching', 'synthesizing', 'saving')
@@ -257,7 +265,7 @@ func scanTask(row pgx.Row) (*Task, error) {
 	if err := row.Scan(
 		&t.ID, &t.ProjectID, &t.OwnerID, &t.Topic, &queries, &t.Status,
 		&t.PageID, &hitsJSON, &t.Synthesis, &t.ErrorMessage,
-		&t.CreatedAt, &t.UpdatedAt, &t.StartedAt, &t.FinishedAt,
+		&t.SourceReviewID, &t.CreatedAt, &t.UpdatedAt, &t.StartedAt, &t.FinishedAt,
 	); err != nil {
 		return nil, err
 	}

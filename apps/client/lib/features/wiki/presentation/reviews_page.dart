@@ -25,6 +25,7 @@ import '../../../data/api/reviews_client.dart';
 import '../../../shared/page_scaffold.dart';
 import '../application/reviews_controller.dart';
 import 'merge_dialog.dart';
+import 'research_dialog.dart';
 import 'review_type_config.dart';
 
 class ReviewsPage extends ConsumerWidget {
@@ -361,12 +362,37 @@ class _Actions extends StatelessWidget {
   final bool isPending;
   final WidgetRef ref;
 
+  /// review → Deep Research 一键链路：以 title 为话题、description 为细化
+  /// 查询直接开跑（autoStart），sourceReviewId 让服务端在研究落页后自动
+  /// resolve 本条审阅项。对话框关闭后刷新队列反映自动 resolve。
+  Future<void> _research(BuildContext context, ReviewsController ctrl) async {
+    await showResearchDialog(
+      context,
+      projectId: review.projectId,
+      initialTopic: review.title.isNotEmpty
+          ? review.title
+          : '审阅项 ${review.id.substring(0, 8)}',
+      initialQueries: [
+        if (review.description.isNotEmpty) review.description,
+      ],
+      autoStart: true,
+      sourceReviewId: review.id,
+    );
+    await ctrl.refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ctrl = ref.read(reviewsControllerProvider.notifier);
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        OutlinedButton.icon(
+          onPressed: isPending ? null : () => _research(context, ctrl),
+          icon: const Icon(Icons.travel_explore, size: 14),
+          label: const Text('研究'),
+        ),
+        const SizedBox(width: BiuTokens.space2),
         if ((review.kind == 'dedup' || review.kind == 'merge') &&
             review.isPair)
           OutlinedButton.icon(

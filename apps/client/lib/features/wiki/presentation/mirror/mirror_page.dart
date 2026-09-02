@@ -1,7 +1,9 @@
 /// /wiki/p/:pid/mirror —— 项目导出为 Obsidian-style markdown 包。
 ///
-/// 把当前项目所有页面拉一遍 → 每页转 markdown（含 frontmatter YAML
-/// 头）→ 打 zip → 触发下载 / 写本地 Downloads。
+/// 把当前项目所有页面拉一遍 → 每页取服务端权威 body_md（字面保留
+/// [[wikilink]]，Obsidian 打开是活链；不走 reader 显示层的 wiki://
+/// 重写）+ frontmatter YAML 头（全字段）→ 打 zip → 触发下载 / 写本地。
+/// body_md 为空（未回填的老页）时 fallback 到 blocksToMarkdown(blocks)。
 ///
 /// knowcode 的 mirror 模块支持目录直写 + Obsidian git push +
 /// 自定义路径策略；biumind B4.4 简化版仅做"一键 zip 导出"，B4.x 后段
@@ -25,6 +27,7 @@ import '../../../../core/layout/phone_nav.dart';
 import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../application/wiki_controller.dart';
 import '../reader/block_to_markdown.dart';
+import 'mirror_export.dart';
 
 class MirrorPage extends ConsumerStatefulWidget {
   const MirrorPage({super.key, required this.projectId});
@@ -87,23 +90,43 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
         ..writeln('## 页面索引')
         ..writeln();
       for (final page in pages) {
-        final filename = _safeFilename(page.title.isEmpty ? page.id : page.title);
-        readme.writeln('- [${page.title.isEmpty ? "(未命名)" : page.title}]($filename.md)');
+        final filename =
+            safeExportFilename(page.title.isEmpty ? page.id : page.title);
+        readme.writeln(
+            '- [${page.title.isEmpty ? "(未命名)" : page.title}]($filename.md)');
       }
       archive.addFile(_strFile('README.md', readme.toString()));
 
-      // 2) 每页拉 blocks → markdown
+      // 2) 每页取服务端权威 body_md + frontmatter → markdown。
+      //    body_md 字面保留 [[wikilink]]（Path C 权威正文），Obsidian
+      //    打开即是活链；空 body_md（未回填老页 / 空页）fallback 到
+      //    blocks 渲染（接受其 wiki:// 重写，聊胜于无）。
       for (final page in pages) {
+        var body = '';
+        var frontmatter = const <String, dynamic>{};
         try {
-          await repo.refreshBlocks(widget.projectId, page.id);
-        } on Exception {/* 用本地缓存 */}
-        final blocks = await repo.watchBlocks(page.id).first;
-        final body = blocksToMarkdown(blocks);
-        final fm = _frontmatterYaml(page.title, page.id, page.updatedAt);
-        final filename = _safeFilename(page.title.isEmpty ? page.id : page.title);
-        archive.addFile(
-          _strFile('$filename.md', '$fm\n$body'),
+          final serverPage =
+              await repo.client.getPage(widget.projectId, page.id);
+          body = serverPage.bodyMd;
+          frontmatter = serverPage.frontmatter;
+        } on Exception {/* 离线 / 接口失败：走本地 blocks 兜底 */}
+        if (body.trim().isEmpty) {
+          try {
+            await repo.refreshBlocks(widget.projectId, page.id);
+          } on Exception {/* 用本地缓存 */}
+          final blocks = await repo.watchBlocks(page.id).first;
+          body = blocksToMarkdown(blocks);
+        }
+        final md = exportPageMarkdown(
+          title: page.title,
+          id: page.id,
+          updatedAt: page.updatedAt,
+          frontmatter: frontmatter,
+          bodyMd: body,
         );
+        final filename =
+            safeExportFilename(page.title.isEmpty ? page.id : page.title);
+        archive.addFile(_strFile('$filename.md', md));
         if (mounted) setState(() => _processed += 1);
       }
 
@@ -129,7 +152,7 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
           .substring(0, 19);
       final outPath = p.join(
         dir.path,
-        'biumind-mirror-${_safeFilename(activeProject.name)}-$ts.zip',
+        'biumind-mirror-${safeExportFilename(activeProject.name)}-$ts.zip',
       );
       await File(outPath).writeAsBytes(zipBytes);
       if (!mounted) return;
@@ -149,30 +172,6 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
   ArchiveFile _strFile(String name, String content) {
     final bytes = utf8.encode(content);
     return ArchiveFile(name, bytes.length, bytes);
-  }
-
-  String _frontmatterYaml(String title, String id, DateTime updatedAt) {
-    final buf = StringBuffer()
-      ..writeln('---')
-      ..writeln('id: $id')
-      ..writeln('title: ${_yamlString(title)}')
-      ..writeln('updated_at: ${updatedAt.toIso8601String()}')
-      ..writeln('---');
-    return buf.toString();
-  }
-
-  String _yamlString(String v) {
-    final escaped = v.replaceAll('"', r'\"');
-    return '"$escaped"';
-  }
-
-  String _safeFilename(String input) {
-    if (input.isEmpty) return 'untitled';
-    final cleaned = input
-        .replaceAll(RegExp(r'[\/\\:*?"<>|]'), '-')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return cleaned.isEmpty ? 'untitled' : cleaned;
   }
 
   @override

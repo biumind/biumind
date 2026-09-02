@@ -1,7 +1,9 @@
 package research
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -60,6 +62,48 @@ func TestResumePhase(t *testing.T) {
 				t.Fatalf("resumePhase = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestTaskJSONSourceReview — taskJSON 透出 source_review_id：review →
+// research 入口创建的任务要能让 UI 看到来源审阅项；手动创建的任务
+// 该字段缺省（omitempty）。
+func TestTaskJSONSourceReview(t *testing.T) {
+	reviewID := uuid.New()
+	task := &Task{
+		ID:             uuid.New(),
+		ProjectID:      uuid.New(),
+		Topic:          "t",
+		Queries:        []string{},
+		Status:         StatusQueued,
+		SourceReviewID: &reviewID,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+	raw, err := json.Marshal(taskJSON(task))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if got := m["source_review_id"]; got != reviewID.String() {
+		t.Fatalf("source_review_id = %v, want %s", got, reviewID)
+	}
+
+	// 手动任务（无来源 review）不出这个 key。
+	task.SourceReviewID = nil
+	raw, err = json.Marshal(taskJSON(task))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = map[string]any{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m["source_review_id"]; ok {
+		t.Fatal("source_review_id should be omitted when nil")
 	}
 }
 

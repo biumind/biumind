@@ -28,6 +28,7 @@ import '../../../../data/api/wiki_client.dart'
         WikiKnowledgeGap,
         WikiSurprisingConnection;
 import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
+import '../research_dialog.dart';
 
 final _graphProvider =
     FutureProvider.family<WikiGraphData, String>((ref, projectId) async {
@@ -412,6 +413,31 @@ class _GapCard extends StatelessWidget {
                 ],
               ),
             ),
+          // 缺口 → Deep Research 一键入口：预填话题 + 描述作为细化查询，
+          // 用户在研究对话框里确认后提交。
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => showResearchDialog(
+                context,
+                projectId: projectId,
+                initialTopic: gap.title,
+                initialQueries: [
+                  if (gap.description.isNotEmpty) gap.description,
+                ],
+              ),
+              icon: const Icon(Icons.travel_explore, size: 14),
+              label: const Text('研究'),
+              style: TextButton.styleFrom(
+                foregroundColor: BiuTokens.purple,
+                textStyle: const TextStyle(fontSize: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
         ],
       ),
     );

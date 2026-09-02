@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/biumind/biumind/services/brain/internal/search/searxng"
+	"github.com/biumind/biumind/services/brain/internal/wiki/reviews"
 	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,6 +49,11 @@ type Orchestrator struct {
 	maxResults    int
 	llmTimeout    time.Duration
 	maxConcurrent int
+	// reviews is optional (nil in tests / when unwired). When set and a
+	// task carries SourceReviewID, completing the task also resolves the
+	// originating review — mirrors page_merger auto-resolving its dedup
+	// review after a merge.
+	reviews *reviews.Store
 	// sem bounds how many research pipelines run at once — across both
 	// HTTP-spawned tasks and boot-recovered ones. Buffered channel of
 	// maxConcurrent slots; acquire on entry, release on exit.
@@ -87,6 +93,32 @@ func NewOrchestrator(pool *pgxpool.Pool, s *Store, w *wikistore.Store,
 		sem:           make(chan struct{}, cfg.MaxConcurrent),
 		logger:        logger,
 	}
+}
+
+// WithReviews wires the review queue store so completed tasks spawned
+// from a review (SourceReviewID set) auto-resolve that review. Returns
+// the orchestrator for chaining at the wiring site (cmd/brain/main.go).
+func (o *Orchestrator) WithReviews(r *reviews.Store) *Orchestrator {
+	o.reviews = r
+	return o
+}
+
+// complete stamps the task done with its page id, then — when the task
+// was spawned from a review queue entry — resolves that review so the
+// 「研究」action closes its own loop. Review resolution is best-effort:
+// a failure there must not flip an otherwise-finished task to error
+// (the research page already exists; the user can resolve by hand).
+func (o *Orchestrator) complete(ctx context.Context, task *Task, pageID uuid.UUID) error {
+	if err := o.store.Complete(ctx, task.ID, pageID); err != nil {
+		return err
+	}
+	if o.reviews != nil && task.SourceReviewID != nil {
+		if err := o.reviews.SetStatus(ctx, *task.SourceReviewID, reviews.StatusResolved); err != nil {
+			o.logger.Warn("research: resolve source review failed",
+				"id", task.ID, "review_id", *task.SourceReviewID, "err", err)
+		}
+	}
+	return nil
 }
 
 // Run executes the full pipeline for `taskID`. It updates the task
@@ -163,7 +195,7 @@ func (o *Orchestrator) run(ctx context.Context, task *Task) error {
 		// Page already exists from a prior run that crashed after
 		// CreatePage but the recover picked the row up before status
 		// flipped to done. Stamp it done and stop.
-		return o.store.Complete(ctx, task.ID, *task.PageID)
+		return o.complete(ctx, task, *task.PageID)
 
 	case phaseSave:
 		return o.savePage(ctx, task, task.Synthesis, task.WebResults)
@@ -347,7 +379,7 @@ func (o *Orchestrator) savePage(ctx context.Context, task *Task, synthesis strin
 	if existing, err := o.store.FindPageByTaskID(ctx, task.ProjectID, task.ID); err != nil {
 		return fmt.Errorf("lookup existing page: %w", err)
 	} else if existing != nil {
-		return o.store.Complete(ctx, task.ID, *existing)
+		return o.complete(ctx, task, *existing)
 	}
 
 	title := "Research: " + task.Topic
@@ -392,7 +424,7 @@ func (o *Orchestrator) savePage(ctx context.Context, task *Task, synthesis strin
 	}); err != nil {
 		return fmt.Errorf("create block: %w", err)
 	}
-	return o.store.Complete(ctx, task.ID, page.ID)
+	return o.complete(ctx, task, page.ID)
 }
 
 // Recover re-adopts in-flight tasks that died with the process. Called

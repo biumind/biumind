@@ -22,22 +22,48 @@ import '../../../data/wiki_providers.dart';
 
 /// Opens the research dialog. Returns the resulting page id (when the
 /// task succeeded and the user chose to open it), or null otherwise.
+///
+/// 一键入口（图谱洞察缺口卡片 / 审阅队列「研究」动作）共用的预填参数：
+/// [initialTopic] / [initialQueries] 预填表单；[autoStart] 为 true 且
+/// topic 非空时打开即提交（review → research 的一键链路）；[sourceReviewId]
+/// 标记任务来源审阅项，研究落页后服务端自动 resolve 它。
 Future<String?> showResearchDialog(
   BuildContext context, {
   required String projectId,
+  String? initialTopic,
+  List<String> initialQueries = const [],
+  bool autoStart = false,
+  String? sourceReviewId,
 }) {
   // barrierDismissible:false —— 防误触中断研究轮询; 宽屏透传 showDialog,
   // 手机映射 sheet 的 isDismissible/enableDrag (同样不可滑关/点遮罩关)。
   return showAdaptiveDialog<String?>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => ResearchDialog(projectId: projectId),
+    builder: (_) => ResearchDialog(
+      projectId: projectId,
+      initialTopic: initialTopic,
+      initialQueries: initialQueries,
+      autoStart: autoStart,
+      sourceReviewId: sourceReviewId,
+    ),
   );
 }
 
 class ResearchDialog extends ConsumerStatefulWidget {
-  const ResearchDialog({super.key, required this.projectId});
+  const ResearchDialog({
+    super.key,
+    required this.projectId,
+    this.initialTopic,
+    this.initialQueries = const [],
+    this.autoStart = false,
+    this.sourceReviewId,
+  });
   final String projectId;
+  final String? initialTopic;
+  final List<String> initialQueries;
+  final bool autoStart;
+  final String? sourceReviewId;
 
   @override
   ConsumerState<ResearchDialog> createState() => _ResearchDialogState();
@@ -51,6 +77,17 @@ class _ResearchDialogState extends ConsumerState<ResearchDialog> {
   Timer? _poll;
   String? _err;
   bool _starting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _topic.text = widget.initialTopic ?? '';
+    _queries.text = widget.initialQueries.join('\n');
+    // autoStart（review → research 一键链路）：表单已预填，打开即提交。
+    if (widget.autoStart && _topic.text.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+    }
+  }
 
   @override
   void dispose() {
@@ -91,6 +128,7 @@ class _ResearchDialogState extends ConsumerState<ResearchDialog> {
         widget.projectId,
         topic: topic,
         queries: queries,
+        sourceReviewId: widget.sourceReviewId,
       );
       if (!mounted) return;
       setState(() {
@@ -219,6 +257,14 @@ class _ResearchDialogState extends ConsumerState<ResearchDialog> {
         ),
         const SizedBox(height: BiuTokens.space3),
         _PhaseRow(status: t.status),
+        if (t.sourceReviewId != null) ...[
+          const SizedBox(height: BiuTokens.space2),
+          Text(
+            '来源：审阅项 ${t.sourceReviewId!.substring(0, 8)}'
+            '${t.isDone ? "（已自动标记为已处理）" : "（完成后自动标记为已处理）"}',
+            style: TextStyle(fontSize: 10, color: BiuTokens.textMuted),
+          ),
+        ],
         const SizedBox(height: BiuTokens.space3),
         if (t.webResults.isNotEmpty) _ResultList(hits: t.webResults),
         if (t.synthesis.isNotEmpty) ...[
