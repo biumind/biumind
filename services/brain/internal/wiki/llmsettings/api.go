@@ -4,8 +4,10 @@
 //	PUT /v1/wiki/projects/{pid}/llm-settings   更新偏好
 //	GET /v1/wiki/projects/{pid}/llm-status     当前可用 provider/model 健康度
 //
-// 完整实现继承用户级 LLM 设置 + 项目级覆盖；当前 stub 返回空对象，
-// 客户端 fallback 到用户级。
+// 完整实现继承用户级 LLM 设置 + 项目级覆盖。当前 GET settings 返回空
+// overrides（语义诚实：无任何项目级覆盖，调用方 fallback 用户级）；
+// PUT 与 llm-status 均 501——status 曾硬编码 healthy:true，会让调用方
+// 误以为项目级配置已生效，比 501 更危险，故诚实化。
 package llmsettings
 
 import (
@@ -44,8 +46,6 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	wikicommon.NotImplemented(w, moduleName, "update_settings")
 }
 func (s *Server) handleGetStatus(w http.ResponseWriter, r *http.Request) {
-	wikicommon.WriteJSON(w, http.StatusOK, map[string]any{
-		"provider": "default",
-		"healthy":  true,
-	})
+	// 诚实降级：无真实健康度探测，不谎报 healthy（见包注释）。
+	wikicommon.NotImplemented(w, moduleName, "llm_status")
 }
