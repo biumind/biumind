@@ -772,6 +772,9 @@ services:
       # B3：空默认 = 走 model-relay /v1/internal/models/default-chat（admin 配置），
       # env 为显式覆盖。不要在这里加默认值，否则端点永远不生效。
       BIUMIND_WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-}
+      # B2：用户级 ingest 模型偏好（identity /v1/internal/settings/{uid}/ingest-model）。
+      # 空 = 偏好层禁用（纯回落 default-chat 链）；token 复用 RELAY_INTERNAL_TOKEN
+      BIUMIND_IDENTITY_URL: ${WIKI_LLM_IDENTITY_URL:-http://identity:7004}
       BIUMIND_WIKI_LLM_TIMEOUT_S: "600"
     networks: [biu-net]
     depends_on:
