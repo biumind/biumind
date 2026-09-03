@@ -695,6 +695,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'On-device parsing is free; cloud parsing costs credits per page. Scanned-document OCR and audio/video transcription are cloud-only.';
 
   @override
+  String get settingsDocprocIngestModelTitle => 'Wiki generation model';
+
+  @override
+  String get settingsDocprocIngestModelDesc =>
+      'The model used to generate Wiki pages from uploaded documents. Stored in your account and synced across devices. \"Follow platform default\" uses the platform-configured model; a self-selected model is billed to your usage (your own API key is preferred when configured).';
+
+  @override
+  String get settingsDocprocIngestModelDefault => 'Follow platform default';
+
+  @override
+  String get settingsDocprocIngestModelSaveFailed =>
+      'Failed to save. Please try again later.';
+
+  @override
   String get settingsNavProxy => 'Proxy';
 
   @override

@@ -1345,6 +1345,30 @@ abstract class AppLocalizations {
   /// **'On-device parsing is free; cloud parsing costs credits per page. Scanned-document OCR and audio/video transcription are cloud-only.'**
   String get settingsDocprocNote;
 
+  /// No description provided for @settingsDocprocIngestModelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Wiki generation model'**
+  String get settingsDocprocIngestModelTitle;
+
+  /// No description provided for @settingsDocprocIngestModelDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'The model used to generate Wiki pages from uploaded documents. Stored in your account and synced across devices. \"Follow platform default\" uses the platform-configured model; a self-selected model is billed to your usage (your own API key is preferred when configured).'**
+  String get settingsDocprocIngestModelDesc;
+
+  /// No description provided for @settingsDocprocIngestModelDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow platform default'**
+  String get settingsDocprocIngestModelDefault;
+
+  /// No description provided for @settingsDocprocIngestModelSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to save. Please try again later.'**
+  String get settingsDocprocIngestModelSaveFailed;
+
   /// No description provided for @settingsNavProxy.
   ///
   /// In en, this message translates to:

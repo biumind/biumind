@@ -675,6 +675,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsDocprocNote => '本机解析免费；云端解析按页花积分。扫描件 OCR 与音视频转写仅支持云端。';
 
   @override
+  String get settingsDocprocIngestModelTitle => 'Wiki 生成模型';
+
+  @override
+  String get settingsDocprocIngestModelDesc =>
+      '上传文档生成 Wiki 页时使用的模型，保存在你的账号下并跨端同步。「跟随平台默认」使用平台配置的模型；自选模型按你的用量计费（优先使用你配置的 API Key）。';
+
+  @override
+  String get settingsDocprocIngestModelDefault => '跟随平台默认';
+
+  @override
+  String get settingsDocprocIngestModelSaveFailed => '保存失败，请稍后重试。';
+
+  @override
   String get settingsNavProxy => '网络代理';
 
   @override
