@@ -7,8 +7,9 @@ docproc-web 客户端侧 mammoth.js) + XLSX (openpyxl) + PPTX (python-pptx)
 
 边界（llm_wiki 有而我们暂未做的）：
 - HTML 只 stdlib strip tag，无 readability/trafilatura 正文抽取
-- PDF 只 pypdf 文本层提取，扫描版/复杂表格效果差（pdfplumber/MinerU 排期）
-- 无 OCR / MOBI（OCR 走 B1 MinerU 方案另行立项；MOBI 排期）
+- PDF 只 pypdf 文本层提取，扫描版/复杂表格效果差 —— OCR 由 runner 经
+  ocr.py 调自部署 MinerU 补齐（B1，OCR 启用时全量 PDF 走 MinerU）
+- 无 MOBI（排期）
 
 content_hash = sha256(extracted_text)（不是文件字节），所以同内容不同格式
 会被判重 —— 这是产品决策（用户已确认）。
@@ -153,6 +154,7 @@ def _extract_pdf(data: bytes) -> str:
         raise ParseError(f"open PDF failed: {e}") from e
 
     pieces: List[str] = []
+    has_text = False
     for i, page in enumerate(reader.pages):
         try:
             text = (page.extract_text() or "").strip()
@@ -160,11 +162,17 @@ def _extract_pdf(data: bytes) -> str:
             pieces.append(f"[page {i + 1}: extraction failed: {e}]")
             continue
         if text:
+            has_text = True
             pieces.append(f"--- page {i + 1} ---\n{text}")
+        else:
+            # 空文本页占位（修静默丢页：混合 PDF 用户须知道缺了哪页；
+            # OCR 未启用的部署里这是扫描页的唯一信号）
+            pieces.append(f"[page {i + 1}: 无文本层]")
 
-    if not pieces:
+    if not has_text:
         raise ParseError(
-            "PDF contained no extractable text (scanned image? OCR 排期)"
+            "PDF contained no extractable text（扫描件？OCR 未启用或失败 —— "
+            "启用 BIUMIND_WIKI_PARSE_OCR_ENABLED 走 MinerU）"
         )
     return "\n\n".join(pieces)
 

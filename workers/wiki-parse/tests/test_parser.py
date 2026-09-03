@@ -266,3 +266,82 @@ def test_extract_epub_empty_raises():
     data = _make_epub({"c": "<html><body><script>only_script()</script></body></html>"})
     with pytest.raises(ParseError, match="EPUB"):
         extract(data, filename="empty.epub")
+
+
+# ─── PDF（最小合法 PDF 手工拼 xref，不提交二进制 fixture）────────────────
+
+
+def _make_pdf(page_texts: list[str | None]) -> bytes:
+    """构造最小合法 PDF。page_texts[i] 为 None → 该页无文本层（空页）。
+
+    文本页用 Helvetica Type1 + 简单 Tj content stream，pypdf 可 extract_text。
+    """
+    n = len(page_texts)
+    font_id = 3
+    page_ids = [4 + i for i in range(n)]
+    content_ids: dict[int, int] = {}
+    next_id = 4 + n
+    for i, t in enumerate(page_texts):
+        if t is not None:
+            content_ids[i] = next_id
+            next_id += 1
+
+    bodies: dict[int, bytes] = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: (
+            "<< /Type /Pages /Kids ["
+            + " ".join(f"{pid} 0 R" for pid in page_ids)
+            + f"] /Count {n} >>"
+        ).encode(),
+        font_id: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    }
+    for i, t in enumerate(page_texts):
+        if t is None:
+            bodies[page_ids[i]] = (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"
+            )
+        else:
+            bodies[page_ids[i]] = (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                f"/Resources << /Font << /F1 {font_id} 0 R >> >> "
+                f"/Contents {content_ids[i]} 0 R >>"
+            ).encode()
+            stream = f"BT /F1 12 Tf 72 720 Td ({t}) Tj ET".encode()
+            bodies[content_ids[i]] = (
+                f"<< /Length {len(stream)} >>\nstream\n".encode()
+                + stream + b"\nendstream"
+            )
+
+    out = io.BytesIO()
+    out.write(b"%PDF-1.4\n")
+    offsets = {}
+    for oid in range(1, next_id):
+        offsets[oid] = out.tell()
+        out.write(f"{oid} 0 obj\n".encode() + bodies[oid] + b"\nendobj\n")
+    xref_pos = out.tell()
+    out.write(f"xref\n0 {next_id}\n".encode())
+    out.write(b"0000000000 65535 f \n")
+    for oid in range(1, next_id):
+        out.write(f"{offsets[oid]:010d} 00000 n \n".encode())
+    out.write(
+        f"trailer\n<< /Size {next_id} /Root 1 0 R >>\n"
+        f"startxref\n{xref_pos}\n%%EOF\n".encode()
+    )
+    return out.getvalue()
+
+
+def test_extract_pdf_empty_page_gets_placeholder():
+    # 混合 PDF：第 1 页有文本层，第 2 页空 —— 空页不静默丢，落占位符
+    data = _make_pdf(["Hello PDF world", None])
+    out = extract(data, filename="mix.pdf")
+    assert "--- page 1 ---" in out
+    assert "Hello PDF world" in out
+    assert "[page 2: 无文本层]" in out
+
+
+def test_extract_pdf_all_blank_raises_pointing_to_ocr():
+    data = _make_pdf([None, None])
+    with pytest.raises(ParseError, match="OCR") as exc_info:
+        extract(data, filename="scan.pdf")
+    # 文案指向 OCR 未启用/失败，不再是旧的"OCR 排期"
+    assert "OCR 排期" not in str(exc_info.value)

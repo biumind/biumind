@@ -8,9 +8,16 @@
 每 job 流水：
   1. blob-presign → httpx stream-download（带 max_bytes 上限）
   2. parser.extract → extracted_text
+     （PDF 且 OCR 启用时先走自部署 MinerU —— B1 D1 全量，不做扫描检测：
+       成功 parser='mineru'；可重试失败降级 pypdf 文本层 parser='pypdf'；
+       终态失败直接 error，parse_error 带 [terminal] 前缀，brain 不再重扫）
   3. content_hash = sha256(extracted_text)
   4. POST parse-result done（brain 同步做项目内 source dedup → review_items）
 失败 → POST parse-result error（parse_error 落库，retries++，<3 下个 tick 重试）
+
+并发：OCR 单任务分钟级，NATS handler 与 tick loop 都经 JobDispatcher
+（asyncio.create_task + Semaphore(max_concurrency)）派发，顺序 await 会堵整队。
+任务引用由 dispatcher 持有防 GC；单 job 崩溃不杀 loop（兜底逻辑保留）。
 
 竞态说明：NATS queue group 单 consumer 派发不双派；tick rescan 与 NATS 理论
 可能撞同一 queued 行（NATS handler 收到 → UPDATE done 之间）。UpdateParseStatus
@@ -24,7 +31,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Awaitable, Callable, Optional, Tuple
+from typing import Any, Awaitable, Callable, Coroutine, Optional, Set, Tuple
 
 from .brain_client import (
     BrainClientError, BrainConfig,
@@ -32,7 +39,10 @@ from .brain_client import (
 )
 from .config import Config
 from .job import ParseJob
-from .parser import ParseError, count_pages, extract
+from .ocr import (
+    OcrConfig, OcrRetryableError, OcrTerminalError, ocr_pdf,
+)
+from .parser import ParseError, _looks_pdf, count_pages, extract
 
 
 logger = logging.getLogger("biumind.wiki_parse")
@@ -66,16 +76,40 @@ async def handle_job(
                        job.source_id, e)
         return "error", f"fetch blob failed: {e}"
 
-    # 2. 提取
-    try:
-        text = extract(data, mime=job.mime, filename=job.filename)
-    except ParseError as e:
-        logger.info("wiki_parse: extract failed source=%s: %s", job.source_id, e)
-        return "error", str(e)
-    except Exception as e:  # noqa: BLE001 — parser 未预期异常兜底
-        logger.exception("wiki_parse: unexpected extract error source=%s",
-                         job.source_id)
-        return "error", f"unexpected: {e}"
+    # 2. 提取：PDF 且 OCR 启用 → 先 MinerU（D1 全量），可重试失败降级 pypdf
+    is_pdf = _looks_pdf(job.mime, job.filename)
+    parser_name: Optional[str] = "pypdf" if is_pdf else None
+    text: Optional[str] = None
+    if is_pdf and cfg.ocr_enabled:
+        ocr_cfg = OcrConfig(
+            api_base=cfg.mineru_api_base,
+            poll_timeout_s=float(cfg.ocr_poll_timeout_s),
+        )
+        try:
+            text = await ocr_pdf(ocr_cfg, data, job.filename or "document.pdf")
+            parser_name = "mineru"
+        except OcrTerminalError as e:
+            # 终态：不降级（重扫/降级都无意义），[terminal] 前缀给 brain 判终态
+            logger.info("wiki_parse: OCR terminal source=%s: %s",
+                        job.source_id, e)
+            return "error", f"[terminal] OCR failed: {e}"
+        except OcrRetryableError as e:
+            logger.warning(
+                "wiki_parse: OCR retryable failed source=%s: %s — "
+                "fallback to pypdf text layer",
+                job.source_id, e,
+            )
+    if text is None:
+        try:
+            text = extract(data, mime=job.mime, filename=job.filename)
+        except ParseError as e:
+            logger.info("wiki_parse: extract failed source=%s: %s",
+                        job.source_id, e)
+            return "error", str(e)
+        except Exception as e:  # noqa: BLE001 — parser 未预期异常兜底
+            logger.exception("wiki_parse: unexpected extract error source=%s",
+                             job.source_id)
+            return "error", f"unexpected: {e}"
 
     if not text.strip():
         return "error", "extracted text empty"
@@ -87,7 +121,7 @@ async def handle_job(
         await post_parse_result(
             brain_cfg, source_id=job.source_id, owner_id=job.owner_id,
             extracted_text=text, content_hash=content_hash,
-            parse_status="done", page_count=pages,
+            parse_status="done", page_count=pages, parser=parser_name,
         )
     except BrainClientError as e:
         logger.warning("wiki_parse: post done failed source=%s: %s",
@@ -155,9 +189,78 @@ def _default_fetcher(cfg: Config) -> BlobFetcher:
     return _fetch
 
 
-async def _tick_loop(
-    cfg: Config, fetch_blob: Optional[BlobFetcher] = None,
-) -> None:
+class JobDispatcher:
+    """create_task 派发 + Semaphore 限并发（OCR 单任务分钟级，顺序 await 堵整队）。
+
+    NATS handler 与 tick loop 共用。任务引用持有在 ``_tasks`` 防 GC（done 回调
+    自删）；单 job 崩溃在 ``_run_*`` 内兜底，不杀 consumer / tick loop。
+    """
+
+    def __init__(
+        self, cfg: Config, fetch_blob: Optional[BlobFetcher] = None,
+    ) -> None:
+        self._cfg = cfg
+        self._fetch_blob = fetch_blob
+        self._sem = asyncio.Semaphore(cfg.max_concurrency)
+        self._tasks: Set[asyncio.Task] = set()
+
+    def dispatch_message(self, raw: bytes) -> None:
+        """NATS 路径：解包 + handle_job + error 回写（在 handle_message 内）。"""
+        self._spawn(self._run_message(raw))
+
+    def dispatch_job(self, job: ParseJob) -> None:
+        """tick rescan 路径：handle_job + error 回写。"""
+        self._spawn(self._run_job(job))
+
+    def _spawn(self, coro: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def wait_all(self) -> None:
+        """等当前已派发任务全部结束（测试 / 关停用）。"""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+    async def _run_message(self, raw: bytes) -> None:
+        async with self._sem:
+            try:
+                await handle_message(
+                    raw, cfg=self._cfg, fetch_blob=self._fetch_blob,
+                )
+            except Exception:  # noqa: BLE001 — handler 崩不杀 consumer
+                logger.exception("wiki_parse: handler crashed")
+
+    async def _run_job(self, job: ParseJob) -> None:
+        brain_cfg = BrainConfig(
+            base_url=self._cfg.brain_url, internal_token=self._cfg.internal_token,
+        )
+        async with self._sem:
+            try:
+                status, err = await handle_job(
+                    job, cfg=self._cfg, fetch_blob=self._fetch_blob,
+                )
+                if status == "error" and err:
+                    # tick 路径也补 error 回写（与 NATS 路径一致）
+                    try:
+                        await post_parse_result(
+                            brain_cfg, source_id=job.source_id,
+                            owner_id=job.owner_id,
+                            extracted_text="", content_hash="",
+                            parse_status="error", parse_error=err,
+                        )
+                    except BrainClientError as e:
+                        logger.warning(
+                            "wiki_parse: tick post error failed source=%s: %s",
+                            job.source_id, e,
+                        )
+            except Exception:  # noqa: BLE001 — 单 job 崩不杀 loop
+                logger.exception(
+                    "wiki_parse: tick job crashed source=%s", job.source_id,
+                )
+
+
+async def _tick_loop(cfg: Config, dispatcher: JobDispatcher) -> None:
     """启动即跑一次（接 queued 积压），之后按 interval 循环。"""
     brain_cfg = BrainConfig(
         base_url=cfg.brain_url, internal_token=cfg.internal_token,
@@ -169,29 +272,7 @@ async def _tick_loop(
             if items:
                 logger.info("wiki_parse: tick rescan %d queued", len(items))
             for it in items:
-                job = it.as_job()
-                try:
-                    status, err = await handle_job(
-                        job, cfg=cfg, fetch_blob=fetch_blob,
-                    )
-                    if status == "error" and err:
-                        # tick 路径也补 error 回写（与 NATS 路径一致）
-                        try:
-                            await post_parse_result(
-                                brain_cfg, source_id=job.source_id,
-                                owner_id=job.owner_id,
-                                extracted_text="", content_hash="",
-                                parse_status="error", parse_error=err,
-                            )
-                        except BrainClientError as e:
-                            logger.warning(
-                                "wiki_parse: tick post error failed source=%s: %s",
-                                job.source_id, e,
-                            )
-                except Exception:  # noqa: BLE001 — 单 job 崩不杀 loop
-                    logger.exception(
-                        "wiki_parse: tick job crashed source=%s", job.source_id,
-                    )
+                dispatcher.dispatch_job(it.as_job())
         except BrainClientError as e:
             logger.warning("wiki_parse: tick queue fetch failed: %s", e)
         except Exception:  # noqa: BLE001 — loop 兜底
@@ -213,20 +294,22 @@ async def run(
 
     nc = await nats.connect(cfg.nats_url, name="biumind-wiki-parse")
     logger.info(
-        "wiki_parse worker connected nats=%s sub=%s queue=%s interval=%ss",
+        "wiki_parse worker connected nats=%s sub=%s queue=%s interval=%ss "
+        "ocr=%s concurrency=%d",
         cfg.nats_url, cfg.request_subject, cfg.queue_group,
-        cfg.parse_queue_interval_s,
+        cfg.parse_queue_interval_s, cfg.ocr_enabled, cfg.max_concurrency,
     )
 
+    dispatcher = JobDispatcher(cfg, fetch_blob=fetch_blob)
+
     async def _handle(msg) -> None:  # noqa: ANN001 — nats msg dynamic
-        try:
-            await handle_message(msg.data, cfg=cfg, fetch_blob=fetch_blob)
-        except Exception:  # noqa: BLE001 — handler 崩不杀 consumer
-            logger.exception("wiki_parse: handler crashed")
+        # 立即 create_task 派发（Semaphore 在 _run_message 内获取），
+        # callback 本身不阻塞 —— OCR 单任务分钟级，顺序 await 会堵整队。
+        dispatcher.dispatch_message(msg.data)
 
     await nc.subscribe(cfg.request_subject, queue=cfg.queue_group, cb=_handle)
 
-    tick_task = asyncio.create_task(_tick_loop(cfg, fetch_blob=fetch_blob))
+    tick_task = asyncio.create_task(_tick_loop(cfg, dispatcher))
 
     try:
         stop = asyncio.Event()

@@ -158,6 +158,7 @@ async def post_parse_result(
     cfg: BrainConfig, *, source_id: str, owner_id: str,
     extracted_text: str, content_hash: str, parse_status: str,
     parse_error: str = "", page_count: Optional[int] = None,
+    parser: Optional[str] = None,
 ) -> None:
     _require(cfg)
     url = (
@@ -174,6 +175,10 @@ async def post_parse_result(
     }
     if page_count is not None:
         payload["page_count"] = page_count
+    # B1 OCR：done 回写带 parser（mineru/pypdf），brain 据此计费分档 +
+    # 落 parse_meta。可选字段，旧 brain 收到会忽略（向后兼容）。
+    if parser:
+        payload["parser"] = parser
     async with _client(cfg) as c:
         try:
             resp = await c.post(url, headers=headers, params=params, json=payload)
