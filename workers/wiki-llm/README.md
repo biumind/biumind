@@ -45,7 +45,7 @@ instead of staying pending forever.
 | `BIUMIND_WIKI_LLM_TIMEOUT_S` | `600` | Per-task budget (10 min) |
 | `BIUMIND_HUB_URL` | (empty) | biumind model-relay base URL for LLM calls |
 | `BIUMIND_RELAY_INTERNAL_TOKEN` | (empty) | model-relay 内部车道共享密钥（= relay 的 `IDENTITY_INTERNAL_TOKEN`）；LLM 计费按任务 owner（body `user_id`）归属 |
-| `BIUMIND_WIKI_LLM_MODEL` | `claude-haiku-4-5-20251001` | Default model |
+| `BIUMIND_WIKI_LLM_MODEL` | (empty) | 显式模型覆盖。空（默认）时每个任务从 model-relay `GET /v1/internal/models/default-chat` 拉 admin 指定的默认 chat 模型（进程内缓存 60s / 负缓存 10s，与 brain ChatRunner 一致）；端点不可达 / 未配时落内置硬编码兜底，不报错 |
 | `BIUMIND_LOG_LEVEL` | `INFO` | Python logging level |
 
 ## Run

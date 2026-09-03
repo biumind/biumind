@@ -51,7 +51,8 @@ from .brain import (
     fetch_source,
 )
 from .cancellation import CancelRegistry, parse_cancel_task_id
-from .config import Config
+from .config import BUILTIN_FALLBACK_MODEL, Config
+from .default_model import DefaultModelResolver
 from .domain.frontmatter import parse_frontmatter
 from .domain.ingest_parse import FileBlock, parse_file_blocks
 from .domain.sanitize import sanitize_ingested_content
@@ -104,13 +105,16 @@ async def handle_message(
     source_resolver: Optional[SourceResolver] = None,
     context_fetcher: Optional[ContextFetcher] = None,
     cancel_registry: Optional[CancelRegistry] = None,
+    model_resolver: Optional[DefaultModelResolver] = None,
 ) -> Optional[IngestRequest]:
     """Decode one inbound NATS message and run the full pipeline.
 
     Returns the parsed request on success, None on bad payload. Tests
     pass ``llm_stream`` / ``llm_complete`` to inject deterministic
     fakes; production uses the defaults which call hub via
-    ``llm.stream_messages`` / ``llm.complete_messages``.
+    ``llm.stream_messages`` / ``llm.complete_messages``. ``model_resolver``
+    is the process-level default-chat-model cache (``run()`` creates and
+    warms one); tests may omit it.
     """
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -195,6 +199,12 @@ async def handle_message(
             raw_text=req.raw_text, source_id=req.source_id,
         )
 
+    # 模型兜底链(B3,对齐 brain ChatRunner.defaultChatModel):
+    # BIUMIND_WIKI_LLM_MODEL env 显式覆盖 > relay default-chat 端点
+    # (admin 在 models 表标 is_default_chat) > 内置硬编码兜底。
+    # 端点不可达 / 未配不报错,落兜底(与 brain 一致)。
+    model = await _resolve_model(cfg, model_resolver)
+
     # P2 #17 两阶段 CoT（默认开，BIUMIND_WIKI_LLM_TWO_STAGE=0 关）：
     #   stage 1 — 非流式分析调用（实体/概念/与现有 wiki 关联/矛盾/建议
     #             页面划分），输入带项目上下文（purpose/schema/页面索引）
@@ -220,7 +230,7 @@ async def handle_message(
         completer = (
             llm_complete if llm_complete is not None
             else _default_completer(cfg, owner_id=req.owner_id,
-                                    task_id=req.task_id)
+                                    task_id=req.task_id, model=model)
         )
         from .prompts import ANALYZE_SYSTEM_PROMPT, build_analyze_prompt
         try:
@@ -256,7 +266,8 @@ async def handle_message(
 
     streamer = (
         llm_stream if llm_stream is not None
-        else _default_streamer(cfg, owner_id=req.owner_id, task_id=req.task_id)
+        else _default_streamer(cfg, owner_id=req.owner_id,
+                               task_id=req.task_id, model=model)
     )
 
     try:
@@ -461,19 +472,53 @@ async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
     await publish(cfg.update_subject, body)
 
 
-def _default_streamer(cfg: Config, *, owner_id: str, task_id: str) -> LLMStreamer:
+async def _resolve_model(
+    cfg: Config,
+    model_resolver: Optional[DefaultModelResolver],
+) -> str:
+    """解析本任务用的模型 code。兜底链(对齐 brain
+    ChatRunner.defaultChatModel 的策略,顺序按 worker 语义调整):
+
+      1. ``BIUMIND_WIKI_LLM_MODEL`` env 显式覆盖 —— 设了就用它,
+         不查 relay(运维强制切换通道);
+      2. relay ``GET /v1/internal/models/default-chat`` —— admin 在
+         models 表标 is_default_chat 的平台默认,进程内缓存
+         (60s 命中 / 10s 负缓存,见 default_model.py);
+      3. ``BUILTIN_FALLBACK_MODEL`` 硬编码兜底 —— 端点不可达 / 未配 /
+         resolver 禁用(hub_url 或 token 空)时落这里,不报错
+         (与 brain 一致:relay 挂了 chat 不该全废)。
+
+    ``model_resolver`` 为空时现场构造一个(单测 / 非 run() 入口);
+    生产路径 ``run()`` 总是传进程级实例以共享缓存。
+    """
+    if cfg.model:
+        return cfg.model
+    resolver = model_resolver if model_resolver is not None \
+        else DefaultModelResolver(cfg.hub_url, cfg.relay_internal_token)
+    m = await resolver.default_chat_model()
+    if m:
+        return m
+    logger.warning("wiki_llm: relay default-chat unavailable; "
+                   "falling back to built-in default %s",
+                   BUILTIN_FALLBACK_MODEL)
+    return BUILTIN_FALLBACK_MODEL
+
+
+def _default_streamer(
+    cfg: Config, *, owner_id: str, task_id: str, model: str,
+) -> LLMStreamer:
     """Return the production streamer that calls model-relay via ``llm``.
 
     Lazily constructed so unit tests that pass ``llm_stream=`` never
     touch the network configuration. Per-task identity is baked in here:
     ``user_id`` (= owner) drives billing/BYOK attribution on the relay
     internal lane, ``idempotency_key`` (= task_id) dedups NATS
-    redeliveries.
+    redeliveries. ``model`` comes from ``_resolve_model``.
     """
     llm_cfg = LLMConfig(
         base_url=cfg.hub_url,
         token=cfg.relay_internal_token,
-        model=cfg.model,
+        model=model,
         user_id=owner_id,
         idempotency_key=task_id,
     )
@@ -484,7 +529,9 @@ def _default_streamer(cfg: Config, *, owner_id: str, task_id: str) -> LLMStreame
     return _call
 
 
-def _default_completer(cfg: Config, *, owner_id: str, task_id: str) -> LLMCompleter:
+def _default_completer(
+    cfg: Config, *, owner_id: str, task_id: str, model: str,
+) -> LLMCompleter:
     """Return the production one-shot caller for the stage-1 analysis.
 
     Same internal lane as the stage-2 streamer (user_id=owner for
@@ -499,7 +546,7 @@ def _default_completer(cfg: Config, *, owner_id: str, task_id: str) -> LLMComple
     llm_cfg = LLMConfig(
         base_url=cfg.hub_url,
         token=cfg.relay_internal_token,
-        model=cfg.model,
+        model=model,
         user_id=owner_id,
         idempotency_key=f"{task_id}:analyze",
         max_tokens=4096,
@@ -566,13 +613,19 @@ async def run(cfg: Config) -> None:
 
     cancels = CancelRegistry()
 
+    # 进程级默认模型 resolver(env 未覆盖时生效),启动即异步预热缓存
+    # (对齐 brain main.go 的 go resolver.Warm),首个任务不付 relay 往返。
+    model_resolver = DefaultModelResolver(cfg.hub_url, cfg.relay_internal_token)
+    warm_task = asyncio.create_task(model_resolver.warm())
+
     async def _publish(subject: str, body: bytes) -> None:
         await nc.publish(subject, body)
 
     async def _handle(msg) -> None:  # noqa: ANN001 — nats msg dynamic
         try:
             await handle_message(msg.data, cfg=cfg, publish=_publish,
-                                 cancel_registry=cancels)
+                                 cancel_registry=cancels,
+                                 model_resolver=model_resolver)
         except Exception:  # noqa: BLE001 — one bad job mustn't kill loop
             logger.exception("wiki_llm: handler crashed")
 
@@ -592,4 +645,5 @@ async def run(cfg: Config) -> None:
         stop = asyncio.Event()
         await stop.wait()
     finally:
+        warm_task.cancel()
         await nc.drain()

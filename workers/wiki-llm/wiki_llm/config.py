@@ -20,7 +20,12 @@ hotparse worker)::
                                   model-relay's IDENTITY_INTERNAL_TOKEN);
                                   supersedes the old per-user
                                   BIUMIND_HUB_TOKEN
-    BIUMIND_WIKI_LLM_MODEL    default "claude-haiku-4-5-20251001"
+    BIUMIND_WIKI_LLM_MODEL    explicit model override; empty (default) =
+                              pull the admin-designated default chat model
+                              from relay GET /v1/internal/models/default-chat
+                              (see default_model.py), falling back to
+                              BUILTIN_FALLBACK_MODEL when the endpoint is
+                              unreachable / unconfigured
 
 Pipeline shape (P2 #17)::
 
@@ -38,6 +43,16 @@ import os
 from dataclasses import dataclass
 
 
+# 兜底链最后一级:env 未覆盖且 relay default-chat 端点拉不到时用的
+# 内置硬编码默认。取值与 brain ChatRunner 的硬兜底保持一致
+# (services/brain/internal/agentplane/chat_runner.go:141
+# "claude-sonnet-4-6" —— 注意在 chat_runner.go 而非 default_model.go,
+# 后者只是 resolver 不含硬编码值)。这只是"relay 不可用"时的尽力而为值;
+# 正常态模型来自 relay default-chat(admin 在 models 表标
+# is_default_chat),端点失败不报错、落兜底(与 brain 一致)。
+BUILTIN_FALLBACK_MODEL = "claude-sonnet-4-6"
+
+
 @dataclass(frozen=True)
 class Config:
     nats_url: str
@@ -48,8 +63,12 @@ class Config:
     hub_url: str
     # model-relay 内部车道共享密钥（= model-relay IDENTITY_INTERNAL_TOKEN）。
     # 计费归属不走 token —— 每个任务按 payload owner_id 在 body 里显式带
-    # user_id（见 llm.py / runner._default_streamer）。
+    # user_id（见 llm.py / runner._default_streamer）。同一把 token 也
+    # 用于拉默认 chat 模型（default_model.py）。
     relay_internal_token: str
+    # BIUMIND_WIKI_LLM_MODEL 显式覆盖;空 = 未设,走 relay default-chat
+    # 端点(default_model.DefaultModelResolver)。完整兜底链见
+    # runner._resolve_model。
     model: str
 
     # Brain reverse callback. Used by the source-id-only ingest path
@@ -93,7 +112,7 @@ class Config:
             timeout_s=int(e.get("BIUMIND_WIKI_LLM_TIMEOUT_S", "600")),
             hub_url=e.get("BIUMIND_HUB_URL", ""),
             relay_internal_token=e.get("BIUMIND_RELAY_INTERNAL_TOKEN", ""),
-            model=e.get("BIUMIND_WIKI_LLM_MODEL", "claude-haiku-4-5-20251001"),
+            model=e.get("BIUMIND_WIKI_LLM_MODEL", ""),
             brain_url=e.get("BIUMIND_BRAIN_URL", ""),
             internal_token=e.get("BIUMIND_INTERNAL_TOKEN", ""),
             two_stage=e.get("BIUMIND_WIKI_LLM_TWO_STAGE", "1").strip().lower()
