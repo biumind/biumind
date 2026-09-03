@@ -704,7 +704,13 @@ class _FrontmatterStripState extends ConsumerState<_FrontmatterStrip> {
   void didUpdateWidget(covariant _FrontmatterStrip old) {
     super.didUpdateWidget(old);
     if (old.pageId != widget.pageId || old.projectId != widget.projectId) {
-      setState(() => _future = _load());
+      // 块体写法 —— 箭头闭包会把赋值的 Future 作为返回值带出，触发
+      // "setState() callback argument returned a Future"；且在 didUpdateWidget
+      // 里抛出会中断 Element.updateChildren，污染 Overlay 不活跃元素表，
+      // 旧页面 detail 滞留成僵尸堆叠（2026-09-03 页面串台事故根因）。
+      setState(() {
+        _future = _load();
+      });
     }
   }
 
@@ -731,7 +737,9 @@ class _FrontmatterStripState extends ConsumerState<_FrontmatterStrip> {
       initial: initial,
     );
     if (saved && mounted) {
-      setState(() => _future = _load());
+      setState(() {
+        _future = _load();
+      });
       // Refresh the project's page list so wiki_controller picks up
       // the new title in the sidebar without a manual click.
       final repo = ref.read(wikiRepositoryProvider);
