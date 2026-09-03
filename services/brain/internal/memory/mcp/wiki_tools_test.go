@@ -16,9 +16,10 @@ import (
 
 func TestToolsList_IncludesAllWikiTools(t *testing.T) {
 	want := []string{
-		"wiki.search", "wiki.list_pages", "wiki.get_page",
-		"wiki.create_page", "wiki.update_page", "wiki.ingest",
-		"wiki.list_reviews", "wiki.dismiss_review", "wiki.merge_pages",
+		"wiki.list_projects", "wiki.search", "wiki.list_pages",
+		"wiki.get_page", "wiki.create_page", "wiki.update_page",
+		"wiki.ingest", "wiki.list_reviews", "wiki.dismiss_review",
+		"wiki.merge_pages", "wiki.chat",
 	}
 	have := map[string]bool{}
 	for _, schema := range toolSchemas {
@@ -57,9 +58,12 @@ func TestWikiToolSchemas_AreWellFormed(t *testing.T) {
 		if _, ok := input["properties"].(map[string]any); !ok {
 			t.Errorf("%s: inputSchema.properties missing", name)
 		}
-		req, ok := input["required"].([]string)
-		if !ok || len(req) == 0 {
-			t.Errorf("%s: inputSchema.required empty", name)
+		// required may be absent or empty (wiki.list_projects takes no
+		// mandatory arguments) — but when present it must be a []string.
+		if req, present := input["required"]; present {
+			if _, ok := req.([]string); !ok {
+				t.Errorf("%s: inputSchema.required must be []string", name)
+			}
 		}
 	}
 }

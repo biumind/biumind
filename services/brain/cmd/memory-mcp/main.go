@@ -3,11 +3,13 @@
 // This is the desktop / CLI entry point: configure it as an MCP
 // server in Claude Desktop / Cursor / Continue / any tool that
 // follows the MCP spec, and the BiuMind tool palette appears:
-// memory.{store,list,recall,delete} plus wiki.{search,list_pages,
-// get_page,create_page,update_page,ingest}. Wiki tools that need
-// extras (vector search needs an embedder, ingest needs NATS) work
-// when those env vars are set; otherwise the tool returns an
-// "internal-error" frame at call time and the rest stay usable.
+// memory.{store,list,recall,delete} plus wiki.{list_projects,search,
+// list_pages,get_page,create_page,update_page,ingest,...}. Wiki tools
+// that need extras (vector search needs an embedder, ingest needs
+// NATS, chat needs a model-relay sender — not wired in this stdio
+// binary) work when those env vars are set; otherwise the tool
+// returns an "internal-error" frame at call time and the rest stay
+// usable.
 //
 // Example claude_desktop_config.json:
 //

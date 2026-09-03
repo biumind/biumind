@@ -12,7 +12,7 @@ paths: ["wiki/**", "docs/**"]
 Two surfaces — both backed by the same brain service, both project-
 scoped to the calling user:
 
-* **MCP tools** — `wiki.*` 6 tools served at `POST /v1/mcp` (JSON-RPC
+* **MCP tools** — `wiki.*` 12 tools served at `POST /v1/mcp` (JSON-RPC
   2.0, JWT-authenticated) and via the `memory-mcp` stdio binary for
   Claude Desktop / Cursor / Continue. Use these from AI clients.
 * **REST endpoints** — `/v1/wiki/...` for typed Flutter / web client
@@ -22,9 +22,10 @@ The MCP layer is the canonical surface for AI agents because it
 returns structured envelopes that AI clients render natively. REST is
 preferred for typed clients that benefit from ETags, If-Match, etc.
 
-## MCP tools (10)
+## MCP tools (12)
 
 ```
+wiki.list_projects    limit=100                      discover project_id
 wiki.search           query, project_id?,            hybrid BM25 + vector
                       limit=20
 wiki.list_pages       project_id, limit=100          recent first
@@ -35,6 +36,8 @@ wiki.update_page      page_id, title?,               If-Match via version
                       frontmatter?, version?         (omit for last-writer-wins)
 wiki.ingest           project_id, raw_text,          queues a CoT task
                       title?                         (worker streams pages back)
+wiki.chat             project_id, message,           ask the knowledge base;
+                      mode=standard, model?          grounded answer + cited pages
 wiki.list_reviews     project_id, kind?,             auto-flagged audits:
                       status=open, limit=100         dedup / lint / sweep / merge / suggestion
 wiki.dismiss_review   id                             "this isn't a real issue"
@@ -103,6 +106,10 @@ Time decay applied per BM25 hit (default half-life 30 days).
 
 ## Decision tree
 
+  - User asks a question the wiki should answer ("what did we decide
+    about X", "总结这个项目关于 Y 的内容") → `wiki.chat` (grounded
+    answer + cited pages; use `wiki.list_projects` first if you don't
+    know the project_id)
   - User says "search my wiki for X" → `wiki.search`
   - User says "what pages exist in this project" → `wiki.list_pages`
   - User says "show me page X / open the X page" → `wiki.get_page`

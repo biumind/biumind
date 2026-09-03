@@ -54,7 +54,6 @@ import (
 	toolsbuiltin "github.com/biumind/biumind/services/brain/internal/tools/builtin"
 	wikiactivity "github.com/biumind/biumind/services/brain/internal/wiki/activity"
 	"github.com/biumind/biumind/services/brain/internal/wiki/api"
-	wikiapitokens "github.com/biumind/biumind/services/brain/internal/wiki/apitokens"
 	wikichat "github.com/biumind/biumind/services/brain/internal/wiki/chat"
 	wikichunks "github.com/biumind/biumind/services/brain/internal/wiki/chunks"
 	wikiembed "github.com/biumind/biumind/services/brain/internal/wiki/embedworker"
@@ -62,7 +61,6 @@ import (
 	wikigraphproj "github.com/biumind/biumind/services/brain/internal/wiki/graph"
 	wikiingest "github.com/biumind/biumind/services/brain/internal/wiki/ingest"
 	wikillmsettings "github.com/biumind/biumind/services/brain/internal/wiki/llmsettings"
-	wikioauth "github.com/biumind/biumind/services/brain/internal/wiki/oauth"
 	wikirelevance "github.com/biumind/biumind/services/brain/internal/wiki/relevance"
 	wikiresearch "github.com/biumind/biumind/services/brain/internal/wiki/research"
 	wikireviews "github.com/biumind/biumind/services/brain/internal/wiki/reviews"
@@ -675,6 +673,11 @@ func run() error {
 	// for the agent loop (apiSrv.WithRelay below). nil when MODEL_RELAY_URL
 	// is unset — the wiki agent handler degrades to 503 in that case.
 	var sender *chatpkg.HTTPSender
+	// Default chat model resolver, shared by the agentplane chat runner
+	// (S4-5) and MCP wiki.chat (P2 #22) — relay is the SoT for "BiuMind
+	// 默认" (models.is_default_chat). nil when MODEL_RELAY_URL is unset;
+	// both consumers treat a nil/empty resolution as "no default".
+	var chatDefaultModels *agentplanepkg.DefaultModelResolver
 	if cfg.RelayURL != "" {
 		// Chat send via model-relay. BYOK no longer flows through Brain:
 		// model-relay resolves the user's key itself by querying identity
@@ -684,6 +687,14 @@ func run() error {
 		sender = chatpkg.NewHTTPSender(chatStore, cfg.RelayURL).
 			WithTools(toolReg)
 		chatSrv = chatSrv.WithSender(sender)
+		// P2 #22: MCP wiki.chat drives the same sender in-process
+		// (RunAgentLoopBuffered), so external AI clients can ask the
+		// project knowledge base with identical auth/billing semantics
+		// as the SSE agent run. Resolver warm is async, boot unaffected.
+		chatDefaultModels = agentplanepkg.NewDefaultModelResolver(
+			cfg.RelayURL, cfg.IdentityInternalToken, logger)
+		go chatDefaultModels.Warm(ctx)
+		memoryMCP = memoryMCP.WithAgent(sender, chatDefaultModels)
 		logger.Info("chat send via model-relay enabled", "hub_url", cfg.RelayURL)
 	} else {
 		logger.Info("chat send disabled (MODEL_RELAY_URL unset);" +
@@ -906,8 +917,6 @@ func run() error {
 	wikigraphSrv.Mount(mux)
 	wikichat.NewServer(wikichat.New(pool), st, pool, verifier, logger).Mount(mux)
 	wikillmsettings.NewServer(verifier, logger).Mount(mux)
-	wikiapitokens.NewServer(verifier, logger).Mount(mux)
-	wikioauth.NewServer(verifier, logger).Mount(mux)
 	wikisuggestions.NewServer(wikisuggestions.New(pool), verifier, logger).Mount(mux)
 	wikisyncws.NewServer(st, verifier, logger).Mount(mux)
 
@@ -1241,11 +1250,10 @@ func run() error {
 		chatLoop := chatpkg.NewAgentLoop(nil, toolReg)
 		// Q1: chat-mode tool whitelist (default-deny). See tools/chatmode.go.
 		chatLoop.ChatToolAllowlist = toolspkg.DefaultChatToolAllowlist
-		// 默认模型真相源在 relay (models.is_default_chat) —— 启动异步
-		// 预热缓存,不阻塞 boot;relay 不可达时按负缓存退避逐 turn 重试。
-		chatDefaultModels := agentplanepkg.NewDefaultModelResolver(
-			cfg.RelayURL, cfg.IdentityInternalToken, logger)
-		go chatDefaultModels.Warm(ctx)
+		// 默认模型真相源在 relay (models.is_default_chat) —— resolver 已在
+		// sender 构建处创建并异步预热（RelayURL 为空时为 nil, defaultChatModel
+		// 自然落到 env 覆盖 > 内置兜底链）；relay 不可达时按负缓存退避逐
+		// turn 重试。
 		chatRunner := agentplanepkg.NewChatRunner(
 			agentPlaneQueue, agentPlaneStore, chatLoop,
 			cfg.AgentPlaneDefaultChatModel,

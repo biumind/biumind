@@ -12,8 +12,9 @@
 //	tools/list    — returns the canonical tool list (memory + wiki)
 //	tools/call    — dispatches to one of:
 //	                  memory.store / memory.list / memory.recall / memory.delete
-//	                  wiki.search / wiki.list_pages / wiki.get_page
-//	                  wiki.create_page / wiki.update_page / wiki.ingest
+//	                  wiki.list_projects / wiki.search / wiki.list_pages
+//	                  wiki.get_page / wiki.create_page / wiki.update_page
+//	                  wiki.ingest / wiki.chat
 //
 // Server is built incrementally — base() requires Memory + Wiki + Verifier;
 // callers attach optional capabilities (Embedder, search, ingest) via
@@ -35,6 +36,7 @@ import (
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
 	"github.com/biumind/biumind/packages/go-sdk/biu/embed"
 	"github.com/biumind/biumind/packages/go-sdk/biu/rerank"
+	"github.com/biumind/biumind/services/brain/internal/chat"
 	memstore "github.com/biumind/biumind/services/brain/internal/memory/store"
 	"github.com/biumind/biumind/services/brain/internal/publisher"
 	"github.com/biumind/biumind/services/brain/internal/search/bm25"
@@ -80,7 +82,25 @@ type Server struct {
 	// Reranker is optional; when set, wiki.search applies a cross-encoder
 	// relevance rerank to the RRF-fused list (P1-2). Mirrors search/api.
 	Reranker rerank.Reranker
-	Logger   *slog.Logger
+	// Agent is the model-relay sender reused by wiki.chat — the same
+	// HTTPSender the wiki HTTP agent run (POST /v1/wiki/projects/{pid}/agent/run)
+	// drives, so billing / quota / BYOK attribution all stay on the
+	// model-relay PassThrough path (I6). nil ⇒ wiki.chat returns an
+	// internal-error frame at call time.
+	Agent *chat.HTTPSender
+	// ChatModels resolves the platform default chat model when a
+	// wiki.chat call omits `model` (agentplane.DefaultModelResolver
+	// satisfies this). nil ⇒ model becomes a required argument.
+	ChatModels ChatModelResolver
+	Logger     *slog.Logger
+}
+
+// ChatModelResolver resolves the platform default chat model code;
+// "" means none configured. Implemented by
+// agentplane.DefaultModelResolver; declared here so the MCP package
+// doesn't import the agentplane surface for one method.
+type ChatModelResolver interface {
+	DefaultChatModel(ctx context.Context) string
 }
 
 func New(m *memstore.Store, w *wikistore.Store, v *bauth.Verifier, l *slog.Logger) *Server {
@@ -131,6 +151,16 @@ func (s *Server) WithReviews(r *wikireviews.Store) *Server {
 // wiki.related_pages. Same opt-in pattern as the others.
 func (s *Server) WithRelevance(r *wikirelevance.Store) *Server {
 	s.Relevance = r
+	return s
+}
+
+// WithAgent attaches the model-relay sender (+ optional default-model
+// resolver) used by wiki.chat. The sender is the shared chat.HTTPSender
+// already wired for the wiki HTTP agent run, so the MCP Q&A loop and the
+// SSE loop hit model-relay with identical auth/billing semantics.
+func (s *Server) WithAgent(a *chat.HTTPSender, models ChatModelResolver) *Server {
+	s.Agent = a
+	s.ChatModels = models
 	return s
 }
 
@@ -322,6 +352,10 @@ func (s *Server) handleToolsCall(ctx context.Context, raw json.RawMessage) (any,
 		return s.callDelete(ctx, uid, p.Arguments)
 	case "wiki.search":
 		return s.callWikiSearch(ctx, uid, p.Arguments)
+	case "wiki.list_projects":
+		return s.callWikiListProjects(ctx, uid, p.Arguments)
+	case "wiki.chat":
+		return s.callWikiChat(ctx, uid, p.Arguments)
 	case "wiki.list_pages":
 		return s.callWikiListPages(ctx, uid, p.Arguments)
 	case "wiki.get_page":
@@ -549,7 +583,12 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			})
 			return
 		}
-		next(w, r.WithContext(bauth.WithClaims(r.Context(), claims)))
+		// Stamp the raw bearer alongside the claims so wiki.chat can
+		// forward it to model-relay (PassThrough auth ⇒ per-user billing
+		// attribution, same as the wiki HTTP agent run). Same pattern as
+		// app_center's action invocations.
+		ctx := bauth.WithRawToken(bauth.WithClaims(r.Context(), claims), auth[7:])
+		next(w, r.WithContext(ctx))
 	}
 }
 

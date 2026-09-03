@@ -17,6 +17,7 @@ package chat
 // and passes them here. This method owns the SSE + emitter + loop wiring.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -87,17 +88,53 @@ func (h *HTTPSender) RunAgentLoop(ctx context.Context, w http.ResponseWriter,
 	msgID := uuid.New()
 	be := NewBlockEmitter(w, flusher, msgID)
 
+	bearer := h.StaticBearer
+	if h.PassThroughAuth {
+		bearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	return h.runAgentLoop(ctx, be, msgID, bearer, in)
+}
+
+// RunAgentLoopBuffered is the in-process variant of RunAgentLoop for
+// callers that need the run's final text instead of a live SSE stream
+// (MCP wiki.chat). The loop, tool wiring, budgets and model-relay path
+// are identical; the ChunkType v2 frames go to an in-memory buffer and
+// the returned emitter exposes AccumulatedText() / PartsJSON() so the
+// caller can project the outcome into its own protocol.
+//
+// bearer is the caller's user token forwarded to model-relay (same
+// PassThrough semantics as RunAgentLoop); empty falls back to
+// StaticBearer, which covers stdio/dev deployments that run with
+// PassThroughAuth=false.
+func (h *HTTPSender) RunAgentLoopBuffered(ctx context.Context, bearer string,
+	in AgentLoopRunInput,
+) (*AgentRunResult, *BlockEmitter, error) {
+	bw := newBufferResponseWriter()
+	msgID := uuid.New()
+	be := NewBlockEmitter(bw, bw, msgID)
+	if bearer == "" {
+		bearer = h.StaticBearer
+	}
+	res, err := h.runAgentLoop(ctx, be, msgID, bearer, in)
+	if err != nil {
+		return nil, be, err
+	}
+	return res, be, nil
+}
+
+// runAgentLoop is the shared core of RunAgentLoop / RunAgentLoopBuffered:
+// build the single-user-turn history, wire the loop (allowlist, turn +
+// retrieval budgets), run it against model-relay, and finish the emitter
+// (message.done on success, block.error on failure).
+func (h *HTTPSender) runAgentLoop(ctx context.Context, be *BlockEmitter,
+	msgID uuid.UUID, bearer string, in AgentLoopRunInput,
+) (*AgentRunResult, error) {
 	history := []hubMessage{{Role: "user", Content: in.UserText}}
 
 	loop := NewAgentLoop(h, h.Tools)
 	loop.ChatToolAllowlist = in.Allowlist
 	loop.MaxTurns = in.MaxTurns
 	loop.RetrievalBudget = in.RetrievalBudget
-
-	bearer := h.StaticBearer
-	if h.PassThroughAuth {
-		bearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	}
 
 	runResult, runErr := loop.Run(ctx, AgentRunInput{
 		Bearer:  bearer,
@@ -119,3 +156,20 @@ func (h *HTTPSender) RunAgentLoop(ctx context.Context, w http.ResponseWriter,
 	})
 	return runResult, nil
 }
+
+// bufferResponseWriter is an in-memory http.ResponseWriter + Flusher for
+// RunAgentLoopBuffered. The SSE bytes are discarded — the caller reads
+// the emitter's structured state (AccumulatedText / PartsJSON) instead.
+type bufferResponseWriter struct {
+	buf    bytes.Buffer
+	header http.Header
+}
+
+func newBufferResponseWriter() *bufferResponseWriter {
+	return &bufferResponseWriter{header: http.Header{}}
+}
+
+func (b *bufferResponseWriter) Header() http.Header         { return b.header }
+func (b *bufferResponseWriter) WriteHeader(int)             {}
+func (b *bufferResponseWriter) Flush()                      {}
+func (b *bufferResponseWriter) Write(p []byte) (int, error) { return b.buf.Write(p) }

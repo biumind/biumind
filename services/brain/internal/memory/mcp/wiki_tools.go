@@ -1,14 +1,20 @@
 // Wiki tool surface for the brain MCP server.
 //
-// Six tools expose a stable contract so existing AI-client configurations
+// Twelve tools expose a stable contract so existing AI-client configurations
 // port over with minimal change:
 //
+//	wiki.list_projects — list the caller's projects (discover project_id)
 //	wiki.search        — hybrid BM25 + (optional) vector retrieval
 //	wiki.list_pages    — list pages in a project
 //	wiki.get_page      — fetch one page (optionally with blocks)
 //	wiki.create_page   — create a page (title + optional frontmatter)
 //	wiki.update_page   — update title / frontmatter (If-Match versioned)
 //	wiki.ingest        — kick off the multi-page CoT ingest pipeline
+//	wiki.list_reviews  — list automated review items (dedup / lint / ...)
+//	wiki.dismiss_review — mark a review as dismissed
+//	wiki.related_pages — top-K related pages (graph relevance)
+//	wiki.merge_pages   — fold a duplicate page into its canonical
+//	wiki.chat          — ask the project knowledge base (LLM agent loop)
 //
 // All tools share the same checkProject ownership gate that memory.*
 // tools use; stdio transport uses the env-pinned user, HTTP transport
@@ -25,9 +31,12 @@ import (
 	"strings"
 	"time"
 
+	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
+	"github.com/biumind/biumind/services/brain/internal/chat"
 	"github.com/biumind/biumind/services/brain/internal/search/bm25"
 	"github.com/biumind/biumind/services/brain/internal/search/rrf"
 	"github.com/biumind/biumind/services/brain/internal/search/vector"
+	"github.com/biumind/biumind/services/brain/internal/tools"
 	wikiingest "github.com/biumind/biumind/services/brain/internal/wiki/ingest"
 	wikirelevance "github.com/biumind/biumind/services/brain/internal/wiki/relevance"
 	wikireviews "github.com/biumind/biumind/services/brain/internal/wiki/reviews"
@@ -40,6 +49,36 @@ import (
 // wikiToolSchemas extends the memory tool list. Loaded once at init
 // time and concatenated into toolSchemas.
 var wikiToolSchemas = []map[string]any{
+	{
+		"name": "wiki.list_projects",
+		"description": "List the calling user's wiki projects (id + name), newest first. " +
+			"Call this first to discover the project_id every other wiki.* tool needs.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+			},
+			"required": []string{},
+		},
+	},
+	{
+		"name": "wiki.chat",
+		"description": "Ask a natural-language question against a project's knowledge base. " +
+			"An LLM agent loop reads the project's wiki pages (wiki_search / memory_recall, " +
+			"read-only) and returns a grounded answer plus the pages it relied on. " +
+			"The answer is based on the project knowledge base — the agent reads pages to compose it. " +
+			"Billed like a normal wiki agent run via model-relay.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"project_id": map[string]any{"type": "string"},
+				"message":    map[string]any{"type": "string", "description": "The question to answer."},
+				"mode":       map[string]any{"type": "string", "enum": []string{"fast", "standard", "deep"}, "default": "standard", "description": "Iteration/retrieval budget tier; deep reads more pages."},
+				"model":      map[string]any{"type": "string", "description": "Optional model id; omit to use the platform default chat model."},
+			},
+			"required": []string{"project_id", "message"},
+		},
+	},
 	{
 		"name": "wiki.search",
 		"description": "Search wiki pages and blocks by query. " +
@@ -186,6 +225,193 @@ var wikiToolSchemas = []map[string]any{
 }
 
 // ─── Dispatch entry points (wired into mcp.go's switch) ────────
+
+func (s *Server) callWikiListProjects(ctx context.Context, uid uuid.UUID, raw json.RawMessage) (any, *rpcError) {
+	var a struct {
+		Limit int `json:"limit"`
+	}
+	// arguments may be omitted entirely — every field is optional here.
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+		}
+	}
+	limit := a.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	projects, err := s.Wiki.ListProjects(ctx, uid, limit)
+	if err != nil {
+		return nil, &rpcError{Code: codeInternalError, Message: err.Error()}
+	}
+	out := make([]map[string]any, len(projects))
+	for i, p := range projects {
+		out[i] = map[string]any{
+			"id":         p.ID.String(),
+			"name":       p.Name,
+			"created_at": p.CreatedAt.UTC().Format(time.RFC3339),
+		}
+	}
+	return mcpResult([]map[string]any{{
+		"type": "text",
+		"text": fmt.Sprintf("%d projects", len(out)),
+	}}, map[string]any{"projects": out}), nil
+}
+
+func (s *Server) callWikiChat(ctx context.Context, uid uuid.UUID, raw json.RawMessage) (any, *rpcError) {
+	var a struct {
+		ProjectID string `json:"project_id"`
+		Message   string `json:"message"`
+		Mode      string `json:"mode"`
+		Model     string `json:"model"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, &rpcError{Code: codeInvalidParams, Message: err.Error()}
+	}
+	a.Message = strings.TrimSpace(a.Message)
+	if a.Message == "" {
+		return nil, &rpcError{Code: codeInvalidParams, Message: "message is required"}
+	}
+	if s.Agent == nil {
+		return nil, &rpcError{Code: codeInternalError,
+			Message: "wiki chat not configured on this MCP server"}
+	}
+	pid, perr := s.checkProject(ctx, uid, a.ProjectID)
+	if perr != nil {
+		return nil, perr
+	}
+	model := strings.TrimSpace(a.Model)
+	if model == "" && s.ChatModels != nil {
+		model = s.ChatModels.DefaultChatModel(ctx)
+	}
+	if model == "" {
+		return nil, &rpcError{Code: codeInvalidParams,
+			Message: "model is required (no default chat model configured on the platform)"}
+	}
+
+	// Same contract as the wiki HTTP agent run
+	// (wiki/api handleWikiAgentRun → chat RunAgentLoop): ctx carries the
+	// caller's user id so tool Invokers owner-scope (tools.WithUserID),
+	// and the caller's JWT is forwarded to model-relay (PassThrough) so
+	// billing / quota / BYOK attribute to the user — I6 preserved. The
+	// loop is read-only Q&A (DefaultChatToolAllowlist); the wiki write
+	// tools stay off this surface.
+	loopCtx := tools.WithUserID(ctx, uid)
+	res, be, err := s.Agent.RunAgentLoopBuffered(loopCtx, bauth.RawTokenFrom(ctx),
+		chat.AgentLoopRunInput{
+			System:          wikiChatSystemPrompt(pid),
+			UserText:        a.Message,
+			Model:           model,
+			Allowlist:       tools.DefaultChatToolAllowlist,
+			MaxTurns:        wikiChatMaxTurns(a.Mode),
+			RetrievalBudget: wikiChatRetrievalBudget(a.Mode),
+		})
+	if err != nil {
+		return nil, &rpcError{Code: codeInternalError, Message: err.Error()}
+	}
+	answer := be.AccumulatedText()
+	text := answer
+	if text == "" {
+		text = "(empty answer)"
+	}
+	return mcpResult([]map[string]any{{
+		"type": "text",
+		"text": text,
+	}}, map[string]any{
+		"answer":            answer,
+		"cited_pages":       citedPagesFromParts(be.PartsJSON()),
+		"stop_reason":       res.StopReason,
+		"model":             model,
+		"mode":              normalizeWikiChatMode(a.Mode),
+		"prompt_tokens":     res.PromptTokens,
+		"completion_tokens": res.CompletionTokens,
+	}), nil
+}
+
+// wikiChatSystemPrompt builds the LLM system prompt for one wiki Q&A run.
+// Unlike the maintenance prompt (wiki/api wikiAgentSystemPrompt) this one
+// is read-only: search the project, answer, cite — never mutate.
+func wikiChatSystemPrompt(pid uuid.UUID) string {
+	return fmt.Sprintf(`You are the BiuMind wiki Q&A assistant for project %s.
+
+Answer the user's question from the project's knowledge base. Use the wiki_search tool to find relevant pages (pass project_id "%s" to scope the search); memory_recall may surface durable facts the user stored; websearch is available for public information the wiki doesn't cover.
+
+Guidelines:
+- Ground the answer in wiki pages and name the pages you relied on.
+- If the wiki doesn't cover the question, say so plainly instead of guessing.
+- You are read-only: never attempt to create or modify pages.
+- Keep the answer concise — the caller is another AI agent consuming your text.`,
+		pid, pid)
+}
+
+// normalizeWikiChatMode maps empty / unknown modes to "standard".
+func normalizeWikiChatMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "fast":
+		return "fast"
+	case "deep":
+		return "deep"
+	default:
+		return "standard"
+	}
+}
+
+// wikiChatMaxTurns / wikiChatRetrievalBudget map mode → loop budgets.
+// Keep in sync with the wiki HTTP agent run tiers (wiki/api
+// wikiAgentMaxTurns / wikiAgentRetrievalBudget: fast 4/2, standard 8/4,
+// deep 12/6) — Q&A reuses the same budget ladder.
+func wikiChatMaxTurns(mode string) int {
+	switch normalizeWikiChatMode(mode) {
+	case "fast":
+		return 4
+	case "deep":
+		return 12
+	default:
+		return 8
+	}
+}
+
+func wikiChatRetrievalBudget(mode string) int {
+	switch normalizeWikiChatMode(mode) {
+	case "fast":
+		return 2
+	case "deep":
+		return 6
+	default:
+		return 4
+	}
+}
+
+// citedPagesFromParts extracts the distinct wiki pages the loop's
+// wiki_search calls returned, from the emitter's parts array (tool_use
+// parts carry the structured tool result under "result"). Best-effort:
+// malformed shapes yield an empty list, never an error.
+func citedPagesFromParts(partsJSON []byte) []map[string]any {
+	var parts []map[string]any
+	if err := json.Unmarshal(partsJSON, &parts); err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []map[string]any
+	for _, p := range parts {
+		if p["type"] != "tool_use" || p["name"] != "wiki_search" {
+			continue
+		}
+		result, _ := p["result"].(map[string]any)
+		rows, _ := result["results"].([]any)
+		for _, r := range rows {
+			m, _ := r.(map[string]any)
+			pageID, _ := m["page_id"].(string)
+			if pageID == "" || seen[pageID] {
+				continue
+			}
+			seen[pageID] = true
+			title, _ := m["title"].(string)
+			out = append(out, map[string]any{"page_id": pageID, "title": title})
+		}
+	}
+	return out
+}
 
 func (s *Server) callWikiSearch(ctx context.Context, uid uuid.UUID, raw json.RawMessage) (any, *rpcError) {
 	var a struct {
