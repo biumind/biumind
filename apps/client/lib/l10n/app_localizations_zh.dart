@@ -645,7 +645,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsNavDocproc => '文档处理';
 
   @override
-  String get settingsDocprocSubtitle => '导入知识库文档（PDF/DOCX/HTML/MD/TXT）的解析位置。';
+  String get settingsDocprocSubtitle =>
+      '导入知识库文档（PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT）的解析位置。';
 
   @override
   String get settingsDocprocAuto => '自动';

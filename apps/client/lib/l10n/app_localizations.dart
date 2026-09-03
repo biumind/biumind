@@ -1294,7 +1294,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsDocprocSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Where imported knowledge-base documents (PDF/DOCX/HTML/MD/TXT) are parsed.'**
+  /// **'Where imported knowledge-base documents (PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT) are parsed.'**
   String get settingsDocprocSubtitle;
 
   /// No description provided for @settingsDocprocAuto.

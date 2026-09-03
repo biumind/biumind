@@ -663,7 +663,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get settingsDocprocSubtitle =>
-      'Where imported knowledge-base documents (PDF/DOCX/HTML/MD/TXT) are parsed.';
+      'Where imported knowledge-base documents (PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT) are parsed.';
 
   @override
   String get settingsDocprocAuto => 'Auto';
