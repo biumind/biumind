@@ -769,7 +769,9 @@ services:
       BIUMIND_INTERNAL_TOKEN: ${BIUMIND_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       BIUMIND_HUB_URL: ${WIKI_LLM_HUB_URL:-http://model-relay:7001}
       BIUMIND_RELAY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
-      BIUMIND_WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-claude-haiku-4-5-20251001}
+      # B3：空默认 = 走 model-relay /v1/internal/models/default-chat（admin 配置），
+      # env 为显式覆盖。不要在这里加默认值，否则端点永远不生效。
+      BIUMIND_WIKI_LLM_MODEL: ${WIKI_LLM_MODEL:-}
       BIUMIND_WIKI_LLM_TIMEOUT_S: "600"
     networks: [biu-net]
     depends_on:
