@@ -53,6 +53,11 @@ func TestNormalizeCreateReq(t *testing.T) {
 			wantMetaKeys: []string{"parser", "version", "format", "page_count"},
 		},
 		{
+			name:         "parse_meta whitelist keeps ocr_engine (B1 OCR)",
+			req:          createReq{RelPath: "a.pdf", ParseMeta: map[string]any{"ocr_engine": "mineru", "evil": "dropped"}},
+			wantMetaKeys: []string{"ocr_engine"},
+		},
+		{
 			name:         "nil parse_meta yields empty map",
 			req:          createReq{RelPath: "a.pdf"},
 			wantMetaKeys: []string{},

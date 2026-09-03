@@ -330,6 +330,9 @@ type Config struct {
 	// pseudo-model（经 relay /v1/internal/usage/charge 代理，brain 不直读
 	// pricing 表）。空 = 禁用计费（解析照常，等同免费兜底）。
 	ParseBillingModel string `env:"PARSE_BILLING_MODEL" default:""`
+	// B1 OCR：parser=mineru 的解析走独立计费档位（wiki-ocr pseudo-model）。
+	// 空 = OCR 免费兜底（解析照常不扣费），与 PARSE_BILLING_MODEL 同哲学。
+	OCRBillingModel string `env:"OCR_BILLING_MODEL" default:""`
 }
 
 func main() {
@@ -760,6 +763,15 @@ func run() error {
 			cfg.RelayURL, cfg.ModelRelayInternalToken, cfg.ParseBillingModel, logger)
 		if ingestInternal.Charger != nil {
 			logger.Info("wiki parse billing enabled", "model", cfg.ParseBillingModel)
+		}
+	}
+	// B1 OCR：mineru 档按 OCR_BILLING_MODEL 计费。为空则禁用
+	// （OCRCharger=nil，OCR 解析免费兜底）。
+	if cfg.OCRBillingModel != "" {
+		ingestInternal.OCRCharger = wikiingest.NewUsageCharger(
+			cfg.RelayURL, cfg.ModelRelayInternalToken, cfg.OCRBillingModel, logger)
+		if ingestInternal.OCRCharger != nil {
+			logger.Info("wiki OCR billing enabled", "model", cfg.OCRBillingModel)
 		}
 	}
 

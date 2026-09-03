@@ -29,6 +29,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/biumind/biumind/services/brain/internal/files"
@@ -46,6 +47,9 @@ type InternalServer struct {
 	Blob    *files.Blob    // Phase 3：presign 给 wiki-parse 下载文件；nil → blob-presign 503
 	Reviews *reviews.Store // Phase 3：parse done 后查项目内 source dedup；nil → 跳过
 	Charger *UsageCharger  // W4：云端解析按页扣费（经 model-relay）；nil → 跳过
+	// B1 OCR：parser=mineru 的解析走独立计费档位（wiki-ocr pseudo-model）；
+	// nil → OCR 免费兜底（与 Charger 同哲学：计费缺配不阻塞解析）。
+	OCRCharger *UsageCharger
 	// Wiki：P2 #17 两阶段 ingest 的上下文端点（purpose/schema 正文 +
 	// 页面索引）；nil → ingest-context 503，worker 降级为空上下文。
 	Wiki   *wikistore.Store
@@ -261,10 +265,18 @@ type parseResultReq struct {
 	ParseStatus   string `json:"parse_status"` // done | error
 	ParseError    string `json:"parse_error,omitempty"`
 	PageCount     int    `json:"page_count,omitempty"` // W4 计费依据（PDF 页数；0 = 未知）
+	Parser        string `json:"parser,omitempty"`     // B1 OCR：pypdf | mineru；空 = 旧 worker 未上报
 }
 
+// terminalParseErrorPrefix 是 worker（wiki-parse）约定的终态错误前缀：
+// 不可重试的失败（4xx / 文件损坏）。brain 收到后把 retries 直接置上限
+// （ParseMaxRetries），ListParseQueue 不再重扫 —— 防终态错误反复烧
+// MinerU 算力（原来要重扫 3 次才停，现在 1 次即止）。
+const terminalParseErrorPrefix = "[terminal]"
+
 // handleParseResult 是 worker 解析完回写入口。done 回写 extracted_text +
-// content_hash + parse_status=done；error 回写 parse_error + retries++。
+// content_hash + parse_status=done；error 回写 parse_error + retries++
+// （parse_error 带 [terminal] 前缀 = 终态错误，retries 直接置上限不再重扫）。
 // done 且有 content_hash 时同步做项目内 source dedup 检测 → review_items。
 func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Request) {
 	src, ok := s.loadOwnedSource(w, r)
@@ -290,14 +302,18 @@ func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Reques
 		}
 		contentHash = h
 	}
+	terminal := req.ParseStatus == "error" &&
+		strings.HasPrefix(req.ParseError, terminalParseErrorPrefix)
 	updated, err := s.Sources.UpdateParseStatus(r.Context(), sources.UpdateParseInput{
 		ID:            src.ID,
 		ParseStatus:   req.ParseStatus,
 		ExtractedText: req.ExtractedText,
 		ContentHash:   contentHash,
 		ParseError:    req.ParseError,
-		BumpRetries:   req.ParseStatus == "error",
+		BumpRetries:   req.ParseStatus == "error" && !terminal,
+		TerminalError: terminal,
 		PageCount:     req.PageCount,
+		Parser:        req.Parser,
 	})
 	if err != nil {
 		if errors.Is(err, sources.ErrNotFound) {
@@ -314,8 +330,13 @@ func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Reques
 	}
 	// W4 云端解析计费：done + 有页数 + charger 已配 → 经 model-relay 按页
 	// 扣费（后付费，幂等键 parse:<source_id>；失败只记日志不阻塞）。
-	if req.ParseStatus == "done" && req.PageCount > 0 && s.Charger != nil && updated.UserID != nil {
-		s.Charger.ChargeParse(r.Context(), updated.UserID.String(), src.ID.String(), int64(req.PageCount))
+	// B1 分档：parser=mineru 走 OCR charger；OCRCharger nil = OCR 免费兜底。
+	charger := s.Charger
+	if req.Parser == "mineru" {
+		charger = s.OCRCharger
+	}
+	if req.ParseStatus == "done" && req.PageCount > 0 && charger != nil && updated.UserID != nil {
+		charger.ChargeParse(r.Context(), updated.UserID.String(), src.ID.String(), int64(req.PageCount))
 	}
 	writeInternalJSON(w, http.StatusOK, map[string]any{
 		"ok":           true,
@@ -331,7 +352,7 @@ func (s *InternalServer) handleParseResult(w http.ResponseWriter, r *http.Reques
 // Owner scoping happens per-source on the subsequent blob-presign +
 // parse-result calls (which require owner_id pairing).
 func (s *InternalServer) handleParseQueue(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Sources.ListParseQueue(r.Context(), 3, 100)
+	rows, err := s.Sources.ListParseQueue(r.Context(), sources.ParseMaxRetries, 100)
 	if err != nil {
 		writeInternalErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return

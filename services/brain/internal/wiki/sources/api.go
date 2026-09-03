@@ -46,8 +46,10 @@ const moduleName = "wiki.sources"
 const maxExtractedTextBytes = 8 << 20 // 8 MiB
 
 // parseMetaKeys 是 parse_meta 白名单字段（00007 client-docproc），其余键丢弃。
+// ocr_engine：B1 OCR provenance（客户端/服务端标记 OCR 引擎）。
 var parseMetaKeys = map[string]bool{
 	"parser": true, "version": true, "format": true, "page_count": true,
+	"ocr_engine": true,
 }
 
 type Server struct {

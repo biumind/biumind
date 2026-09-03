@@ -310,6 +310,11 @@ func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 
 // ─── Phase 3: parse worker 回写 + dedup + blob 解析 ───────────────
 
+// ParseMaxRetries 是 parse 失败的重扫上限：retries < ParseMaxRetries 的行
+// 才会被 ListParseQueue 收走。[terminal] 终态错误把 retries 直接置到该值
+// 即出局（不再被重扫）。
+const ParseMaxRetries = 3
+
 // UpdateParseInput is the wiki-parse worker's write-back payload. The
 // worker sets parse_status to processing on pickup, then done (with
 // extracted_text + content_hash) or error (with parse_error + bumped
@@ -323,8 +328,10 @@ type UpdateParseInput struct {
 	ExtractedText string // done 时填（parser 输出）
 	ContentHash   []byte // done 时填（sha256(extracted_text)）
 	ParseError    string // error 时填异常信息
-	BumpRetries   bool   // error 时 true → retries++（ListParseQueue 按 retries<3 收）
+	BumpRetries   bool   // error 时 true → retries++（ListParseQueue 按 retries<ParseMaxRetries 收）
+	TerminalError bool   // [terminal] 终态错误：retries 直接置 ParseMaxRetries 出局；与 BumpRetries 互斥（优先）
 	PageCount     int    // PDF 页数；0 = 不写 parse_meta
+	Parser        string // done 时填（pypdf|mineru，B1 OCR）；非空 → parse_meta.parser
 }
 
 // UpdateParseStatus mutates one row's parse lifecycle columns and
@@ -336,16 +343,24 @@ func (s *Store) UpdateParseStatus(ctx context.Context, in UpdateParseInput) (*So
             parse_error    = NULLIF($3, ''),
             extracted_text = COALESCE(NULLIF($4, ''), extracted_text),
             content_hash   = COALESCE($5, content_hash),
-            retries        = retries + CASE WHEN $6 THEN 1 ELSE 0 END,
-            parse_meta     = CASE WHEN $7 > 0
-                THEN jsonb_set(parse_meta, '{page_count}', to_jsonb($7), true)
+            retries        = CASE WHEN $8 THEN $9
+                ELSE retries + CASE WHEN $6 THEN 1 ELSE 0 END END,
+            parse_meta     = CASE
+                WHEN $7 > 0 AND $2 = 'done' AND $10 <> '' THEN jsonb_set(
+                    jsonb_set(parse_meta, '{page_count}', to_jsonb($7), true),
+                    '{parser}', to_jsonb($10), true)
+                WHEN $7 > 0
+                    THEN jsonb_set(parse_meta, '{page_count}', to_jsonb($7), true)
+                WHEN $2 = 'done' AND $10 <> ''
+                    THEN jsonb_set(parse_meta, '{parser}', to_jsonb($10), true)
                 ELSE parse_meta END,
             updated_at     = now()
         WHERE id = $1
         RETURNING %s`, selectCols)
 	row := s.pool.QueryRow(ctx, q,
 		in.ID, in.ParseStatus, in.ParseError, in.ExtractedText,
-		in.ContentHash, in.BumpRetries, in.PageCount)
+		in.ContentHash, in.BumpRetries, in.PageCount,
+		in.TerminalError, ParseMaxRetries, in.Parser)
 	src, err := scan(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -363,7 +378,7 @@ func (s *Store) UpdateParseStatus(ctx context.Context, in UpdateParseInput) (*So
 // Ordered oldest-first so a backlog drains in arrival order.
 func (s *Store) ListParseQueue(ctx context.Context, maxRetries, limit int) ([]*Source, error) {
 	if maxRetries <= 0 {
-		maxRetries = 3
+		maxRetries = ParseMaxRetries
 	}
 	if limit <= 0 || limit > 500 {
 		limit = 100
