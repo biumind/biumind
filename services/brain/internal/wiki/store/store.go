@@ -528,22 +528,39 @@ func (s *Store) MarkEnrichStale(ctx context.Context, pageID, projectID uuid.UUID
 
 // MergePages folds `duplicate` into `canonical` atomically:
 //
-//  1. duplicate's non-deleted blocks get their page_id rewritten to
+//  1. duplicate's body_md is folded into canonical's body_md
+//     (body_md 权威，见 mergedBodyForMerge：`\n\n---\n\n` 分隔 +
+//     `> 合并自「title」` 来源标注；两页正文规范化后相同则不追加，
+//     duplicate 正文为空时回退用其 live blocks 的 markdown 投影，
+//     避免 block-only 内容静默丢失）
+//  2. duplicate's non-deleted blocks get their page_id rewritten to
 //     canonical, with positions shifted past canonical's current tail
-//     so the original ordering of each side is preserved
-//  2. wiki_chunks rows pointing at duplicate get their page_id
+//     so block ids (and chunk block_id pointers) survive
+//  3. wiki_chunks rows pointing at duplicate get their page_id
 //     rewritten so vector hits resolve to canonical going forward
 //     (the embed worker's next rechunk pass replaces them outright,
 //     but until then we don't want stale page links in search hits)
-//  3. duplicate page is soft-deleted with a `merged_into` frontmatter
+//  4. canonical's blocks are re-projected from the MERGED body via
+//     reconcileBlocksTx — body_md stays authoritative and the blocks
+//     projection never drifts from what readers/retrieval see;
+//     content-duplicate blocks (identical-body merge) collapse to one
+//  5. duplicate page is soft-deleted with a `merged_into` frontmatter
 //     hint so any UI / wikilink resolver can present a redirect
-//  4. every OTHER live page in the project gets its `[[duplicate-title]]`
+//  6. every OTHER live page in the project gets its `[[duplicate-title]]`
 //     wikilinks rewritten to `[[canonical-title]]` (exact-target match,
 //     alias-preserving — see wikilink.go), each through the same
 //     pipeline as UpdatePageBody: revision snapshot → body_md update →
-//     blocks re-projection → page.updated event
-//  5. canonical's version is bumped + page.merged event emitted on its
-//     scope so subscribers see the change and can refresh caches
+//     blocks re-projection → page.updated event. The merged canonical
+//     body itself gets the same rewrite inline (step 1) so appending
+//     duplicate's body can't introduce fresh dead `[[duplicate-title]]`
+//     links
+//  7. canonical's version is bumped + page.merged event emitted on its
+//     scope (plus a page.updated when the body changed) so subscribers
+//     see the change and can refresh caches
+//
+// Retry-safe: a second merge of the same pair fails fast on the
+// soft-deleted duplicate before any write, and identical bodies are
+// never appended twice.
 //
 // Both pages must exist, be non-deleted, and live in the same project.
 // Caller (reviews API / MCP wiki.merge_pages) is responsible for
@@ -566,7 +583,7 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		first, second = second, first
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, project_id, title, frontmatter, version, deleted_at
+		SELECT id, project_id, title, body_md, frontmatter, version, deleted_at
 		  FROM brain.pages
 		 WHERE id IN ($1, $2)
 		 ORDER BY id
@@ -579,6 +596,7 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		id          uuid.UUID
 		projectID   uuid.UUID
 		title       string
+		bodyMd      string
 		frontmatter []byte
 		version     int
 		deletedAt   *time.Time
@@ -586,7 +604,7 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	pages := map[uuid.UUID]*pageRow{}
 	for rows.Next() {
 		p := &pageRow{}
-		if err := rows.Scan(&p.id, &p.projectID, &p.title,
+		if err := rows.Scan(&p.id, &p.projectID, &p.title, &p.bodyMd,
 			&p.frontmatter, &p.version, &p.deletedAt); err != nil {
 			rows.Close()
 			return err
@@ -620,6 +638,21 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	if err := snapshotPageRevisionTx(ctx, tx, duplicate.id, duplicate.projectID, actor); err != nil {
 		return fmt.Errorf("snapshot duplicate pre-merge: %w", err)
 	}
+
+	// Compute canonical's post-merge body BEFORE touching blocks: the
+	// reconcile below re-projects from this body, so it is the single
+	// source of truth for the merge result. duplicate 正文为空但有 live
+	// blocks（CreateBlock 直写路径）时回退 BlocksToMarkdown 投影，
+	// 不让 block-only 内容在 reconcile 时被静默清掉。
+	var dupBlocks []*Block
+	if strings.TrimSpace(duplicate.bodyMd) == "" {
+		dupBlocks, err = listBlocksTx(ctx, tx, duplicateID)
+		if err != nil {
+			return fmt.Errorf("list duplicate blocks: %w", err)
+		}
+	}
+	mergedBody, bodyChanged := mergedBodyForMerge(
+		canonical.bodyMd, duplicate.bodyMd, duplicate.title, canonical.title, dupBlocks)
 
 	// Compute the position offset to append duplicate's blocks past
 	// canonical's tail. We use COALESCE(MAX(position), 0) + 1 so the
@@ -693,16 +726,28 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		return fmt.Errorf("rewrite merge backlinks: %w", err)
 	}
 
-	// Bump canonical version + emit events. version bump invalidates
+	// Bump canonical version + write the merged body in the same UPDATE,
+	// then re-project blocks from it. version bump invalidates
 	// any in-flight If-Match update on the canonical page so an editor
 	// session that pre-loaded canonical sees a 409 on save and reloads
 	// — which is the correct UX after a merge.
 	if _, err := tx.Exec(ctx, `
 		UPDATE brain.pages
-		   SET version = version + 1, updated_at = now()
+		   SET body_md = $2,
+		       version = version + 1, updated_at = now()
 		 WHERE id = $1
-	`, canonicalID); err != nil {
-		return fmt.Errorf("bump canonical version: %w", err)
+	`, canonicalID, mergedBody); err != nil {
+		return fmt.Errorf("update canonical merged body: %w", err)
+	}
+
+	// Re-project canonical's blocks from the merged body. This runs
+	// unconditionally — even when the body did not change (identical /
+	// empty duplicate body) — so the moved duplicate blocks collapse
+	// onto canonical's content-identical ones instead of doubling up,
+	// and any pre-existing projection drift on canonical self-heals.
+	// Idempotent: reconcile is a pure function of (live blocks, body).
+	if err := reconcileBlocksTx(ctx, tx, canonicalID, mdparse.ParseBlocks(mergedBody)); err != nil {
+		return fmt.Errorf("reproject canonical blocks: %w", err)
 	}
 
 	if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
@@ -711,9 +756,21 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 			"duplicate_id":    duplicateID,
 			"moved_blocks":    movedBlocks,
 			"rewritten_pages": rewrittenPages,
+			"body_merged":     bodyChanged,
 			"canonical_v":     canonical.version + 1,
 		}); err != nil {
 		return err
+	}
+	if bodyChanged {
+		// 与 rewriteMergeBacklinksTx 同一约定：body 变了就发 page.updated，
+		// client page 流 / 检索缓存据此刷新（page.merged 语义是结构事件）。
+		if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
+			"page.updated", map[string]any{
+				"page_id": canonicalID, "version": canonical.version + 1,
+				"title": canonical.title, "body": true, "cause": "merge_body",
+			}); err != nil {
+			return err
+		}
 	}
 	if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
 		"page.deleted", map[string]any{
@@ -724,6 +781,54 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// mergedBodyForMerge computes canonical's post-merge body_md. Returns
+// (merged, changed); changed=false means canonical's body_md must be
+// written back unchanged (no duplicate content folded in).
+//
+// 分隔语义：
+//   - duplicate 正文（TrimSpace 后）为空且无 live blocks → 不追加
+//   - canonical 正文为空 → 直接采用 duplicate 正文（无分隔符）
+//   - 两页正文 TrimSpace 后完全相同 → 不追加（去重 / 幂等底座）
+//   - 否则 `canonical + "\n\n---\n\n" + "> 合并自「<dup-title>」" + "\n\n" + duplicate`；
+//     mdparse 会把 `---`（thematic break）丢弃、把 blockquote 压成 text block，
+//     所以 blocks 投影恰好是 正文块×2 + 标注块，无幽灵分隔块
+//
+// duplicateBody 为空但 dupBlocks 非空时，dupBlocks 的 markdown 投影顶替
+// duplicate 正文参与合并（block-only 内容不静默丢失）。
+//
+// 合并结果再过一遍 RewriteWikilinks(dup→canonical)：duplicate 正文里带的
+// `[[duplicate-title]]` 自引 / canonical 原有的同名链接在合并后都会成为
+// 死链，内联改写掉（与 rewriteMergeBacklinksTx 对其他页的处理同规则；
+// 该函数明确排除 canonical 自身，故这里补它）。
+func mergedBodyForMerge(canonicalBody, duplicateBody, duplicateTitle, canonicalTitle string, dupBlocks []*Block) (string, bool) {
+	canon := strings.TrimSpace(canonicalBody)
+	dup := strings.TrimSpace(duplicateBody)
+	if dup == "" && len(dupBlocks) > 0 {
+		dup = strings.TrimSpace(BlocksToMarkdown(dupBlocks))
+	}
+	var merged string
+	switch {
+	case dup == "":
+		merged = canonicalBody
+	case canon == "":
+		merged = dup
+	case canon == dup:
+		merged = canonicalBody
+	default:
+		annotation := ""
+		if t := strings.TrimSpace(duplicateTitle); t != "" {
+			annotation = "> 合并自「" + t + "」\n\n"
+		}
+		merged = canon + "\n\n---\n\n" + annotation + dup
+	}
+	// 标题仅大小写差异时 [[title]] 本就解析到同一页，跳过改写，
+	// 避免把 canonical 正文里的合法大小写形态刷成 canonical 字面。
+	if !strings.EqualFold(strings.TrimSpace(duplicateTitle), strings.TrimSpace(canonicalTitle)) {
+		merged, _ = RewriteWikilinks(merged, duplicateTitle, canonicalTitle)
+	}
+	return merged, merged != canonicalBody
 }
 
 // ─── Blocks ─────────────────────────────────────────────
