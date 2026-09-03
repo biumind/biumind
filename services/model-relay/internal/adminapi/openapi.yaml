@@ -574,6 +574,11 @@ components:
         output_per_mtok:          { type: number }
         cache_write_per_mtok:     { type: number }
         cache_read_per_mtok:      { type: number }
+        cost_per_image:           { type: number, nullable: true }
+        cost_per_video_second:    { type: number, nullable: true }
+        cost_per_audio_second:    { type: number, nullable: true }
+        cost_per_character:       { type: number, nullable: true }
+        cost_per_search_unit:     { type: number }
         effective_at:             { type: string, format: date-time }
         created_by:               { type: string, format: uuid }
         created_at:               { type: string, format: date-time }
@@ -586,6 +591,12 @@ components:
         output_per_mtok:      { type: number }
         cache_write_per_mtok: { type: number }
         cache_read_per_mtok:  { type: number }
+        # 多模态字段 nullable: 不传 = NULL (不适用); 传 0 与 NULL 计费等价
+        cost_per_image:         { type: number, nullable: true }
+        cost_per_video_second:  { type: number, nullable: true }
+        cost_per_audio_second:  { type: number, nullable: true }
+        cost_per_character:     { type: number, nullable: true }
+        cost_per_search_unit:   { type: number }
     PricingList:
       type: object
       properties:

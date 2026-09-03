@@ -55,6 +55,17 @@ type pricingRequest struct {
 	OutputPerMTok     float64           `json:"output_per_mtok"`
 	CacheWritePerMTok float64           `json:"cache_write_per_mtok"`
 	CacheReadPerMTok  float64           `json:"cache_read_per_mtok"`
+	// P4 段 2 多模态字段. 指针语义与 registry.PricingInput 对齐:
+	// 未传 → nil → 落库 NULL (不适用, 与 SQL 手录一致); 显式传 0 落库 0,
+	// 计费端 (billing/local lookuper) 对 nil 与 <=0 同样返回
+	// ErrPricingNotFound, 两种形态下游行为等价.
+	CostPerImage       *float64 `json:"cost_per_image"`
+	CostPerVideoSecond *float64 `json:"cost_per_video_second"`
+	CostPerAudioSecond *float64 `json:"cost_per_audio_second"`
+	CostPerCharacter   *float64 `json:"cost_per_character"`
+	// 通用按单元价格: rerank 按 search_unit / wiki 解析按页复用此列.
+	// 0 = 不适用 (与 DB DEFAULT 0 口径一致).
+	CostPerSearchUnit float64 `json:"cost_per_search_unit"`
 }
 
 // POST /v1/admin/pricing/{model_id}
@@ -72,13 +83,18 @@ func (s *Server) handleSetPricing(w http.ResponseWriter, r *http.Request) {
 	}
 	creator := actorIDFromCtx(r)
 	got, err := s.Store.Pricing.Set(r.Context(), registry.PricingInput{
-		ModelID:           id,
-		Currency:          req.Currency,
-		InputPerMTok:      req.InputPerMTok,
-		OutputPerMTok:     req.OutputPerMTok,
-		CacheWritePerMTok: req.CacheWritePerMTok,
-		CacheReadPerMTok:  req.CacheReadPerMTok,
-		CreatedBy:         creator,
+		ModelID:            id,
+		Currency:           req.Currency,
+		InputPerMTok:       req.InputPerMTok,
+		OutputPerMTok:      req.OutputPerMTok,
+		CacheWritePerMTok:  req.CacheWritePerMTok,
+		CacheReadPerMTok:   req.CacheReadPerMTok,
+		CostPerImage:       req.CostPerImage,
+		CostPerVideoSecond: req.CostPerVideoSecond,
+		CostPerAudioSecond: req.CostPerAudioSecond,
+		CostPerCharacter:   req.CostPerCharacter,
+		CostPerSearchUnit:  req.CostPerSearchUnit,
+		CreatedBy:          creator,
 	})
 	if err != nil {
 		translateRegistryError(w, err)
