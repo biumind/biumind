@@ -311,3 +311,33 @@ func TestParseResult_DoneWritesParserToParseMeta(t *testing.T) {
 		t.Errorf("parse_meta.page_count = %v, want 2", gotLegacy.ParseMeta["page_count"])
 	}
 }
+
+// 回归：Upsert 传 nil ParseMeta 曾落 jsonb 'null' 标量，之后 UpdateParseStatus
+// 的 jsonb_set 报 "cannot set path in scalar"。兜底 '{}' 后全链应畅通。
+func TestUpsert_NilParseMetaThenJsonbSet(t *testing.T) {
+	h := newParseResultHarness(t)
+
+	src, err := h.sources.Upsert(context.Background(), sources.CreateInput{
+		ProjectID: h.pid, UserID: &h.owner, FileID: &h.fileID,
+		RelPath: "nil-meta.pdf", Filename: "nil-meta.pdf", Mime: "application/pdf",
+		// 刻意 nil（非空 map）——marshal 出 'null' 标量的路径。
+		ParseMeta: nil,
+	})
+	if err != nil {
+		t.Fatalf("upsert nil parse_meta: %v", err)
+	}
+	sum := sha256.Sum256([]byte("nil meta text"))
+	if _, err := h.sources.UpdateParseStatus(context.Background(), sources.UpdateParseInput{
+		ID: src.ID, ParseStatus: "done", ExtractedText: "nil meta text",
+		ContentHash: sum[:], PageCount: 3, Parser: "mineru",
+	}); err != nil {
+		t.Fatalf("jsonb_set on nil-origin parse_meta: %v", err)
+	}
+	got, err := h.sources.GetByID(context.Background(), src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ParseMeta["parser"] != "mineru" || got.ParseMeta["page_count"] != float64(3) {
+		t.Errorf("parse_meta = %v, want parser=mineru page_count=3", got.ParseMeta)
+	}
+}

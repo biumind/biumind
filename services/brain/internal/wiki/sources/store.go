@@ -144,7 +144,10 @@ func (s *Store) Upsert(ctx context.Context, in CreateInput) (*Source, error) {
 		in.ParseStatus = "queued"
 	}
 	pmJSON, _ := json.Marshal(in.ParseMeta)
-	if len(pmJSON) == 0 {
+	// nil map 会 marshal 成 jsonb 'null' 标量（非空！），之后 jsonb_set
+	// （page_count/parser provenance）会报 "cannot set path in scalar" ——
+	// 'null' 与空都要兜底成 '{}'。
+	if len(pmJSON) == 0 || string(pmJSON) == "null" {
 		pmJSON = []byte("{}")
 	}
 	q := fmt.Sprintf(`
@@ -214,7 +217,8 @@ func (s *Store) CreateWebclip(ctx context.Context, in CreateWebclipInput) (*Sour
 	}
 
 	mdJSON, _ := json.Marshal(in.Metadata)
-	if len(mdJSON) == 0 {
+	// 同 Upsert：nil map marshal 成 'null' 标量而非空，两处都要兜底。
+	if len(mdJSON) == 0 || string(mdJSON) == "null" {
 		mdJSON = []byte("{}")
 	}
 	row = tx.QueryRow(ctx, fmt.Sprintf(`
