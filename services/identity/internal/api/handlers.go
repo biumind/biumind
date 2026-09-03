@@ -38,6 +38,7 @@ import (
 	"github.com/biumind/biumind/services/identity/internal/credits"
 	"github.com/biumind/biumind/services/identity/internal/mailer"
 	"github.com/biumind/biumind/services/identity/internal/passwords"
+	"github.com/biumind/biumind/services/identity/internal/settings"
 	"github.com/biumind/biumind/services/identity/internal/store"
 	"github.com/biumind/biumind/services/identity/internal/token"
 	"github.com/google/uuid"
@@ -118,6 +119,10 @@ type Server struct {
 	// BYOKValidator nil 时跳过上游 ping (新 Key 默认 valid 不主动验).
 	BYOK          *byok.Store
 	BYOKValidator *byok.Validator
+
+	// Settings — per-user 通用设置 KV (B2 ingest 模型偏好). 注入后
+	// /v1/identity/me/settings/ingest-model 生效; nil 时路由不挂.
+	Settings *settings.Store
 
 	// W2-5 / W2-6 会员体系. 注入后 /v1/plans + /v1/subscriptions/me
 	// 才会响应; nil 时返 503. 仓储见 internal/billing/{plans,subscriptions}.go.
@@ -225,6 +230,9 @@ func (s *Server) Mount(mux *http.ServeMux) {
 
 	// BYOK — 用户上传自己的上游 Key (W1).
 	s.MountAPIKeys(mux)
+
+	// Settings — per-user 设置 KV (B2 ingest 模型偏好).
+	s.MountSettings(mux)
 
 	// Activity Feed — user-facing event stream (P2-I-3).
 	s.MountActivity(mux)

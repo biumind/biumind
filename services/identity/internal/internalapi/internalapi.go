@@ -25,6 +25,7 @@ import (
 
 	"github.com/biumind/biumind/services/identity/internal/byok"
 	"github.com/biumind/biumind/services/identity/internal/credits"
+	"github.com/biumind/biumind/services/identity/internal/settings"
 )
 
 // PlanLookup resolves a user id to their billing plan name. Returns
@@ -44,6 +45,8 @@ type Server struct {
 	Credits *credits.Service
 	// BYOK 由 MountBYOK 注入. nil 时 byok.* endpoint 不挂.
 	BYOK *byok.Store
+	// Settings 由 MountSettings 注入. nil 时 settings.* endpoint 不挂.
+	Settings *settings.Store
 }
 
 func New(token string, lookup PlanLookup) *Server {

@@ -35,6 +35,7 @@ import (
 	"github.com/biumind/biumind/services/identity/internal/internalapi"
 	"github.com/biumind/biumind/services/identity/internal/passwords"
 	"github.com/biumind/biumind/services/identity/internal/realtimepub"
+	"github.com/biumind/biumind/services/identity/internal/settings"
 	"github.com/biumind/biumind/services/identity/internal/store"
 	"github.com/biumind/biumind/services/identity/internal/token"
 	"github.com/google/uuid"
@@ -290,8 +291,13 @@ func run() error {
 	// system_config — 邮箱验证邮件 + 告警邮件共用 store, 这里建一次复用.
 	systemConfigStore := admin.NewSystemConfigStore(pool)
 
+	// user_settings — per-user 通用设置 KV (B2 ingest 模型偏好).
+	// 公开端点 (s.Settings) 与内部端点 (internalSrv.MountSettings) 共用同一实例.
+	settingsStore := settings.NewStore(pool)
+
 	s := &api.Server{
 		Store:              identityStore,
+		Settings:           settingsStore,
 		Signer:             signer,
 		Verifier:           verifier,
 		AccessTTL:          cfg.AccessTTL,
@@ -512,6 +518,7 @@ func run() error {
 	internalSrv.Mount(mux)
 	internalSrv.MountCredits(mux, creditsSvc)
 	internalSrv.MountBYOK(mux, s.BYOK)
+	internalSrv.MountSettings(mux, settingsStore)
 
 	mux.Handle("/metrics", bmetrics.Handler())
 	// Public JWKS endpoint — only meaningful in RS256 mode; HS256 mode
