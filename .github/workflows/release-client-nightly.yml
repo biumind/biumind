@@ -118,6 +118,16 @@ jobs:
           test -f ../assets/editor/index.html
           test -d ../assets/editor/assets
 
+      # docproc 本机解析 bundle 同样不入仓（assets/docproc/ + web/docproc/），
+      # 缺产物则本机解析静默失效，必须现场构建 + 断言守卫（同 release-client.yml）。
+      - name: Build docproc bundle
+        working-directory: apps/client/docproc-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/docproc/index.html
+          test -d ../assets/docproc/assets
+
       - name: pub get
         run: flutter pub get
 
@@ -209,6 +219,16 @@ jobs:
           npm run build
           test -f ../assets/editor/index.html
           test -d ../assets/editor/assets
+
+      # docproc 本机解析 bundle 同样不入仓（assets/docproc/ + web/docproc/），
+      # 缺产物则本机解析静默失效，必须现场构建 + 断言守卫（同 release-client.yml）。
+      - name: Build docproc bundle
+        working-directory: apps/client/docproc-web
+        run: |
+          npm ci
+          npm run build
+          test -f ../assets/docproc/index.html
+          test -d ../assets/docproc/assets
 
       - name: pub get
         run: flutter pub get

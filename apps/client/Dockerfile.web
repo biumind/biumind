@@ -2,6 +2,7 @@ ARG INFRA_REGISTRY=docker.io
 # BiuMind Web Client — multi-stage build.
 #
 # Stage 0: build editor-web (Milkdown WYSIWYG) bundle (node + vite).
+# Stage 0b: build docproc-web (本机文档解析) bundle (node + vite).
 # Stage 1: build the Flutter Web app (debian-slim + 自装 Flutter SDK).
 # Stage 2: serve via tiny nginx with SPA fallback + asset caching.
 #
@@ -29,6 +30,17 @@ WORKDIR /src/editor-web
 COPY editor-web/ ./
 # npm ci 严格走 lockfile (editor-web/package-lock.json 已入仓); ci 先清空
 # node_modules, 本地 context 残留的 node_modules 不会污染镜像。
+RUN npm ci && npm run build
+
+# ───── Stage 0b: docproc-web (本机文档解析) bundle ─────
+# 同 editor-web: `npm run build` = vite build + scripts/sync-to-flutter.ts, 双写到
+#   /src/web/docproc/    — Web 端同源 iframe (docproc_web_view.dart) 加载, 打进 build/web/
+#   /src/assets/docproc/ — 原生端 InAppLocalhostServer 加载, 打进 flutter assets
+# 两个目录都 gitignored, 镜像里必须自己构建, 否则生产 /app/docproc/index.html 404,
+# web 端本机解析静默失效 (iframe 加载失败, bridge 永远等不到 ready)。
+FROM ${INFRA_REGISTRY}/library/node:22-slim AS docproc
+WORKDIR /src/docproc-web
+COPY docproc-web/ ./
 RUN npm ci && npm run build
 
 FROM ${INFRA_REGISTRY}/library/debian:bookworm-slim AS build
@@ -86,6 +98,9 @@ COPY . ./
 # 本地 context 若有残留旧产物也会被这里覆盖, 保证镜像内是本次新构建的)
 COPY --from=editor /src/web/editor/ web/editor/
 COPY --from=editor /src/assets/editor/ assets/editor/
+# docproc bundle 同理 (gitignored, context 里没有)
+COPY --from=docproc /src/web/docproc/ web/docproc/
+COPY --from=docproc /src/assets/docproc/ assets/docproc/
 RUN flutter build web --release --base-href "$BASE_HREF"
 
 # ───── runtime: 静态文件由 nginx 提供 ─────
