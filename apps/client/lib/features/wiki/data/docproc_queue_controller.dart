@@ -22,7 +22,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/docproc/docproc_bridge_controller.dart';
 import '../../../core/docproc/docproc_bridge_protocol.dart'
-    show DocprocException;
+    show DocprocException, docprocWebSupportsFormat;
 import '../../../core/platform/platform_caps.dart';
 import '../../../data/api/wiki_client.dart';
 import '../../../data/wiki_providers.dart'
@@ -408,8 +408,15 @@ class DocprocQueue extends ChangeNotifier {
   /// §3.4 策略矩阵（W3 起三态设置驱动，矩阵实现收敛在
   /// docproc_preferences.dart 的 [docprocShouldParseLocally]）：
   /// 引擎可用 + item 入队时的设置快照 + 平台/大小判定。
+  ///
+  /// 格式 gate 在矩阵之前：docproc-web 不支持的格式（xlsx/pptx/epub 等，
+  /// 见 [docprocWebSupportsFormat]）直接走云端上传 —— 不空转一次本机
+  /// parse 再 fallback（否则镜像任务先 PATCH failed 再被云端接管，
+  /// activity 卡片有 failed 闪烁）。三态设置语义不变：preferLocal 对
+  /// 不支持格式同样只能转云端。
   bool _shouldParseLocally(DocprocQueueItem item, DocprocQueueDeps deps) {
     if (deps.engine == null) return false;
+    if (!docprocWebSupportsFormat(item.filename, item.mime)) return false;
     return docprocShouldParseLocally(
       location: item.location,
       caps: deps.caps,

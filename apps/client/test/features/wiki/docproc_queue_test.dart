@@ -5,6 +5,7 @@
 //   * retry：failed/cancelled 重新入队；
 //   * 背压：parsing/uploading 总字节超上限时 queued 等待；
 //   * 并发上限 = 流水线重叠（A 解析时 B 可上传），parse 本身串行；
+//   * 格式 gate：docproc-web 不支持的格式跳过本机直接云端（无空转/镜像闪烁）；
 //   * 未配置后端 → failed。
 //
 // fake HttpServer + fake DocprocEngine + fake CloudUploadFn，不碰真 WebView。
@@ -211,13 +212,14 @@ DocprocQueueItem item(
   String id, {
   int byteSize = 10,
   String? filename,
+  String? mime,
 }) =>
     DocprocQueueItem(
       id: id,
       projectId: 'p1',
       filename: filename ?? '$id.txt',
       bytes: Uint8List(byteSize),
-      mime: 'text/plain',
+      mime: mime ?? 'text/plain',
     );
 
 Future<void> pump([int rounds = 10]) async {
@@ -509,5 +511,49 @@ void main() {
     final b = await settle(h.queue, 'b');
     expect(b.status, DocprocItemStatus.done);
     expect(h.engine.parseCalls, containsAll(['a', 'b'])); // 都走了本机
+  });
+
+  test('格式 gate：docproc-web 不支持的 xlsx 跳过本机直接云端'
+      '（无 parse 空转、无 failed 镜像闪烁）', () async {
+    h = await _Harness.create();
+    h.queue.enqueue([
+      item('a',
+          filename: 'book.xlsx',
+          mime: 'application/vnd.openxmlformats-officedocument'
+              '.spreadsheetml.sheet'),
+    ]);
+    final it = await settle(h.queue, 'a');
+
+    expect(it.status, DocprocItemStatus.done);
+    expect(h.engine.parseCalls, isEmpty); // 没空转本机 parse
+    expect(h.cloudCalls, ['book.xlsx']);
+    final sources = h.brain.bodies('POST', 'sources');
+    expect(sources.single['file_id'], 'file-book.xlsx'); // 无占位 source
+    expect(h.brain.bodies('PATCH', 'tasks'), isEmpty); // 无镜像任务
+  });
+
+  test('格式 gate 不改三态语义：preferLocal 对不支持格式同样转云端', () async {
+    h = await _Harness.create(location: DocprocProcessLocation.preferLocal);
+    h.queue.enqueue([
+      item('a',
+          filename: 'deck.pptx',
+          mime: 'application/vnd.openxmlformats-officedocument'
+              '.presentationml.presentation'),
+    ]);
+    final it = await settle(h.queue, 'a');
+
+    expect(it.status, DocprocItemStatus.done);
+    expect(h.engine.parseCalls, isEmpty);
+    expect(h.cloudCalls, ['deck.pptx']);
+  });
+
+  test('格式 gate：mime 兜底 —— 扩展名不认识但 mime 支持仍走本机', () async {
+    h = await _Harness.create();
+    h.queue.enqueue([item('a', filename: 'notes.weird', mime: 'text/markdown')]);
+    final it = await settle(h.queue, 'a');
+
+    expect(it.status, DocprocItemStatus.done);
+    expect(h.engine.parseCalls, ['a']); // 与 detect.ts 的 mimeHint 兜底对齐
+    expect(h.cloudCalls, isEmpty);
   });
 }

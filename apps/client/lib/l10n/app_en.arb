@@ -233,7 +233,7 @@
   "settingsNavCodingWorkbench": "Coding Workbench",
   "settingsNavChat": "Chat",
   "settingsNavDocproc": "Document Processing",
-  "settingsDocprocSubtitle": "Where imported knowledge-base documents (PDF/DOCX/HTML/MD/TXT) are parsed.",
+  "settingsDocprocSubtitle": "Where imported knowledge-base documents (PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT) are parsed.",
   "settingsDocprocAuto": "Auto",
   "settingsDocprocAutoDesc": "Small files are parsed on-device (free; \u226450MB desktop / \u226410MB mobile); larger files go to the cloud.",
   "settingsDocprocPreferLocal": "Prefer on-device",

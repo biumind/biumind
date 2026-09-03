@@ -198,7 +198,7 @@
   "settingsNavCodingWorkbench": "编码工作台",
   "settingsNavChat": "聊天平台",
   "settingsNavDocproc": "文档处理",
-  "settingsDocprocSubtitle": "导入知识库文档（PDF/DOCX/HTML/MD/TXT）的解析位置。",
+  "settingsDocprocSubtitle": "导入知识库文档（PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT）的解析位置。",
   "settingsDocprocAuto": "自动",
   "settingsDocprocAutoDesc": "小文件本机解析（免费，桌面 ≤50MB / 移动端 ≤10MB），大文件自动走云端。",
   "settingsDocprocPreferLocal": "优先本机",

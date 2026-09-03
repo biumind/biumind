@@ -4,7 +4,7 @@
 /// cooper / Notion / Obsidian 树形 browse 工作流设计；biumind 当前不
 /// 需要那些 enterprise 数据源整合，本版只做最常见三种：
 ///
-///   - 单文件：file_selector 选一个 PDF/DOCX/MD/HTML/TXT
+///   - 单文件：file_selector 选一个 PDF/DOCX/XLSX/PPTX/EPUB/MD/HTML/TXT
 ///   - 多文件：file_selector 一次选多个，全部入队
 ///   - URL：输入 URL，http GET 抓字节后入队，external_id=url 入库
 ///
@@ -267,7 +267,10 @@ class _DialogState extends ConsumerState<_Dialog> {
 const List<XTypeGroup> _typeGroups = <XTypeGroup>[
   XTypeGroup(
     label: '文档',
-    extensions: ['pdf', 'docx', 'md', 'txt', 'html', 'htm'],
+    // 本机 docproc-web 只解析 pdf/docx/html/md/txt；xlsx/pptx/epub
+    // 入队后被队列的格式 gate 直接送云端（wiki-parse worker 支持
+    // mammoth/openpyxl/python-pptx/ebooklib），不走本机空转。
+    extensions: ['pdf', 'docx', 'xlsx', 'pptx', 'epub', 'md', 'txt', 'html', 'htm'],
   ),
 ];
 
@@ -284,6 +287,15 @@ String _guessMime(String filename) {
     return 'application/vnd.openxmlformats-officedocument'
         '.wordprocessingml.document';
   }
+  if (lower.endsWith('.xlsx')) {
+    return 'application/vnd.openxmlformats-officedocument'
+        '.spreadsheetml.sheet';
+  }
+  if (lower.endsWith('.pptx')) {
+    return 'application/vnd.openxmlformats-officedocument'
+        '.presentationml.presentation';
+  }
+  if (lower.endsWith('.epub')) return 'application/epub+zip';
   if (lower.endsWith('.md')) return 'text/markdown';
   if (lower.endsWith('.txt')) return 'text/plain';
   if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
@@ -480,7 +492,7 @@ class _SingleTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '选择一个 PDF / DOCX / Markdown / HTML 文档',
+          '选择一个 PDF / DOCX / XLSX / PPTX / EPUB / Markdown / HTML 文档',
           style: TextStyle(color: BiuTokens.textSecondary, fontSize: 12),
         ),
         const SizedBox(height: 12),

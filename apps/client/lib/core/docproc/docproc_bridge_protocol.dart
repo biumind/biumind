@@ -51,7 +51,7 @@ class DocprocResult {
 
   final String text;
 
-  /// pdf / docx / html / md / txt
+  /// pdf / docx / html / md / txt（支持清单见 [docprocWebSupportsFormat]）
   final String format;
   final int? pageCount;
 
@@ -59,6 +59,46 @@ class DocprocResult {
   final String parserVersion;
   final List<String> warnings;
 }
+
+/// docproc-web bundle 实际支持解析的格式判定 —— 镜像
+/// docproc-web/src/parsers/detect.ts 的 EXT_TO_FORMAT / MIME_TO_FORMAT
+/// （扩展名优先，mimeHint 兜底），两边 MUST 同步演化。
+///
+/// 用途：队列在调度时按本函数 gate —— 不支持的格式（xlsx/pptx/epub 等）
+/// 跳过本机 parse 直接走云端上传，避免空转一次 parse 再 fallback
+/// （镜像任务会先 PATCH failed 再被云端接管，activity 卡片闪烁）。
+bool docprocWebSupportsFormat(String filename, String? mime) {
+  final dot = filename.lastIndexOf('.');
+  if (dot >= 0 && dot < filename.length - 1) {
+    final ext = filename.substring(dot + 1).toLowerCase();
+    if (_kDocprocWebExts.contains(ext)) return true;
+  }
+  if (mime != null) {
+    final m = mime.split(';').first.trim().toLowerCase();
+    if (_kDocprocWebMimes.contains(m)) return true;
+  }
+  return false;
+}
+
+const _kDocprocWebExts = <String>{
+  'pdf',
+  'docx',
+  'html',
+  'htm',
+  'md',
+  'markdown',
+  'txt',
+  'text',
+};
+
+const _kDocprocWebMimes = <String>{
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/html',
+  'text/markdown',
+  'text/x-markdown',
+  'text/plain',
+};
 
 class DocprocMessage {
   const DocprocMessage({
