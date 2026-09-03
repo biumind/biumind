@@ -71,7 +71,6 @@ import '../features/wiki/data/docproc_queue_controller.dart';
 import '../features/wiki/presentation/chat/project_chat_page.dart';
 import '../features/wiki/presentation/graph/project_graph_page.dart';
 import '../features/wiki/presentation/mirror/mirror_page.dart' as wikimirror;
-import '../features/wiki/presentation/oauth_connect/oauth_connect_page.dart';
 import '../features/wiki/presentation/research/research_page.dart' as wikiresearch;
 import '../features/wiki/presentation/suggestions/suggestions_page.dart';
 import '../features/wiki/presentation/projects/projects_page.dart';
@@ -109,9 +108,6 @@ final rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 bool isPublicRoute(String location) {
   return location.startsWith('/skills') ||
       location.startsWith('/settings') ||
-      // /connect 是外部 AI 客户端 OAuth 入口，可能在用户没登录时被深链
-      // 进入；页面内部会引导用户先登录（authorize/info 401 时显示 hint）。
-      location.startsWith('/connect') ||
       // /suggestions 公开列表，未登录也允许浏览；提交反馈时再要求登录。
       location.startsWith('/suggestions');
 }
@@ -174,15 +170,6 @@ GoRouter buildRouter(ProviderContainer container) {
         path: '/suggestions',
         pageBuilder: (_, _) =>
             const MaterialPage<void>(child: SuggestionsPage()),
-      ),
-      // /connect?ar=... —— OAuth 同意页（外部 AI 客户端深链入口）
-      // brain 端 /v1/wiki/oauth/authorize 302 redirect 到这里。
-      GoRoute(
-        path: '/connect',
-        pageBuilder: (_, state) {
-          final ar = state.uri.queryParameters['ar'] ?? '';
-          return MaterialPage<void>(child: OAuthConnectPage(ar: ar));
-        },
       ),
       // /apps/repo-window/:installId —— Repo App 伪独立窗口（M1.14）。
       // 在 ShellRoute 之外：无侧边栏的全屏页（先例 /suggestions，

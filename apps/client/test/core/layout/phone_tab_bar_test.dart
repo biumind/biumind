@@ -53,10 +53,9 @@ void main() {
   group('phoneTabIndexFor — 无匹配兜底', () {
     test('横切 / 顶层独立路由兜底 tab 0 (对话)', () {
       // /search 是横切能力 (R1.5 做顶部入口), 不属任一 tab。
-      // /splash /login /suggestions /connect 在 shell 外, 但函数仍兜底。
+      // /splash /login /suggestions 在 shell 外, 但函数仍兜底。
       expect(phoneTabIndexFor('/search'), 0);
       expect(phoneTabIndexFor('/suggestions'), 0);
-      expect(phoneTabIndexFor('/connect'), 0);
       expect(phoneTabIndexFor('/splash'), 0);
       expect(phoneTabIndexFor('/login'), 0);
     });

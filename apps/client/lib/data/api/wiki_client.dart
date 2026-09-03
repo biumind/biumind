@@ -596,34 +596,6 @@ class WikiSuggestion {
       );
 }
 
-/// OAuth 同意页要展示的 client metadata + 申请的 scope 列表。
-class OAuthAuthorizeInfo {
-  final String clientName;
-  final String? clientUri;
-  final String? logoUri;
-  final List<String> scopes;
-  final String redirectUri;
-
-  const OAuthAuthorizeInfo({
-    required this.clientName,
-    required this.scopes,
-    required this.redirectUri,
-    this.clientUri,
-    this.logoUri,
-  });
-
-  factory OAuthAuthorizeInfo.fromJson(Map<String, dynamic> j) =>
-      OAuthAuthorizeInfo(
-        clientName: j['client_name']?.toString() ?? 'Unknown client',
-        clientUri: j['client_uri'] as String?,
-        logoUri: j['logo_uri'] as String?,
-        scopes: (j['scopes'] as List? ?? const [])
-            .map((e) => e.toString())
-            .toList(),
-        redirectUri: j['redirect_uri']?.toString() ?? '',
-      );
-}
-
 /// 项目内对话会话头部（不含 messages）。
 class WikiConversation {
   final String id;
@@ -1092,20 +1064,6 @@ class WikiClient {
     } else {
       await _delete('/v1/wiki/suggestions/$id/votes');
     }
-  }
-
-  // ─── OAuth (B6.4) ───────────────────────────────────────
-
-  /// 拉取 OAuth 授权页要展示的 client metadata + scopes。
-  Future<OAuthAuthorizeInfo> oauthAuthorizeInfo(String ar) async {
-    final raw = await _get('/v1/wiki/oauth/authorize/info?ar=$ar');
-    return OAuthAuthorizeInfo.fromJson(raw);
-  }
-
-  /// 用户同意后，brain 返回授权 code + redirect URL。客户端把
-  /// redirect URL 用 url_launcher 打开（或直接在 webview 内 redirect）。
-  Future<Map<String, dynamic>> oauthGrant(String ar) async {
-    return _post('/v1/wiki/oauth/grant', {'ar': ar});
   }
 
   // ─── Project Chat (B5.2) ────────────────────────────────

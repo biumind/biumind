@@ -1,7 +1,7 @@
 // Package wikicommon —— 给新建的 wiki sub-packages（B0.5 一批 stub）共享
 // 鉴权 + JSON 响应辅助。现有 wiki/{api,research,reviews,relevance,...}
 // 各自带相同 boilerplate；本包仅给新模块（sources/activity/search/graph
-// /chat/dedup/lint/llmsettings/apitokens/oauth/suggestions）用，避免重复。
+// /chat/dedup/lint/llmsettings/suggestions）用，避免重复。
 package wikicommon
 
 import (
