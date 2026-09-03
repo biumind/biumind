@@ -39,10 +39,14 @@ type AgentLoop struct {
 	// RetrievalBudget (P2 #19) caps retrieval-class tool calls
 	// (tools.Tool.Retrieval) per run, independently of MaxTurns. 0 →
 	// no retrieval budget (default; plain chat keeps prior behaviour).
-	// The wiki agent run wires mode tiers fast=2/standard=4/deep=6 —
-	// see wiki/api wikiAgentRetrievalBudget. When active, the loop also
-	// rejects duplicate retrieval signatures and early-stops after
-	// NoYieldStreakLimit consecutive empty results (retrieval_guard.go).
+	// Both kernels honour it: v1 Run gates calls in invoke; RunV2 folds
+	// the guard into the biumindkit tool Invokers (retrievalGuard.
+	// WrapTool). The wiki agent run wires mode tiers
+	// fast=2/standard=4/deep=6 — see wiki/api wikiAgentRetrievalBudget;
+	// the agentplane WS chat runner wires the standard tier (4) at
+	// cmd/brain/main.go. When active, the loop also rejects duplicate
+	// retrieval signatures and early-stops after NoYieldStreakLimit
+	// consecutive empty results (retrieval_guard.go).
 	RetrievalBudget int
 	// NoYieldStreakLimit is the consecutive-empty-results threshold for
 	// early stop. 0 → 3 (only meaningful when RetrievalBudget > 0).

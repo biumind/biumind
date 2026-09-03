@@ -184,9 +184,19 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 	// Tool catalog：注册表里 cloud-runtime 工具（time/web/wiki/memory.recall），
 	// 通过适配器变 biumindkit.Tool[]。chat 模式白名单（default-deny when
 	// ChatToolAllowlist set，见 tools/chatmode.go）。
+	//
+	// P2 #19（agent-42 遗留）：RetrievalBudget > 0 时把关卡包进检索工具的
+	// Invoker（retrievalGuard.WrapTool）—— biumindkit 内核里跑的 tool 循环
+	// 同样受预算 / signature 去重 / 连空早停约束，拒绝形态与 v1 invoke 一致
+	// （soft tool error 喂回模型 + Emitter.ToolFailed 可见步骤）。0 = 关闭。
 	var bkTools []biumindkit.Tool
 	if a.Registry != nil {
-		bkTools = a.Registry.AvailableForBiumindkit(a.ChatToolAllowlist)
+		if a.RetrievalBudget > 0 {
+			guard := newRetrievalGuard(a.RetrievalBudget, a.NoYieldStreakLimit)
+			bkTools = a.Registry.AvailableForBiumindkitGuarded(a.ChatToolAllowlist, guard.WrapTool)
+		} else {
+			bkTools = a.Registry.AvailableForBiumindkit(a.ChatToolAllowlist)
+		}
 	}
 
 	endpoint := in.AnthropicEndpoint

@@ -1262,6 +1262,11 @@ func run() error {
 		chatLoop := chatpkg.NewAgentLoop(nil, toolReg)
 		// Q1: chat-mode tool whitelist (default-deny). See tools/chatmode.go.
 		chatLoop.ChatToolAllowlist = toolspkg.DefaultChatToolAllowlist
+		// P2 #19（agent-42 遗留）：WS chat 路径（RunV2/biumindkit 内核）接
+		// 检索预算。WS 侧无 mode 概念，取 standard 档 4 次 —— 对齐 wiki agent
+		// run 的 wikiAgentRetrievalBudget 默认档（standard=4，未知 mode 也
+		// 落 standard）。v1 SSE 普通 chat 不接线，保持 0=关 的老行为。
+		chatLoop.RetrievalBudget = 4
 		// 默认模型真相源在 relay (models.is_default_chat) —— resolver 已在
 		// sender 构建处创建并异步预热（RelayURL 为空时为 nil, defaultChatModel
 		// 自然落到 env 覆盖 > 内置兜底链）；relay 不可达时按负缓存退避逐

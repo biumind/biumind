@@ -26,18 +26,35 @@ package chat
 //
 // The guard is active only when the caller sets AgentLoop.RetrievalBudget
 // > 0 (wiki agent run wires mode tiers fast=2/standard=4/deep=6, mirroring
-// the MaxTurns 4/8/12 ratio). A zero budget leaves the loop untouched —
-// plain chat keeps its existing behaviour.
+// the MaxTurns 4/8/12 ratio; the agentplane WS chat runner wires the
+// standard tier at cmd/brain/main.go). A zero budget leaves the loop
+// untouched — plain chat keeps its existing behaviour.
+//
+// Two wirings share this guard: v1 Run calls check/record inline in
+// invoke; RunV2 (biumindkit kernel owns the tool loop) folds the guard
+// into retrieval-class tools via WrapTool — rejections come back as soft
+// tool errors with the same visible ToolFailed step + error tool_result.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/biumind/biumind/services/brain/internal/tools"
 )
 
-// retrievalGuard is the per-run mutable state. Not goroutine-safe — the
-// agent loop is strictly sequential.
+// retrievalGuard is the per-run mutable state. The v1 AgentLoop is
+// strictly sequential, but RunV2 wraps tools whose invocations biumindkit
+// may run in parallel (IsConcurrencySafe fan-out within one turn), so the
+// state is mutex-guarded. check → invoke → record is NOT atomic across
+// concurrent calls — under parallel fan-out the budget is a soft cap
+// (both calls may pass check before either records), same as the
+// reference implementation's per-turn semantics.
 type retrievalGuard struct {
+	mu       sync.Mutex
 	budget   int // max retrieval invocations per run
 	noYield  int // consecutive empty results before early stop
 	used     int // retrieval invocations executed so far
@@ -61,6 +78,8 @@ func newRetrievalGuard(budget, noYield int) *retrievalGuard {
 // (and shown in the client's tool step). Order: duplicate → budget →
 // no-yield, so the most specific explanation wins.
 func (g *retrievalGuard) check(name string, input json.RawMessage) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	sig := retrievalSignature(name, input)
 	if _, dup := g.seen[sig]; dup {
 		return fmt.Sprintf(
@@ -85,6 +104,8 @@ func (g *retrievalGuard) check(name string, input json.RawMessage) string {
 // tool failed — counted against the budget (the model spent a step) but
 // neutral for the empty streak (a failure is not "no new information").
 func (g *retrievalGuard) record(name string, input json.RawMessage, result any, err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.seen[retrievalSignature(name, input)] = struct{}{}
 	g.used++
 	if err != nil {
@@ -95,6 +116,36 @@ func (g *retrievalGuard) record(name string, input json.RawMessage, result any, 
 	} else {
 		g.emptyRun = 0
 	}
+}
+
+// WrapTool gates a retrieval-class tool behind the guard — the RunV2
+// wiring (P2 #19, agent-42 leftover). RunV2's tool loop lives inside the
+// biumindkit kernel, so brain has no per-call interception point there;
+// instead the guard is folded into the tool's Invoker: check before
+// invoke, record after. A rejection returns an error — biumindkit turns
+// it into a soft tool error fed back to the model, surfaced through
+// ToolResult(IsError) → EventEmitter.ToolFailed, the same visible-step +
+// error-tool_result shape as v1 invoke's rejection path.
+//
+// Non-retrieval tools and descriptor-only tools (Invoke nil) pass
+// through unchanged. The wrapped result stays the brain Invoker's `any`
+// (a map for all builtin retrieval tools), so isEmptyRetrievalResult
+// sees the same shape as on the v1 path.
+func (g *retrievalGuard) WrapTool(t tools.Tool) tools.Tool {
+	if !t.Retrieval || t.Invoke == nil {
+		return t
+	}
+	name := t.Name
+	inner := t.Invoke
+	t.Invoke = func(ctx context.Context, input json.RawMessage) (any, error) {
+		if msg := g.check(name, input); msg != "" {
+			return nil, errors.New(msg)
+		}
+		result, err := inner(ctx, input)
+		g.record(name, input, result, err)
+		return result, err
+	}
+	return t
 }
 
 // retrievalSignature normalizes tool name + arguments so semantically

@@ -86,6 +86,16 @@ func BiumindkitAdapter(t Tool) biumindkit.Tool {
 // name is in the set survive. The RunV2 chat kernel passes its
 // AgentLoop.ChatToolAllowlist here.
 func (r *Registry) AvailableForBiumindkit(allow map[string]struct{}) []biumindkit.Tool {
+	return r.AvailableForBiumindkitGuarded(allow, nil)
+}
+
+// AvailableForBiumindkitGuarded is AvailableForBiumindkit with a per-tool
+// transform applied before adaptation. P2 #19 RunV2 wiring (agent-42
+// leftover): chat.RunV2 passes retrievalGuard.WrapTool so retrieval-class
+// tools are gated behind the per-run budget / signature-dedup / no-yield
+// guard even though the tool loop runs inside biumindkit. nil wrap =
+// plain projection, identical to AvailableForBiumindkit.
+func (r *Registry) AvailableForBiumindkitGuarded(allow map[string]struct{}, wrap func(Tool) Tool) []biumindkit.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]biumindkit.Tool, 0, len(r.tools))
@@ -95,6 +105,9 @@ func (r *Registry) AvailableForBiumindkit(allow map[string]struct{}) []biumindki
 		}
 		if !chatAllows(allow, t.Name) {
 			continue
+		}
+		if wrap != nil {
+			t = wrap(t)
 		}
 		ad := BiumindkitAdapter(t)
 		if ad != nil {
