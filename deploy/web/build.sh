@@ -31,6 +31,37 @@ die() { printf '\033[1;31m[web]\033[0m %s\n' "$*" >&2; exit 1; }
 command -v flutter >/dev/null || die "flutter not on PATH"
 command -v dart >/dev/null || die "dart (compile js) not on PATH"
 
+# ── editor / docproc web bundles ──────────────────────
+# Milkdown 编辑器（editor-web）与本机文档解析（docproc-web）bundle 不入仓
+#（.gitignore 忽略 apps/client/{web,assets}/{editor,docproc}）；Flutter web
+# 经同源 iframe 加载 web/<name>/index.html —— 缺产物则编辑器白屏 / 本机
+# 解析静默回退云端。做法对齐 release-client.yml（现场构建 + test 断言）：
+# 产物比源新则跳过，否则 npm ci（node_modules 缺失时）+ vite build，
+# 失败经 set -e fail-fast，产物缺失经断言 fail。
+ensure_web_bundle() {
+  local name="$1" dir="$2"
+  local out="$CLIENT_DIR/web/$name/index.html"
+  if [[ -f "$out" ]] && \
+     [[ -z "$(find "$CLIENT_DIR/$dir" \
+        \( -path '*/node_modules' -o -path '*/dist' \) -prune \
+        -o -type f -newer "$out" -print -quit)" ]]; then
+    log "$name bundle up to date — skipping"
+  else
+    command -v npm >/dev/null || die "npm not on PATH (required to build $name bundle)"
+    log "building $name bundle ($dir)"
+    (
+      cd "$CLIENT_DIR/$dir"
+      if [[ ! -d node_modules ]]; then npm ci; fi
+      npm run build
+    )
+  fi
+  [[ -f "$out" ]] || die "$name bundle missing $out after build"
+  [[ -d "$CLIENT_DIR/web/$name/assets" ]] || die "$name bundle missing $CLIENT_DIR/web/$name/assets"
+}
+
+ensure_web_bundle editor editor-web
+ensure_web_bundle docproc docproc-web
+
 # ── drift WASM artifacts ────────────────────────────────
 # The Web build relies on two assets that aren't produced by
 # `flutter build web`:
@@ -80,7 +111,8 @@ tar -czf "$TGZ_PATH" -C "$BUNDLE" .
 
 # Sanity check: tarball must contain everything the runtime needs.
 for f in index.html main.dart.js manifest.json flutter_service_worker.js \
-         sqlite3.wasm drift_worker.dart.js; do
+         sqlite3.wasm drift_worker.dart.js \
+         editor/index.html docproc/index.html; do
   if ! tar -tzf "$TGZ_PATH" | grep -q "^./$f$"; then
     die "tarball missing required file: $f"
   fi
