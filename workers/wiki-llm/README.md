@@ -45,7 +45,8 @@ instead of staying pending forever.
 | `BIUMIND_WIKI_LLM_TIMEOUT_S` | `600` | Per-task budget (10 min) |
 | `BIUMIND_HUB_URL` | (empty) | biumind model-relay base URL for LLM calls |
 | `BIUMIND_RELAY_INTERNAL_TOKEN` | (empty) | model-relay 内部车道共享密钥（= relay 的 `IDENTITY_INTERNAL_TOKEN`）；LLM 计费按任务 owner（body `user_id`）归属 |
-| `BIUMIND_WIKI_LLM_MODEL` | (empty) | 显式模型覆盖。空（默认）时每个任务从 model-relay `GET /v1/internal/models/default-chat` 拉 admin 指定的默认 chat 模型（进程内缓存 60s / 负缓存 10s，与 brain ChatRunner 一致）；端点不可达 / 未配时落内置硬编码兜底，不报错 |
+| `BIUMIND_WIKI_LLM_MODEL` | (empty) | 显式模型覆盖（恒第一优先级，运维强制）。空（默认）时按链解析：任务 owner 的 ingest 模型偏好（identity 内部端点，需配 `BIUMIND_IDENTITY_URL`，per-owner 缓存 60s / 负缓存 10s）→ model-relay `GET /v1/internal/models/default-chat`（admin 指定的默认 chat 模型，进程内缓存 60s / 负缓存 10s，与 brain ChatRunner 一致）→ 内置硬编码兜底；任一端点不可达 / 未配时落下一级，不报错。偏好来源的模型跑失败时自动去掉偏好层重解析并重跑一次（stage-2 幂等键加 `:fallback` 后缀），仍失败才发 failed |
+| `BIUMIND_IDENTITY_URL` | (empty) | identity 服务地址（如 `http://identity:7004`），用于拉任务 owner 的 ingest 模型偏好 `GET /v1/internal/settings/{owner_id}/ingest-model`；鉴权复用 `BIUMIND_RELAY_INTERNAL_TOKEN`。空（默认）= 偏好层禁用，向后兼容 |
 | `BIUMIND_LOG_LEVEL` | `INFO` | Python logging level |
 
 ## Run

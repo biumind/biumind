@@ -1,6 +1,7 @@
 """Default chat model resolution tests (B3).
 
-Covers the full priority chain pinned by ``runner._resolve_model``:
+Covers the relay/builtin tiers of the priority chain pinned by
+``runner._resolve_model``:
 
   1. ``BIUMIND_WIKI_LLM_MODEL`` env explicit override — wins, endpoint
      is never consulted;
@@ -10,6 +11,9 @@ Covers the full priority chain pinned by ``runner._resolve_model``:
   3. endpoint failure (404 / 5xx / network / disabled resolver) —
      falls back to the built-in default, never raises (aligned with
      brain ChatRunner: relay down must not kill the pipeline).
+
+The per-owner preference tier inserted between 1 and 2 (B2, identity
+internal endpoint) is covered in test_preference_model.py.
 
 HTTP is mocked with ``httpx.MockTransport``; the resolver clock is
 injected so TTL tests don't sleep.
@@ -157,7 +161,7 @@ async def test_resolve_model_env_override_wins():
     resolver = DefaultModelResolver(
         "http://relay", "tok", transport=httpx.MockTransport(_boom),
     )
-    assert await _resolve_model(cfg, resolver) == "env.model-override"
+    assert await _resolve_model(cfg, resolver) == ("env.model-override", "env")
 
 
 async def test_resolve_model_pulls_from_endpoint():
@@ -172,7 +176,8 @@ async def test_resolve_model_pulls_from_endpoint():
     resolver = DefaultModelResolver(
         cfg.hub_url, cfg.relay_internal_token, transport=transport,
     )
-    assert await _resolve_model(cfg, resolver) == "anthropic.claude-opus-4-8"
+    assert await _resolve_model(cfg, resolver) == ("anthropic.claude-opus-4-8",
+                                                   "default")
 
 
 async def test_resolve_model_endpoint_failure_falls_back_to_builtin():
@@ -186,13 +191,14 @@ async def test_resolve_model_endpoint_failure_falls_back_to_builtin():
     resolver = DefaultModelResolver(
         cfg.hub_url, cfg.relay_internal_token, transport=transport,
     )
-    assert await _resolve_model(cfg, resolver) == BUILTIN_FALLBACK_MODEL
+    assert await _resolve_model(cfg, resolver) == (BUILTIN_FALLBACK_MODEL,
+                                                   "builtin")
 
 
 async def test_resolve_model_no_resolver_falls_back_to_builtin():
     # hub_url 空 → 现场构造的 resolver 禁用 → 落内置兜底,不报错。
     cfg = _cfg()
-    assert await _resolve_model(cfg, None) == BUILTIN_FALLBACK_MODEL
+    assert await _resolve_model(cfg, None) == (BUILTIN_FALLBACK_MODEL, "builtin")
 
 
 # ── handle_message 端到端:解析出的模型进 LLMConfig ────────────

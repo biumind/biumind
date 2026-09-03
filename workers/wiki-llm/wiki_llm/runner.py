@@ -41,7 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Awaitable, Callable, Iterable, Optional
+from typing import Awaitable, Callable, Iterable, Optional, Tuple
 
 from .brain import (
     BrainClientError,
@@ -66,6 +66,7 @@ from .job import (
     KIND_CANCELLED,
 )
 from .llm import LLMConfig, LLMError, complete_messages, stream_messages
+from .preference_model import PreferenceModelResolver
 
 
 logger = logging.getLogger("biumind.wiki_llm")
@@ -106,6 +107,7 @@ async def handle_message(
     context_fetcher: Optional[ContextFetcher] = None,
     cancel_registry: Optional[CancelRegistry] = None,
     model_resolver: Optional[DefaultModelResolver] = None,
+    preference_resolver: Optional[PreferenceModelResolver] = None,
 ) -> Optional[IngestRequest]:
     """Decode one inbound NATS message and run the full pipeline.
 
@@ -114,7 +116,9 @@ async def handle_message(
     fakes; production uses the defaults which call hub via
     ``llm.stream_messages`` / ``llm.complete_messages``. ``model_resolver``
     is the process-level default-chat-model cache (``run()`` creates and
-    warms one); tests may omit it.
+    warms one); tests may omit it. ``preference_resolver`` is the
+    process-level per-owner ingest-model preference cache (identity);
+    omitted = preference layer disabled.
     """
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -199,11 +203,87 @@ async def handle_message(
             raw_text=req.raw_text, source_id=req.source_id,
         )
 
-    # 模型兜底链(B3,对齐 brain ChatRunner.defaultChatModel):
-    # BIUMIND_WIKI_LLM_MODEL env 显式覆盖 > relay default-chat 端点
-    # (admin 在 models 表标 is_default_chat) > 内置硬编码兜底。
-    # 端点不可达 / 未配不报错,落兜底(与 brain 一致)。
-    model = await _resolve_model(cfg, model_resolver)
+    # 模型兜底链(B2,对齐 brain ChatRunner.defaultChatModel 并插入
+    # 任务 owner 的个人偏好一级):
+    # BIUMIND_WIKI_LLM_MODEL env 显式覆盖 > owner 偏好(identity 内部
+    # 端点) > relay default-chat 端点(admin 在 models 表标
+    # is_default_chat) > 内置硬编码兜底。任一端点不可达 / 未配不报错,
+    # 落下一级(与 brain 一致)。
+    model, model_source = await _resolve_model(
+        cfg, model_resolver, req.owner_id, preference_resolver,
+    )
+
+    error = await _run_attempt(
+        req=req, source_text=source_text, cfg=cfg, publish=publish,
+        llm_stream=llm_stream, llm_complete=llm_complete,
+        context_fetcher=context_fetcher, cancel_registry=cancel_registry,
+        model=model, idem_suffix="",
+    )
+
+    # 弱模型质量兜底：模型来自 owner 偏好且任务失败时,自动用「去掉
+    # 偏好层的链」重解析出模型重跑一次;仍失败才发 failed。非偏好来源
+    # (env/default/builtin)失败不重跑 —— 那些是运维 / 平台显式选择,
+    # 重跑只是浪费配额。重跑时 stage-2 的 idempotency_key 换成
+    # task_id + ":fallback",防 relay Hold 去重吃掉重试。
+    if error is not None and model_source == "preference":
+        fallback_model, fallback_source = await _resolve_model(
+            cfg, model_resolver, req.owner_id, preference_resolver,
+            skip_preference=True,
+        )
+        logger.warning(
+            "wiki_llm: task=%s preference model %s failed (%s); "
+            "retrying once with %s (source=%s, preference layer skipped)",
+            req.task_id, model, error, fallback_model, fallback_source,
+        )
+        error = await _run_attempt(
+            req=req, source_text=source_text, cfg=cfg, publish=publish,
+            llm_stream=llm_stream, llm_complete=llm_complete,
+            context_fetcher=context_fetcher,
+            cancel_registry=cancel_registry,
+            model=fallback_model, idem_suffix=":fallback",
+        )
+        if error is not None:
+            # 终态 failed 的文本如实反映已降级重试过一次。
+            error = (f"{error} (retried once with model "
+                     f"{fallback_model} after preference-model failure)")
+        else:
+            logger.info(
+                "wiki_llm: task=%s fallback retry with %s succeeded",
+                req.task_id, fallback_model,
+            )
+
+    if error is not None:
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED, error=error,
+        ))
+
+    return req
+
+
+async def _run_attempt(
+    *,
+    req: IngestRequest,
+    source_text: str,
+    cfg: Config,
+    publish: Publisher,
+    llm_stream: Optional[LLMStreamer],
+    llm_complete: Optional[LLMCompleter],
+    context_fetcher: Optional[ContextFetcher],
+    cancel_registry: Optional[CancelRegistry],
+    model: str,
+    idem_suffix: str,
+) -> Optional[str]:
+    """用模型 ``model`` 跑一遍完整的 stage1+stage2,可重入(fallback 重跑)。
+
+    返回 None = 成功(done)或取消(cancelled)—— 这两种终态 update 已在
+    内部发出;返回错误字符串 = 失败但 **尚未** 发 failed update,由
+    handle_message 决定是降级重跑还是发终态 failed。
+
+    ``idem_suffix``:重跑时传 ":fallback",拼进 stage-2 / stage-1 的
+    idempotency_key(分别成 ``task:fallback`` / ``task:fallback:analyze``),
+    防 relay Hold 去重把重试当成首次调用的重复投递。
+    """
+    idem_base = req.task_id + idem_suffix
 
     # P2 #17 两阶段 CoT（默认开，BIUMIND_WIKI_LLM_TWO_STAGE=0 关）：
     #   stage 1 — 非流式分析调用（实体/概念/与现有 wiki 关联/矛盾/建议
@@ -230,7 +310,7 @@ async def handle_message(
         completer = (
             llm_complete if llm_complete is not None
             else _default_completer(cfg, owner_id=req.owner_id,
-                                    task_id=req.task_id, model=model)
+                                    task_id=idem_base, model=model)
         )
         from .prompts import ANALYZE_SYSTEM_PROMPT, build_analyze_prompt
         try:
@@ -243,23 +323,15 @@ async def handle_message(
                 ),
             )
         except LLMError as e:
-            # 质量门：stage 1 失败 = 任务 failed，不降级裸跑 stage 2
+            # 质量门：stage 1 失败 = 任务失败，不降级裸跑 stage 2
             # （否则两阶段形同虚设，且静默质量回退无法观测）。
             logger.warning("wiki_llm: stage-1 llm error task=%s: %s",
                            req.task_id, e)
-            await _emit(publish, cfg, Update(
-                task_id=req.task_id, kind=KIND_FAILED,
-                error=f"stage-1 analysis failed: {e}",
-            ))
-            return req
+            return f"stage-1 analysis failed: {e}"
         if not (analysis or "").strip():
             # 质量门：空分析等于 stage 1 失败——裸跑 stage 2 就退回
             # 单阶段质量，违背两阶段的存在意义。
-            await _emit(publish, cfg, Update(
-                task_id=req.task_id, kind=KIND_FAILED,
-                error="stage-1 analysis returned empty (quality gate)",
-            ))
-            return req
+            return "stage-1 analysis returned empty (quality gate)"
         logger.info("wiki_llm: stage-1 analysis done task=%s chars=%d "
                     "context_pages=%d", req.task_id, len(analysis),
                     len(context.pages) if context else 0)
@@ -267,11 +339,11 @@ async def handle_message(
     streamer = (
         llm_stream if llm_stream is not None
         else _default_streamer(cfg, owner_id=req.owner_id,
-                               task_id=req.task_id, model=model)
+                               task_id=idem_base, model=model)
     )
 
     try:
-        await _run_pipeline(
+        return await _run_pipeline(
             req=req,
             source_text=source_text,
             streamer=streamer,
@@ -283,16 +355,10 @@ async def handle_message(
         )
     except LLMError as e:
         logger.warning("wiki_llm: llm error task=%s: %s", req.task_id, e)
-        await _emit(publish, cfg, Update(
-            task_id=req.task_id, kind=KIND_FAILED, error=str(e),
-        ))
+        return str(e)
     except Exception as e:  # noqa: BLE001 — last-resort, surface as failed
         logger.exception("wiki_llm: unexpected error task=%s", req.task_id)
-        await _emit(publish, cfg, Update(
-            task_id=req.task_id, kind=KIND_FAILED, error=f"unexpected: {e}",
-        ))
-
-    return req
+        return f"unexpected: {e}"
 
 
 async def _run_pipeline(
@@ -305,8 +371,12 @@ async def _run_pipeline(
     cancel_registry: Optional[CancelRegistry] = None,
     analysis: Optional[str] = None,
     context: Optional[IngestContext] = None,
-) -> None:
-    """Stream the LLM, emit per-page updates, finish with done."""
+) -> Optional[str]:
+    """Stream the LLM, emit per-page updates, finish with done.
+
+    返回 None = done / cancelled（终态 update 已发出）；返回错误字符串
+    = 失败但 **尚未** 发 failed update（由调用方决定降级重跑或发终态）。
+    """
     from .prompts import SYSTEM_PROMPT, build_user_prompt
 
     user = build_user_prompt(
@@ -378,27 +448,19 @@ async def _run_pipeline(
     # silently dropped — the user retries to get the full set.
     truncated = [w for w in final.warnings if "not closed (stream truncated)" in w]
     if truncated:
-        await _emit(publish, cfg, Update(
-            task_id=req.task_id, kind=KIND_FAILED,
-            error=("LLM stream truncated: " + "; ".join(truncated) +
-                   f" ({page_index} page(s) saved before truncation)"),
-        ))
-        return
+        return ("LLM stream truncated: " + "; ".join(truncated) +
+                f" ({page_index} page(s) saved before truncation)")
 
     if not emitted_paths:
         # The model output zero parseable FILE blocks — typically means
         # the prompt didn't take and the response was prose. Fail the
         # task so the user sees something actionable instead of a
         # silent green checkmark.
-        await _emit(publish, cfg, Update(
-            task_id=req.task_id, kind=KIND_FAILED,
-            error=("LLM produced no parseable FILE blocks "
-                   "(see worker logs for response sample)"),
-        ))
         # Log first 500 chars of buffer so operators can diagnose.
         logger.warning("wiki_llm: empty result task=%s buffer_head=%r",
                        req.task_id, buffer[:500])
-        return
+        return ("LLM produced no parseable FILE blocks "
+                "(see worker logs for response sample)")
 
     logger.debug(
         "wiki_llm: stream done task=%s deltas=%d pages=%d total_ms=%d buffer_chars=%d",
@@ -410,6 +472,7 @@ async def _run_pipeline(
         task_id=req.task_id, kind=KIND_DONE,
         progress={"pages_total": page_index},
     ))
+    return None
 
 
 async def _emit_page(
@@ -475,33 +538,55 @@ async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
 async def _resolve_model(
     cfg: Config,
     model_resolver: Optional[DefaultModelResolver],
-) -> str:
-    """解析本任务用的模型 code。兜底链(对齐 brain
-    ChatRunner.defaultChatModel 的策略,顺序按 worker 语义调整):
+    owner_id: str = "",
+    preference_resolver: Optional[PreferenceModelResolver] = None,
+    skip_preference: bool = False,
+) -> Tuple[str, str]:
+    """解析本任务用的模型 code,返回 ``(model, source)``。
+
+    兜底链(对齐 brain ChatRunner.defaultChatModel,并插入任务 owner
+    的个人偏好一级):
 
       1. ``BIUMIND_WIKI_LLM_MODEL`` env 显式覆盖 —— 设了就用它,
-         不查 relay(运维强制切换通道);
-      2. relay ``GET /v1/internal/models/default-chat`` —— admin 在
+         不查任何端点(运维强制切换通道);source="env";
+      2. owner 的 ingest 模型偏好 —— identity
+         ``GET /v1/internal/settings/{owner_id}/ingest-model``,
+         per-owner 进程内缓存(60s 命中 / 10s 负缓存,见
+         preference_model.py);source="preference";
+      3. relay ``GET /v1/internal/models/default-chat`` —— admin 在
          models 表标 is_default_chat 的平台默认,进程内缓存
-         (60s 命中 / 10s 负缓存,见 default_model.py);
-      3. ``BUILTIN_FALLBACK_MODEL`` 硬编码兜底 —— 端点不可达 / 未配 /
-         resolver 禁用(hub_url 或 token 空)时落这里,不报错
-         (与 brain 一致:relay 挂了 chat 不该全废)。
+         (60s 命中 / 10s 负缓存,见 default_model.py);source="default";
+      4. ``BUILTIN_FALLBACK_MODEL`` 硬编码兜底 —— 端点不可达 / 未配 /
+         resolver 禁用时落这里,不报错(与 brain 一致:relay 挂了 chat
+         不该全废);source="builtin"。
 
-    ``model_resolver`` 为空时现场构造一个(单测 / 非 run() 入口);
-    生产路径 ``run()`` 总是传进程级实例以共享缓存。
+    ``skip_preference=True`` 跳过第 2 级 —— 弱模型质量兜底重跑时
+    用(handle_message:preference 来源的模型跑失败后,用去掉偏好层
+    的链重解析重试一次)。
+
+    ``model_resolver`` / ``preference_resolver`` 为空时现场构造
+    (单测 / 非 run() 入口);生产路径 ``run()`` 总是传进程级实例以
+    共享缓存。``identity_url`` 为空时偏好层禁用,解析退化为 B3 三级
+    (向后兼容)。
     """
     if cfg.model:
-        return cfg.model
+        return cfg.model, "env"
+    if owner_id and not skip_preference:
+        pref = preference_resolver if preference_resolver is not None \
+            else PreferenceModelResolver(cfg.identity_url,
+                                         cfg.relay_internal_token)
+        m = await pref.preference_model(owner_id)
+        if m:
+            return m, "preference"
     resolver = model_resolver if model_resolver is not None \
         else DefaultModelResolver(cfg.hub_url, cfg.relay_internal_token)
     m = await resolver.default_chat_model()
     if m:
-        return m
+        return m, "default"
     logger.warning("wiki_llm: relay default-chat unavailable; "
                    "falling back to built-in default %s",
                    BUILTIN_FALLBACK_MODEL)
-    return BUILTIN_FALLBACK_MODEL
+    return BUILTIN_FALLBACK_MODEL, "builtin"
 
 
 def _default_streamer(
@@ -512,8 +597,10 @@ def _default_streamer(
     Lazily constructed so unit tests that pass ``llm_stream=`` never
     touch the network configuration. Per-task identity is baked in here:
     ``user_id`` (= owner) drives billing/BYOK attribution on the relay
-    internal lane, ``idempotency_key`` (= task_id) dedups NATS
-    redeliveries. ``model`` comes from ``_resolve_model``.
+    internal lane, ``idempotency_key`` (= task_id; preference-fallback
+    reruns append ``:fallback`` so the relay Hold dedup doesn't swallow
+    the retry) dedups NATS redeliveries. ``model`` comes from
+    ``_resolve_model``.
     """
     llm_cfg = LLMConfig(
         base_url=cfg.hub_url,
@@ -618,6 +705,13 @@ async def run(cfg: Config) -> None:
     model_resolver = DefaultModelResolver(cfg.hub_url, cfg.relay_internal_token)
     warm_task = asyncio.create_task(model_resolver.warm())
 
+    # 进程级 per-owner 偏好 resolver(identity 内部端点);identity_url
+    # 为空时整层禁用(向后兼容)。per-owner 缓存无法按 owner 预热,首个
+    # 任务付一次 identity 往返,负缓存兜底 identity 短时不可用。
+    preference_resolver = PreferenceModelResolver(
+        cfg.identity_url, cfg.relay_internal_token,
+    )
+
     async def _publish(subject: str, body: bytes) -> None:
         await nc.publish(subject, body)
 
@@ -625,7 +719,8 @@ async def run(cfg: Config) -> None:
         try:
             await handle_message(msg.data, cfg=cfg, publish=_publish,
                                  cancel_registry=cancels,
-                                 model_resolver=model_resolver)
+                                 model_resolver=model_resolver,
+                                 preference_resolver=preference_resolver)
         except Exception:  # noqa: BLE001 — one bad job mustn't kill loop
             logger.exception("wiki_llm: handler crashed")
 

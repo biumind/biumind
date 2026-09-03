@@ -21,11 +21,17 @@ hotparse worker)::
                                   supersedes the old per-user
                                   BIUMIND_HUB_TOKEN
     BIUMIND_WIKI_LLM_MODEL    explicit model override; empty (default) =
-                              pull the admin-designated default chat model
-                              from relay GET /v1/internal/models/default-chat
+                              pull the task owner's ingest-model preference
+                              from identity (see preference_model.py;
+                              BIUMIND_IDENTITY_URL empty disables that
+                              layer), then the admin-designated default
+                              chat model from relay
+                              GET /v1/internal/models/default-chat
                               (see default_model.py), falling back to
                               BUILTIN_FALLBACK_MODEL when the endpoint is
                               unreachable / unconfigured
+    BIUMIND_IDENTITY_URL      e.g. http://identity:7004; empty (default)
+                              disables the per-owner preference layer
 
 Pipeline shape (P2 #17)::
 
@@ -70,6 +76,11 @@ class Config:
     # 端点(default_model.DefaultModelResolver)。完整兜底链见
     # runner._resolve_model。
     model: str
+    # identity 服务地址（拉任务 owner 的 ingest 模型偏好，
+    # preference_model.PreferenceModelResolver）。默认空 = 偏好层禁用，
+    # 解析链退化为 B3 三级（向后兼容）。鉴权复用 relay_internal_token
+    # （identity 的 IDENTITY_INTERNAL_TOKEN 与之同值）。
+    identity_url: str
 
     # Brain reverse callback. Used by the source-id-only ingest path
     # (P2-B) — when a task arrives with no inline raw_text, the worker
@@ -113,6 +124,7 @@ class Config:
             hub_url=e.get("BIUMIND_HUB_URL", ""),
             relay_internal_token=e.get("BIUMIND_RELAY_INTERNAL_TOKEN", ""),
             model=e.get("BIUMIND_WIKI_LLM_MODEL", ""),
+            identity_url=e.get("BIUMIND_IDENTITY_URL", ""),
             brain_url=e.get("BIUMIND_BRAIN_URL", ""),
             internal_token=e.get("BIUMIND_INTERNAL_TOKEN", ""),
             two_stage=e.get("BIUMIND_WIKI_LLM_TWO_STAGE", "1").strip().lower()
