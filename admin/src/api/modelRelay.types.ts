@@ -205,6 +205,8 @@ export interface Pricing {
   cost_per_video_second?: number | null
   cost_per_audio_second?: number | null
   cost_per_character?: number | null
+  // 通用按单元价格: rerank 按 search_unit (次) / wiki 解析按页复用此列, 0 = 不适用
+  cost_per_search_unit?: number
   effective_at?: string
   created_by?: string
   created_at?: string
@@ -220,6 +222,7 @@ export interface PricingInput {
   cost_per_video_second?: number | null
   cost_per_audio_second?: number | null
   cost_per_character?: number | null
+  cost_per_search_unit?: number
 }
 
 // P4 段 4 / F2.1 — pricing_rules 多维乘数 (parameter strategy 用)

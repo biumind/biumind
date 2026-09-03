@@ -78,6 +78,7 @@ const editPricing = ref<PricingInput>({
   cost_per_video_second: null,
   cost_per_audio_second: null,
   cost_per_character: null,
+  cost_per_search_unit: 0,
 })
 
 // F2.3 — parameter strategy 模型的多维乘数表
@@ -177,6 +178,7 @@ async function load() {
           cost_per_video_second: pr.cost_per_video_second ?? null,
           cost_per_audio_second: pr.cost_per_audio_second ?? null,
           cost_per_character: pr.cost_per_character ?? null,
+          cost_per_search_unit: pr.cost_per_search_unit ?? 0,
         }
       } else {
         pricing.value = null
@@ -190,6 +192,7 @@ async function load() {
           cost_per_video_second: null,
           cost_per_audio_second: null,
           cost_per_character: null,
+          cost_per_search_unit: 0,
         }
       }
     } catch {
@@ -286,6 +289,9 @@ async function onSavePricing() {
     if (showCharPrice.value && editPricing.value.cost_per_character != null) {
       body.cost_per_character = editPricing.value.cost_per_character
     }
+    // 通用按单元价格不按 mode 过滤: pseudo-model (wiki-parse-text 等) 的
+    // mode 是手工注册时随意选的, 始终透传当前值 (0 = 不适用), 避免调价时丢价.
+    body.cost_per_search_unit = editPricing.value.cost_per_search_unit ?? 0
     await api.setPricing(model.value.id, body)
     ElMessage.success('计价已保存（append-only，旧记录保留）')
     await load()
@@ -659,6 +665,22 @@ const STATUS_LABEL: Record<string, string> = {
               style="width: 200px"
             />
             <span class="form-hint">数字人按字数计价时填这里 (与每秒二选一)</span>
+          </el-form-item>
+
+          <!-- 通用按单元 (rerank 按次 / wiki 解析按页) -->
+          <el-form-item label="单价（每搜索单元）">
+            <el-input-number
+              v-model="editPricing.cost_per_search_unit"
+              :min="0"
+              :precision="6"
+              :step="0.001"
+              controls-position="right"
+              style="width: 200px"
+            />
+            <span class="form-hint">
+              rerank 按次 (1 unit = 1 query × ≤100 docs)、wiki 解析按页 (pseudo-model
+              如 wiki-parse-text / wiki-ocr) 都复用此列；不适用留 0
+            </span>
           </el-form-item>
 
           <div class="section-actions">
