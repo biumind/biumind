@@ -265,3 +265,80 @@ func TestListMessagesPosition(t *testing.T) {
 		t.Errorf("after_position pagination: got %d expected 2", len(rest))
 	}
 }
+
+func TestTrimThreadAfter(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid := uuid.New()
+
+	thread, _ := s.CreateThread(ctx, CreateThreadInput{
+		UserID: uid, Title: "trim", SyncEnabled: true,
+	})
+	defer s.DeleteThread(ctx, uid, thread.ID)
+
+	// 5 条消息 user/assistant 交替,模拟「问→答→问→答→问」。
+	ids := make([]uuid.UUID, 0, 5)
+	for i := 0; i < 5; i++ {
+		role := RoleUser
+		if i%2 == 1 {
+			role = RoleAssistant
+		}
+		m, err := s.CreateMessage(ctx, CreateMessageInput{
+			ThreadID: thread.ID, UserID: uid,
+			Role: role, Content: "msg",
+		})
+		if err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+		ids = append(ids, m.ID)
+	}
+	all, _ := s.ListMessages(ctx, ListMessagesInput{
+		ThreadID: thread.ID, UserID: uid, Limit: 100,
+	})
+	pivot := all[2] // 第二条 user 消息 = regenerate 的锚点
+
+	// 截断 pivot 之后 → 删 ids[3], ids[4],前 3 条保留。
+	deleted, err := s.TrimThreadAfter(ctx, thread.ID, uid, pivot.Position)
+	if err != nil {
+		t.Fatalf("trim: %v", err)
+	}
+	if len(deleted) != 2 {
+		t.Fatalf("deleted %d messages, want 2", len(deleted))
+	}
+	remain, _ := s.ListMessages(ctx, ListMessagesInput{
+		ThreadID: thread.ID, UserID: uid, Limit: 100,
+	})
+	if len(remain) != 3 {
+		t.Fatalf("remain %d, want 3", len(remain))
+	}
+	for _, m := range remain {
+		if m.Position > pivot.Position {
+			t.Errorf("message %s position %d > pivot %d", m.ID, m.Position, pivot.Position)
+		}
+	}
+
+	// tombstone 已记(离线设备经同步感知删除)。
+	var tombCount int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM chat.tombstones
+		 WHERE user_id = $1 AND kind = 'message' AND id = ANY($2)
+	`, uid, ids[3:]).Scan(&tombCount); err != nil {
+		t.Fatalf("tombstone query: %v", err)
+	}
+	if tombCount != 2 {
+		t.Errorf("tombstones = %d, want 2", tombCount)
+	}
+
+	// 幂等:同 position 再截一次 = 删 0 条。
+	again, err := s.TrimThreadAfter(ctx, thread.ID, uid, pivot.Position)
+	if err != nil || len(again) != 0 {
+		t.Errorf("re-trim: ids=%v err=%v, want empty", again, err)
+	}
+
+	// 跨用户截断别人的 thread = 删 0 条(user_id 过滤)。
+	other, err := s.TrimThreadAfter(ctx, thread.ID, uuid.New(), 0)
+	if err != nil || len(other) != 0 {
+		t.Errorf("cross-user trim: ids=%v err=%v, want empty", other, err)
+	}
+}

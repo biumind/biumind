@@ -823,6 +823,73 @@ func (s *Store) DeleteMessage(ctx context.Context, userID, msgID uuid.UUID) erro
 	return tx.Commit(ctx)
 }
 
+// TrimThreadAfter 原子删除 thread 中 position > beforePosition 的所有消息
+// —— regenerate 原子重滚的服务端截断（from_message_id 路径），替代客户端
+// 逐条 DELETE 上行（N 次往返 + 中途失败本地/brain 分叉）。
+//
+// 语义对齐 DeleteMessage：sync_enabled 时逐条发 EventMessageDeleted +
+// 记 tombstone，他端经同步收敛删除。单语句 DELETE 命中
+// messages_thread_position 索引，尾巴长度有界。返回被删消息 id。
+func (s *Store) TrimThreadAfter(
+	ctx context.Context, threadID, userID uuid.UUID, beforePosition int64,
+) ([]uuid.UUID, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		DELETE FROM chat.messages
+		 WHERE thread_id = $1 AND user_id = $2 AND position > $3
+		 RETURNING id
+	`, threadID, userID, beforePosition)
+	if err != nil {
+		return nil, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, tx.Commit(ctx)
+	}
+
+	var syncEnabled bool
+	if err := tx.QueryRow(ctx,
+		`SELECT sync_enabled FROM chat.threads WHERE id = $1`,
+		threadID).Scan(&syncEnabled); err != nil {
+		return nil, err
+	}
+	if syncEnabled {
+		for _, id := range ids {
+			if err := emitEvent(ctx, tx, userID, EventMessageDeleted,
+				map[string]any{
+					"thread_id":  threadID.String(),
+					"message_id": id.String(),
+				}); err != nil {
+				return nil, fmt.Errorf("message event: %w", err)
+			}
+		}
+	}
+	if err := recordTombstonesTx(ctx, tx, userID, "message", ids); err != nil {
+		return nil, err
+	}
+	if err := pruneTombstonesTx(ctx, tx); err != nil {
+		return nil, err
+	}
+	return ids, tx.Commit(ctx)
+}
+
 // CleanupOrphanStreaming marks any message stuck in `streaming` for
 // more than `staleAfter` as failed. Run on Brain startup and as a
 // periodic job — covers the case of a service crash mid-stream.

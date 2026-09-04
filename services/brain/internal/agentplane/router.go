@@ -95,6 +95,13 @@ type CreateSessionAPIReq struct {
 	// 轮 PK；assistant id 经 Transcript recorder 存到 result 帧落 assistant 轮用。
 	UserMessageID      string `json:"user_message_id,omitempty"`
 	AssistantMessageID string `json:"assistant_message_id,omitempty"`
+	// FromMessageID（regenerate 原子重滚）：置位时本轮复用该 user 消息 ——
+	// brain 单事务截断它之后的所有消息、**不再 INSERT 新 user 行**（不变量：
+	// 一条 user 消息 = 一轮提问，regenerate 不新增/不改 user 行），历史以
+	// pivot.position 为界组装。req.Prompt/Images 仍以请求为准（客户端从本地
+	// pivot 读出传入，允许与 pivot.content 不同 = 编辑后重发）。仅 chat 模式
+	// 生效；agent/task 忽略。空 = 正常新发。
+	FromMessageID string `json:"from_message_id,omitempty"`
 	// ClientSideRecordID/BaseURL/Protocol（B2）：client-side BYOK 信号。Flutter
 	// 命中 client-side（identity is_client_side=true 记录 + 本地 keychain 有 key）
 	// 时透传。brain 不碰 key —— key 经 daemon loopback 注入本机 daemon 内存，
@@ -286,6 +293,55 @@ func (s *Server) persistUserAndAssemble(
 	return out, nil
 }
 
+// errBadFromMessage 是 regenerate 重滚入口的参数校验错误（pivot 不存在 /
+// 非 user 消息 / 不属于该 thread）。路由层据此映射 HTTP 400。
+var errBadFromMessage = errors.New("bad from_message_id")
+
+// persistRegenerateAndAssemble 是 regenerate 原子重滚（from_message_id 置位）
+// 的服务端实现，替代 persistUserAndAssemble：
+//
+//  1. 校验 pivot 是该用户、该 thread 的 user 消息；
+//  2. TrimThreadAfter 单事务截断 pivot 之后的所有消息（事件 + tombstone
+//     同 tx，他端经同步收敛）—— 替代客户端逐条 DELETE 上行；
+//  3. **不** INSERT 新 user 行（复用 pivot；不变量见 FromMessageID 注释）；
+//  4. 注册 transcript + 以 pivot.position 为界组装历史。
+//
+// 截断/组装失败硬报错（不退化续跑）：历史里若残留将被覆盖的 assistant 轮，
+// 模型会看到旧回答，语义就错了。调用方须把 errBadFromMessage 映射 400，
+// 其余映射 500，并把 session 标 failed。
+func (s *Server) persistRegenerateAndAssemble(
+	ctx context.Context, sessionID, userID, threadID, pivotID uuid.UUID, model string,
+	assistantMsgID *uuid.UUID,
+) ([]ChatTurn, error) {
+	if s.ChatStore == nil {
+		return nil, nil
+	}
+	pivot, err := s.ChatStore.GetMessage(ctx, userID, pivotID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errBadFromMessage, err)
+	}
+	if pivot.ThreadID != threadID || pivot.Role != chatpkg.RoleUser {
+		return nil, fmt.Errorf("%w: not a user message in this thread",
+			errBadFromMessage)
+	}
+	if _, err := s.ChatStore.TrimThreadAfter(
+		ctx, threadID, userID, pivot.Position); err != nil {
+		return nil, fmt.Errorf("trim after pivot: %w", err)
+	}
+	if s.Transcript != nil {
+		s.Transcript.Begin(sessionID, threadID, userID, model, assistantMsgID)
+	}
+	prior, err := s.ChatStore.AssembleHistory(ctx, threadID, userID, pivot.Position)
+	if err != nil {
+		return nil, fmt.Errorf("assemble history: %w", err)
+	}
+	out := make([]ChatTurn, 0, len(prior))
+	for _, p := range prior {
+		out = append(out, ChatTurn{Role: p.Role, Content: p.Content})
+	}
+	return out, nil
+}
+
 // createChatSession：不绑 environment，不 enqueue work。session 行写好后
 // 在进程内调 ChatRunner 异步驱动 biumindkit（S4-5）—— 客户端通过 WS
 // /v1/agent/sessions/{id}/stream 接收 SDK Protocol 帧。
@@ -311,16 +367,37 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request, uid u
 	if s.ChatRunner != nil && (req.Prompt != "" || len(req.Images) > 0) {
 		// §8.2 翻案:历史由 brain 服务端从 chat.messages 组装,不再用客户端
 		// 带来的 req.History。落当前 user 轮 + 注册 transcript + 取 prior 多轮。
-		history, perr := s.persistUserAndAssemble(
-			r.Context(), sess.SessionID, uid, threadID, req.Prompt, req.Model,
-			parseOptionalUUID(req.UserMessageID), parseOptionalUUID(req.AssistantMessageID))
+		// from_message_id 置位 = regenerate 原子重滚:复用 pivot user 行,
+		// 服务端截断其后的消息,不再 INSERT 新 user 行。
+		var history []ChatTurn
+		var perr error
+		fromID := parseOptionalUUID(req.FromMessageID)
+		if fromID != nil && threadID != nil && *threadID != uuid.Nil {
+			history, perr = s.persistRegenerateAndAssemble(
+				r.Context(), sess.SessionID, uid, *threadID, *fromID, req.Model,
+				parseOptionalUUID(req.AssistantMessageID))
+		} else {
+			history, perr = s.persistUserAndAssemble(
+				r.Context(), sess.SessionID, uid, threadID, req.Prompt, req.Model,
+				parseOptionalUUID(req.UserMessageID), parseOptionalUUID(req.AssistantMessageID))
+		}
 		if perr != nil {
-			// thread id 已被其他账号占用(本地数据隔离 §3.4)—— 409 + 明确
-			// code 让客户端重新生成 id;刚插入的 session 标 failed,不留指向
-			// 他人 thread 的活跃 session。
+			// 刚插入的 session 标 failed,不留指向错误 thread 的活跃 session。
 			_ = s.Store.UpdateSessionState(r.Context(), sess.SessionID, "failed")
-			writeErr(w, http.StatusConflict, "thread_owned_by_other",
-				"thread_id already belongs to another account; generate a new thread id")
+			switch {
+			case errors.Is(perr, errBadFromMessage):
+				// regenerate pivot 校验失败(不存在/非 user/不属该 thread)。
+				writeErr(w, http.StatusBadRequest, "bad_from_message",
+					perr.Error())
+			case errors.Is(perr, chatpkg.ErrThreadOwnedByOther):
+				// thread id 已被其他账号占用(本地数据隔离 §3.4)—— 409 +
+				// 明确 code 让客户端重新生成 id。
+				writeErr(w, http.StatusConflict, "thread_owned_by_other",
+					"thread_id already belongs to another account; generate a new thread id")
+			default:
+				// 截断/组装等内部失败 —— 500,客户端可重试。
+				s.serverErr(w, "persist chat turn", perr)
+			}
 			return
 		}
 		payload := WorkPayload{
