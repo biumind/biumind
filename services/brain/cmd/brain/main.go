@@ -394,6 +394,14 @@ func run() error {
 	} else if n > 0 {
 		logger.Info("wiki: backfilled body_md", "pages", n)
 	}
+	// 2026-09-04 串味事故回填：剥离历史 body_md 开头误存的 YAML
+	// frontmatter（入 jsonb 列 + 重投影 blocks）。幂等，剥离后 body_md
+	// 不再以 --- 开头，重复启动无副作用。
+	if n, berr := st.BackfillFrontmatter(ctx); berr != nil {
+		logger.Warn("wiki: backfill frontmatter failed", "err", berr)
+	} else if n > 0 {
+		logger.Info("wiki: backfilled frontmatter", "pages", n)
+	}
 	sourcesStore := wikisources.New(pool)
 	// Notes 域 store 提前建：note api（含 promote → wiki store）与
 	// search 统一检索的 notes 一路（WithNotes）共用同一个实例。

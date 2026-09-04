@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/biumind/biumind/packages/go-sdk/biu/bus"
+	"github.com/biumind/biumind/services/brain/internal/wiki/mdparse"
 	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 	"github.com/google/uuid"
 )
@@ -239,11 +240,17 @@ func (s *Subscriber) applyPage(ctx context.Context, taskID uuid.UUID, u *Update)
 		title = pathBasename(u.Path)
 	}
 
+	// 写入边界「撕标签」（2026-09-04 串味事故修复）：工人的 content 是
+	// Obsidian 风格单文档（frontmatter 写在 --- 块里），biumind 存储是
+	// 结构化模型 —— frontmatter 入 jsonb 列，body_md 只存正文。不剥离的
+	// 话 goldmark 会把 ---…--- 误判成 setext H2 投成正文标题块。
+	fm, body := mdparse.SplitFrontmatter(u.Content)
 	page, err := s.Wiki.CreatePage(ctx, wikistore.CreatePageInput{
-		ProjectID: task.ProjectID,
-		Title:     title,
-		BodyMd:    u.Content,
-		ActorID:   "wiki-llm-worker",
+		ProjectID:   task.ProjectID,
+		Title:       title,
+		Frontmatter: fm,
+		BodyMd:      body,
+		ActorID:     "wiki-llm-worker",
 	})
 	if err != nil {
 		return fmt.Errorf("create page: %w", err)

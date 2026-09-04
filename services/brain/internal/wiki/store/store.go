@@ -1358,6 +1358,81 @@ func (s *Store) BackfillBodyMd(ctx context.Context) (int, error) {
 	return n, nil
 }
 
+// BackfillFrontmatter —— 一次性剥离历史上误写进 body_md 开头的 YAML
+// frontmatter（2026-09-04 串味事故：2026-09-03 前 ingest 路径不拆
+// frontmatter，goldmark 把 ---…--- 误判成 setext H2 投成正文标题块，
+// pages.frontmatter 恒为 {}）。修复 = frontmatter 入 jsonb 列 + body_md
+// 只留正文 + 重投影 blocks。幂等：剥离后 body_md 不再以 --- 开头，重复
+// 启动无副作用。返回修复页数。
+//
+// 已有 jsonb 键优先于剥离值（不覆盖模板 / research 路径已写入的键）；
+// 非法 YAML 或正文以分隔线开头的页不动（保守原则，宁可遗留不可误拆）。
+func (s *Store) BackfillFrontmatter(ctx context.Context) (int, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, frontmatter, body_md FROM brain.pages
+		WHERE body_md LIKE '---%' AND deleted_at IS NULL
+	`)
+	if err != nil {
+		return 0, err
+	}
+	type candidate struct {
+		id   uuid.UUID
+		fm   []byte
+		body string
+	}
+	var cands []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.fm, &c.body); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		cands = append(cands, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	n := 0
+	for _, c := range cands {
+		fm, body := mdparse.SplitFrontmatter(c.body)
+		if fm == nil {
+			continue // 非法 YAML / 正文以分隔线开头 —— 不动
+		}
+		// 合并：已有 jsonb 键优先。
+		existing := map[string]any{}
+		_ = json.Unmarshal(c.fm, &existing)
+		for k, v := range existing {
+			fm[k] = v
+		}
+		fmJSON, err := json.Marshal(fm)
+		if err != nil {
+			return n, err
+		}
+		tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return n, err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE brain.pages SET frontmatter = $2, body_md = $3, updated_at = now()
+			WHERE id = $1
+		`, c.id, fmJSON, body); err != nil {
+			tx.Rollback(ctx)
+			return n, fmt.Errorf("backfill frontmatter update page: %w", err)
+		}
+		if err := reconcileBlocksTx(ctx, tx, c.id, mdparse.ParseBlocks(body)); err != nil {
+			tx.Rollback(ctx)
+			return n, fmt.Errorf("backfill frontmatter reconcile blocks: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // snapshotPageRevisionTx —— 把 page（写前旧态：title/frontmatter + live blocks）
 // 存为 edit 版本。距上一条 edit 版本不足 revisionWindow 则跳过（窗口合并）。
 // blocks_json 超 MaxBlocksJSONBytes 跳过本条（极大页罕见，保 restore 完整不截断）。
