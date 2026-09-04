@@ -244,36 +244,43 @@ class BiuSessionConnection {
     String? clientSideRecordId,
     String? clientSideBaseUrl,
     String? clientSideProtocol,
+    /// regenerate 原子重滚（P2）：pivot user 消息 id。置位时本地**不再**
+    /// 持久化 user 消息（pivot 已存在，重写会撞 UNIQUE），brain 经
+    /// from_message_id 复用 pivot + 单事务截断其后消息。空 = 正常新发。
+    String? fromMessageId,
   }) async {
-    // 1. 用户消息先写本地（让 UI 立刻渲染，不等 brain 创会话）
-    await repo.appendMessage(
-      id: userMessageId,
-      threadId: thread.id,
-      role: MessageRole.user,
-      status: MessageStatus.pending,
-    );
-    await repo.upsertBlock(
-      TextBlock(
-        id: '${userMessageId}_b0',
-        index: 0,
-        state: BlockState.closed,
-        text: userPrompt,
-      ),
-      messageId: userMessageId,
-    );
-    // 1b. 图片附件作为 ImageBlock 写到 user message（index ≥ 1）。
-    for (var i = 0; i < attachments.length; i++) {
-      final att = attachments[i];
+    // 1. 用户消息先写本地（让 UI 立刻渲染，不等 brain 创会话）。
+    //    regenerate 时 pivot 已在本地,跳过整段(文本/图片 blocks 都在)。
+    if (fromMessageId == null) {
+      await repo.appendMessage(
+        id: userMessageId,
+        threadId: thread.id,
+        role: MessageRole.user,
+        status: MessageStatus.pending,
+      );
       await repo.upsertBlock(
-        ImageBlock(
-          id: '${userMessageId}_b${i + 1}',
-          index: i + 1,
+        TextBlock(
+          id: '${userMessageId}_b0',
+          index: 0,
           state: BlockState.closed,
-          mimeType: att.mimeType,
-          data: base64Encode(att.bytes),
+          text: userPrompt,
         ),
         messageId: userMessageId,
       );
+      // 1b. 图片附件作为 ImageBlock 写到 user message（index ≥ 1）。
+      for (var i = 0; i < attachments.length; i++) {
+        final att = attachments[i];
+        await repo.upsertBlock(
+          ImageBlock(
+            id: '${userMessageId}_b${i + 1}',
+            index: i + 1,
+            state: BlockState.closed,
+            mimeType: att.mimeType,
+            data: base64Encode(att.bytes),
+          ),
+          messageId: userMessageId,
+        );
+      }
     }
 
     // 2. POST /v1/agent/sessions —— "biumind-default" 是 client 模型选择器
@@ -311,6 +318,7 @@ class BiuSessionConnection {
       // → 本地 message.id == brain chat.messages.id，编辑/删除上行直连。
       userMessageId: userMessageId,
       assistantMessageId: assistantMessageId,
+      fromMessageId: fromMessageId,
       clientSideRecordId: clientSideRecordId,
       clientSideBaseUrl: clientSideBaseUrl,
       clientSideProtocol: clientSideProtocol,

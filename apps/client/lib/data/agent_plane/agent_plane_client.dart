@@ -87,6 +87,12 @@ class AgentPlaneClient {
     /// chat.messages.id，编辑/删除上行直连）。空 → brain 走 gen_random_uuid。
     String? userMessageId,
     String? assistantMessageId,
+    /// regenerate 原子重滚锚点（pivot user 消息 id）。置位时 brain 复用该
+    /// user 行、单事务截断其后消息、不再 INSERT 新 user 行。仅 chat 模式
+    /// 生效；旧 brain 不认识此字段会静默忽略 —— 此时调用方应同时传
+    /// userMessageId=pivot id：旧服务端 INSERT 撞 PK 冲突降级为单轮回答，
+    /// 不产生重复 user 行。
+    String? fromMessageId,
     /// client-side BYOK 信号（B2）：命中时透传给 brain → WorkPayload → daemon。
     /// key 不走此通道（经 daemon loopback 注入）；record_id 让 daemon 从内存
     /// store 取 key，base_url/protocol 让 daemon 建 engine 直连上游。
@@ -113,6 +119,7 @@ class AgentPlaneClient {
         'images': images.map((i) => i.toJson()).toList(),
       'user_message_id': ?userMessageId,
       'assistant_message_id': ?assistantMessageId,
+      'from_message_id': ?fromMessageId,
       'client_side_record_id': ?clientSideRecordId,
       'client_side_base_url': ?clientSideBaseUrl,
       'client_side_protocol': ?clientSideProtocol,

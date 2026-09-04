@@ -319,7 +319,11 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// [attachments]：图片附件（image/*）；新会话场景下会作为 ImageBlock 挂到
   /// user message 之后让 UI 立刻渲染。多 turn 场景目前忽略 attachments
   /// （brain 协议未透传），UI 一律按 text-only 走。
-  Future<void> sendMessage(String text, {String? userMessageId, String? assistantMessageId, List<AttachmentInput> attachments = const []}) async {
+  ///
+  /// [fromMessageId]：regenerate 原子重滚锚点（P2）。置位 = 本轮是对既有
+  /// user 消息的重滚：本地不再写 user 行（pivot 已存在），brain 复用
+  /// pivot + 服务端截断。仅由 _resendFromUser 使用。
+  Future<void> sendMessage(String text, {String? userMessageId, String? assistantMessageId, List<AttachmentInput> attachments = const [], String? fromMessageId}) async {
     final hasText = text.trim().isNotEmpty;
     final hasAttachments = attachments.isNotEmpty;
     if (!hasText && !hasAttachments) return;
@@ -382,6 +386,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           assistantMessageId: amId,
           target: target,
           attachments: attachments,
+          fromMessageId: fromMessageId,
         );
         return;
       }
@@ -392,6 +397,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         userMessageId: umId,
         assistantMessageId: amId,
         attachments: attachments,
+        fromMessageId: fromMessageId,
       );
       await _disposeConnection();
       _conn = conn;
@@ -432,6 +438,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     required String assistantMessageId,
     required ClientSideTarget target,
     required List<AttachmentInput> attachments,
+    String? fromMessageId,
   }) async {
     final daemonEnvId = ref.read(biuDaemonStateProvider).valueOrNull?.daemonEnvId;
     if (daemonEnvId == null || daemonEnvId.isEmpty) {
@@ -459,6 +466,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clientSideRecordId: target.recordId,
         clientSideBaseUrl: target.baseUrl,
         clientSideProtocol: target.protocol,
+        fromMessageId: fromMessageId,
       );
       await _disposeConnection();
       _conn = conn;
@@ -492,6 +500,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     String? clientSideRecordId,
     String? clientSideBaseUrl,
     String? clientSideProtocol,
+    String? fromMessageId,
   }) async {
     try {
       return await BiuSessionConnection.open(
@@ -507,6 +516,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clientSideRecordId: clientSideRecordId,
         clientSideBaseUrl: clientSideBaseUrl,
         clientSideProtocol: clientSideProtocol,
+        fromMessageId: fromMessageId,
       );
     } catch (e) {
       if (!_isStaleEnvironmentError(e) || thread.mode != ThreadMode.agent) {
@@ -516,7 +526,12 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       // 的 user message + 占位 assistant message + 它们的 blocks。
       // 不清的话 retry 时同 id 再 INSERT 撞 UNIQUE 约束(SqliteException 1555)。
       // deleteMessages 走 cascade 会顺手清 chat_content_blocks 行。
-      await deps.repo.deleteMessages([userMessageId, assistantMessageId]);
+      // regenerate(fromMessageId 置位) 时 user message 是既有 pivot,
+      // 不是 open() 写的 —— 不能删。
+      await deps.repo.deleteMessages([
+        if (fromMessageId == null) userMessageId,
+        assistantMessageId,
+      ]);
       // 自愈第二步：刷新 environment 列表
       ref.invalidate(agentEnvironmentsProvider);
       final envs = await ref.read(agentEnvironmentsProvider.future);
@@ -548,6 +563,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         clientSideRecordId: clientSideRecordId,
         clientSideBaseUrl: clientSideBaseUrl,
         clientSideProtocol: clientSideProtocol,
+        fromMessageId: fromMessageId,
       );
     }
   }
@@ -787,22 +803,21 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     return deps.repo.watchMessages(arg).first;
   }
 
-  /// 截断 [pivot]（含）之后的所有 message + 它们 blocks，再用 pivot 文本
-  /// 作 prompt、**复用 pivot 的 message id** 重开 session。regenerate /
-  /// regenerateFromUserMessage 共用。
+  /// 重新生成锚点流程（P2 服务端原子重滚）：本地删 [pivot] 之后的消息，
+  /// 再用 pivot 文本 + 附件、**复用 pivot 的 message id** 经 from_message_id
+  /// 重开 session。regenerate / regenerateFromUserMessage 共用。
   ///
-  /// pivot 本身也删：原实现保留 pivot 又让 sendMessage 新建同文案 user
-  /// message（新 uuid），每重新生成一次 prompt 就 +1 份 —— UI 出现重复
-  /// 气泡，brain 端 chat.messages 同样多一行，服务端组装历史时同一句话
-  /// 进模型上下文 N 次。删后同 id 重发（方案3：本地 id == brain id，
-  /// deleteMessage 已上行删 brain 行，重发 INSERT 不撞 PK），全链路只剩
-  /// 一条 user 记录。
-  ///
-  /// 逐条走 [deleteMessage]：上行 brain 同步 + 本地删（含 blocks/reactions）。
-  /// 截断同步到 brain → 跨设备 regenerate 一致。
+  /// - pivot 本身不动：不变量「一条 user 消息 = 一轮提问」，regenerate
+  ///   不新增/不改 user 行。brain 端由 from_message_id 单事务截断（权威），
+  ///   事件 + tombstone 同 tx 发出，他端经同步收敛 —— 跨设备一致。
+  /// - 本地截断不上行（brain 已截，上行只会 404 刷噪音）；本地先删让
+  ///   UI 立刻正确。
+  /// - 旧 brain 不认识 from_message_id 会静默忽略：user_message_id 撞 PK
+  ///   → 服务端降级为单轮回答（无历史），不产生重复 user 行；升级 brain
+  ///   后自愈。这是过渡期可接受的退化。
+  /// - 附件：pivot 的 ImageBlock 还原成 AttachmentInput 随请求重发
+  ///   （brain 本轮运行用），不丢图。
   Future<void> _resendFromUser(Message pivot, List<Message> messages) async {
-    // 带图 prompt：把 pivot 的 ImageBlock 还原成附件一起重发，否则重新
-    // 生成会静默丢图（lobehub 同款坑，见 regenerateHeteroImages）。
     final attachments = <AttachmentInput>[
       for (final b in pivot.blocks)
         if (b is ImageBlock)
@@ -810,12 +825,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     ];
     final prompt = pivot.assembledText;
     if (prompt.isEmpty && attachments.isEmpty) return;
-    final toDelete = messages.sublist(messages.indexOf(pivot));
-    for (final m in toDelete) {
-      await deleteMessage(m.id);
-    }
+    final deps = ref.read(chatControllerDepsProvider);
+    final toDelete = messages.sublist(messages.indexOf(pivot) + 1);
+    await deps.repo
+        .deleteMessages(toDelete.map((m) => m.id).toList(growable: false));
     await sendMessage(prompt,
-        userMessageId: pivot.id, attachments: attachments);
+        userMessageId: pivot.id,
+        attachments: attachments,
+        fromMessageId: pivot.id);
   }
 
   // ─── Internal ──────────────────────────────────────────────

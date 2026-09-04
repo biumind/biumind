@@ -24,6 +24,7 @@ class FakeAgentPlane extends AgentPlaneClient {
   int sessionCount = 0;
   String? lastUserMessageId;
   String? lastPrompt;
+  String? lastFromMessageId;
   List<ChatImageInput>? lastImages;
 
   @override
@@ -42,6 +43,7 @@ class FakeAgentPlane extends AgentPlaneClient {
     List<ChatImageInput>? images,
     String? userMessageId,
     String? assistantMessageId,
+    String? fromMessageId,
     String? clientSideRecordId,
     String? clientSideBaseUrl,
     String? clientSideProtocol,
@@ -49,6 +51,7 @@ class FakeAgentPlane extends AgentPlaneClient {
     sessionCount++;
     lastUserMessageId = userMessageId;
     lastPrompt = prompt;
+    lastFromMessageId = fromMessageId;
     lastImages = images;
     return CreateSessionResp(
       sessionId: 'sess-$sessionCount',
@@ -438,8 +441,9 @@ void main() {
 
     expect(ap.sessionCount, preCount + 1,
         reason: 'regenerate should open new brain session');
-    // 复用原 user message id 重发,而不是新建同文案消息
+    // 复用原 user message id 重发,并带 from_message_id 让 brain 原子重滚
     expect(ap.lastUserMessageId, firstUserMessageId);
+    expect(ap.lastFromMessageId, firstUserMessageId);
     expect(ap.lastPrompt, 'first prompt');
 
     // 形态：[user(同 id), new_assistant] —— 不再出现重复 user 气泡
@@ -485,8 +489,9 @@ void main() {
         .regenerateFromUserMessage(userMsg.id);
     await Future.delayed(const Duration(milliseconds: 100));
 
-    // 重发仍带同一张图,且复用原 message id
+    // 重发仍带同一张图,且复用原 message id + from_message_id 锚点
     expect(ap.lastUserMessageId, userMsg.id);
+    expect(ap.lastFromMessageId, userMsg.id);
     expect(ap.lastPrompt, '看图说话');
     expect(ap.lastImages, isNotNull);
     expect(ap.lastImages!.length, 1);

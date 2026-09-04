@@ -45,6 +45,7 @@ class FakeAgentPlane extends AgentPlaneClient {
     List<ChatImageInput>? images,
     String? userMessageId,
     String? assistantMessageId,
+    String? fromMessageId,
     String? clientSideRecordId,
     String? clientSideBaseUrl,
     String? clientSideProtocol,
