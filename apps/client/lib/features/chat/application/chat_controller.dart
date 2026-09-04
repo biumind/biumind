@@ -20,6 +20,7 @@
 //   ref.read(chatControllerProvider(threadId).notifier).sendMessage('hi');
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -786,19 +787,35 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     return deps.repo.watchMessages(arg).first;
   }
 
-  /// 截断 [pivot]（不含）之后的所有 message + 它们 blocks，再用 pivot
-  /// 文本作 prompt 重开 session。regenerate / regenerateFromUserMessage 共用。
+  /// 截断 [pivot]（含）之后的所有 message + 它们 blocks，再用 pivot 文本
+  /// 作 prompt、**复用 pivot 的 message id** 重开 session。regenerate /
+  /// regenerateFromUserMessage 共用。
+  ///
+  /// pivot 本身也删：原实现保留 pivot 又让 sendMessage 新建同文案 user
+  /// message（新 uuid），每重新生成一次 prompt 就 +1 份 —— UI 出现重复
+  /// 气泡，brain 端 chat.messages 同样多一行，服务端组装历史时同一句话
+  /// 进模型上下文 N 次。删后同 id 重发（方案3：本地 id == brain id，
+  /// deleteMessage 已上行删 brain 行，重发 INSERT 不撞 PK），全链路只剩
+  /// 一条 user 记录。
   ///
   /// 逐条走 [deleteMessage]：上行 brain 同步 + 本地删（含 blocks/reactions）。
   /// 截断同步到 brain → 跨设备 regenerate 一致。
   Future<void> _resendFromUser(Message pivot, List<Message> messages) async {
-    final toDelete = messages.sublist(messages.indexOf(pivot) + 1);
+    // 带图 prompt：把 pivot 的 ImageBlock 还原成附件一起重发，否则重新
+    // 生成会静默丢图（lobehub 同款坑，见 regenerateHeteroImages）。
+    final attachments = <AttachmentInput>[
+      for (final b in pivot.blocks)
+        if (b is ImageBlock)
+          AttachmentInput(mimeType: b.mimeType, bytes: base64Decode(b.data)),
+    ];
+    final prompt = pivot.assembledText;
+    if (prompt.isEmpty && attachments.isEmpty) return;
+    final toDelete = messages.sublist(messages.indexOf(pivot));
     for (final m in toDelete) {
       await deleteMessage(m.id);
     }
-    final prompt = pivot.assembledText;
-    if (prompt.isEmpty) return;
-    await sendMessage(prompt);
+    await sendMessage(prompt,
+        userMessageId: pivot.id, attachments: attachments);
   }
 
   // ─── Internal ──────────────────────────────────────────────

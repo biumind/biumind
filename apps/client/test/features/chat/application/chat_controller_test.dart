@@ -22,6 +22,9 @@ class FakeAgentPlane extends AgentPlaneClient {
   FakeAgentPlane()
       : super(baseUrl: 'http://test', tokenProvider: () async => 'tok');
   int sessionCount = 0;
+  String? lastUserMessageId;
+  String? lastPrompt;
+  List<ChatImageInput>? lastImages;
 
   @override
   Future<CreateSessionResp> createSession({
@@ -44,6 +47,9 @@ class FakeAgentPlane extends AgentPlaneClient {
     String? clientSideProtocol,
   }) async {
     sessionCount++;
+    lastUserMessageId = userMessageId;
+    lastPrompt = prompt;
+    lastImages = images;
     return CreateSessionResp(
       sessionId: 'sess-$sessionCount',
       sessionToken: 'tok-$sessionCount',
@@ -390,7 +396,7 @@ void main() {
     expect(state.isStreaming, false);
   });
 
-  test('regenerate() truncates after target user msg + opens new session', () async {
+  test('regenerate() 同 id 重发 user 消息,不产生重复 prompt', () async {
     await createTestThread();
     await container.read(chatControllerProvider('t1').future);
 
@@ -400,6 +406,7 @@ void main() {
         .sendMessage('first prompt');
     await Future.delayed(const Duration(milliseconds: 30));
     final firstSessionId = 'sess-${ap.sessionCount}';
+    final firstUserMessageId = ap.lastUserMessageId;
 
     // 推 result 让第一条 session 完成
     currentTransport().push(jsonEncode({
@@ -429,17 +436,66 @@ void main() {
         .regenerate(assistantId);
     await Future.delayed(const Duration(milliseconds: 100));
 
-    expect(ap.sessionCount, preCount + 1, reason: 'regenerate should open new brain session');
+    expect(ap.sessionCount, preCount + 1,
+        reason: 'regenerate should open new brain session');
+    // 复用原 user message id 重发,而不是新建同文案消息
+    expect(ap.lastUserMessageId, firstUserMessageId);
+    expect(ap.lastPrompt, 'first prompt');
 
-    // 第一条 user 消息保留；老 assistant 被截断；新 user/assistant 出现
+    // 形态：[user(同 id), new_assistant] —— 不再出现重复 user 气泡
     final afterRegen = await repo.watchMessages('t1').first;
-    // 形态：[old_user, new_user, new_assistant]
-    expect(afterRegen.length, 3);
+    expect(afterRegen.length, 2);
     expect(afterRegen[0].role, MessageRole.user);
+    expect(afterRegen[0].id, firstUserMessageId);
     expect(afterRegen[0].assembledText, 'first prompt');
-    expect(afterRegen[1].role, MessageRole.user);
-    expect(afterRegen[1].assembledText, 'first prompt'); // 用同 prompt 重发
-    expect(afterRegen[2].role, MessageRole.assistant);
+    expect(afterRegen[1].role, MessageRole.assistant);
+  });
+
+  test('regenerateFromUserMessage() 带图 prompt 重新生成时转发原附件', () async {
+    await createTestThread();
+    await container.read(chatControllerProvider('t1').future);
+
+    final png = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+    await container.read(chatControllerProvider('t1').notifier).sendMessage(
+        '看图说话',
+        attachments: [AttachmentInput(mimeType: 'image/png', bytes: png)]);
+    await Future.delayed(const Duration(milliseconds: 30));
+    expect(ap.lastImages, isNotNull);
+    expect(ap.lastImages!.length, 1);
+
+    final firstSessionId = 'sess-${ap.sessionCount}';
+    currentTransport().push(jsonEncode({
+      'type': 'result',
+      'subtype': 'success',
+      'duration_ms': 1, 'duration_api_ms': 1, 'is_error': false,
+      'num_turns': 1, 'result': 'ok', 'total_cost_usd': 0,
+      'usage': {}, 'modelUsage': {}, 'permission_denials': [],
+      'stop_reason': 'end_turn',
+      'uuid': 'u1', 'session_id': firstSessionId,
+    }));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final msgs = await repo.watchMessages('t1').first;
+    final userMsg = msgs.firstWhere((m) => m.role == MessageRole.user);
+    expect(userMsg.blocks.whereType<ImageBlock>().length, 1);
+
+    await container
+        .read(chatControllerProvider('t1').notifier)
+        .regenerateFromUserMessage(userMsg.id);
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // 重发仍带同一张图,且复用原 message id
+    expect(ap.lastUserMessageId, userMsg.id);
+    expect(ap.lastPrompt, '看图说话');
+    expect(ap.lastImages, isNotNull);
+    expect(ap.lastImages!.length, 1);
+    expect(ap.lastImages!.first.mimeType, 'image/png');
+    expect(base64Decode(ap.lastImages!.first.data), png);
+
+    final after = await repo.watchMessages('t1').first;
+    expect(after.where((m) => m.role == MessageRole.user).length, 1,
+        reason: '重新生成不得产生重复 user 消息');
   });
 
   test('messagesProvider streams updates as repo changes', () async {
