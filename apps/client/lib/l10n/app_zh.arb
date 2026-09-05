@@ -513,6 +513,7 @@
   "chatV2ShortcutsSearchPrev": "搜索栏：跳到上一条命中",
   "chatV2ShortcutsPalette": "打开命令面板",
   "chatV2ShortcutsNewThread": "新建对话",
+  "chatV2ShortcutsPinThread": "置顶 / 取消置顶当前对话",
   "chatV2ShortcutsCrossSearch": "搜索全部对话",
   "chatV2ShortcutsModelPicker": "切换当前对话模型",
   "chatV2ShortcutsHelp": "打开本帮助面板",

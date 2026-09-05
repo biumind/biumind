@@ -548,6 +548,7 @@
   "chatV2ShortcutsSearchPrev": "Search bar: previous match",
   "chatV2ShortcutsPalette": "Open command palette",
   "chatV2ShortcutsNewThread": "New conversation",
+  "chatV2ShortcutsPinThread": "Pin / unpin current conversation",
   "chatV2ShortcutsCrossSearch": "Search all conversations",
   "chatV2ShortcutsModelPicker": "Switch model for current conversation",
   "chatV2ShortcutsHelp": "Open this help panel",

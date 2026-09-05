@@ -9,7 +9,9 @@ library;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../../../data/wiki_repository.dart' show RepoPage;
+import '../../application/sync_provider.dart' show wikiSyncEventsProvider;
 import '../../application/wiki_controller.dart';
 
 /// 当前项目的 page list。
@@ -46,4 +48,30 @@ final pageDetailProvider = Provider.family<RepoPage?, PageRequest>((ref, req) {
     if (p.id == req.pageId) return p;
   }
   return null;
+});
+
+/// 单页 body_md（权威 markdown 正文）—— read 模式 WikiReaderView 的数据源。
+///
+/// 本地 Drift 不存 body_md，走 server getPage 拉取（与编辑态 _ensureBody
+/// 同链路）。缓存策略与编辑态一致：每页拉一次，autoDispose 切页回收；
+/// syncws `page.updated` / `page.created` 命中本页时 invalidateSelf 重拉，
+/// 本地编辑保存成功也由 WikiPageDetail._saveBody 主动 invalidate。
+final pageBodyMdProvider =
+    FutureProvider.family.autoDispose<String, PageRequest>((ref, req) async {
+  ref.listen<AsyncValue<Map<Object?, Object?>>>(
+    wikiSyncEventsProvider(req.projectId),
+    (_, next) => next.whenData((event) {
+      final entity = event['entity'];
+      final op = event['op'];
+      if (entity == 'page' &&
+          (op == 'updated' || op == 'created') &&
+          event['entity_id'] == req.pageId) {
+        ref.invalidateSelf();
+      }
+    }),
+  );
+  final repo = ref.watch(wikiRepositoryProvider);
+  if (repo == null) return '';
+  final page = await repo.getPage(req.projectId, req.pageId);
+  return page.bodyMd;
 });

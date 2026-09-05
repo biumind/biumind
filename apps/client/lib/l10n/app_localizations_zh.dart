@@ -1616,6 +1616,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2ShortcutsNewThread => '新建对话';
 
   @override
+  String get chatV2ShortcutsPinThread => '置顶 / 取消置顶当前对话';
+
+  @override
   String get chatV2ShortcutsCrossSearch => '搜索全部对话';
 
   @override

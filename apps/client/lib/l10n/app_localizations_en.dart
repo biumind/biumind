@@ -1667,6 +1667,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2ShortcutsNewThread => 'New conversation';
 
   @override
+  String get chatV2ShortcutsPinThread => 'Pin / unpin current conversation';
+
+  @override
   String get chatV2ShortcutsCrossSearch => 'Search all conversations';
 
   @override

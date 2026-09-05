@@ -1,13 +1,16 @@
 // WikiReaderView — read-only rendering of a Wiki page.
 //
-// Concatenates blocks → markdown via blocksToMarkdown, then hands off
-// to GptMarkdown which already renders headings / paragraphs / lists /
-// code / tables / images / inline & block math (KaTeX).
+// Renders `pages.body_md`（权威 markdown，与编辑态 PUT body / mirror 导出
+// 同一数据源）directly via GptMarkdown — headings / paragraphs / lists /
+// code / GFM tables & task lists / images / inline & block math (KaTeX).
+// 不走 blocks → blocksToMarkdown 投影链（mdparse 对 paragraph 拍平成纯
+// 文本，链接 / 图片 / 行内格式天然有损）。
 //
-// Wikilinks are pre-rewritten to `wiki://<encoded-target>` markdown
-// links; we intercept those in onLinkTap and route via the wiki
-// controller (selectPageByTitle). External links open in the system
-// browser via url_launcher.
+// Wikilinks（body_md 里字面保留的 `[[Page]]` / `[[slug|alias]]`）经
+// rewriteWikilinksInBodyMarkdown 预改写为 `wiki://<encoded-target>`
+// markdown links（fenced code block 内不改写），在 onLinkTap 拦截并经
+// wiki controller（selectPageById）路由。External links open in the
+// system browser via url_launcher.
 //
 // Code fences with `lang=mermaid` get the existing MermaidPreview
 // widget (renders via mermaid.ink) instead of a plain code box.
@@ -18,7 +21,6 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/theme.dart';
-import '../../../../data/wiki_repository.dart';
 import '../../application/wiki_controller.dart';
 import '../mermaid/mermaid_preview.dart';
 import 'block_to_markdown.dart';
@@ -26,11 +28,17 @@ import 'block_to_markdown.dart';
 class WikiReaderView extends ConsumerWidget {
   const WikiReaderView({
     super.key,
-    required this.blocks,
+    required this.bodyMd,
+    this.loading = false,
     this.padding = const EdgeInsets.fromLTRB(16, 0, 16, 24),
   });
 
-  final List<RepoBlock> blocks;
+  /// 服务端 pages.body_md 原文（含字面 `[[wikilink]]`，渲染前内部改写）。
+  final String bodyMd;
+
+  /// body_md 拉取中（首屏）—— 显示轻量 loading 而不是「还没有内容」空态。
+  final bool loading;
+
   final EdgeInsets padding;
 
   Future<void> _onLinkTap(BuildContext context, WidgetRef ref,
@@ -66,7 +74,19 @@ class WikiReaderView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (blocks.isEmpty) {
+    if (bodyMd.trim().isEmpty) {
+      if (loading) {
+        return const Padding(
+          padding: EdgeInsets.only(top: 24),
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        );
+      }
       return Padding(
         padding: padding,
         child: Text(
@@ -75,7 +95,7 @@ class WikiReaderView extends ConsumerWidget {
         ),
       );
     }
-    final md = blocksToMarkdown(blocks);
+    final md = rewriteWikilinksInBodyMarkdown(bodyMd);
     return SingleChildScrollView(
       padding: padding,
       child: GptMarkdown(

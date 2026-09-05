@@ -106,6 +106,51 @@ String? wikiTargetFromUrl(String url) {
   return Uri.decodeComponent(url.substring(scheme.length));
 }
 
+/// Whole-document variant of [rewriteWikilinksToMarkdownLinks] for
+/// `pages.body_md`（reader 权威数据源）。逐行扫描，fenced code block
+/// （``` / ~~~，至多 3 空格前导缩进）内部不重写 —— 与 blocksToMarkdown
+/// 对 code block 原样保留的策略一致（代码示例里的 `[[…]]` 是字面量）。
+/// 行内 code span 不豁免 —— 与原 per-block 实现对 text block 的行为
+/// 相同，保持渲染行为一致。
+String rewriteWikilinksInBodyMarkdown(String md) {
+  if (!md.contains('[[')) return md;
+  final lines = md.split('\n');
+  final buf = StringBuffer();
+  String? fenceChar; // '`' 或 '~'；null = 不在 fence 内
+  var fenceLen = 0;
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    final fence = _fenceMarker(line);
+    if (fenceChar == null) {
+      if (fence != null) {
+        fenceChar = fence.$1;
+        fenceLen = fence.$2;
+        buf.write(line);
+      } else {
+        buf.write(rewriteWikilinksToMarkdownLinks(line));
+      }
+    } else {
+      buf.write(line);
+      // GFM：closing fence 必须与 opening 同字符且长度 ≥ opening。
+      if (fence != null && fence.$1 == fenceChar && fence.$2 >= fenceLen) {
+        fenceChar = null;
+        fenceLen = 0;
+      }
+    }
+    if (i < lines.length - 1) buf.write('\n');
+  }
+  return buf.toString();
+}
+
+/// 匹配 GFM fenced code block 标记行（至多 3 空格缩进 + ≥3 个 ` 或 ~）。
+/// 返回 (fence 字符, 长度)；非 fence 行返回 null。
+(String, int)? _fenceMarker(String line) {
+  final m = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line);
+  if (m == null) return null;
+  final run = m.group(1)!;
+  return (run[0], run.length);
+}
+
 // ─── internal ────────────────────────────────────────────────────
 
 String _renderBlock(RepoBlock b) {

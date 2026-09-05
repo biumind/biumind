@@ -35,6 +35,7 @@ import '../../domain/greeting.dart';
 import '../../application/pending_scroll_provider.dart';
 import '../../application/selection_mode_controller.dart';
 import '../../application/thread_list_selection_controller.dart';
+import '../../data/chat_repo.dart' show ChatRepo;
 import '../../domain/chat_models.dart';
 import '../../domain/palette_actions.dart';
 import '../../domain/thread_export_json.dart' show isBulkExport;
@@ -139,6 +140,51 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
         .read(chatControllerDepsProvider)
         .repo
         .setPinned(tid, !thread.pinned);
+  }
+
+  /// 快捷键对当前选中 thread 生效的统一入口：无选中 / 选中项已不在列表
+  /// （他端删除等）时返回 null，调用方不触发。
+  Thread? _selectedThreadOf(List<Thread> threads) {
+    final tid = _selectedId;
+    if (tid == null) return null;
+    return threads.where((t) => t.id == tid).firstOrNull;
+  }
+
+  /// F2 重命名当前选中 thread —— 与溢出菜单「重命名」同一 dialog。
+  Future<void> _renameSelected(List<Thread> threads) async {
+    final t = _selectedThreadOf(threads);
+    if (t == null || !mounted) return;
+    await renameThreadDialog(context, ref, t);
+  }
+
+  /// Cmd/Ctrl+E 归档当前选中 thread —— 与溢出菜单「归档」同一动作。
+  /// 归档后该 thread 从列表消失，sidebar 的 selectedId 守卫会清掉
+  /// _selectedId（右侧不留空壳）。
+  Future<void> _archiveSelected(List<Thread> threads) async {
+    final t = _selectedThreadOf(threads);
+    if (t == null) return;
+    await ref.read(chatThreadOpsProvider).archiveThread(t.id);
+  }
+
+  /// Cmd/Ctrl+Shift+E 导出当前选中 thread JSON —— 与溢出菜单「导出 JSON」
+  /// 同一流程（系统保存对话框 + toast）。
+  Future<void> _exportSelected(List<Thread> threads) async {
+    final t = _selectedThreadOf(threads);
+    if (t == null || !mounted) return;
+    await exportThreadJsonFile(
+      context,
+      t,
+      ref.read(chatControllerDepsProvider).repo,
+    );
+  }
+
+  /// Cmd/Ctrl+⌫ 删除当前选中 thread —— 与溢出菜单「删除」同一确认 dialog；
+  /// 确认删除后清 _selectedId（同菜单删除的 onDeleted 回调效果）。
+  Future<void> _deleteSelected(List<Thread> threads) async {
+    final t = _selectedThreadOf(threads);
+    if (t == null || !mounted) return;
+    final deleted = await deleteThreadWithConfirm(context, ref, t);
+    if (deleted && mounted) setState(() => _selectedId = null);
   }
 
   /// 收集 Cmd+K 命令面板可用的动作。每次打开都重算，让 thread 列表 / 状态
@@ -424,6 +470,33 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
               _togglePinSelected(recents),
           const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
               _togglePinSelected(recents),
+          // 以下四个对应溢出菜单角标 F2 / ⌘E / ⌘⇧E / ⌘⌫，对当前选中 thread
+          // 生效；无选中 thread 时各自 handler 直接返回（同 ⌘P 接法）。
+          const SingleActivator(LogicalKeyboardKey.f2): () =>
+              _renameSelected(recents),
+          const SingleActivator(LogicalKeyboardKey.keyE, meta: true): () =>
+              _archiveSelected(recents),
+          const SingleActivator(LogicalKeyboardKey.keyE, control: true): () =>
+              _archiveSelected(recents),
+          const SingleActivator(
+            LogicalKeyboardKey.keyE,
+            meta: true,
+            shift: true,
+          ): () =>
+              _exportSelected(recents),
+          const SingleActivator(
+            LogicalKeyboardKey.keyE,
+            control: true,
+            shift: true,
+          ): () =>
+              _exportSelected(recents),
+          const SingleActivator(LogicalKeyboardKey.backspace, meta: true): () =>
+              _deleteSelected(recents),
+          const SingleActivator(
+            LogicalKeyboardKey.backspace,
+            control: true,
+          ): () =>
+              _deleteSelected(recents),
         },
         child: Focus(autofocus: false, child: _buildShell(recents)),
       ),
@@ -1204,6 +1277,132 @@ class _SidebarSectionLabel extends StatelessWidget {
   }
 }
 
+// ─── Thread 单条操作（溢出菜单与快捷键共用）─────────────────────
+//
+// 以下三个 top-level 函数是 _ThreadTile 溢出菜单「重命名 / 导出 JSON /
+// 删除」与 ThreadsShellPage 快捷键（F2 / ⌘⇧E / ⌘⌫）的同一份实现，
+// 保证菜单角标提示的快捷键与菜单动作行为完全一致。
+
+/// 重命名 dialog —— 菜单「重命名」(F2)。改名走 ChatThreadOps（上行 brain +
+/// 失败入队重试，P1.3）。
+Future<void> renameThreadDialog(
+  BuildContext context,
+  WidgetRef ref,
+  Thread thread,
+) async {
+  final l = AppLocalizations.of(context)!;
+  final ctrl = TextEditingController(text: thread.title);
+  final next = await showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(l.chatV2RenameDialogTitle),
+      content: TextField(
+        controller: ctrl,
+        autofocus: true,
+        decoration: InputDecoration(hintText: l.chatV2RenameDialogHint),
+        onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(l.chatV2DialogCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+          child: Text(l.chatV2DialogSave),
+        ),
+      ],
+    ),
+  );
+  ctrl.dispose();
+  if (next == null || next.isEmpty || next == thread.title) return;
+  await ref.read(chatThreadOpsProvider).renameThread(thread.id, next);
+}
+
+/// 导出单条 thread JSON —— 菜单「导出 JSON」(⌘⇧E)。系统保存对话框 +
+/// 成功 / 失败 toast。
+Future<void> exportThreadJsonFile(
+  BuildContext context,
+  Thread thread,
+  ChatRepo repo,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final l = AppLocalizations.of(context)!;
+  try {
+    final json = await repo.exportThreadJson(thread.id);
+    final ts = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final stamp =
+        '${ts.year}${two(ts.month)}${two(ts.day)}-${two(ts.hour)}${two(ts.minute)}${two(ts.second)}';
+    final base = thread.title.trim().isEmpty
+        ? 'biumind-thread'
+        : thread.title.trim();
+    final sanitized = base.replaceAll(RegExp(r'[\\/:*?"<>|\n\r\t]'), '-');
+    final clipped =
+        sanitized.length > 60 ? sanitized.substring(0, 60) : sanitized;
+    final filename = '$clipped-$stamp.json';
+    final loc = await getSaveLocation(
+      suggestedName: filename,
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'JSON', extensions: ['json']),
+      ],
+    );
+    if (loc == null) return;
+    final file = XFile.fromData(
+      Uint8List.fromList(utf8.encode(json)),
+      name: filename,
+      mimeType: 'application/json',
+    );
+    await file.saveTo(loc.path);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(l.chatV2ExportSuccess(filename)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(content: Text(l.chatV2ExportFailed('$e'))),
+    );
+  }
+}
+
+/// 删除确认 + 执行 —— 菜单「删除」(⌘⌫)。ops 先 best-effort 上行 brain 再
+/// 本地级联删（跨设备一致）。返回 true 表示用户确认且已删除（调用方据此
+/// 清理「正打开的会话」状态）。
+Future<bool> deleteThreadWithConfirm(
+  BuildContext context,
+  WidgetRef ref,
+  Thread thread,
+) async {
+  final l = AppLocalizations.of(context)!;
+  final title =
+      thread.title.isEmpty ? l.chatV2NewThreadFallback : thread.title;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(l.chatV2OverflowDeleteConfirmTitle),
+      content: Text(l.chatV2OverflowDeleteConfirmBody(title)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(l.chatV2DialogCancel),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(
+            foregroundColor: Theme.of(ctx).colorScheme.error,
+          ),
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(l.chatV2DialogDelete),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  await ref.read(chatThreadOpsProvider).deleteThread(thread.id);
+  return true;
+}
+
 class _ThreadTile extends ConsumerStatefulWidget {
   const _ThreadTile({
     required this.thread,
@@ -1381,111 +1580,16 @@ class _ThreadTileState extends ConsumerState<_ThreadTile> {
     );
   }
 
-  Future<void> _exportJson(BuildContext context, dynamic repo) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final l = AppLocalizations.of(context)!;
-    try {
-      final json = await repo.exportThreadJson(widget.thread.id) as String;
-      final ts = DateTime.now();
-      String two(int n) => n.toString().padLeft(2, '0');
-      final stamp =
-          '${ts.year}${two(ts.month)}${two(ts.day)}-${two(ts.hour)}${two(ts.minute)}${two(ts.second)}';
-      final base = widget.thread.title.trim().isEmpty
-          ? 'biumind-thread'
-          : widget.thread.title.trim();
-      final sanitized = base.replaceAll(RegExp(r'[\\/:*?"<>|\n\r\t]'), '-');
-      final clipped = sanitized.length > 60
-          ? sanitized.substring(0, 60)
-          : sanitized;
-      final filename = '$clipped-$stamp.json';
-      final loc = await getSaveLocation(
-        suggestedName: filename,
-        acceptedTypeGroups: const [
-          XTypeGroup(label: 'JSON', extensions: ['json']),
-        ],
-      );
-      if (loc == null) return;
-      final file = XFile.fromData(
-        Uint8List.fromList(utf8.encode(json)),
-        name: filename,
-        mimeType: 'application/json',
-      );
-      await file.saveTo(loc.path);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(l.chatV2ExportSuccess(filename)),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l.chatV2ExportFailed('$e'))),
-      );
-    }
-  }
+  Future<void> _exportJson(BuildContext context, ChatRepo repo) =>
+      exportThreadJsonFile(context, widget.thread, repo);
 
-  Future<void> _renameDialog(BuildContext context) async {
-    final l = AppLocalizations.of(context)!;
-    final ctrl = TextEditingController(text: widget.thread.title);
-    final next = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l.chatV2RenameDialogTitle),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(hintText: l.chatV2RenameDialogHint),
-          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(l.chatV2DialogCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: Text(l.chatV2DialogSave),
-          ),
-        ],
-      ),
-    );
-    ctrl.dispose();
-    if (next == null || next.isEmpty || next == widget.thread.title) return;
-    // P1.3：rename 走 ChatThreadOps —— 上行 brain + 失败入队重试，
-    // 不再只写本地（他端不感知）。
-    await ref.read(chatThreadOpsProvider).renameThread(widget.thread.id, next);
-  }
+  Future<void> _renameDialog(BuildContext context) =>
+      renameThreadDialog(context, ref, widget.thread);
 
   Future<void> _deleteDialog(BuildContext context) async {
-    final l = AppLocalizations.of(context)!;
-    final title = widget.thread.title.isEmpty
-        ? l.chatV2NewThreadFallback
-        : widget.thread.title;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l.chatV2OverflowDeleteConfirmTitle),
-        content: Text(l.chatV2OverflowDeleteConfirmBody(title)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(l.chatV2DialogCancel),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(l.chatV2DialogDelete),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    // ops: 先 best-effort 上行 brain 再本地级联删(跨设备一致)。
-    await ref.read(chatThreadOpsProvider).deleteThread(widget.thread.id);
+    final deleted = await deleteThreadWithConfirm(context, ref, widget.thread);
     // 删的可能是当前正打开的会话 —— 回调 shell 清 _selectedId。
-    widget.onDeleted?.call();
+    if (deleted) widget.onDeleted?.call();
   }
 
   @override

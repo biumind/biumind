@@ -222,6 +222,58 @@ void main() {
     });
   });
 
+  group('rewriteWikilinksInBodyMarkdown', () {
+    test('rewrites wikilinks in prose lines', () {
+      expect(
+        rewriteWikilinksInBodyMarkdown('# 参见 [[Foo]]\n\n正文 [[B|c]]。'),
+        '# 参见 [Foo](wiki://Foo)\n\n正文 [c](wiki://B)。',
+      );
+    });
+
+    test('backtick fence content is left verbatim', () {
+      const src = '前文 [[A]]\n\n```md\nx = [[B]]\n```\n\n后文 [[C]]';
+      expect(
+        rewriteWikilinksInBodyMarkdown(src),
+        '前文 [A](wiki://A)\n\n```md\nx = [[B]]\n```\n\n后文 [C](wiki://C)',
+      );
+    });
+
+    test('tilde fence content is left verbatim', () {
+      const src = '~~~\n[[A]]\n~~~\n[[B]]';
+      expect(
+        rewriteWikilinksInBodyMarkdown(src),
+        '~~~\n[[A]]\n~~~\n[B](wiki://B)',
+      );
+    });
+
+    test('closing fence must be same char and at least as long', () {
+      // ```` 开的 fence 不能用 ``` 关；~~~ 也不能关 ```。
+      const src = '````\n[[A]]\n```\n[[B]]\n````\n[[C]]';
+      expect(
+        rewriteWikilinksInBodyMarkdown(src),
+        '````\n[[A]]\n```\n[[B]]\n````\n[C](wiki://C)',
+      );
+    });
+
+    test('unclosed fence leaves the rest of the document untouched', () {
+      const src = '[[A]]\n```\n[[B]]\n[[C]]';
+      expect(
+        rewriteWikilinksInBodyMarkdown(src),
+        '[A](wiki://A)\n```\n[[B]]\n[[C]]',
+      );
+    });
+
+    test('no wikilinks returns input unchanged', () {
+      const src = 'plain\n\n```\ncode\n```';
+      expect(rewriteWikilinksInBodyMarkdown(src), src);
+    });
+
+    test('markdown images pass through untouched', () {
+      const src = '![示意图](https://example.com/a.png)';
+      expect(rewriteWikilinksInBodyMarkdown(src), src);
+    });
+  });
+
   group('extractHeadings', () {
     test('only heading blocks surface', () {
       final hs = extractHeadings([

@@ -3089,6 +3089,12 @@ abstract class AppLocalizations {
   /// **'New conversation'**
   String get chatV2ShortcutsNewThread;
 
+  /// No description provided for @chatV2ShortcutsPinThread.
+  ///
+  /// In en, this message translates to:
+  /// **'Pin / unpin current conversation'**
+  String get chatV2ShortcutsPinThread;
+
   /// No description provided for @chatV2ShortcutsCrossSearch.
   ///
   /// In en, this message translates to:

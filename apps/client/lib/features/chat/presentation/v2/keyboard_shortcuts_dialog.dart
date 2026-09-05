@@ -72,6 +72,7 @@ class _KeyboardShortcutsDialog extends StatelessWidget {
               _Section(title: l.chatV2ShortcutsSectionGlobal, rows: [
                 _Row(keys: [mod, 'K'], desc: l.chatV2ShortcutsPalette),
                 _Row(keys: [mod, 'N'], desc: l.chatV2ShortcutsNewThread),
+                _Row(keys: [mod, 'P'], desc: l.chatV2ShortcutsPinThread),
                 _Row(
                     keys: [mod, 'Shift', 'F'],
                     desc: l.chatV2ShortcutsCrossSearch),

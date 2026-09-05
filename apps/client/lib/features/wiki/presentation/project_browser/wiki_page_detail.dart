@@ -40,6 +40,7 @@ import '../page_revisions_dialog.dart';
 import '../maintain_dialog.dart';
 import '../frontmatter/frontmatter_dialog.dart';
 import '../frontmatter/frontmatter_panel.dart';
+import '../pages/pages_providers.dart';
 import '../reader/block_to_markdown.dart';
 import '../reader/outline_panel.dart';
 import '../reader/wiki_reader_view.dart';
@@ -144,6 +145,13 @@ class _WikiPageDetailState extends ConsumerState<WikiPageDetail> {
     }
     try {
       await repo.updatePageBody(projectId, page.id, md, page.version);
+      // 本地写成功：read 模式的 body_md 缓存主动失效重拉（不等 syncws
+      // page.updated，WS 断开时也能切回 read 立即看到新内容）。
+      ref.invalidate(
+        pageBodyMdProvider(
+          PageRequest(projectId: projectId, pageId: page.id),
+        ),
+      );
       return const AutoSaveOutcome(status: AutoSaveStatus.saved);
     } on Exception catch (e) {
       return AutoSaveOutcome(status: AutoSaveStatus.error, errorMessage: '$e');
@@ -196,6 +204,21 @@ class _WikiPageDetailState extends ConsumerState<WikiPageDetail> {
   _PageMode _effectiveMode(WikiState s) {
     if (_mode != null) return _mode!;
     return s.blocks.isEmpty ? _PageMode.edit : _PageMode.read;
+  }
+
+  /// read 模式正文：渲染 server 权威 body_md（pageBodyMdProvider，syncws
+  /// page.updated 自动失效重拉）。拉取失败（离线等）降级 blocks →
+  /// blocksToMarkdown 投影（Drift 缓存可离线读，投影链有损但好过空白）。
+  Widget _buildReader(WikiState s) {
+    final req = PageRequest(
+      projectId: s.activeProject!.id,
+      pageId: s.activePage!.id,
+    );
+    final body = ref.watch(pageBodyMdProvider(req));
+    return WikiReaderView(
+      bodyMd: body.valueOrNull ?? blocksToMarkdown(s.blocks),
+      loading: body.isLoading,
+    );
   }
 
   void _onOutlineTap(String blockId) {
@@ -370,7 +393,7 @@ class _WikiPageDetailState extends ConsumerState<WikiPageDetail> {
             children: [
               Expanded(
                 child: mode == _PageMode.read
-                    ? WikiReaderView(blocks: s.blocks)
+                    ? _buildReader(s)
                     : _buildEditor(s, c),
               ),
               // 手机形态：阅读区全宽，大纲走标题行按钮的 bottom sheet。
