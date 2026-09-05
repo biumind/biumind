@@ -54,7 +54,6 @@ import (
 	toolsbuiltin "github.com/biumind/biumind/services/brain/internal/tools/builtin"
 	wikiactivity "github.com/biumind/biumind/services/brain/internal/wiki/activity"
 	"github.com/biumind/biumind/services/brain/internal/wiki/api"
-	wikichat "github.com/biumind/biumind/services/brain/internal/wiki/chat"
 	wikichunks "github.com/biumind/biumind/services/brain/internal/wiki/chunks"
 	wikiembed "github.com/biumind/biumind/services/brain/internal/wiki/embedworker"
 	wikienrich "github.com/biumind/biumind/services/brain/internal/wiki/enrich"
@@ -569,9 +568,12 @@ func run() error {
 	// advertised to the LLM under WikiAgentToolAllowlist; plain chat
 	// (DefaultChatToolAllowlist) never sees them. Write safety rests on
 	// version乐观锁 + page_revisions rollback, not this registration.
+	// reviewsStore 提前构造（下面 §reviews 段复用同一实例）——
+	// WikiMergePages 合并成功后要自动 resolve 对应 dedup review。
+	reviewsStore := wikireviews.New(pool)
 	toolReg.MustRegister(toolsbuiltin.WikiCreatePage(st))
 	toolReg.MustRegister(toolsbuiltin.WikiUpdatePage(st))
-	toolReg.MustRegister(toolsbuiltin.WikiMergePages(st))
+	toolReg.MustRegister(toolsbuiltin.WikiMergePages(st, reviewsStore))
 
 	// Graph subsystem
 	graphSrv := graphapi.NewServer(graphstore.New(pool), verifier, logger)
@@ -968,7 +970,6 @@ func run() error {
 	wikisearchproj.NewServer(verifier, logger).Mount(mux)
 	wikigraphSrv := wikigraphproj.NewServer(wikigraphproj.NewStore(pool), st, verifier, logger)
 	wikigraphSrv.Mount(mux)
-	wikichat.NewServer(wikichat.New(pool), st, pool, verifier, logger).Mount(mux)
 	wikillmsettings.NewServer(verifier, logger).Mount(mux)
 	wikisuggestions.NewServer(wikisuggestions.New(pool), verifier, logger).Mount(mux)
 	wikisyncws.NewServer(st, verifier, logger).Mount(mux)
@@ -981,8 +982,8 @@ func run() error {
 	// Wiki review queue (P2-D dedup is the first producer; lint /
 	// sweep / merge / suggestion follow). The store + REST stay always
 	// mounted so manually-injected reviews (e.g. via MCP) work even
-	// when no detector worker is running.
-	reviewsStore := wikireviews.New(pool)
+	// when no detector worker is running. reviewsStore 在上方 wiki
+	// write tools 注册处已构造（同一实例）。
 	reviewsSrv := wikireviews.NewServer(reviewsStore, st, verifier, logger)
 	reviewsSrv.Mount(mux)
 	memoryMCP = memoryMCP.WithReviews(reviewsStore)

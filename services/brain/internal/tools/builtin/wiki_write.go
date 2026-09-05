@@ -33,6 +33,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/biumind/biumind/services/brain/internal/tools"
+	wikireviews "github.com/biumind/biumind/services/brain/internal/wiki/reviews"
 	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 )
 
@@ -263,11 +264,10 @@ func WikiUpdatePage(st *wikistore.Store) tools.Tool {
 // canonical (migrates blocks, relinks vectors, soft-deletes duplicate).
 // ReadOnly=false.
 //
-// TODO(S3 §7.4): auto-resolve the matching kind=dedup review (mirrors
-// mcp.callWikiMergePages). Requires a *wikireviews.Store dependency; deferred
-// to the merge/suggestion-producer work item so this tool stays decoupled
-// from the reviews subsystem. The merge itself succeeds without it.
-func WikiMergePages(st *wikistore.Store) tools.Tool {
+// After a successful merge it best-effort auto-resolves the matching
+// kind=dedup review — mirrors mcp.callWikiMergePages (S3 §7.4). rv may be
+// nil (tests / unwired); the merge itself succeeds without it.
+func WikiMergePages(st *wikistore.Store, rv *wikireviews.Store) tools.Tool {
 	schema := json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -321,6 +321,17 @@ func WikiMergePages(st *wikistore.Store) tools.Tool {
 			}
 			if err := st.MergePages(ctx, canonicalID, duplicateID, uid.String()); err != nil {
 				return nil, fmt.Errorf("wiki_merge_pages: %w", err)
+			}
+			// Best-effort auto-resolve of the matching dedup review
+			// (same shape as mcp.callWikiMergePages): failure here must
+			// not fail the merge — the review can be resolved by hand.
+			if rv != nil {
+				key := wikireviews.DedupKeyForPair(canonicalID, duplicateID)
+				if id, err := rv.IDByDedupeKey(ctx, key); err == nil && id != uuid.Nil {
+					if it, err := rv.Get(ctx, id); err == nil && it.Status == wikireviews.StatusOpen {
+						_ = rv.SetStatus(ctx, it.ID, wikireviews.StatusResolved)
+					}
+				}
 			}
 			return map[string]any{
 				"canonical_id": canonicalID.String(),

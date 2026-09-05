@@ -554,9 +554,11 @@ func (s *Store) MarkEnrichStale(ctx context.Context, pageID, projectID uuid.UUID
 //     body itself gets the same rewrite inline (step 1) so appending
 //     duplicate's body can't introduce fresh dead `[[duplicate-title]]`
 //     links
-//  7. canonical's version is bumped + page.merged event emitted on its
-//     scope (plus a page.updated when the body changed) so subscribers
-//     see the change and can refresh caches
+//  7. canonical's version is bumped + frontmatter union written back
+//     (数组字段并集去重、duplicate 独有标量补齐、canonical 已有标量不
+//     覆盖 — 见 mergedFrontmatterForMerge) + page.merged event emitted
+//     on its scope (plus a page.updated when the body changed) so
+//     subscribers see the change and can refresh caches
 //
 // Retry-safe: a second merge of the same pair fails fast on the
 // soft-deleted duplicate before any write, and identical bodies are
@@ -654,6 +656,11 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	mergedBody, bodyChanged := mergedBodyForMerge(
 		canonical.bodyMd, duplicate.bodyMd, duplicate.title, canonical.title, dupBlocks)
 
+	// Frontmatter union: duplicate 的数组字段（tags/related 类）并集去重进
+	// canonical，duplicate 独有的标量字段补上，canonical 已有标量不覆盖。
+	// 合并结果与 canonical 现有值一起写回（见下方 canonical UPDATE）。
+	mergedFM := mergedFrontmatterForMerge(canonical.frontmatter, duplicate.frontmatter)
+
 	// Compute the position offset to append duplicate's blocks past
 	// canonical's tail. We use COALESCE(MAX(position), 0) + 1 so the
 	// first migrated block sits cleanly above the last existing one.
@@ -734,9 +741,10 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	if _, err := tx.Exec(ctx, `
 		UPDATE brain.pages
 		   SET body_md = $2,
+		       frontmatter = $3::jsonb,
 		       version = version + 1, updated_at = now()
 		 WHERE id = $1
-	`, canonicalID, mergedBody); err != nil {
+	`, canonicalID, mergedBody, mergedFM); err != nil {
 		return fmt.Errorf("update canonical merged body: %w", err)
 	}
 
@@ -829,6 +837,77 @@ func mergedBodyForMerge(canonicalBody, duplicateBody, duplicateTitle, canonicalT
 		merged, _ = RewriteWikilinks(merged, duplicateTitle, canonicalTitle)
 	}
 	return merged, merged != canonicalBody
+}
+
+// mergedFrontmatterForMerge computes canonical's post-merge frontmatter as a
+// union of both pages' frontmatter (jsonb round-trip, same convention as the
+// duplicate merged_into hint above):
+//
+//   - 两边都是数组的字段（tags / related 类）取并集去重（按 JSON 归一形态
+//     判等，顺序保持 canonical 在前、duplicate 新增项在后）
+//   - duplicate 独有、canonical 没有的字段直接补上
+//   - canonical 已有的标量（或类型不一致的）字段不覆盖 —— canonical 权威
+//
+// 返回的 []byte 一定可写回（canonical 无 frontmatter 且 duplicate 也没有时
+// 为 "{}"）；调用方无条件写入，免判 changed。
+func mergedFrontmatterForMerge(canonicalFM, duplicateFM []byte) []byte {
+	var canon, dup map[string]any
+	if len(canonicalFM) > 0 {
+		_ = json.Unmarshal(canonicalFM, &canon)
+	}
+	if len(duplicateFM) > 0 {
+		_ = json.Unmarshal(duplicateFM, &dup)
+	}
+	if len(dup) == 0 {
+		if len(canonicalFM) > 0 {
+			return canonicalFM
+		}
+		return []byte("{}")
+	}
+	if canon == nil {
+		canon = map[string]any{}
+	}
+	for k, dv := range dup {
+		cv, ok := canon[k]
+		if !ok {
+			canon[k] = dv
+			continue
+		}
+		cArr, cIsArr := cv.([]any)
+		dArr, dIsArr := dv.([]any)
+		if !cIsArr || !dIsArr {
+			continue // canonical 标量权威，不覆盖
+		}
+		seen := make(map[string]struct{}, len(cArr))
+		for _, item := range cArr {
+			seen[jsonKey(item)] = struct{}{}
+		}
+		for _, item := range dArr {
+			key := jsonKey(item)
+			if _, dupItem := seen[key]; dupItem {
+				continue
+			}
+			seen[key] = struct{}{}
+			cArr = append(cArr, item)
+		}
+		canon[k] = cArr
+	}
+	out, err := json.Marshal(canon)
+	if err != nil {
+		return []byte("{}")
+	}
+	return out
+}
+
+// jsonKey renders a frontmatter array item to a canonical string form for
+// dedup. Scalar items dominate in practice (tags / related are string
+// lists); Marshal keeps the odd object item deterministic too.
+func jsonKey(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }
 
 // ─── Blocks ─────────────────────────────────────────────
