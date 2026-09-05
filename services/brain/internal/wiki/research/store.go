@@ -240,13 +240,15 @@ func (s *Store) ListStuck(ctx context.Context, olderThan time.Duration) ([]*Task
 // orchestrator's savePage to stay idempotent across a crash-recover: if
 // the page was created but the task row's page_id wasn't stamped before
 // the crash, the recover re-run reuses the page instead of creating a
-// duplicate. Returns nil (no error) when none exists.
+// duplicate. Returns nil (no error) when none exists. Soft-deleted pages
+// are excluded — a deleted research page must not block a re-run.
 func (s *Store) FindPageByTaskID(ctx context.Context, projectID, taskID uuid.UUID) (*uuid.UUID, error) {
 	var pageID uuid.UUID
 	err := s.pool.QueryRow(ctx, `
 		SELECT id FROM brain.pages
 		WHERE project_id = $1
 		  AND frontmatter->>'research_taskid' = $2
+		  AND deleted_at IS NULL
 		LIMIT 1
 	`, projectID, taskID.String()).Scan(&pageID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -256,6 +258,90 @@ func (s *Store) FindPageByTaskID(ctx context.Context, projectID, taskID uuid.UUI
 		return nil, err
 	}
 	return &pageID, nil
+}
+
+// IsActiveStatus reports whether a task status is non-terminal (work may
+// still be in flight). Delete/rerun both refuse active tasks — research
+// has no cancel signal (unlike ingest's cancel_requested_at), so the
+// state-machine-aligned answer is to reject and let the user wait for a
+// terminal state first.
+func IsActiveStatus(status string) bool {
+	switch status {
+	case StatusQueued, StatusSearching, StatusSynthesizing, StatusSaving:
+		return true
+	}
+	return false
+}
+
+// Delete hard-deletes a terminal task row (the table has no soft-delete
+// column). Returns false when the row doesn't exist or is still active —
+// callers map that to 404/409 from their own Get-first check. The wiki
+// page the task produced (if any) is user content and is NOT touched.
+func (s *Store) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		DELETE FROM brain.research_tasks
+		WHERE id = $1
+		  AND status NOT IN ('queued', 'searching', 'synthesizing', 'saving')
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// ResetForRerun rewinds a terminal task to 'queued' so Orch.Run re-executes
+// the full pipeline: phase outputs (page_id / web_results / synthesis /
+// error / started/finished stamps) are cleared; topic + queries survive.
+//
+// Two guards in one tx:
+//   - the WHERE status IN ('done','error') clause makes the reset
+//     conditional — a concurrent rerun (or a rerun of an active task)
+//     affects 0 rows and the caller returns 409, so the same task can
+//     never be re-run twice at once
+//   - the previous page's research_taskid frontmatter marker is stripped
+//     (page itself is kept — it may hold user edits) so savePage's
+//     crash-recover dup guard doesn't reattach the rerun to the old page
+//     and a fresh "Research: <topic>" page is written instead
+//
+// Returns (true, nil) when the reset landed.
+func (s *Store) ResetForRerun(ctx context.Context, id uuid.UUID) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE brain.research_tasks
+		SET status = 'queued',
+		    page_id = NULL,
+		    web_results = '[]'::jsonb,
+		    synthesis = '',
+		    error_message = NULL,
+		    started_at = NULL,
+		    finished_at = NULL,
+		    updated_at = now()
+		WHERE id = $1
+		  AND status IN ('done', 'error')
+	`, id)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE brain.pages
+		SET frontmatter = frontmatter - 'research_taskid', updated_at = now()
+		WHERE frontmatter->>'research_taskid' = $1
+		  AND deleted_at IS NULL
+	`, id.String()); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func scanTask(row pgx.Row) (*Task, error) {
