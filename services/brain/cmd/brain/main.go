@@ -574,6 +574,10 @@ func run() error {
 	toolReg.MustRegister(toolsbuiltin.WikiCreatePage(st))
 	toolReg.MustRegister(toolsbuiltin.WikiUpdatePage(st))
 	toolReg.MustRegister(toolsbuiltin.WikiMergePages(st, reviewsStore))
+	// S3 P0-3 — review-queue write tool（差距分析 D1：agent 发现的矛盾 /
+	// 缺口 / 建议落 review_items，不再只在总结里提）。复用上面同一个
+	// reviewsStore。
+	toolReg.MustRegister(toolsbuiltin.WikiCreateReview(st, reviewsStore))
 
 	// Graph subsystem
 	graphSrv := graphapi.NewServer(graphstore.New(pool), verifier, logger)
@@ -756,6 +760,9 @@ func run() error {
 	// stays uniform.
 	ingestStore := wikiingest.New(pool)
 	ingestSrv := wikiingest.NewServer(ingestStore, st, busPub, verifier, logger)
+	// content_hash 增量短路（POST /ingest 比对 wiki_sources.content_hash 与
+	// 上次成功任务的 progress.source_hash，一致则复用结果不烧 LLM）。
+	ingestSrv.Sources = sourcesStore
 	// Hand the same store + publisher to the MCP server so wiki.ingest
 	// works for AI clients (Claude Desktop / Cursor / …).
 	memoryMCP = memoryMCP.WithIngest(ingestStore, busPub)

@@ -30,8 +30,10 @@ var DefaultChatToolAllowlist = map[string]struct{}{
 
 // WikiAgentToolAllowlist (S3 P0-1) is the wiki autonomous-maintenance
 // agent loop's专用 whitelist. It widens DefaultChatToolAllowlist with
-// the wiki write tools (create/update/merge_page) so the agent loop can
-// "read sources → mutate pages → maintain backlinks". Plain chat is
+// the wiki write tools (create/update/merge_page) + the review-queue
+// write tool (wiki_create_review, S3 P0-3) so the agent loop can
+// "read sources → mutate pages → maintain backlinks → file review
+// findings". Plain chat is
 // unaffected — it still uses DefaultChatToolAllowlist (read-only,
 // default-deny). The wiki agent loop entrypoint (POST /v1/wiki/.../agent/run)
 // sets AgentLoop.ChatToolAllowlist = WikiAgentToolAllowlist explicitly.
@@ -40,13 +42,14 @@ var DefaultChatToolAllowlist = map[string]struct{}{
 // LLM-advertised surface gate): the store layer enforces create-only /
 // version乐观锁 + page_revisions rollback (S2 ④).
 var WikiAgentToolAllowlist = map[string]struct{}{
-	"websearch":        {},
-	"wiki_search":      {},
-	"memory_recall":    {},
-	"time_now":         {},
-	"wiki_create_page": {},
-	"wiki_update_page": {},
-	"wiki_merge_pages": {},
+	"websearch":          {},
+	"wiki_search":        {},
+	"memory_recall":      {},
+	"time_now":           {},
+	"wiki_create_page":   {},
+	"wiki_update_page":   {},
+	"wiki_merge_pages":   {},
+	"wiki_create_review": {},
 }
 
 // chatAllows reports whether name passes the allowlist. A nil allowlist
