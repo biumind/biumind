@@ -22,8 +22,10 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/biumind/biumind/services/brain/internal/search/searxng"
 	"github.com/biumind/biumind/services/brain/internal/wiki/reviews"
@@ -319,6 +321,11 @@ func (o *Orchestrator) buildWikiIndex(ctx context.Context, projectID uuid.UUID) 
 
 const baseSystemPrompt = `You are a research assistant. Synthesize the web search results into a comprehensive wiki page in markdown.
 
+## MANDATORY OUTPUT LANGUAGE
+- Write the entire page in the same language as the research topic and queries.
+- If the topic and queries are in Chinese, every heading and paragraph MUST be in Chinese — no exceptions.
+- Keep proper nouns, product names, and identifiers in their original form.
+
 ## Cross-referencing (IMPORTANT)
 - The wiki may already contain pages listed in the Wiki Index below.
 - When your synthesis mentions an entity or concept that exists in the wiki, ALWAYS use [[wikilink]] syntax to link to it.
@@ -352,7 +359,71 @@ func (o *Orchestrator) synthesize(ctx context.Context, task *Task, hits []WebHit
 	if err != nil {
 		return "", err
 	}
-	return cleanThinking(raw), nil
+	cleaned := cleanThinking(raw)
+	// Quality gate: an empty / citation-free synthesis would create a
+	// junk page (and still bill the LLM call). Fail the task instead —
+	// nothing is persisted, so a recover re-run of the task resumes at
+	// phaseSynthesize and retries the LLM call from the saved web hits.
+	if err := checkQualityGate(cleaned); err != nil {
+		return "", err
+	}
+	return cleaned, nil
+}
+
+// minSynthesisRunes is the quality gate floor for a cleaned synthesis
+// body. Counted in runes so CJK text (3 bytes/rune) isn't penalised.
+const minSynthesisRunes = 120
+
+// citationRe matches [N] source-citation markers in a synthesis body.
+var citationRe = regexp.MustCompile(`\[(\d+)\]`)
+
+// checkQualityGate rejects syntheses that aren't worth saving as a
+// wiki page: too short after <think>-stripping, or citing no source at
+// all. Mirrors the reference deep-research gate (<120 chars or no
+// citations → error, no page).
+func checkQualityGate(synthesis string) error {
+	if n := utf8.RuneCountInString(synthesis); n < minSynthesisRunes {
+		return fmt.Errorf("synthesis below quality gate: body too short (%d runes, need >= %d)", n, minSynthesisRunes)
+	}
+	if len(citedHitIndexes(synthesis)) == 0 {
+		return errors.New("synthesis below quality gate: no [N] source citations")
+	}
+	return nil
+}
+
+// citedHitIndexes returns the set of 1-based hit indexes the synthesis
+// actually cites via [N] markers.
+func citedHitIndexes(synthesis string) map[int]bool {
+	out := map[int]bool{}
+	for _, m := range citationRe.FindAllStringSubmatch(synthesis, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			out[n] = true
+		}
+	}
+	return out
+}
+
+// referencesSection renders the "## References" block from hits, keeping
+// only the sources the synthesis actually cites via [N]. Original
+// numbering is preserved (uncited entries are dropped, not renumbered)
+// so in-text [N] markers still match the list. Returns "" when nothing
+// is cited — savePage then omits the section entirely.
+func referencesSection(synthesis string, hits []WebHit) string {
+	if len(hits) == 0 {
+		return ""
+	}
+	cited := citedHitIndexes(synthesis)
+	var b strings.Builder
+	for i, h := range hits {
+		if !cited[i+1] {
+			continue
+		}
+		fmt.Fprintf(&b, "%d. [%s](%s) — %s\n", i+1, h.Title, h.URL, h.Source)
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n\n## References\n\n" + b.String()
 }
 
 // thinkingRe strips both closed `<think>...</think>` and unclosed
@@ -384,15 +455,12 @@ func (o *Orchestrator) savePage(ctx context.Context, task *Task, synthesis strin
 
 	title := "Research: " + task.Topic
 
-	// Compose the body: synthesis + ## References from web hits.
+	// Compose the body: synthesis + ## References from the web hits the
+	// synthesis actually cites (uncited hits are dropped, numbering
+	// preserved so in-text [N] markers still match).
 	var body strings.Builder
 	body.WriteString(synthesis)
-	if len(hits) > 0 {
-		body.WriteString("\n\n## References\n\n")
-		for i, h := range hits {
-			fmt.Fprintf(&body, "%d. [%s](%s) — %s\n", i+1, h.Title, h.URL, h.Source)
-		}
-	}
+	body.WriteString(referencesSection(synthesis, hits))
 
 	page, err := o.wiki.CreatePage(ctx, wikistore.CreatePageInput{
 		ProjectID: task.ProjectID,
