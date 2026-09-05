@@ -510,6 +510,9 @@ function runCommand<T>(command: $Command<T>, payload?: T): void {
   state.crepe?.editor.action(callCommand(command.key, payload as T))
 }
 
+/** 选区前后上下文窗口（字符，近似 —— PM 位置非字符偏移）。 */
+const SELECTION_CONTEXT_CHARS = 1200
+
 /** selection-edit (S3 P1-6): 把当前选区 + viewport 坐标推给 host，让浮层跟随。
  *  coords 相对编辑器视口；host 加 WebView 屏幕原点换算成绝对坐标。 */
 function pushSelection(ctx: Ctx): void {
@@ -518,13 +521,25 @@ function pushSelection(ctx: Ctx): void {
   const { selection, doc } = view.state
   const { from, to, empty } = selection
   const text = empty ? '' : doc.textBetween(from, to, '\n')
+  // selection-edit BEFORE/AFTER 上下文：选区前后各取约 1200 字符纯文本
+  // （PM 位置非字符偏移，窗口为近似值，与 doc.textBetween 语义一致）。
+  const before = empty
+    ? ''
+    : doc.textBetween(Math.max(0, from - SELECTION_CONTEXT_CHARS), from, '\n')
+  const after = empty
+    ? ''
+    : doc.textBetween(
+        to,
+        Math.min(doc.content.size, to + SELECTION_CONTEXT_CHARS),
+        '\n',
+      )
   let coords = { left: 0, top: 0, right: 0, bottom: 0 }
   try {
     coords = view.coordsAtPos(selection.head)
   } catch {
     // coordsAtPos 在 detach/重挂时偶抛 —— 上报 0,0 让 host 隐藏浮层
   }
-  bridge.sendSelectionChanged({ from, to, text, empty, coords })
+  bridge.sendSelectionChanged({ from, to, text, before, after, empty, coords })
 }
 
 /** replaceSelection — host LLM 跑完后回写。TOCTOU 校验区间内容未变，再设

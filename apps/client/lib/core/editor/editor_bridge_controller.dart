@@ -429,6 +429,8 @@ class EditorSelection {
     required this.from,
     required this.to,
     required this.text,
+    this.before = '',
+    this.after = '',
     required this.empty,
     required this.coords,
   });
@@ -436,6 +438,12 @@ class EditorSelection {
   final int from;
   final int to;
   final String text;
+
+  /// 选区前/后各约 1200 字符纯文本上下文（编辑器 doc.textBetween 窗口），
+  /// 原样传给 selection-edit 接口做 BEFORE/AFTER 段。旧版 bundle 不带，
+  /// 缺省空串（服务端按无上下文处理）。
+  final String before;
+  final String after;
   final bool empty;
   final EditorSelectionCoords coords;
 
@@ -445,6 +453,8 @@ class EditorSelection {
       from: (j['from'] as num?)?.toInt() ?? 0,
       to: (j['to'] as num?)?.toInt() ?? 0,
       text: (j['text'] as String?) ?? '',
+      before: (j['before'] as String?) ?? '',
+      after: (j['after'] as String?) ?? '',
       empty: (j['empty'] as bool?) ?? true,
       coords: EditorSelectionCoords.fromJson(c.cast<String, dynamic>()),
     );

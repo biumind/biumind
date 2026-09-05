@@ -142,6 +142,10 @@ export interface SelectionChangedPayload {
   from: number
   to: number
   text: string
+  /** 选区前/后各约 1200 字符纯文本上下文（doc.textBetween 窗口），
+   *  host 原样传给 selection-edit 接口做 BEFORE/AFTER 段。 */
+  before: string
+  after: string
   empty: boolean
   coords: { left: number; top: number; right: number; bottom: number }
 }

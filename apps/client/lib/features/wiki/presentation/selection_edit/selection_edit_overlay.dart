@@ -81,6 +81,8 @@ class _SelectionEditOverlayState extends ConsumerState<SelectionEditOverlay> {
         widget.projectId,
         widget.pageId,
         selection: widget.selection.text,
+        before: widget.selection.before,
+        after: widget.selection.after,
         instruction: instr,
       );
       if (!mounted) return;
@@ -130,6 +132,8 @@ class _SelectionEditOverlayState extends ConsumerState<SelectionEditOverlay> {
         widget.projectId,
         widget.pageId,
         selection: widget.selection.text,
+        before: widget.selection.before,
+        after: widget.selection.after,
         instruction: instr,
       );
       if (!mounted) return;

@@ -128,6 +128,19 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
     );
   }
 
+  /// Cmd/Ctrl+P 置顶/取消置顶当前选中的 thread —— 与溢出菜单「置顶」同一
+  /// 动作（repo.setPinned）。无选中 thread 或选中项不在当前列表时不触发。
+  Future<void> _togglePinSelected(List<Thread> threads) async {
+    final tid = _selectedId;
+    if (tid == null) return;
+    final thread = threads.where((t) => t.id == tid).firstOrNull;
+    if (thread == null) return;
+    await ref
+        .read(chatControllerDepsProvider)
+        .repo
+        .setPinned(tid, !thread.pinned);
+  }
+
   /// 收集 Cmd+K 命令面板可用的动作。每次打开都重算，让 thread 列表 / 状态
   /// 都新鲜。
   List<PaletteAction> _collectActions(List<Thread> threads) {
@@ -405,6 +418,12 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
               _newThread,
           const SingleActivator(LogicalKeyboardKey.keyN, control: true):
               _newThread,
+          // Cmd/Ctrl+P 置顶当前 thread —— 对应溢出菜单「置顶」的 ⌘P 角标，
+          // 无选中 thread 时 _togglePinSelected 直接返回。
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true): () =>
+              _togglePinSelected(recents),
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
+              _togglePinSelected(recents),
         },
         child: Focus(autofocus: false, child: _buildShell(recents)),
       ),
