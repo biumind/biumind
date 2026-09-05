@@ -13,6 +13,8 @@
 | comparison | 方案横向对比（选型） |
 | synthesis | 跨项目 / 跨决策综合结论 |
 | overview | 团队 / 项目总览 |
+| index | 项目页面索引（起手 seed，每项目一篇） |
+| log | 项目变更日志（起手 seed，每项目一篇） |
 | meeting | 会议纪要 / 议程 / 行动项 |
 | decision | 架构或战略决策（ADR 风格） |
 | project | 项目简报 / 状态 / 复盘 |

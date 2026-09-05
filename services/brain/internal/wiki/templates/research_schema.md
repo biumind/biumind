@@ -13,6 +13,8 @@
 | comparison | 相关实体的横向对比 |
 | synthesis | 跨页面综合结论 |
 | overview | 项目总览（每项目一篇） |
+| index | 项目页面索引（起手 seed，每项目一篇） |
+| log | 项目变更日志（起手 seed，每项目一篇） |
 | thesis | 工作假设及其随证据的演化 |
 | methodology | 研究方法 / 协议 / 实验设计 |
 | finding | 单条实证结果或观察 |

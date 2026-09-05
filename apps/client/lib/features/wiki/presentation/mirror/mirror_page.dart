@@ -5,28 +5,29 @@
 /// 重写）+ frontmatter YAML 头（全字段）→ 打 zip → 触发下载 / 写本地。
 /// body_md 为空（未回填的老页）时 fallback 到 blocksToMarkdown(blocks)。
 ///
+/// zip 打包是纯 Dart（mirror_export.dart，archive 包两端通用）；落盘
+/// 分端：原生写应用文档目录（mirror_download_io.dart），Web 走 Blob +
+/// anchor 浏览器下载（mirror_download_web.dart），conditional import
+/// 惯例同 data/local/db.dart。
+///
 /// knowcode 的 mirror 模块支持目录直写 + Obsidian git push +
 /// 自定义路径策略；biumind B4.4 简化版仅做"一键 zip 导出"，B4.x 后段
 /// 按需补 git / 直写目录 / Web Worker 增量同步。
 library;
 
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io' show File;
 
-import 'package:archive/archive.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../core/layout/phone_nav.dart';
 import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../application/wiki_controller.dart';
 import '../reader/block_to_markdown.dart';
+import 'mirror_download_io.dart'
+    if (dart.library.html) 'mirror_download_web.dart' as download;
 import 'mirror_export.dart';
 
 class MirrorPage extends ConsumerStatefulWidget {
@@ -79,28 +80,11 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
       final pages = await repo.watchPages(widget.projectId).first;
       setState(() => _pageCount = pages.length);
 
-      final archive = Archive();
-
-      // 顶部 README.md：项目名 + 索引
-      final readme = StringBuffer()
-        ..writeln('# ${activeProject.name}')
-        ..writeln()
-        ..writeln('本目录由 BiuMind 知识库导出（${DateTime.now().toIso8601String()}）。')
-        ..writeln()
-        ..writeln('## 页面索引')
-        ..writeln();
-      for (final page in pages) {
-        final filename =
-            safeExportFilename(page.title.isEmpty ? page.id : page.title);
-        readme.writeln(
-            '- [${page.title.isEmpty ? "(未命名)" : page.title}]($filename.md)');
-      }
-      archive.addFile(_strFile('README.md', readme.toString()));
-
-      // 2) 每页取服务端权威 body_md + frontmatter → markdown。
+      // 2) 每页取服务端权威 body_md + frontmatter。
       //    body_md 字面保留 [[wikilink]]（Path C 权威正文），Obsidian
       //    打开即是活链；空 body_md（未回填老页 / 空页）fallback 到
       //    blocks 渲染（接受其 wiki:// 重写，聊胜于无）。
+      final exportPages = <MirrorExportPage>[];
       for (final page in pages) {
         var body = '';
         var frontmatter = const <String, dynamic>{};
@@ -117,48 +101,32 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
           final blocks = await repo.watchBlocks(page.id).first;
           body = blocksToMarkdown(blocks);
         }
-        final md = exportPageMarkdown(
+        exportPages.add(MirrorExportPage(
           title: page.title,
           id: page.id,
           updatedAt: page.updatedAt,
           frontmatter: frontmatter,
           bodyMd: body,
-        );
-        final filename =
-            safeExportFilename(page.title.isEmpty ? page.id : page.title);
-        archive.addFile(_strFile('$filename.md', md));
+        ));
         if (mounted) setState(() => _processed += 1);
       }
 
-      // 3) 打 zip → 写本地（仅原生）
-      final zipBytes = ZipEncoder().encode(archive);
-      if (kIsWeb) {
-        // Web 端暂不接 download API（需要 web package），先复制到剪贴板
-        // 提示用户「需要原生客户端导出 zip」。
-        await Clipboard.setData(ClipboardData(
-          text: 'biumind-export-${activeProject.name}-zip 字节数=${zipBytes.length}',
-        ));
-        if (!mounted) return;
-        setState(() {
-          _exporting = false;
-          _error = 'Web 端暂未支持 zip 下载（B4.x 后段补 dart:html anchor 路径）';
-        });
-        return;
-      }
-      final dir = await getApplicationDocumentsDirectory();
-      final ts = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .substring(0, 19);
-      final outPath = p.join(
-        dir.path,
-        'biumind-mirror-${safeExportFilename(activeProject.name)}-$ts.zip',
+      // 3) 打 zip（纯 Dart，两端通用）→ 落盘：原生写文档目录，
+      //    Web 经 Blob + anchor 触发浏览器下载。
+      final now = DateTime.now();
+      final zipBytes = buildMirrorZip(
+        projectName: activeProject.name,
+        pages: exportPages,
+        exportedAt: now,
       );
-      await File(outPath).writeAsBytes(zipBytes);
+      final saved = await download.saveMirrorZip(
+        filename: mirrorZipFilename(activeProject.name, now),
+        zipBytes: zipBytes,
+      );
       if (!mounted) return;
       setState(() {
         _exporting = false;
-        _resultPath = outPath;
+        _resultPath = saved;
       });
     } on Exception catch (e) {
       if (!mounted) return;
@@ -167,11 +135,6 @@ class _MirrorPageState extends ConsumerState<MirrorPage> {
         _error = '$e';
       });
     }
-  }
-
-  ArchiveFile _strFile(String name, String content) {
-    final bytes = utf8.encode(content);
-    return ArchiveFile(name, bytes.length, bytes);
   }
 
   @override
@@ -326,7 +289,7 @@ class _Body extends StatelessWidget {
       color: BiuTokens.textMuted,
       title: '导出 Obsidian 风格 markdown 包',
       body: '每页一个 .md 文件 + frontmatter YAML 头；附带 README.md 索引；'
-          '当前仅支持桌面 / 移动原生客户端，Web 端导出待 B4.x 接入。',
+          '桌面 / 移动端写入应用文档目录，Web 端经浏览器下载。',
     );
   }
 }

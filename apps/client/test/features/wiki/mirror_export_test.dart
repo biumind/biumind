@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:archive/archive.dart';
 import 'package:biumind/features/wiki/presentation/mirror/mirror_export.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -108,6 +111,72 @@ void main() {
     test('空 → untitled', () {
       expect(safeExportFilename(''), 'untitled');
       expect(safeExportFilename('   '), 'untitled');
+    });
+  });
+
+  group('mirrorZipFilename', () {
+    test('项目名安全化 + 时间戳（冒号替换）', () {
+      final name = mirrorZipFilename('我的 项目', DateTime(2026, 9, 5, 13, 2, 3));
+      expect(name, 'biumind-mirror-我的 项目-2026-09-05T13-02-03.zip');
+    });
+  });
+
+  group('buildMirrorZip', () {
+    Map<String, String> unzip(List<int> bytes) {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      return {
+        for (final f in archive.files)
+          if (f.isFile) f.name: utf8.decode(f.content as List<int>),
+      };
+    }
+
+    test('README 索引 + 每页一个 md（frontmatter + body）', () {
+      final bytes = buildMirrorZip(
+        projectName: '调研',
+        exportedAt: DateTime.utc(2026, 9, 5),
+        pages: [
+          MirrorExportPage(
+            title: 'Alpha',
+            id: 'p1',
+            updatedAt: DateTime.utc(2026, 1, 2),
+            frontmatter: const {'type': 'entity'},
+            bodyMd: '参见 [[Beta]]。',
+          ),
+          MirrorExportPage(
+            title: '',
+            id: 'p2',
+            updatedAt: DateTime.utc(2026, 1, 3),
+            frontmatter: const {},
+            bodyMd: 'empty title page',
+          ),
+        ],
+      );
+      final files = unzip(bytes);
+      expect(files.keys, containsAll(['README.md', 'Alpha.md', 'p2.md']));
+      expect(files['README.md'], contains('# 调研'));
+      expect(files['README.md'], contains('- [Alpha](Alpha.md)'));
+      expect(files['README.md'], contains('- [(未命名)](p2.md)'));
+      expect(files['Alpha.md'], contains('type: "entity"'));
+      expect(files['Alpha.md'], contains('参见 [[Beta]]。'));
+    });
+
+    test('zip 可被标准解码器往返（字节非空、文件数 = 页数 + 1）', () {
+      final bytes = buildMirrorZip(
+        projectName: 'p',
+        exportedAt: DateTime.utc(2026, 9, 5),
+        pages: [
+          MirrorExportPage(
+            title: 'A',
+            id: '1',
+            updatedAt: DateTime.utc(2026),
+            frontmatter: const {},
+            bodyMd: 'a',
+          ),
+        ],
+      );
+      expect(bytes, isNotEmpty);
+      final archive = ZipDecoder().decodeBytes(bytes);
+      expect(archive.files.where((f) => f.isFile).length, 2);
     });
   });
 }

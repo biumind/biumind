@@ -9,6 +9,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:archive/archive.dart';
+
 /// 拼一页的导出文件内容：frontmatter YAML 头 + 空行 + body。
 ///
 /// [frontmatter] 是服务端 pages.frontmatter 原样 map（type / tags /
@@ -76,4 +78,74 @@ String safeExportFilename(String input) {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
   return cleaned.isEmpty ? 'untitled' : cleaned;
+}
+
+/// 一页的导出输入：正文与 frontmatter 已按 Path C 规则解析好
+/// （body_md 优先、blocks 兜底在调用侧完成），本结构只做打包。
+class MirrorExportPage {
+  const MirrorExportPage({
+    required this.title,
+    required this.id,
+    required this.updatedAt,
+    required this.frontmatter,
+    required this.bodyMd,
+  });
+  final String title;
+  final String id;
+  final DateTime updatedAt;
+  final Map<String, dynamic> frontmatter;
+  final String bodyMd;
+}
+
+/// 项目名 + 导出时刻 → zip 文件名（原生写盘与 Web 下载共用同一命名）。
+String mirrorZipFilename(String projectName, DateTime exportedAt) {
+  final ts =
+      exportedAt.toIso8601String().replaceAll(':', '-').substring(0, 19);
+  return 'biumind-mirror-${safeExportFilename(projectName)}-$ts.zip';
+}
+
+/// 打整包 zip（纯 Dart，原生 / Web 两端通用）：
+/// 顶部 README.md（项目名 + 导出时刻 + 页面索引）+ 每页一个 .md
+/// （frontmatter YAML 头 + body）。返回 zip 字节。
+List<int> buildMirrorZip({
+  required String projectName,
+  required List<MirrorExportPage> pages,
+  required DateTime exportedAt,
+}) {
+  final archive = Archive();
+
+  final readme = StringBuffer()
+    ..writeln('# $projectName')
+    ..writeln()
+    ..writeln('本目录由 BiuMind 知识库导出（${exportedAt.toIso8601String()}）。')
+    ..writeln()
+    ..writeln('## 页面索引')
+    ..writeln();
+  for (final page in pages) {
+    final filename =
+        safeExportFilename(page.title.isEmpty ? page.id : page.title);
+    readme.writeln(
+        '- [${page.title.isEmpty ? "(未命名)" : page.title}]($filename.md)');
+  }
+  archive.addFile(_strFile('README.md', readme.toString()));
+
+  for (final page in pages) {
+    final md = exportPageMarkdown(
+      title: page.title,
+      id: page.id,
+      updatedAt: page.updatedAt,
+      frontmatter: page.frontmatter,
+      bodyMd: page.bodyMd,
+    );
+    final filename =
+        safeExportFilename(page.title.isEmpty ? page.id : page.title);
+    archive.addFile(_strFile('$filename.md', md));
+  }
+
+  return ZipEncoder().encode(archive);
+}
+
+ArchiveFile _strFile(String name, String content) {
+  final bytes = utf8.encode(content);
+  return ArchiveFile(name, bytes.length, bytes);
 }

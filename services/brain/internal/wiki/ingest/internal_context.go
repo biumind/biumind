@@ -1,12 +1,14 @@
 // Ingest-context internal endpoint consumed by workers/wiki-llm's
 // two-stage pipeline (P2 #17). Before the stage-1 analysis LLM call,
-// the worker pulls the project's purpose page, schema page, and a
-// lightweight page index so the analysis (and the stage-2 FILE-block
-// generation that consumes it) can:
+// the worker pulls the project's purpose page, schema page, overview
+// page, and a lightweight page index so the analysis (and the stage-2
+// FILE-block generation that consumes it) can:
 //
 //   - align new pages with the project's declared purpose / page
 //     conventions (templates seed these as type:purpose / type:schema
 //     pages — see internal/wiki/templates);
+//   - read the living project overview (type:overview seed page) for
+//     current status / key conclusions beyond the static purpose;
 //   - [[wikilink]] to existing pages by exact title instead of
 //     inventing near-duplicate pages.
 //
@@ -14,10 +16,10 @@
 // X-Biumind-Internal-Token shared secret, and owner_id must match the
 // project's owner or the endpoint answers 404 (no existence leak).
 //
-// Truncation policy (worker prompt budget): purpose / schema bodies are
-// cut at 4000 runes each (rune-safe for CJK), the page index at 200
-// entries; pages_total always reports the untruncated count so the
-// worker can tell the model "… and N more".
+// Truncation policy (worker prompt budget): purpose / schema / overview
+// bodies are cut at 4000 runes each (rune-safe for CJK), the page index
+// at 200 entries; pages_total always reports the untruncated count so
+// the worker can tell the model "… and N more".
 package ingest
 
 import (
@@ -29,7 +31,8 @@ import (
 )
 
 const (
-	// ingestContextBodyRunes caps each of purpose / schema body_md.
+	// ingestContextBodyRunes caps each of purpose / schema / overview
+	// body_md.
 	// 4000 runes ≈ 1-2K tokens — enough for the template conventions,
 	// small enough to leave prompt budget for the source itself.
 	ingestContextBodyRunes = 4000
@@ -73,6 +76,7 @@ func (s *InternalServer) handleIngestContext(w http.ResponseWriter, r *http.Requ
 
 	purpose, purposeTrunc := s.typedPageBody(r, pid, "purpose")
 	schema, schemaTrunc := s.typedPageBody(r, pid, "schema")
+	overview, overviewTrunc := s.typedPageBody(r, pid, "overview")
 
 	entries, total, err := s.Wiki.ListPageIndex(r.Context(), pid, ingestContextPageLimit)
 	if err != nil {
@@ -84,13 +88,15 @@ func (s *InternalServer) handleIngestContext(w http.ResponseWriter, r *http.Requ
 		pages = append(pages, map[string]any{"title": e.Title, "type": e.Type})
 	}
 	writeInternalJSON(w, http.StatusOK, map[string]any{
-		"project_id":        pid.String(),
-		"purpose":           purpose,
-		"purpose_truncated": purposeTrunc,
-		"schema":            schema,
-		"schema_truncated":  schemaTrunc,
-		"pages":             pages,
-		"pages_total":       total,
+		"project_id":         pid.String(),
+		"purpose":            purpose,
+		"purpose_truncated":  purposeTrunc,
+		"schema":             schema,
+		"schema_truncated":   schemaTrunc,
+		"overview":           overview,
+		"overview_truncated": overviewTrunc,
+		"pages":              pages,
+		"pages_total":        total,
 	})
 }
 

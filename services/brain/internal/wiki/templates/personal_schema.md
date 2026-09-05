@@ -13,6 +13,8 @@
 | comparison | 方案 / 习惯的横向对比 |
 | synthesis | 跨周期综合洞察 |
 | overview | 成长总览（每项目一篇） |
+| index | 项目页面索引（起手 seed，每项目一篇） |
+| log | 项目变更日志（起手 seed，每项目一篇） |
 | goal | 具体想达成的结果 |
 | habit | 重复性行为及其追踪 |
 | reflection | 阶段性回顾与教训 |

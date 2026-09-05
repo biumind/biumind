@@ -1,7 +1,8 @@
 // Package templates holds the built-in wiki project templates.
 //
 // A Template is pure data: an id, display metadata, and a set of seed
-// pages (schema + purpose) that get written into a freshly-created project
+// pages (schema + purpose + index + log + overview) that get written into
+// a freshly-created project
 // so the user starts with structure instead of a blank slate. The seed
 // markdown is embedded (go:embed) and parsed once at package init via
 // mdparse into structured blocks — the same parser the ingest path uses —
@@ -12,8 +13,15 @@
 //   - 5 ids mirror reference/llm_wiki (research/reading/personal/business/
 //     general). `general` and any unknown id seed nothing — Lookup returns
 //     nil, and the project is created empty (back-compat with old clients).
-//   - schema/purpose land as first-class, visible, editable pages
-//     (frontmatter type:schema / type:purpose), not hidden system pages.
+//   - 每套模板 seed 5 个起手页（对齐 llm_wiki 的 5 个起手文件）：
+//     schema（页面规范，模板专属）+ purpose（项目目标，模板专属）+
+//     index（页面索引）/ log（变更日志）/ overview（项目概览，三者为
+//     全模板共享的骨架）。overview 同时被 ingest-context 端点读出，
+//     喂给 wiki-llm 两阶段 ingest 作项目上下文。
+//   - schema/purpose/index/log/overview land as first-class, visible,
+//     editable pages (frontmatter type 同名), not hidden system pages.
+//   - 只影响新建项目：存量项目不 backfill（不知道哪些起手页已被用户
+//     改过 / 删过，回填会覆盖用户意图；需要的人手动建页即可）。
 //   - biumind has no filesystem directories (pages form a parent_id tree +
 //     frontmatter.type), so the llm_wiki "Directory" column is reframed as
 //     a frontmatter.type tag + [[backlink]] guidance — no empty container
@@ -85,7 +93,8 @@ func Lookup(id string) *Template {
 func All() []Template { return list }
 
 // must builds a Template whose seed pages are parsed from the embedded
-// schema/purpose markdown. Panics on missing embed (compile-time guarantee
+// schema/purpose markdown (per-template) plus the shared index/log/
+// overview skeletons. Panics on missing embed (compile-time guarantee
 // means a missing file is a developer error, not a runtime one).
 func must(id, name, desc, schemaFile, purposeFile string) Template {
 	return Template{
@@ -95,6 +104,9 @@ func must(id, name, desc, schemaFile, purposeFile string) Template {
 		SeedPages: []SeedPage{
 			seedPage("页面规范", "schema", schemaFile),
 			seedPage("项目目标", "purpose", purposeFile),
+			seedPage("页面索引", "index", "index.md"),
+			seedPage("变更日志", "log", "log.md"),
+			seedPage("项目概览", "overview", "overview.md"),
 		},
 	}
 }

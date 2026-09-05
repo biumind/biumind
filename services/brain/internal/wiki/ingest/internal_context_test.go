@@ -132,7 +132,7 @@ func (h *contextTestHarness) dropProject(t *testing.T, pid uuid.UUID) {
 	}
 }
 
-func TestIngestContext_SeededProjectReturnsPurposeSchemaAndIndex(t *testing.T) {
+func TestIngestContext_SeededProjectReturnsPurposeSchemaOverviewAndIndex(t *testing.T) {
 	h := newContextTestHarness(t)
 	tmpl := templates.Lookup("research")
 	if tmpl == nil {
@@ -157,6 +157,7 @@ func TestIngestContext_SeededProjectReturnsPurposeSchemaAndIndex(t *testing.T) {
 		PurposeTruncated bool   `json:"purpose_truncated"`
 		Schema           string `json:"schema"`
 		SchemaTruncated  bool   `json:"schema_truncated"`
+		Overview         string `json:"overview"`
 		Pages            []struct {
 			Title string `json:"title"`
 			Type  string `json:"type"`
@@ -166,22 +167,31 @@ func TestIngestContext_SeededProjectReturnsPurposeSchemaAndIndex(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Purpose == "" || body.Schema == "" {
-		t.Errorf("seeded project must return purpose+schema bodies, got purpose=%dB schema=%dB",
-			len(body.Purpose), len(body.Schema))
+	if body.Purpose == "" || body.Schema == "" || body.Overview == "" {
+		t.Errorf("seeded project must return purpose+schema+overview bodies, got purpose=%dB schema=%dB overview=%dB",
+			len(body.Purpose), len(body.Schema), len(body.Overview))
 	}
 	if body.PurposeTruncated || body.SchemaTruncated {
 		t.Error("template bodies are short — must not report truncation")
 	}
-	if body.PagesTotal != 2 || len(body.Pages) != 2 {
-		t.Fatalf("want 2 seeded pages, got total=%d len=%d", body.PagesTotal, len(body.Pages))
+	if body.PagesTotal != 5 || len(body.Pages) != 5 {
+		t.Fatalf("want 5 seeded pages, got total=%d len=%d", body.PagesTotal, len(body.Pages))
 	}
 	types := map[string]string{}
 	for _, p := range body.Pages {
 		types[p.Title] = p.Type
 	}
-	if types["项目目标"] != "purpose" || types["页面规范"] != "schema" {
-		t.Errorf("page index types wrong: %v", types)
+	want := map[string]string{
+		"项目目标": "purpose",
+		"页面规范": "schema",
+		"页面索引": "index",
+		"变更日志": "log",
+		"项目概览": "overview",
+	}
+	for title, typ := range want {
+		if types[title] != typ {
+			t.Errorf("page index: %q type = %q, want %q (all: %v)", title, types[title], typ, types)
+		}
 	}
 
 	// owner 不匹配 → 404（不泄存在）。
@@ -201,7 +211,7 @@ func TestIngestContext_SeededProjectReturnsPurposeSchemaAndIndex(t *testing.T) {
 
 func TestIngestContext_BlankProjectAndTruncation(t *testing.T) {
 	h := newContextTestHarness(t)
-	// 空模板项目：无 purpose/schema 页 → 字段为空字符串而非错误。
+	// 空模板项目：无 purpose/schema/overview 页 → 字段为空字符串而非错误。
 	proj, err := h.wiki.CreateProjectWithTemplate(context.Background(),
 		h.owner, "ctx-blank", "", nil)
 	if err != nil {
@@ -231,6 +241,7 @@ func TestIngestContext_BlankProjectAndTruncation(t *testing.T) {
 		Purpose          string `json:"purpose"`
 		PurposeTruncated bool   `json:"purpose_truncated"`
 		Schema           string `json:"schema"`
+		Overview         string `json:"overview"`
 		PagesTotal       int    `json:"pages_total"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
@@ -244,6 +255,9 @@ func TestIngestContext_BlankProjectAndTruncation(t *testing.T) {
 	}
 	if body.Schema != "" {
 		t.Errorf("blank project has no schema page, want empty, got %dB", len(body.Schema))
+	}
+	if body.Overview != "" {
+		t.Errorf("blank project has no overview page, want empty, got %dB", len(body.Overview))
 	}
 	if body.PagesTotal != 1 {
 		t.Errorf("pages_total = %d, want 1", body.PagesTotal)

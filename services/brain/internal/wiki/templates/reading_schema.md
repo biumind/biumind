@@ -13,6 +13,8 @@
 | comparison | 人物或主题的横向对比 |
 | synthesis | 跨章节综合结论 |
 | overview | 本书总览（每书一篇） |
+| index | 项目页面索引（起手 seed，每项目一篇） |
+| log | 项目变更日志（起手 seed，每项目一篇） |
 | character | 书中人物 |
 | theme | 反复出现的主题 / 动机 / 象征 |
 | plot-thread | 正在追踪的故事线 / 叙事弧 |
