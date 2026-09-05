@@ -19,6 +19,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
 	"github.com/biumind/biumind/services/brain/internal/publisher"
+	"github.com/biumind/biumind/services/brain/internal/wiki/sources"
 	wikistore "github.com/biumind/biumind/services/brain/internal/wiki/store"
 	"github.com/google/uuid"
 )
@@ -42,6 +44,9 @@ type Server struct {
 	Publisher publisher.Publisher
 	Verifier  *bauth.Verifier
 	Logger    *slog.Logger
+	// Sources 是 content_hash 增量短路的数据源（比对 wiki_sources.content_hash
+	// 与上次成功任务的 progress.source_hash）；nil → 短路关闭，行为同旧版。
+	Sources *sources.Store
 }
 
 func NewServer(s *Store, w *wikistore.Store, p publisher.Publisher, v *bauth.Verifier, l *slog.Logger) *Server {
@@ -65,6 +70,7 @@ type createReq struct {
 	RawText   string  `json:"raw_text"`
 	Title     string  `json:"title"`
 	Processor string  `json:"processor,omitempty"` // 默认 server；"client" = 客户端镜像（W2，不 publish）
+	Force     bool    `json:"force,omitempty"`     // true = 跳过 content_hash 增量短路，强制重跑
 }
 
 // patchReq 是客户端镜像任务的状态推进请求（W2）。status 与 progress
@@ -175,9 +181,32 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			"provide source_id or raw_text")
 		return
 	}
+	// content_hash 增量短路：source 的 content_hash 与上次成功 ingest 一致
+	// 时直接复用上次的 result_pages，不建任务不发 NATS（省一次 LLM 重跑）。
+	// 仅在 source_id-only（raw_text 为空）时比对 —— 内联 raw_text 的实际
+	//  ingest 内容与 source.content_hash 的口径不可比（webclip hash 含 url，
+	//  upload hash 是 extracted_text），给了 raw_text 一律正常走。
+	sourceHash := ""
+	if sid != nil && s.Sources != nil {
+		if src, serr := s.Sources.GetByID(r.Context(), *sid); serr == nil &&
+			src.ProjectID == pid && src.UserID != nil && *src.UserID == uid &&
+			len(src.ContentHash) > 0 {
+			sourceHash = hex.EncodeToString(src.ContentHash)
+			if !req.Force && req.RawText == "" {
+				if prev, derr := s.Store.FindLastDoneBySource(r.Context(), *sid); derr == nil &&
+					prev.SourceHash() == sourceHash && len(prev.ResultPages) > 0 {
+					s.Logger.DebugContext(r.Context(), "wiki ingest: deduplicated (content unchanged)",
+						"task_id", prev.ID, "source_id", *sid, "content_hash", sourceHash)
+					writeJSON(w, http.StatusOK, dedupJSON(prev, sourceHash))
+					return
+				}
+			}
+		}
+	}
 	t, err := s.Store.Create(r.Context(), CreateInput{
 		ProjectID: pid, OwnerID: uid, SourceID: sid,
 		RawText: req.RawText, Title: req.Title, Processor: processor,
+		SourceHash: sourceHash,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
@@ -197,6 +226,25 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		"task_id", t.ID, "project_id", pid, "user_id", uid,
 		"source_id", sid, "raw_bytes", len(req.RawText), "title", t.Title)
 	writeJSON(w, http.StatusCreated, taskJSON(t))
+}
+
+// dedupJSON 是增量短路命中的响应：200 + 上次成功任务的投影。保留 id /
+// status / processor / result_pages 字段，客户端可当普通 task 响应消费
+// （进度页落到上次任务的 done 态），deduplicated=true 只是额外标注。
+func dedupJSON(prev *Task, sourceHash string) map[string]any {
+	out := taskJSON(prev)
+	return map[string]any{
+		"deduplicated": true,
+		"id":           out.ID,
+		"task_id":      out.ID,
+		"project_id":   out.ProjectID,
+		"source_id":    out.SourceID,
+		"title":        out.Title,
+		"status":       out.Status,
+		"processor":    out.Processor,
+		"result_pages": out.ResultPages,
+		"content_hash": sourceHash,
+	}
 }
 
 // publishTask 把任务按创建时的 payload 形态发给 wiki-llm（两段式 subject，
@@ -283,8 +331,9 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 			"provide status and/or progress")
 		return
 	}
+	uid := bauth.MustClaims(r.Context()).UserID
 	if req.Progress != nil {
-		if err := s.Store.UpdateProgress(r.Context(), t.ID, req.Progress); err != nil {
+		if err := s.Store.UpdateProgress(r.Context(), t.ID, req.Progress, "user", uid); err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeErr(w, http.StatusConflict, "already_terminal", t.Status)
 				return
@@ -297,12 +346,12 @@ func (s *Server) handlePatch(w http.ResponseWriter, r *http.Request) {
 	case "":
 		// 纯 progress 心跳
 	case StatusRunning:
-		if err := s.Store.MarkRunning(r.Context(), t.ID); err != nil {
+		if err := s.Store.MarkRunning(r.Context(), t.ID, "user", uid); err != nil {
 			writeErr(w, statusErrCode(err), "already_terminal", err.Error())
 			return
 		}
 	case StatusDone, StatusFailed, StatusCancelled:
-		if err := s.Store.MarkTerminal(r.Context(), t.ID, req.Status, req.Error); err != nil {
+		if err := s.Store.MarkTerminal(r.Context(), t.ID, req.Status, req.Error, "user", uid); err != nil {
 			writeErr(w, statusErrCode(err), "already_terminal", err.Error())
 			return
 		}

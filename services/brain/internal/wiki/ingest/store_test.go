@@ -64,13 +64,13 @@ func TestStore_RetryFailedTask(t *testing.T) {
 	task := h.createTask(t)
 
 	// 跑起来 → 失败终态（带 requeue_count + error + 时间戳）。
-	if err := h.st.MarkRunning(context.Background(), task.ID); err != nil {
+	if err := h.st.MarkRunning(context.Background(), task.ID, "user", "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.st.Requeue(context.Background(), task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.st.MarkTerminal(context.Background(), task.ID, StatusFailed, "boom"); err != nil {
+	if err := h.st.MarkTerminal(context.Background(), task.ID, StatusFailed, "boom", "user", "test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,10 +101,10 @@ func TestStore_RetryRejectsNonTerminalAndDone(t *testing.T) {
 	}
 
 	doneTask := h.createTask(t)
-	if err := h.st.MarkRunning(context.Background(), doneTask.ID); err != nil {
+	if err := h.st.MarkRunning(context.Background(), doneTask.ID, "user", "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.st.MarkTerminal(context.Background(), doneTask.ID, StatusDone, ""); err != nil {
+	if err := h.st.MarkTerminal(context.Background(), doneTask.ID, StatusDone, "", "user", "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.st.Retry(context.Background(), doneTask.ID); !errors.Is(err, ErrNotFound) {

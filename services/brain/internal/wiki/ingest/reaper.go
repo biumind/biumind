@@ -100,7 +100,7 @@ func (r *Reaper) RunOnce(ctx context.Context) {
 	for _, task := range stuck {
 		if task.RequeueCount() >= r.cfg.MaxRequeue {
 			if err := r.store.MarkTerminal(ctx, task.ID, StatusFailed,
-				"requeue limit reached (poison task?)"); err != nil {
+				"requeue limit reached (poison task?)", "system", "ingest-reaper"); err != nil {
 				r.logger.Warn("ingest reaper: mark failed",
 					"task_id", task.ID, "err", err)
 			}
@@ -178,7 +178,7 @@ func (r *Reaper) takeOverClient(ctx context.Context, task *Task) {
 			reason = "client orphaned; no server-side file to take over"
 		}
 	}
-	if err := r.store.MarkTerminal(ctx, task.ID, StatusFailed, reason); err != nil {
+	if err := r.store.MarkTerminal(ctx, task.ID, StatusFailed, reason, "system", "ingest-reaper"); err != nil {
 		r.logger.Warn("ingest reaper: client mark failed",
 			"task_id", task.ID, "err", err)
 	}

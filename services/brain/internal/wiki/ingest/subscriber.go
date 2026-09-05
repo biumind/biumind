@@ -168,7 +168,7 @@ func (s *Subscriber) apply(ctx context.Context, u *Update) error {
 
 	switch u.Kind {
 	case "running":
-		err := s.Tasks.MarkRunning(ctx, taskID)
+		err := s.Tasks.MarkRunning(ctx, taskID, "worker", "wiki-llm-worker")
 		if errors.Is(err, ErrNotFound) {
 			// Already terminal (e.g. user cancelled while worker was
 			// starting). Silent — running update is non-essential.
@@ -180,21 +180,21 @@ func (s *Subscriber) apply(ctx context.Context, u *Update) error {
 		return s.applyPage(ctx, taskID, u)
 
 	case "done":
-		err := s.Tasks.MarkTerminal(ctx, taskID, StatusDone, "")
+		err := s.Tasks.MarkTerminal(ctx, taskID, StatusDone, "", "worker", "wiki-llm-worker")
 		if errors.Is(err, ErrNotFound) {
 			return nil
 		}
 		return err
 
 	case "failed":
-		err := s.Tasks.MarkTerminal(ctx, taskID, StatusFailed, u.Error)
+		err := s.Tasks.MarkTerminal(ctx, taskID, StatusFailed, u.Error, "worker", "wiki-llm-worker")
 		if errors.Is(err, ErrNotFound) {
 			return nil
 		}
 		return err
 
 	case "cancelled":
-		err := s.Tasks.MarkTerminal(ctx, taskID, StatusCancelled, "")
+		err := s.Tasks.MarkTerminal(ctx, taskID, StatusCancelled, "", "worker", "wiki-llm-worker")
 		if errors.Is(err, ErrNotFound) {
 			return nil
 		}
@@ -272,7 +272,7 @@ func (s *Subscriber) applyPage(ctx context.Context, taskID uuid.UUID, u *Update)
 	// Update task: append page_id + record the path so re-deliveries
 	// dedupe. progress carries the full trail for UI consumption.
 	progress := mergeProgress(task.Progress, u.Path, page.ID, len(seen)+1)
-	if err := s.Tasks.AppendResultPage(ctx, taskID, page.ID, progress); err != nil {
+	if err := s.Tasks.AppendResultPage(ctx, taskID, page.ID, progress, "worker", "wiki-llm-worker"); err != nil {
 		// Page exists but task didn't update — log loudly; a re-delivery
 		// would now skip via seen_paths but this divergence is unhealthy.
 		return fmt.Errorf("append result page: %w", err)
