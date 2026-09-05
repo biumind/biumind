@@ -312,6 +312,48 @@ func (s *Store) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ─── Delete preview ─────────────────────────────────────────────
+
+// AffectedPage 是 delete-preview 返回的一个受影响页面。
+type AffectedPage struct {
+	PageID     uuid.UUID
+	Title      string
+	OnlySource bool // true = 删掉该源后此页不再关联任何来源（成无源页）
+}
+
+// AffectedPages 返回经 brain.page_sources 关联到该源的未删页面清单，
+// 逐页标注该源是否其唯一来源。思路同 llm_wiki source-delete-decision
+// 的波及面计算：先取关联页全集，再对每页查 residual source 计数
+// （NOT EXISTS 其它源）——删掉本源后 OnlySource=true 的页即成无源页。
+func (s *Store) AffectedPages(ctx context.Context, sourceID uuid.UUID) ([]AffectedPage, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id, p.title,
+		       NOT EXISTS (
+		           SELECT 1 FROM brain.page_sources other
+		           WHERE other.page_id = ps.page_id
+		             AND other.source_id <> ps.source_id
+		       ) AS only_source
+		  FROM brain.page_sources ps
+		  JOIN brain.pages p ON p.id = ps.page_id
+		 WHERE ps.source_id = $1
+		   AND p.deleted_at IS NULL
+		 ORDER BY p.title ASC, p.id ASC
+	`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AffectedPage, 0)
+	for rows.Next() {
+		var ap AffectedPage
+		if err := rows.Scan(&ap.PageID, &ap.Title, &ap.OnlySource); err != nil {
+			return nil, err
+		}
+		out = append(out, ap)
+	}
+	return out, rows.Err()
+}
+
 // ─── Phase 3: parse worker 回写 + dedup + blob 解析 ───────────────
 
 // ParseMaxRetries 是 parse 失败的重扫上限：retries < ParseMaxRetries 的行

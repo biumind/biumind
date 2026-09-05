@@ -294,18 +294,28 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	wikicommon.WriteJSON(w, http.StatusOK, map[string]any{"deleted": src.ID.String()})
 }
 
-// handleDeletePreview returns the pages that would lose their only-source
-// link if this source were deleted. B4 dedup/cleanup module 会基于此决定
-// 是否要 cascade 删页。当前实现返回空数组 —— 等 wiki/api 里 page→source 关联
-// 落库后再补真业务（此时源文件还没被 ingest pipeline 关联到 page）。
+// handleDeletePreview returns the pages linked to this source via
+// brain.page_sources, each annotated with only_source（删掉该源后该页
+// 成无源页）。B4 dedup/cleanup module 基于此决定是否 cascade 删页。
 func (s *Server) handleDeletePreview(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.loadOwnedSource(w, r); !ok {
+	src, ok := s.loadOwnedSource(w, r)
+	if !ok {
 		return
 	}
-	wikicommon.WriteJSON(w, http.StatusOK, map[string]any{
-		"affected_pages": []any{},
-		"note":           "page→source linkage 未落库；B2 ingest pipeline 完整后回填",
-	})
+	pages, err := s.Store.AffectedPages(r.Context(), src.ID)
+	if err != nil {
+		wikicommon.WriteErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	out := make([]map[string]any, 0, len(pages))
+	for _, p := range pages {
+		out = append(out, map[string]any{
+			"id":          p.PageID.String(),
+			"title":       p.Title,
+			"only_source": p.OnlySource,
+		})
+	}
+	wikicommon.WriteJSON(w, http.StatusOK, map[string]any{"affected_pages": out})
 }
 
 func (s *Server) handleExternalIDs(w http.ResponseWriter, r *http.Request) {

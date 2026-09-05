@@ -245,7 +245,7 @@ type Config struct {
 	// duplicate pages as review_items. 0h disables the worker; the
 	// REST + MCP surface still works for manually-injected reviews.
 	DedupIntervalHours   int     `env:"DEDUP_INTERVAL_HOURS" default:"6"`
-	DedupMaxDistance     float64 `env:"DEDUP_MAX_DISTANCE"   default:"0.08"`
+	DedupMaxDistance     float64 `env:"DEDUP_MAX_DISTANCE"   default:"0.15"`
 	DedupMaxPairsPerProj int     `env:"DEDUP_MAX_PAIRS_PER_PROJECT" default:"50"`
 	DedupMaxOpenPerProj  int     `env:"DEDUP_MAX_OPEN_PER_PROJECT"  default:"100"`
 
@@ -884,6 +884,39 @@ func run() error {
 	logger.Info("notes: revision prune worker started", "interval", "24h",
 		"keep_recent", notestore.PruneDefaultKeepRecent,
 		"keep_days", notestore.PruneDefaultKeepDays)
+
+	// Wiki 页历史版本周期清理 —— 照上面 runNotePrune 的既有模式
+	// （store.PrunePageRevisions 交付时只给了函数）：boot scan + 每日 tick，
+	// 只删 change_type='edit' 且超出 keepRecent/keepDays 双门槛的版本。
+	runWikiPrune := func() {
+		c, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		n, err := st.PrunePageRevisions(c,
+			store.PruneDefaultKeepRecent, store.PruneDefaultKeepDays)
+		if err != nil {
+			logger.Warn("wiki page revisions prune failed", "err", err)
+			return
+		}
+		if n > 0 {
+			logger.Info("wiki page revisions pruned", "deleted", n)
+		}
+	}
+	runWikiPrune() // boot scan
+	go func() {
+		t := time.NewTicker(24 * time.Hour)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				runWikiPrune()
+			}
+		}
+	}()
+	logger.Info("wiki: page revision prune worker started", "interval", "24h",
+		"keep_recent", store.PruneDefaultKeepRecent,
+		"keep_days", store.PruneDefaultKeepDays)
 
 	// 分享会话去重记录 TTL 清理（S2，迁移 00006）—— 照上面
 	// runNotePrune 的既有模式：boot scan + 每日 tick，单实例进程内

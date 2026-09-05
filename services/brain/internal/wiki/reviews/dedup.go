@@ -7,10 +7,12 @@
 // strongly while keeping per-detection cost O(K) ANN lookups instead
 // of O(N²) full-page comparisons.
 //
-// Threshold default: cosine similarity ≥ 0.92 (cosine distance ≤ 0.08).
-// Below 0.92 false-positive rate climbs steeply on multilingual content;
-// above 0.95 we miss real near-duplicates that paraphrase. 0.92 split
-// the difference well in llm_wiki dogfood.
+// Threshold default: cosine similarity ≥ 0.85 (cosine distance ≤ 0.15)
+// for recall; pairs at similarity ≥ MergeSimilarityThreshold (0.92) are
+// promoted to kind=merge, the 0.85–0.92 band stays kind=dedup for manual
+// confirmation. Below 0.85 the false-positive rate climbs steeply on
+// multilingual content; the merge/dedup split keeps auto-merge candidates
+// conservative while still surfacing "merely similar" pages for review.
 //
 // We don't auto-merge — every detection becomes an "open" review item
 // the user has to accept. P2-D-extended will add an LLM detector pass
@@ -31,10 +33,12 @@ import (
 // DedupOptions tunes detection. Zero values fall back to safe defaults.
 type DedupOptions struct {
 	// MaxDistance is cosine_distance threshold; pairs strictly above
-	// this are dropped. Default 0.08 (≈ 0.92 similarity).
+	// this are dropped. Default 0.15 (≈ 0.85 similarity) — recall floor
+	// below MergeSimilarityThreshold so the 0.85–0.92 band surfaces as
+	// kind=dedup review items.
 	MaxDistance float64
 	// PerPageNeighbours caps how many ANN neighbours we examine per
-	// page. With 0.08 distance most projects produce 0-1 hit per page;
+	// page. With 0.15 distance most projects produce 0-2 hits per page;
 	// the cap protects against pathological hubs (a "table of contents"
 	// page that's loosely related to everything).
 	PerPageNeighbours int
@@ -46,7 +50,7 @@ type DedupOptions struct {
 
 func (o DedupOptions) withDefaults() DedupOptions {
 	if o.MaxDistance <= 0 {
-		o.MaxDistance = 0.08
+		o.MaxDistance = 0.15
 	}
 	if o.PerPageNeighbours <= 0 {
 		o.PerPageNeighbours = 5
@@ -163,8 +167,9 @@ func DedupKeyForPair(a, b uuid.UUID) string {
 }
 
 // MergeSimilarityThreshold — 相似度 ≥ 此值的 dedup pair 升级为 kind=merge
-// （强合并信号，蓝徽章优先于 dedup 琥珀）。高于 FindDedupCandidates 的 dedup
-// 召回阈值，即「几乎确定该合并」的子集。
+// （强合并信号，蓝徽章优先于 dedup 琥珀）。FindDedupCandidates 的召回阈值
+// （默认 distance 0.15 ≈ similarity 0.85）低于此值，0.85–0.92 区间落
+// kind=dedup 待人工确认，≥0.92 即「几乎确定该合并」的子集落 kind=merge。
 const MergeSimilarityThreshold = 0.92
 
 // WritePairs upserts each pair as a review_item. Similarity ≥
