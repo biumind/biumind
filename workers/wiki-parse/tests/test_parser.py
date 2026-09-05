@@ -268,6 +268,68 @@ def test_extract_epub_empty_raises():
         extract(data, filename="empty.epub")
 
 
+# ─── zip-bomb 防护（DOCX/XLSX/PPTX/EPUB 共用 _check_zip_bomb）─────────────
+
+
+def _make_many_entry_zip(n: int) -> bytes:
+    """n 个空条目的 zip（触发条目数上限，文件本身很小）。"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for i in range(n):
+            z.writestr(f"e{i}.txt", "")
+    return buf.getvalue()
+
+
+def _make_fake_size_zip(declared_size: int) -> bytes:
+    """真实数据只有几个字节的 zip，但 central directory 里把
+    uncompressed size 篡改成 declared_size —— infolist 预检只读头部
+    声明值，无需真造大数据就能触发大小/压缩比防线。
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", "tiny")
+    data = bytearray(buf.getvalue())
+    # central directory record：签名 PK\x01\x02，uncompressed size 在 +24
+    off = data.find(b"PK\x01\x02")
+    assert off != -1
+    data[off + 24 : off + 28] = declared_size.to_bytes(4, "little")
+    return bytes(data)
+
+
+def test_zip_bomb_too_many_entries_rejected():
+    data = _make_many_entry_zip(10_001)
+    with pytest.raises(ParseError, match="zip bomb"):
+        extract(data, filename="bomb.docx")
+
+
+def test_zip_bomb_declared_total_size_rejected():
+    # 声明展开 600MB > 512MB 总上限
+    data = _make_fake_size_zip(600 * 1024 * 1024)
+    with pytest.raises(ParseError, match="zip bomb"):
+        extract(data, filename="bomb.docx")
+
+
+def test_zip_bomb_declared_entry_size_rejected():
+    # 单条目声明 100MB > 64MB 单条目上限（同时 < 512MB 总上限，
+    # 确认单条目防线独立生效）
+    data = _make_fake_size_zip(100 * 1024 * 1024)
+    with pytest.raises(ParseError, match="单条目"):
+        extract(data, filename="bomb.docx")
+
+
+def test_zip_bomb_guard_applies_to_all_zip_formats():
+    data = _make_many_entry_zip(10_001)
+    for name in ("b.docx", "b.xlsx", "b.pptx", "b.epub"):
+        with pytest.raises(ParseError, match="zip bomb"):
+            extract(data, filename=name)
+
+
+def test_zip_bomb_legit_docx_still_parses():
+    # 正常 docx 不误伤（回归：预检后 mammoth 链路照常）
+    data = _make_docx(["not a bomb"])
+    assert "not a bomb" in extract(data, filename="ok.docx")
+
+
 # ─── PDF（最小合法 PDF 手工拼 xref，不提交二进制 fixture）────────────────
 
 

@@ -6,10 +6,14 @@ import mammoth from 'mammoth'
 import { DocprocError } from '../bridge/protocol'
 import { createTurndown } from './turndown'
 import { throwIfCancelled, type Parser } from './types'
+import { checkZipBomb } from './zipguard'
 
 export const parseDocx: Parser = async (input) => {
   input.onProgress?.('load', 20)
   throwIfCancelled(input.isCancelled)
+
+  // mammoth（经 jszip）全量展开且无上限，先做 zip-bomb 预检。
+  checkZipBomb(input.data, 'DOCX')
 
   // mammoth 要求 ArrayBuffer；input.data 可能是大 buffer 的视图，切片复制。
   const arrayBuffer = input.data.slice().buffer as ArrayBuffer

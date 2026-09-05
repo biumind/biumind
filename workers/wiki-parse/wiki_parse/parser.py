@@ -18,12 +18,74 @@ content_hash = sha256(extracted_text)（不是文件字节），所以同内容�
 from __future__ import annotations
 
 import io
+import zipfile
 from html.parser import HTMLParser
 from typing import List, Optional
 
 
 class ParseError(RuntimeError):
     """文件解析失败。message 落 wiki_sources.parse_error。"""
+
+
+# zip 类容器（DOCX/XLSX/PPTX/EPUB）防 zip-bomb 阈值，对齐
+# reference/llm_wiki src-tauri/src/commands/ebook.rs（条目 ≤1 万、
+# 总展开 ≤512MB、压缩比 ≤200）。单条目上限参考其单章 16MB，
+# 放宽到 64MB 以覆盖 XLSX 大 sheet.xml。源文件大小上限由 config
+# BIUMIND_WIKI_PARSE_MAX_BYTES（默认 200MB）在下载层拦截。
+_ZIP_MAX_ENTRIES = 10_000
+_ZIP_MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024
+_ZIP_MAX_ENTRY_UNCOMPRESSED = 64 * 1024 * 1024
+_ZIP_MAX_COMPRESS_RATIO = 200
+
+
+def _check_zip_bomb(data: bytes, fmt: str) -> None:
+    """zip 类容器展开预检：只读 central directory（infolist 的
+    file_size/compress_size 是头部声明值），不做任何解压。
+    超限抛 ParseError → runner 标 failed，worker 不崩。
+    非 zip 字节直接放行，交给下层解析库自己报错。
+    """
+    if not data.startswith(b"PK"):
+        return
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            infos = zf.infolist()
+    except zipfile.BadZipFile:
+        return
+
+    if len(infos) > _ZIP_MAX_ENTRIES:
+        raise ParseError(
+            f"{fmt} 条目数 {len(infos)} 超过上限 {_ZIP_MAX_ENTRIES}（疑似 zip bomb）"
+        )
+    total = 0
+    total_compressed = 0
+    for info in infos:
+        if info.file_size > _ZIP_MAX_ENTRY_UNCOMPRESSED:
+            raise ParseError(
+                f"{fmt} 条目 {info.filename} 声明展开大小 "
+                f"{info.file_size} 超过单条目上限 "
+                f"{_ZIP_MAX_ENTRY_UNCOMPRESSED}（疑似 zip bomb）"
+            )
+        if (
+            info.compress_size > 0
+            and info.file_size > _ZIP_MAX_COMPRESS_RATIO * info.compress_size
+        ):
+            raise ParseError(
+                f"{fmt} 条目 {info.filename} 压缩比 "
+                f"{info.file_size / info.compress_size:.0f} 超过上限 "
+                f"{_ZIP_MAX_COMPRESS_RATIO}（疑似 zip bomb）"
+            )
+        total += info.file_size
+        total_compressed += info.compress_size
+    if total > _ZIP_MAX_TOTAL_UNCOMPRESSED:
+        raise ParseError(
+            f"{fmt} 声明总展开大小 {total} 超过上限 "
+            f"{_ZIP_MAX_TOTAL_UNCOMPRESSED}（疑似 zip bomb）"
+        )
+    if total_compressed > 0 and total > _ZIP_MAX_COMPRESS_RATIO * total_compressed:
+        raise ParseError(
+            f"{fmt} 总压缩比 {total / total_compressed:.0f} 超过上限 "
+            f"{_ZIP_MAX_COMPRESS_RATIO}（疑似 zip bomb）"
+        )
 
 
 # 不提取正文的 HTML 标签（script/style/title/meta 等）。
@@ -204,6 +266,7 @@ def _strip_html_bytes(raw: bytes) -> str:
 
 
 def _extract_docx(data: bytes) -> str:
+    _check_zip_bomb(data, "DOCX")
     try:
         import mammoth
     except ImportError as e:
@@ -219,6 +282,7 @@ def _extract_docx(data: bytes) -> str:
 
 
 def _extract_xlsx(data: bytes) -> str:
+    _check_zip_bomb(data, "XLSX")
     try:
         from openpyxl import load_workbook
     except ImportError as e:
@@ -249,6 +313,7 @@ def _extract_xlsx(data: bytes) -> str:
 
 
 def _extract_pptx(data: bytes) -> str:
+    _check_zip_bomb(data, "PPTX")
     try:
         from pptx import Presentation
     except ImportError as e:
@@ -275,6 +340,7 @@ def _extract_pptx(data: bytes) -> str:
 
 
 def _extract_epub(data: bytes) -> str:
+    _check_zip_bomb(data, "EPUB")
     try:
         import ebooklib
         from ebooklib import epub
