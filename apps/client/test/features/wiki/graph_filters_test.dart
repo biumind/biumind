@@ -218,5 +218,163 @@ void main() {
       expect(gapDescriptionZh(gap), 'Raw desc');
       expect(gapSuggestionZh(gap), 'Raw sug');
     });
+
+    test('reason_code takes precedence over legacy type', () {
+      final gap = WikiKnowledgeGap(
+        type: 'isolated-node',
+        reasonCode: 'orphan_page',
+        params: const {'count': 7},
+        title: '7 isolated pages',
+        description: 'desc',
+        nodeIds: const ['a'],
+        suggestion: 'sug',
+      );
+      // 数量来自 params.count 而非 nodeIds 长度
+      expect(gapTitleZh(gap), '孤立页面（7 个）');
+      expect(gapDescriptionZh(gap), contains('连接数'));
+    });
+
+    test('sparse_community params interpolate member count and cohesion', () {
+      final gap = WikiKnowledgeGap(
+        type: 'sparse-community',
+        reasonCode: 'sparse_community',
+        params: const {
+          'community_id': 3,
+          'title': '机器学习',
+          'member_count': 5,
+          'cohesion': 0.12,
+        },
+        title: 'Sparse cluster: 机器学习',
+        description: 'desc',
+        nodeIds: const ['a', 'b'],
+        suggestion: 'sug',
+      );
+      expect(gapTitleZh(gap), '稀疏聚类：机器学习');
+      expect(gapDescriptionZh(gap), contains('5 个页面'));
+      expect(gapDescriptionZh(gap), contains('0.12'));
+    });
+
+    test('bridge_node params interpolate community count', () {
+      final gap = WikiKnowledgeGap(
+        type: 'bridge-node',
+        reasonCode: 'bridge_node',
+        params: const {'node_id': 'x', 'title': '总览页', 'community_count': 4},
+        title: 'Key bridge: 总览页',
+        description: 'desc',
+        nodeIds: const ['x'],
+        suggestion: 'sug',
+      );
+      expect(gapTitleZh(gap), '关键桥接页：总览页');
+      expect(gapDescriptionZh(gap), contains('4 个不同的知识聚类'));
+    });
+  });
+
+  group('surprising reason copy (中文映射)', () {
+    WikiSurprisingConnection conn({
+      List<String> reasons = const [],
+      List<WikiInsightReason> details = const [],
+    }) =>
+        WikiSurprisingConnection(
+          source: const WikiInsightNodeBrief(id: 'a', title: 'A', type: ''),
+          target: const WikiInsightNodeBrief(id: 'b', title: 'B', type: ''),
+          score: 4,
+          reasons: reasons,
+          reasonDetails: details,
+          key: 'a:::b',
+        );
+
+    test('cross_community interpolates community ids', () {
+      final texts = surprisingReasonTexts(conn(details: const [
+        WikiInsightReason(
+          code: 'cross_community',
+          params: {'source_community': 1, 'target_community': 2},
+        ),
+      ]));
+      expect(texts, ['跨越聚类边界（聚类 1 ↔ 2）']);
+    });
+
+    test('cross_type distinguishes distant vs generic pairs', () {
+      final distant = surprisingReasonTexts(conn(details: const [
+        WikiInsightReason(
+          code: 'cross_type',
+          params: {'source_type': 'source', 'target_type': 'concept', 'distant': true},
+        ),
+      ]));
+      expect(distant.single, contains('相距较远'));
+      expect(distant.single, contains('source ↔ concept'));
+      final generic = surprisingReasonTexts(conn(details: const [
+        WikiInsightReason(
+          code: 'cross_type',
+          params: {'source_type': 'concept', 'target_type': 'entity', 'distant': false},
+        ),
+      ]));
+      expect(generic.single, contains('不同类型'));
+      expect(generic.single, isNot(contains('相距较远')));
+    });
+
+    test('periphery_hub and weak_edge interpolate numbers', () {
+      final texts = surprisingReasonTexts(conn(details: const [
+        WikiInsightReason(
+          code: 'periphery_hub',
+          params: {'min_degree': 1, 'max_degree': 5, 'graph_max_degree': 5},
+        ),
+        WikiInsightReason(code: 'weak_edge', params: {'weight': 1.5}),
+      ]));
+      expect(texts[0], contains('1 ↔ 5'));
+      expect(texts[1], contains('1.50'));
+    });
+
+    test('unknown code falls back to the aligned English reason', () {
+      final texts = surprisingReasonTexts(conn(
+        reasons: const ['crosses community boundary', 'some new signal'],
+        details: const [
+          WikiInsightReason(
+            code: 'cross_community',
+            params: {'source_community': 1, 'target_community': 2},
+          ),
+          WikiInsightReason(code: 'future_code'),
+        ],
+      ));
+      expect(texts[0], contains('跨越聚类边界'));
+      expect(texts[1], 'some new signal');
+    });
+
+    test('no reason_details (old backend) returns raw reasons', () {
+      final texts = surprisingReasonTexts(
+          conn(reasons: const ['crosses community boundary']));
+      expect(texts, ['crosses community boundary']);
+    });
+
+    test('parses reason_details from backend JSON', () {
+      final c = WikiSurprisingConnection.fromJson(const {
+        'source': {'id': 'a', 'title': 'A', 'type': 'concept'},
+        'target': {'id': 'b', 'title': 'B', 'type': 'entity'},
+        'score': 4,
+        'reasons': ['crosses community boundary'],
+        'reason_details': [
+          {
+            'code': 'cross_community',
+            'params': {'source_community': 1, 'target_community': 2},
+          }
+        ],
+        'key': 'a:::b',
+      });
+      expect(surprisingReasonTexts(c).single, contains('聚类 1 ↔ 2'));
+    });
+
+    test('parses gap reason_code and params from backend JSON', () {
+      final g = WikiKnowledgeGap.fromJson(const {
+        'type': 'bridge-node',
+        'reason_code': 'bridge_node',
+        'params': {'node_id': 'x', 'title': 'Hub', 'community_count': 3},
+        'title': 'Key bridge: Hub',
+        'description': 'desc',
+        'node_ids': ['x'],
+        'suggestion': 'sug',
+      });
+      expect(g.reasonCode, 'bridge_node');
+      expect(gapTitleZh(g), '关键桥接页：Hub');
+      expect(gapDescriptionZh(g), contains('3 个不同的知识聚类'));
+    });
   });
 }

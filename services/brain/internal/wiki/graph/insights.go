@@ -27,22 +27,40 @@ type Brief struct {
 	Type  string `json:"type"`
 }
 
+// Reason is the structured form of one surprising-connection signal:
+// a stable machine code + numeric/named params, so clients can localize
+// without parsing the English fallback strings in Reasons.
+//
+// Code set: cross_community | cross_type | periphery_hub | weak_edge.
+type Reason struct {
+	Code   string         `json:"code"`
+	Params map[string]any `json:"params,omitempty"`
+}
+
 // Surprising is one scored cross-cutting edge.
 type Surprising struct {
-	Source  Brief    `json:"source"`
-	Target  Brief    `json:"target"`
-	Score   int      `json:"score"`
-	Reasons []string `json:"reasons"`
-	Key     string   `json:"key"` // stable dismiss key: sorted "id:::id"
+	Source Brief `json:"source"`
+	Target Brief `json:"target"`
+	Score  int   `json:"score"`
+	// Reasons is the legacy English fallback copy, kept for old clients.
+	// ReasonDetails carries the same signals in structured form, appended
+	// in the same order (ReasonDetails[i] ↔ Reasons[i]).
+	Reasons       []string `json:"reasons"`
+	ReasonDetails []Reason `json:"reason_details"`
+	Key           string   `json:"key"` // stable dismiss key: sorted "id:::id"
 }
 
 // Gap is one detected knowledge-gap finding.
 type Gap struct {
-	Type        string   `json:"type"` // isolated-node | sparse-community | bridge-node
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	NodeIDs     []string `json:"node_ids"`
-	Suggestion  string   `json:"suggestion"`
+	Type string `json:"type"` // isolated-node | sparse-community | bridge-node
+	// ReasonCode is the snake_case machine code for localization:
+	// orphan_page | sparse_community | bridge_node (mirrors Type 1:1).
+	ReasonCode  string         `json:"reason_code"`
+	Params      map[string]any `json:"params,omitempty"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	NodeIDs     []string       `json:"node_ids"`
+	Suggestion  string         `json:"suggestion"`
 }
 
 // Insights is the full payload returned by POST /graph/insights.
@@ -123,6 +141,7 @@ func findSurprising(g *Graph, limit int) []Surprising {
 
 		score := 0
 		var reasons []string
+		var details []Reason
 
 		// Signal 1: cross-community edge (+3). Only counts when both
 		// endpoints are actually clustered — two unclustered pages share
@@ -130,18 +149,34 @@ func findSurprising(g *Graph, limit int) []Surprising {
 		if src.clustered && tgt.clustered && src.Community != tgt.Community {
 			score += 3
 			reasons = append(reasons, "crosses community boundary")
+			details = append(details, Reason{
+				Code: "cross_community",
+				Params: map[string]any{
+					"source_community": src.Community,
+					"target_community": tgt.Community,
+				},
+			})
 		}
 
 		// Signal 2: cross-type edge (+2 distant, +1 generic).
 		if src.Type != "" && tgt.Type != "" && src.Type != tgt.Type {
 			pair := src.Type + "-" + tgt.Type
-			if distantTypePairs[pair] {
+			distant := distantTypePairs[pair]
+			if distant {
 				score += 2
 				reasons = append(reasons, "connects "+src.Type+" to "+tgt.Type)
 			} else {
 				score += 1
 				reasons = append(reasons, "different types")
 			}
+			details = append(details, Reason{
+				Code: "cross_type",
+				Params: map[string]any{
+					"source_type": src.Type,
+					"target_type": tgt.Type,
+					"distant":     distant,
+				},
+			})
 		}
 
 		// Signal 3: peripheral-to-hub coupling (+2). Compare against
@@ -155,22 +190,35 @@ func findSurprising(g *Graph, limit int) []Surprising {
 		if minDeg <= 2 && float64(maxDeg) >= float64(maxDegree)*0.5 {
 			score += 2
 			reasons = append(reasons, "peripheral node links to hub")
+			details = append(details, Reason{
+				Code: "periphery_hub",
+				Params: map[string]any{
+					"min_degree":       minDeg,
+					"max_degree":       maxDeg,
+					"graph_max_degree": maxDegree,
+				},
+			})
 		}
 
 		// Signal 4: weak-but-present edge (+1).
 		if e.Weight > 0 && e.Weight < 2 {
 			score += 1
 			reasons = append(reasons, "weak but present connection")
+			details = append(details, Reason{
+				Code:   "weak_edge",
+				Params: map[string]any{"weight": e.Weight},
+			})
 		}
 
 		if score >= 3 && len(reasons) > 0 {
 			key := dismissKey(src.ID, tgt.ID)
 			scored = append(scored, Surprising{
-				Source:  brief(src),
-				Target:  brief(tgt),
-				Score:   score,
-				Reasons: reasons,
-				Key:     key,
+				Source:        brief(src),
+				Target:        brief(tgt),
+				Score:         score,
+				Reasons:       reasons,
+				ReasonDetails: details,
+				Key:           key,
 			})
 		}
 	}
@@ -217,7 +265,13 @@ func detectGaps(g *Graph, limit int) []Gap {
 			desc += pluralMore(len(isolated) - 5)
 		}
 		gaps = append(gaps, Gap{
-			Type:        "isolated-node",
+			Type:       "isolated-node",
+			ReasonCode: "orphan_page",
+			Params: map[string]any{
+				"count":         len(isolated),
+				"sample_titles": labels,
+				"extra_count":   len(isolated) - len(top),
+			},
 			Title:       pluralTitle(len(isolated), "isolated page"),
 			Description: desc,
 			NodeIDs:     ids,
@@ -253,7 +307,14 @@ func detectGaps(g *Graph, limit int) []Gap {
 				ids = append(ids, m.ID)
 			}
 			gaps = append(gaps, Gap{
-				Type:        "sparse-community",
+				Type:       "sparse-community",
+				ReasonCode: "sparse_community",
+				Params: map[string]any{
+					"community_id": comm,
+					"title":        title,
+					"member_count": n,
+					"cohesion":     cohesion,
+				},
 				Title:       "Sparse cluster: " + title,
 				Description: itoa(n) + " pages with cohesion " + ftoa(cohesion) + " — internal connections are weak.",
 				NodeIDs:     ids,
@@ -298,7 +359,13 @@ func detectGaps(g *Graph, limit int) []Gap {
 	for _, b := range bridges {
 		commCount := len(neighborComms[b.ID])
 		gaps = append(gaps, Gap{
-			Type:        "bridge-node",
+			Type:       "bridge-node",
+			ReasonCode: "bridge_node",
+			Params: map[string]any{
+				"node_id":         b.ID,
+				"title":           b.Title,
+				"community_count": commCount,
+			},
 			Title:       "Key bridge: " + b.Title,
 			Description: "Connects " + itoa(commCount) + " different knowledge clusters. This is a critical junction in your wiki.",
 			NodeIDs:     []string{b.ID},

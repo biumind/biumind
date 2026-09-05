@@ -1,4 +1,4 @@
-/// 图谱页纯逻辑 — 节点过滤 / 度数计算 / 结构页判定 / 缺口文案中文化。
+/// 图谱页纯逻辑 — 节点过滤 / 度数计算 / 结构页判定 / 洞察文案中文化。
 ///
 /// 与 `project_graph_page.dart` 分离，保持无 Flutter 依赖可直接单测。
 /// 思路对齐 reference/llm_wiki `graph-filters.ts`（We Take：隐藏结构页 /
@@ -7,6 +7,15 @@
 library;
 
 import '../../../data/api/wiki_client.dart';
+
+/// 数字参数格式化：整数去小数点，否则两位小数（边权 / 凝聚力展示用）。
+String _fmtNum(Object? v) {
+  if (v is num) {
+    if (v == v.roundToDouble()) return v.toInt().toString();
+    return v.toStringAsFixed(2);
+  }
+  return '$v';
+}
 
 /// 节点着色模式：按 Louvain 聚类 / 按 page_type。
 enum GraphColorMode { community, type }
@@ -158,12 +167,53 @@ FilteredGraphData applyGraphFilters(
 /// 客户端用 type|title 合成。同一批 insights 内 type+title 唯一。
 String gapDismissKey(WikiKnowledgeGap gap) => '${gap.type}|${gap.title}';
 
+// ─── 洞察文案中文化 ──────────────────────────────────────────────
+//
+// 后端 insights.go 的文案是英文硬编码（服务端不做 i18n）。新后端对
+// 每条 surprising reason 下发结构化 reason_details（code + params）、
+// 对每条 gap 下发 reason_code + params，客户端优先据此生成中文文案；
+// 旧后端（无结构化字段）回退英文原文 / 既有 type 映射。
+
+/// 单条 surprising reason 的中文文案；未知 code 返回 null（调用方回退）。
+String? surprisingReasonZh(WikiInsightReason reason) {
+  final p = reason.params;
+  switch (reason.code) {
+    case 'cross_community':
+      return '跨越聚类边界（聚类 ${p['source_community']} ↔ ${p['target_community']}）';
+    case 'cross_type':
+      final st = p['source_type'] ?? '';
+      final tt = p['target_type'] ?? '';
+      return p['distant'] == true
+          ? '连接了相距较远的类型：$st ↔ $tt'
+          : '连接不同类型的页面：$st ↔ $tt';
+    case 'periphery_hub':
+      return '外缘页面连接了枢纽页（连接数 ${_fmtNum(p['min_degree'])} ↔ ${_fmtNum(p['max_degree'])}）';
+    case 'weak_edge':
+      return '关联较弱但存在（权重 ${_fmtNum(p['weight'])}）';
+    default:
+      return null;
+  }
+}
+
+/// surprising 卡片的 reason 文案列表：有 reason_details 时逐条映射中文
+/// （reason_details[i] 与 reasons[i] 同序，未知 code 按位回退英文原文），
+/// 旧后端无结构化字段时整体回退 reasons 原文。
+List<String> surprisingReasonTexts(WikiSurprisingConnection conn) {
+  if (conn.reasonDetails.isEmpty) return conn.reasons;
+  return [
+    for (var i = 0; i < conn.reasonDetails.length; i++)
+      surprisingReasonZh(conn.reasonDetails[i]) ??
+          (i < conn.reasons.length
+              ? conn.reasons[i]
+              : conn.reasonDetails[i].code),
+  ];
+}
+
 // ─── 知识缺口文案中文化 ────────────────────────────────────────────
 //
-// 后端 insights.go 的 title / description / suggestion 是英文硬编码
-// （服务端不做 i18n）。payload 的 type / node_ids 足够客户端重新生成
-// 中文文案；稀疏聚类 / 桥接页的「名字」嵌在后端 title 里，按已知前缀
-// 剥出，剥不掉就原样展示（新类型兜底后端原文）。
+// 优先按 reason_code（orphan_page | sparse_community | bridge_node）+
+// params 生成；旧后端无 reason_code 时回退 kebab-case type + 从英文
+// title 剥前缀（剥不掉就原样展示，新类型兜底后端原文）。
 
 String _stripPrefix(String title, String prefix) {
   if (title.startsWith(prefix)) {
@@ -173,16 +223,26 @@ String _stripPrefix(String title, String prefix) {
   return title;
 }
 
-/// 缺口标题（中文）。isolated-node 的数量取 nodeIds 全长（后端 title
-/// 里的数字与此一致，但客户端不解析英文文案里的数字）。
+/// gap 的规范化机器码：新后端 reason_code 优先，旧后端回退 type。
+String _gapCode(WikiKnowledgeGap gap) =>
+    gap.reasonCode.isNotEmpty ? gap.reasonCode : gap.type;
+
+/// 缺口标题（中文）。isolated 的数量取 params.count / nodeIds 全长；
+/// 稀疏聚类 / 桥接页的名字取 params.title，取不到再剥英文前缀。
 String gapTitleZh(WikiKnowledgeGap gap) {
-  switch (gap.type) {
+  switch (_gapCode(gap)) {
+    case 'orphan_page':
     case 'isolated-node':
-      return '孤立页面（${gap.nodeIds.length} 个）';
+      final count = (gap.params['count'] as num?)?.toInt();
+      return '孤立页面（${count ?? gap.nodeIds.length} 个）';
+    case 'sparse_community':
     case 'sparse-community':
-      return '稀疏聚类：${_stripPrefix(gap.title, 'Sparse cluster:')}';
+      final name = gap.params['title']?.toString();
+      return '稀疏聚类：${name ?? _stripPrefix(gap.title, 'Sparse cluster:')}';
+    case 'bridge_node':
     case 'bridge-node':
-      return '关键桥接页：${_stripPrefix(gap.title, 'Key bridge:')}';
+      final name = gap.params['title']?.toString();
+      return '关键桥接页：${name ?? _stripPrefix(gap.title, 'Key bridge:')}';
     default:
       return gap.title;
   }
@@ -191,12 +251,24 @@ String gapTitleZh(WikiKnowledgeGap gap) {
 /// 缺口描述（中文）。孤立页的示例页面已由卡片下方 node chips 展示，
 /// 描述不再重复罗列标题。
 String gapDescriptionZh(WikiKnowledgeGap gap) {
-  switch (gap.type) {
+  switch (_gapCode(gap)) {
+    case 'orphan_page':
     case 'isolated-node':
       return '这些页面连接数 ≤ 1，几乎没有与其他页面建立关联。';
+    case 'sparse_community':
     case 'sparse-community':
+      final members = (gap.params['member_count'] as num?)?.toInt();
+      final cohesion = gap.params['cohesion'];
+      if (members != null && cohesion != null) {
+        return '该聚类共 $members 个页面，内部连接很弱（凝聚力 ${_fmtNum(cohesion)}，低于 0.15 阈值）。';
+      }
       return '该聚类共 ${gap.nodeIds.length} 个页面，内部连接很弱（凝聚力低于阈值）。';
+    case 'bridge_node':
     case 'bridge-node':
+      final comms = (gap.params['community_count'] as num?)?.toInt();
+      if (comms != null) {
+        return '该页面连接了 $comms 个不同的知识聚类，是整个 wiki 的关键枢纽。';
+      }
       return '该页面连接多个知识聚类，是整个 wiki 的关键枢纽。';
     default:
       return gap.description;
@@ -205,11 +277,14 @@ String gapDescriptionZh(WikiKnowledgeGap gap) {
 
 /// 缺口建议（中文），对应后端 insights.go 三处英文硬编码 suggestion。
 String gapSuggestionZh(WikiKnowledgeGap gap) {
-  switch (gap.type) {
+  switch (_gapCode(gap)) {
+    case 'orphan_page':
     case 'isolated-node':
       return '考虑为相关页面添加 [[wikilink]] 引用，或通过「研究」扩展这些页面的内容。';
+    case 'sparse_community':
     case 'sparse-community':
       return '该知识领域缺少内部交叉引用，考虑在这些页面之间补充链接，或通过「研究」补全。';
+    case 'bridge_node':
     case 'bridge-node':
       return '请确保该页面内容完善——若内容单薄，扩展它将增强整个 wiki 的连通性。';
     default:

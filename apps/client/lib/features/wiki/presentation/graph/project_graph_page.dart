@@ -8,7 +8,8 @@
 ///   * 过滤器面板：结构页 / 孤立页 / page_type / 度数区间，作用于渲染与布局
 ///   * 着色双模式：按 Louvain 聚类 / 按 page_type（pageTypeConfigOf 色）
 ///   * 洞察卡片画布联动：定位 = 高亮 + 居中对应节点；逐条 dismiss（本地态）
-///   * 知识缺口文案中文化：后端英文硬编码，客户端按 gap.type 重新生成
+///   * 洞察文案中文化：优先按后端 reason_details / reason_code 结构化
+///     字段生成，旧后端回退英文原文 / type 映射
 ///
 /// 过滤 / 文案的纯逻辑在 `../../application/graph_filters.dart`（可单测）。
 library;
@@ -542,7 +543,9 @@ class _SurprisingCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 2,
             children: [
-              for (final r in conn.reasons)
+              // 优先按后端 reason_details（code+params）映射中文，
+              // 旧后端无结构化字段时回退英文原文（graph_filters.dart）。
+              for (final r in surprisingReasonTexts(conn))
                 Text('· $r',
                     style: TextStyle(
                         fontSize: 11, color: BiuTokens.textSecondary)),
@@ -571,8 +574,8 @@ class _GapCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, color) = _gapVisual(gap.type);
-    // 缺口文案客户端中文化（后端英文硬编码，payload 的 type/node_ids 足够
-    // 重新生成，见 application/graph_filters.dart）。
+    // 缺口文案客户端中文化（优先 reason_code + params，旧后端回退
+    // type + 英文 title 剥前缀，见 application/graph_filters.dart）。
     final title = gapTitleZh(gap);
     final description = gapDescriptionZh(gap);
     final suggestion = gapSuggestionZh(gap);

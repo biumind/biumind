@@ -481,6 +481,10 @@ class WikiSurprisingConnection {
   final WikiInsightNodeBrief target;
   final int score;
   final List<String> reasons;
+
+  /// 结构化 reason（code + params），与 reasons 按下标一一对应；
+  /// 新后端下发，客户端据此本地化，空列表 = 旧后端（回退英文原文）。
+  final List<WikiInsightReason> reasonDetails;
   final String key; // 稳定 dismiss key
 
   const WikiSurprisingConnection({
@@ -488,6 +492,7 @@ class WikiSurprisingConnection {
     required this.target,
     required this.score,
     required this.reasons,
+    this.reasonDetails = const [],
     required this.key,
   });
 
@@ -501,13 +506,40 @@ class WikiSurprisingConnection {
         reasons: (j['reasons'] as List? ?? const [])
             .map((r) => r.toString())
             .toList(),
+        reasonDetails: (j['reason_details'] as List? ?? const [])
+            .whereType<Map>()
+            .map((m) => WikiInsightReason.fromJson(m.cast()))
+            .toList(),
         key: j['key']?.toString() ?? '',
+      );
+}
+
+/// 单条 surprising reason 的结构化形式：稳定 code + 参数 map。
+/// code ∈ cross_community | cross_type | periphery_hub | weak_edge。
+class WikiInsightReason {
+  final String code;
+  final Map<String, dynamic> params;
+
+  const WikiInsightReason({required this.code, this.params = const {}});
+
+  factory WikiInsightReason.fromJson(Map<String, dynamic> j) =>
+      WikiInsightReason(
+        code: j['code']?.toString() ?? '',
+        params:
+            (j['params'] as Map?)?.cast<String, dynamic>() ?? const {},
       );
 }
 
 class WikiKnowledgeGap {
   /// isolated-node | sparse-community | bridge-node
   final String type;
+
+  /// snake_case 机器码（orphan_page | sparse_community | bridge_node），
+  /// 与 type 一一对应；空串 = 旧后端未下发。
+  final String reasonCode;
+
+  /// 结构化参数（聚类 id / 页面数 / 凝聚力 / 桥接聚类数等），供本地化插值。
+  final Map<String, dynamic> params;
   final String title;
   final String description;
   final List<String> nodeIds;
@@ -515,6 +547,8 @@ class WikiKnowledgeGap {
 
   const WikiKnowledgeGap({
     required this.type,
+    this.reasonCode = '',
+    this.params = const {},
     required this.title,
     required this.description,
     required this.nodeIds,
@@ -524,6 +558,9 @@ class WikiKnowledgeGap {
   factory WikiKnowledgeGap.fromJson(Map<String, dynamic> j) =>
       WikiKnowledgeGap(
         type: j['type']?.toString() ?? '',
+        reasonCode: j['reason_code']?.toString() ?? '',
+        params:
+            (j['params'] as Map?)?.cast<String, dynamic>() ?? const {},
         title: j['title']?.toString() ?? '',
         description: j['description']?.toString() ?? '',
         nodeIds: (j['node_ids'] as List? ?? const [])
