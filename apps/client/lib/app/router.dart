@@ -68,7 +68,7 @@ import '../features/skills/presentation/skills_page.dart';
 import '../features/splash/presentation/splash_page.dart';
 import '../features/wiki/presentation/reviews_page.dart';
 import '../features/wiki/data/docproc_queue_controller.dart';
-import '../features/wiki/presentation/chat/project_chat_page.dart';
+import '../features/wiki/presentation/chat/project_chat_panel.dart';
 import '../features/wiki/presentation/graph/project_graph_page.dart';
 import '../features/wiki/presentation/mirror/mirror_page.dart' as wikimirror;
 import '../features/wiki/presentation/research/research_page.dart' as wikiresearch;
@@ -265,7 +265,11 @@ GoRouter buildRouter(ProviderContainer container) {
                   ),
                   GoRoute(
                     path: 'chat',
-                    pageBuilder: (_, state) => subPage(ProjectChatPage(
+                    // 项目内对话 = ProjectChatPanel（Agent Plane V2 真实现，
+                    // 与 ProjectBrowserPage 无选中页面时的 detail 同源）。
+                    // 旧 ProjectChatPage 半桩（wiki/chat stub API，无
+                    // assistant 生产者）已退役删除。
+                    pageBuilder: (_, state) => subPage(ProjectChatPanel(
                       projectId: state.pathParameters['pid'] ?? '',
                     )),
                   ),

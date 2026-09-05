@@ -597,64 +597,8 @@ class WikiSuggestion {
 }
 
 /// 项目内对话会话头部（不含 messages）。
-class WikiConversation {
-  final String id;
-  final String projectId;
-  final String title;
-  final DateTime updatedAt;
-  final int messageCount;
-
-  const WikiConversation({
-    required this.id,
-    required this.projectId,
-    required this.title,
-    required this.updatedAt,
-    this.messageCount = 0,
-  });
-
-  factory WikiConversation.fromJson(Map<String, dynamic> j) =>
-      WikiConversation(
-        id: j['id']?.toString() ?? '',
-        projectId: j['project_id']?.toString() ?? '',
-        title: j['title']?.toString() ?? '',
-        updatedAt:
-            DateTime.tryParse(j['updated_at'] as String? ?? '')?.toUtc() ??
-                DateTime.now().toUtc(),
-        messageCount: (j['message_count'] as num?)?.toInt() ?? 0,
-      );
-}
-
-/// 项目内对话的一条消息。`role` ∈ user/assistant/system。
-class WikiChatMessage {
-  final String id;
-  final String conversationId;
-  final String role;
-  final String content;
-  final Map<String, dynamic> metadata;
-  final DateTime createdAt;
-
-  const WikiChatMessage({
-    required this.id,
-    required this.conversationId,
-    required this.role,
-    required this.content,
-    required this.createdAt,
-    this.metadata = const {},
-  });
-
-  factory WikiChatMessage.fromJson(Map<String, dynamic> j) => WikiChatMessage(
-        id: j['id']?.toString() ?? '',
-        conversationId: j['conversation_id']?.toString() ?? '',
-        role: j['role']?.toString() ?? 'user',
-        content: j['content']?.toString() ?? '',
-        metadata: ((j['metadata'] as Map?) ?? const {})
-            .map<String, dynamic>(
-                (k, v) => MapEntry(k.toString(), v)),
-        createdAt:
-            DateTime.tryParse(j['created_at'] as String? ?? '')?.toUtc() ??
-                DateTime.now().toUtc(),
-      );
-}
+/// 项目内对话的独立通道（brain wiki/chat stub）已随 ProjectChatPage
+/// 半桩一起退役 —— 会话能力统一走 Agent Plane V2（ThreadsShellPage）。
 
 class WikiClient {
   WikiClient(this.baseUrl, this.bearerToken);
@@ -1064,73 +1008,6 @@ class WikiClient {
     } else {
       await _delete('/v1/wiki/suggestions/$id/votes');
     }
-  }
-
-  // ─── Project Chat (B5.2) ────────────────────────────────
-
-  Future<List<WikiConversation>> listConversations(String projectId) async {
-    final raw = await _get('/v1/wiki/projects/$projectId/conversations');
-    return (raw['items'] as List? ?? const [])
-        .whereType<Map>()
-        .map((m) => WikiConversation.fromJson(m.cast()))
-        .toList();
-  }
-
-  Future<WikiConversation> createConversation(
-    String projectId, {
-    String? title,
-  }) async {
-    final raw = await _post(
-      '/v1/wiki/projects/$projectId/conversations',
-      {'title': title ?? ''},
-    );
-    return WikiConversation.fromJson(raw);
-  }
-
-  Future<List<WikiChatMessage>> listMessages(
-    String projectId,
-    String conversationId,
-  ) async {
-    final raw = await _get(
-      '/v1/wiki/projects/$projectId/conversations/$conversationId/messages',
-    );
-    return (raw['items'] as List? ?? const [])
-        .whereType<Map>()
-        .map((m) => WikiChatMessage.fromJson(m.cast()))
-        .toList();
-  }
-
-  Future<WikiChatMessage> sendMessage(
-    String projectId,
-    String conversationId, {
-    required String content,
-  }) async {
-    final raw = await _post(
-      '/v1/wiki/projects/$projectId/conversations/$conversationId/messages',
-      {'role': 'user', 'content': content},
-    );
-    return WikiChatMessage.fromJson(raw);
-  }
-
-  Future<void> deleteMessage(
-    String projectId,
-    String conversationId,
-    String messageId,
-  ) async {
-    await _delete(
-      '/v1/wiki/projects/$projectId/conversations/$conversationId/messages/$messageId',
-    );
-  }
-
-  Future<void> regenerateMessage(
-    String projectId,
-    String conversationId,
-    String messageId,
-  ) async {
-    await _post(
-      '/v1/wiki/projects/$projectId/conversations/$conversationId/messages/$messageId/regenerate',
-      const {},
-    );
   }
 
   /// 项目内搜索 —— 直接走 brain 顶层 `POST /v1/search`（已支持

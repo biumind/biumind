@@ -3,33 +3,44 @@
 /// Linear 风：顶部搜索框 + 过滤后的 action 列表（按 group 分隔）+
 /// 上下键导航 + Enter 跳转 + Esc 关闭。
 ///
-/// MVP 范围：12 条 navigation action（页面 / 源文件 / 搜索 / 图谱 / 对话
-/// / 研究 / 审查 / 去重 / 镜像 / 工作区 / 反馈 / 全局设置）。
-/// 后续可扩 "页面深链 (按 page title 模糊搜)" / "最近访问" / "所有命令"
-/// 等扩展，留 Action 接口可继续注入。
+/// 两种模式：
+///   - 命令模式（⌘K）：12 条 navigation action（页面 / 源文件 / 搜索 /
+///     图谱 / 对话 / 研究 / 审查 / 去重 / 镜像 / 工作区 / 反馈 / 全局设置）。
+///   - 页面跳转模式（⌘P，jumpToPage=true）：列出当前项目所有页面，按
+///     页面名 / 路径过滤，Enter 跳到 `/wiki/p/:pid/pages/:pageId`。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../application/wiki_controller.dart';
+import '../presentation/pages/pages_providers.dart';
 
 class WikiCommandPalette {
   WikiCommandPalette._();
 
   /// 弹出命令面板。projectId 为空时只显示跨项目级别的命令（工作区 / 反馈）。
+  ///
+  /// [jumpToPage] true 时进入页面跳转模式（⌘P）：列表换成当前项目的
+  /// 页面，按名称过滤跳页。projectId 为空（工作区模式）没有页面可跳，
+  /// 自动退化为命令模式。
   static Future<void> show(
     BuildContext context, {
     required String projectId,
+    bool jumpToPage = false,
   }) {
+    final pagesMode = jumpToPage && projectId.isNotEmpty;
     return showGeneralDialog<void>(
       context: context,
       barrierLabel: 'Command palette',
       barrierDismissible: true,
       barrierColor: Colors.black.withValues(alpha: 0.45),
       transitionDuration: const Duration(milliseconds: 120),
-      pageBuilder: (ctx, _, _) => _PaletteSurface(projectId: projectId),
+      pageBuilder: (ctx, _, _) =>
+          _PaletteSurface(projectId: projectId, jumpToPage: pagesMode),
       transitionBuilder: (ctx, anim, _, child) => FadeTransition(
         opacity: anim,
         child: ScaleTransition(
@@ -58,24 +69,63 @@ class _PaletteAction {
   final String? shortcut; // ⌘P / ⌘, 等
 }
 
-class _PaletteSurface extends StatefulWidget {
-  const _PaletteSurface({required this.projectId});
+class _PaletteSurface extends ConsumerStatefulWidget {
+  const _PaletteSurface({required this.projectId, required this.jumpToPage});
   final String projectId;
 
+  /// true = 页面跳转模式（⌘P）：列表为当前项目页面而非命令。
+  final bool jumpToPage;
+
   @override
-  State<_PaletteSurface> createState() => _PaletteSurfaceState();
+  ConsumerState<_PaletteSurface> createState() => _PaletteSurfaceState();
 }
 
-class _PaletteSurfaceState extends State<_PaletteSurface> {
+class _PaletteSurfaceState extends ConsumerState<_PaletteSurface> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
   int _selected = 0;
-  late List<_PaletteAction> _allActions;
+
+  /// 当前模式的完整 action 列表，每次 build 重算（页面模式跟随
+  /// pagesListProvider 实时刷新）。
+  List<_PaletteAction> _actions = const [];
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _allActions = _buildActions();
+  void initState() {
+    super.initState();
+    if (widget.jumpToPage) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _activateProject());
+    }
+  }
+
+  /// pagesListProvider 只在 project 是 activeProject 时返回数据（见
+  /// pages_providers.dart 注释）—— 深链进 /wiki/p/:pid/* 而未经过
+  /// ProjectBrowserPage._sync 时，这里补一次 selectProject。
+  Future<void> _activateProject() async {
+    if (!mounted) return;
+    final state = ref.read(wikiControllerProvider).valueOrNull;
+    if (state == null || state.activeProject?.id == widget.projectId) return;
+    for (final p in state.projects) {
+      if (p.id == widget.projectId) {
+        await ref.read(wikiControllerProvider.notifier).selectProject(p);
+        return;
+      }
+    }
+  }
+
+  /// 页面跳转模式：当前项目页面映射为 action，复用过滤 / 键导航 / 渲染。
+  List<_PaletteAction> _pageActions() {
+    final pid = widget.projectId;
+    final base = '/wiki/p/$pid';
+    return ref.watch(pagesListProvider(pid)).map((p) {
+      final relPath = (p.frontmatter['path'] as String?) ?? '';
+      return _PaletteAction(
+        label: p.title.isEmpty ? '(未命名)' : p.title,
+        subtitle: relPath.isNotEmpty && relPath != p.title ? relPath : null,
+        icon: Icons.description_outlined,
+        group: '页面',
+        run: (ctx) => ctx.go('$base/pages/${p.id}'),
+      );
+    }).toList(growable: false);
   }
 
   List<_PaletteAction> _buildActions() {
@@ -93,6 +143,8 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
           label: '页面',
           subtitle: '查看本项目所有 wiki 页面',
           icon: Icons.description_outlined,
+          // ⌘P = 按页面名跳页（WikiShell 绑定打开本面板的页面跳转模式）。
+          shortcut: '⌘P',
           group: navGroup,
           run: (ctx) => ctx.go(base),
         ),
@@ -107,7 +159,6 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
           label: '搜索',
           subtitle: 'BM25 + 语义 + 图谱三路命中',
           icon: Icons.search,
-          shortcut: '⌘P',
           group: navGroup,
           run: (ctx) => ctx.go('$base/search'),
         ),
@@ -195,8 +246,8 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
 
   List<_PaletteAction> get _filtered {
     final q = _controller.text.trim().toLowerCase();
-    if (q.isEmpty) return _allActions;
-    return _allActions
+    if (q.isEmpty) return _actions;
+    return _actions
         .where((a) =>
             a.label.toLowerCase().contains(q) ||
             (a.subtitle ?? '').toLowerCase().contains(q))
@@ -254,6 +305,7 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
 
   @override
   Widget build(BuildContext context) {
+    _actions = widget.jumpToPage ? _pageActions() : _buildActions();
     final list = _filtered;
     final selectedIdx = _selected.clamp(0, list.isEmpty ? 0 : list.length - 1);
 
@@ -277,7 +329,7 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
       children.add(Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          '没有匹配的命令',
+          widget.jumpToPage ? '没有匹配的页面' : '没有匹配的命令',
           style: TextStyle(color: BiuTokens.textMuted, fontSize: 13),
         ),
       ));
@@ -329,7 +381,8 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
                           onChanged: (_) => setState(() => _selected = 0),
                           onSubmitted: (_) => _runSelected(context),
                           decoration: InputDecoration(
-                            hintText: '输入命令或页面名 …',
+                            hintText:
+                                widget.jumpToPage ? '输入页面名 …' : '输入命令或页面名 …',
                             hintStyle: TextStyle(
                               color: BiuTokens.textMuted,
                               fontSize: 13,
@@ -394,7 +447,9 @@ class _PaletteSurfaceState extends State<_PaletteSurface> {
                       _Hint(label: 'esc', text: '关闭'),
                       const Spacer(),
                       Text(
-                        '${list.length} 项命令',
+                        widget.jumpToPage
+                            ? '${list.length} 个页面'
+                            : '${list.length} 项命令',
                         style: TextStyle(
                           color: BiuTokens.textMuted,
                           fontSize: 11,

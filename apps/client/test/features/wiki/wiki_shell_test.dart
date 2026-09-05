@@ -23,6 +23,7 @@ import 'package:biumind/features/wiki/shell/wiki_nav_rail.dart';
 import 'package:biumind/features/wiki/shell/wiki_shell.dart';
 import 'package:biumind/services/settings_repo.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:biumind/l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -111,6 +112,7 @@ Widget _wrap(GoRouter router) {
 }
 
 /// WikiShell 专用路由: stub child 带 key, 便于量内容区宽度。
+/// pages/:pageId stub 供 ⌘P 页面跳转测试落位断言。
 GoRouter _shellRouter() => GoRouter(
       initialLocation: '/wiki/p/p1',
       routes: [
@@ -124,6 +126,13 @@ GoRouter _shellRouter() => GoRouter(
             GoRoute(
               path: '/wiki/p/:pid',
               builder: (_, _) => Container(key: const Key('stub-project')),
+              routes: [
+                GoRoute(
+                  path: 'pages/:pageId',
+                  builder: (_, _) =>
+                      Container(key: const Key('stub-page')),
+                ),
+              ],
             ),
           ],
         ),
@@ -189,6 +198,57 @@ void main() {
       await tester.tap(find.byIcon(Icons.menu));
       await _pumpFrames(tester);
       expect(find.text('退出登录'), findsOneWidget);
+    });
+  });
+
+  group('WikiCommandPalette ⌘P/⌘K', () {
+    /// 按住 meta 敲一下 [key] 再松开（CallbackShortcuts 的 ⌘X 触发路径）。
+    Future<void> pressMeta(WidgetTester tester, LogicalKeyboardKey key) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(key);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await _pumpFrames(tester);
+    }
+
+    testWidgets('⌘P 打开页面跳转模式: 列出页面 + 过滤 + Enter 跳页',
+        (tester) async {
+      _setView(tester, const Size(1200, 800));
+      await tester.pumpWidget(_wrap(_shellRouter()));
+      await _pumpFrames(tester);
+
+      await pressMeta(tester, LogicalKeyboardKey.keyP);
+
+      // 页面跳转模式: hint / 页面行 / footer 计数。
+      expect(find.text('输入页面名 …'), findsOneWidget);
+      expect(find.text('第一页'), findsOneWidget);
+      expect(find.text('1 个页面'), findsOneWidget);
+
+      // 过滤: 不匹配 → 空态文案; 清掉 → 页面行回来。
+      await tester.enterText(find.byType(TextField), '不存在');
+      await tester.pump();
+      expect(find.text('第一页'), findsNothing);
+      expect(find.text('没有匹配的页面'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump();
+      expect(find.text('第一页'), findsOneWidget);
+
+      // Enter 跳页 → 面板关闭, 落到 /wiki/p/p1/pages/pg1 stub。
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await _pumpFrames(tester);
+      expect(find.byKey(const Key('stub-page')), findsOneWidget);
+    });
+
+    testWidgets('⌘K 仍是命令模式', (tester) async {
+      _setView(tester, const Size(1200, 800));
+      await tester.pumpWidget(_wrap(_shellRouter()));
+      await _pumpFrames(tester);
+
+      await pressMeta(tester, LogicalKeyboardKey.keyK);
+
+      expect(find.text('输入命令或页面名 …'), findsOneWidget);
+      // 命令模式的独有命令在; 页面模式的空态文案不出现。
+      expect(find.text('切换工作区'), findsOneWidget);
+      expect(find.text('没有匹配的页面'), findsNothing);
     });
   });
 

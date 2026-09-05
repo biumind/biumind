@@ -14,7 +14,8 @@
 // projectId 由当前 GoRouter location 解析：/wiki/p/:pid/* 时非空，
 // /wiki 时为空（NavRail 切换为工作区模式）。
 //
-// ⌘K / Ctrl+K 全局监听打开 WikiCommandPalette。
+// ⌘K / Ctrl+K 全局监听打开 WikiCommandPalette（命令模式）；
+// ⌘P / Ctrl+P 打开面板的页面跳转模式（按页面名跳页）。
 
 import 'dart:math' as math;
 
@@ -59,6 +60,12 @@ class WikiShell extends StatelessWidget {
               WikiCommandPalette.show(context, projectId: projectId),
           const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
               WikiCommandPalette.show(context, projectId: projectId),
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true): () =>
+              WikiCommandPalette.show(context,
+                  projectId: projectId, jumpToPage: true),
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
+              WikiCommandPalette.show(context,
+                  projectId: projectId, jumpToPage: true),
         },
         child: Focus(
           autofocus: true,
@@ -113,6 +120,12 @@ class _PhoneWikiShell extends StatelessWidget {
               WikiCommandPalette.show(context, projectId: projectId),
           const SingleActivator(LogicalKeyboardKey.keyK, control: true): () =>
               WikiCommandPalette.show(context, projectId: projectId),
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true): () =>
+              WikiCommandPalette.show(context,
+                  projectId: projectId, jumpToPage: true),
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
+              WikiCommandPalette.show(context,
+                  projectId: projectId, jumpToPage: true),
         },
         child: Focus(
           autofocus: true,

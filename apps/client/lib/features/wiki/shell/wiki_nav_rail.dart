@@ -57,6 +57,8 @@ class _ProjectMode extends StatelessWidget {
       _NavItem(
         icon: Icons.description_outlined,
         label: '页面',
+        // ⌘P = 按页面名跳页（WikiShell 绑定打开命令面板的页面跳转模式）。
+        trailing: '⌘P',
         selected: active(''),
         onTap: () => context.go(base),
       ),
@@ -69,7 +71,6 @@ class _ProjectMode extends StatelessWidget {
       _NavItem(
         icon: Icons.search,
         label: '搜索',
-        trailing: '⌘P',
         selected: active('/search'),
         onTap: () => context.go('$base/search'),
       ),

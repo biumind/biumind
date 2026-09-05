@@ -39,6 +39,7 @@ import '../../../../data/wiki_providers.dart' show wikiRepositoryProvider;
 import '../../../../data/wiki_repository.dart' show RepoPage;
 import '../../application/sync_provider.dart' show wikiSyncEventsProvider;
 import '../../application/wiki_controller.dart';
+import '../../shell/wiki_command_palette.dart';
 import '../chat/project_chat_panel.dart';
 import '../pages/page_type_config.dart';
 import '../pages/pages_providers.dart';
@@ -159,8 +160,16 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
               projectId: widget.projectId,
               pages: pages,
               selectedPageId: widget.pageId ?? state?.activePage?.id,
-              onSearch: () =>
-                  enterSubPage(context, '/wiki/p/${widget.projectId}/search'),
+              onJumpToPage: () {
+                // sheet 是 push 上来的 route —— 先关 sheet 再开面板，
+                // 避免面板跳页后 sheet 还压在栈顶。
+                Navigator.of(ctx).pop();
+                WikiCommandPalette.show(
+                  context,
+                  projectId: widget.projectId,
+                  jumpToPage: true,
+                );
+              },
               onPageSelected: () => Navigator.of(ctx).pop(),
             ),
           );
@@ -188,7 +197,12 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
     final phone = isPhoneLayout(context);
 
     final projectName = activeProject?.name ?? '加载中…';
-    void openSearch() => enterSubPage(context, '/wiki/p/${widget.projectId}/search');
+    // ⌘P 的可点击等价入口：打开命令面板的页面跳转模式（按页面名跳页）。
+    void openJumpToPage() => WikiCommandPalette.show(
+          context,
+          projectId: widget.projectId,
+          jumpToPage: true,
+        );
 
     // 无选中页面时 detail 落 ProjectChatPanel（项目默认工作区 = 对话，
     // 与旧 wiki_page 行为一致）；controller 还没 load 完时给占位。
@@ -212,7 +226,7 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
         children: <Widget>[
           _ContextHeader(
             projectName: projectName,
-            onSearch: openSearch,
+            onJumpToPage: openJumpToPage,
             onOpenPages: _openMasterSheet,
           ),
           Divider(height: 1, color: BiuTokens.borderSubtle),
@@ -231,7 +245,7 @@ class _ProjectBrowserPageState extends ConsumerState<ProjectBrowserPage> {
             projectId: widget.projectId,
             pages: pages,
             selectedPageId: widget.pageId ?? s?.activePage?.id,
-            onSearch: openSearch,
+            onJumpToPage: openJumpToPage,
           ),
         ),
         Container(width: 1, color: BiuTokens.borderSubtle),
@@ -251,7 +265,7 @@ class _MasterColumn extends StatefulWidget {
     required this.projectId,
     required this.pages,
     required this.selectedPageId,
-    required this.onSearch,
+    required this.onJumpToPage,
     this.onPageSelected,
   });
 
@@ -259,7 +273,7 @@ class _MasterColumn extends StatefulWidget {
   final String projectId;
   final List<RepoPage> pages;
   final String? selectedPageId;
-  final VoidCallback onSearch;
+  final VoidCallback onJumpToPage;
 
   /// 选中页面后的额外回调 —— 手机 bottom sheet 形态用来关 sheet；
   /// 桌面常驻左栏不传（行为不变）。
@@ -281,7 +295,7 @@ class _MasterColumnState extends State<_MasterColumn> {
         children: <Widget>[
           _ContextHeader(
             projectName: widget.projectName,
-            onSearch: widget.onSearch,
+            onJumpToPage: widget.onJumpToPage,
           ),
           Divider(height: 1, color: BiuTokens.borderSubtle),
           _SearchBox(onChanged: (v) => setState(() => _query = v)),
@@ -304,11 +318,13 @@ class _MasterColumnState extends State<_MasterColumn> {
 class _ContextHeader extends StatelessWidget {
   const _ContextHeader({
     required this.projectName,
-    required this.onSearch,
+    required this.onJumpToPage,
     this.onOpenPages,
   });
   final String projectName;
-  final VoidCallback onSearch;
+
+  /// 打开命令面板的页面跳转模式（= ⌘P 的可点击等价入口）。
+  final VoidCallback onJumpToPage;
 
   /// 手机形态：非空时在最左 prepend 页面列表入口（开 bottom sheet）；
   /// 桌面 master 头不传（渲染与原来一致）。
@@ -349,8 +365,8 @@ class _ContextHeader extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: '搜索 (⌘P)',
-            onPressed: onSearch,
+            tooltip: '跳转到页面 (⌘P)',
+            onPressed: onJumpToPage,
             icon: const Icon(Icons.search, size: 16),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
