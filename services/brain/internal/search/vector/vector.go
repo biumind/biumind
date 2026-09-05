@@ -17,6 +17,7 @@ package vector
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/biumind/biumind/services/brain/internal/wiki/chunks"
@@ -89,4 +90,88 @@ func (s *Searcher) Search(ctx context.Context, opt SearchOptions) ([]Hit, error)
 		})
 	}
 	return out, nil
+}
+
+// OverFetchLimit returns the chunk-window size the ANN query should use
+// so page-level aggregation has enough candidates to work with: the
+// caller-visible limit ×3, floored at 30. Mirrors reference/llm_wiki
+// embedding.ts searchByEmbedding (Math.max(topK * 3, 30)) — a bare
+// top-K chunk window starves recall when several chunks of the same
+// page crowd out other pages.
+func OverFetchLimit(limit int) int {
+	n := limit * 3
+	if n < 30 {
+		n = 30
+	}
+	return n
+}
+
+// pageTailWeight is the weight applied to the non-best chunks of a page
+// when blending the page score. 0.3 is empirical (reference/llm_wiki);
+// adjust with real data.
+const pageTailWeight = 0.3
+
+// CollapsePages aggregates chunk-level hits to page granularity. Each
+// page's score is its best chunk score plus a bounded tail contribution:
+//
+//	pageScore = max + min(pageTailWeight × Σ(other chunk scores), max(0, 1 − max))
+//
+// so a page with two good chunks outranks a page with one equally-good
+// chunk, while many weak chunks can't drown a single strong one (the
+// cap keeps pageScore ≤ 1). The best chunk stays as the representative
+// row (ChunkID/BlockID/Snippet deep-link). Pages sort by blended score
+// descending and the result is truncated to limit. Input order is
+// preserved as the tie-breaker. Hits with an empty PageID pass through
+// ungrouped (defensive — the chunks table always sets page_id).
+func CollapsePages(hits []Hit, limit int) []Hit {
+	if len(hits) == 0 || limit <= 0 {
+		return nil
+	}
+	type page struct {
+		rep  Hit     // best chunk, Score replaced by blended score
+		rest float64 // sum of the other chunks' scores
+	}
+	pages := map[string]*page{}
+	order := make([]string, 0, len(hits))
+	var loose []Hit
+	for _, h := range hits {
+		if h.PageID == "" {
+			loose = append(loose, h)
+			continue
+		}
+		p, ok := pages[h.PageID]
+		if !ok {
+			pages[h.PageID] = &page{rep: h}
+			order = append(order, h.PageID)
+			continue
+		}
+		if h.Score > p.rep.Score {
+			p.rest += p.rep.Score
+			p.rep = h
+		} else {
+			p.rest += h.Score
+		}
+	}
+	out := make([]Hit, 0, len(pages)+len(loose))
+	for _, id := range order {
+		p := pages[id]
+		headroom := 1 - p.rep.Score
+		if headroom < 0 {
+			headroom = 0
+		}
+		tail := p.rest * pageTailWeight
+		if tail > headroom {
+			tail = headroom
+		}
+		p.rep.Score += tail
+		out = append(out, p.rep)
+	}
+	// Loose (page-less) hits rank by score alongside collapsed pages.
+	// Stable sort: first-sighting order breaks score ties.
+	out = append(out, loose...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }

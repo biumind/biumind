@@ -43,6 +43,18 @@ func (f *halveFakeEmbedder) Embed(_ context.Context, text string) ([]float32, er
 	return v, nil
 }
 
+func (f *halveFakeEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, text := range texts {
+		v, err := f.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 func (f *halveFakeEmbedder) Dim() int      { return f.dim }
 func (f *halveFakeEmbedder) Model() string { return "halve-fake" }
 
@@ -58,8 +70,59 @@ type alwaysFailEmbedder struct{ dim int }
 func (f alwaysFailEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return nil, errors.New("embed: 500 Internal Server Error: provider exploded")
 }
+func (f alwaysFailEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	return nil, errors.New("embed: 500 Internal Server Error: provider exploded")
+}
 func (f alwaysFailEmbedder) Dim() int      { return f.dim }
 func (f alwaysFailEmbedder) Model() string { return "always-fail" }
+
+// batchFakeEmbedder succeeds on EmbedBatch and counts both batch and
+// single calls, so tests can assert which path the worker took.
+type batchFakeEmbedder struct {
+	dim int
+
+	mu          sync.Mutex
+	batchCalls  int
+	singleCalls int
+	// batchErr, when non-nil, makes EmbedBatch fail (drives the
+	// per-chunk degradation path).
+	batchErr error
+}
+
+func (f *batchFakeEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	f.mu.Lock()
+	f.singleCalls++
+	f.mu.Unlock()
+	v := make([]float32, f.dim)
+	v[0] = 1
+	return v, nil
+}
+
+func (f *batchFakeEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	f.mu.Lock()
+	f.batchCalls++
+	err := f.batchErr
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	out := make([][]float32, len(texts))
+	for i := range out {
+		v := make([]float32, f.dim)
+		v[0] = 1
+		out[i] = v
+	}
+	return out, nil
+}
+
+func (f *batchFakeEmbedder) Dim() int      { return f.dim }
+func (f *batchFakeEmbedder) Model() string { return "batch-fake" }
+
+func (f *batchFakeEmbedder) counts() (batch, single int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.batchCalls, f.singleCalls
+}
 
 // ─── unit: oversize detection ──────────────────────────────────
 
@@ -147,6 +210,17 @@ type embedFunc func(ctx context.Context, text string) ([]float32, error)
 
 func (f embedFunc) Embed(ctx context.Context, text string) ([]float32, error) {
 	return f(ctx, text)
+}
+func (f embedFunc) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, text := range texts {
+		v, err := f(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
 }
 func (f embedFunc) Dim() int      { return 4 }
 func (f embedFunc) Model() string { return "func" }
@@ -342,5 +416,268 @@ func TestEmbedPass_OversizeHalvedEndToEnd(t *testing.T) {
 	}
 	if n := len(fake.seen()); n < 2 {
 		t.Errorf("provider attempts = %d, want ≥ 2 (halved at least once)", n)
+	}
+}
+
+// ─── unit: batch group embed (no DB) ───────────────────────────
+
+func pendingChunks(n int) []chunks.Pending {
+	out := make([]chunks.Pending, n)
+	for i := range out {
+		out[i] = chunks.Pending{ID: uuid.New(), Text: "chunk text"}
+	}
+	return out
+}
+
+func TestEmbedGroup_BatchSuccessNoSingles(t *testing.T) {
+	fake := &batchFakeEmbedder{dim: 4}
+	w := &Worker{
+		embedder: fake,
+		cfg:      Config{EmbedTO: 5 * time.Second},
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	group := pendingChunks(5)
+	vecs := map[uuid.UUID][]float32{}
+	var failed []uuid.UUID
+	w.embedGroup(t.Context(), group, vecs, &failed)
+
+	if len(vecs) != 5 || len(failed) != 0 {
+		t.Fatalf("vecs=%d failed=%d, want 5/0", len(vecs), len(failed))
+	}
+	for _, p := range group {
+		if len(vecs[p.ID]) != 4 {
+			t.Errorf("chunk %s: dim = %d, want 4", p.ID, len(vecs[p.ID]))
+		}
+	}
+	batch, single := fake.counts()
+	if batch != 1 || single != 0 {
+		t.Errorf("calls batch=%d single=%d, want 1/0 (no per-chunk fallback)", batch, single)
+	}
+}
+
+func TestEmbedGroup_BatchErrorFallsBackToSingles(t *testing.T) {
+	fake := &batchFakeEmbedder{dim: 4, batchErr: errors.New("embed: 500 provider exploded")}
+	w := &Worker{
+		embedder: fake,
+		cfg:      Config{EmbedTO: 5 * time.Second},
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	group := pendingChunks(3)
+	vecs := map[uuid.UUID][]float32{}
+	var failed []uuid.UUID
+	w.embedGroup(t.Context(), group, vecs, &failed)
+
+	if len(vecs) != 3 || len(failed) != 0 {
+		t.Fatalf("vecs=%d failed=%d, want 3/0 (singles must rescue the batch)", len(vecs), len(failed))
+	}
+	batch, single := fake.counts()
+	if batch != 1 || single != 3 {
+		t.Errorf("calls batch=%d single=%d, want 1/3", batch, single)
+	}
+}
+
+func TestEmbedGroup_ShortBatchResponseFallsBack(t *testing.T) {
+	// Provider returns fewer vectors than inputs — the group must not
+	// silently drop chunks; it degrades to per-chunk.
+	fake := &shortBatchEmbedder{dim: 4}
+	w := &Worker{
+		embedder: fake,
+		cfg:      Config{EmbedTO: 5 * time.Second},
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	group := pendingChunks(2)
+	vecs := map[uuid.UUID][]float32{}
+	var failed []uuid.UUID
+	w.embedGroup(t.Context(), group, vecs, &failed)
+
+	if len(vecs) != 2 || len(failed) != 0 {
+		t.Fatalf("vecs=%d failed=%d, want 2/0", len(vecs), len(failed))
+	}
+	if fake.singleCalls != 2 {
+		t.Errorf("single calls = %d, want 2 (fallback)", fake.singleCalls)
+	}
+}
+
+// shortBatchEmbedder always returns one vector short on EmbedBatch.
+type shortBatchEmbedder struct {
+	dim         int
+	singleCalls int
+}
+
+func (f *shortBatchEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	f.singleCalls++
+	v := make([]float32, f.dim)
+	v[0] = 1
+	return v, nil
+}
+func (f *shortBatchEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, 0, len(texts)-1)
+	for range len(texts) - 1 {
+		v := make([]float32, f.dim)
+		v[0] = 1
+		out = append(out, v)
+	}
+	return out, nil
+}
+func (f *shortBatchEmbedder) Dim() int      { return f.dim }
+func (f *shortBatchEmbedder) Model() string { return "short-batch" }
+
+func TestEmbedGroup_BadDimMarkedFailed(t *testing.T) {
+	// Batch succeeds but one vector has the wrong dim: only that chunk
+	// fails, the rest embed.
+	fake := &badDimBatchEmbedder{dim: 4, badAt: 1}
+	w := &Worker{
+		embedder: fake,
+		cfg:      Config{EmbedTO: 5 * time.Second},
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	group := pendingChunks(3)
+	vecs := map[uuid.UUID][]float32{}
+	var failed []uuid.UUID
+	w.embedGroup(t.Context(), group, vecs, &failed)
+
+	if len(vecs) != 2 || len(failed) != 1 {
+		t.Fatalf("vecs=%d failed=%d, want 2/1", len(vecs), len(failed))
+	}
+	if failed[0] != group[1].ID {
+		t.Errorf("failed chunk = %s, want %s (the bad-dim one)", failed[0], group[1].ID)
+	}
+}
+
+type badDimBatchEmbedder struct {
+	dim   int
+	badAt int
+}
+
+func (f *badDimBatchEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	v := make([]float32, f.dim)
+	v[0] = 1
+	return v, nil
+}
+func (f *badDimBatchEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range out {
+		d := f.dim
+		if i == f.badAt {
+			d++ // wrong dim
+		}
+		v := make([]float32, d)
+		v[0] = 1
+		out[i] = v
+	}
+	return out, nil
+}
+func (f *badDimBatchEmbedder) Dim() int      { return f.dim }
+func (f *badDimBatchEmbedder) Model() string { return "bad-dim-batch" }
+
+// ─── integration: batch embed pass (needs DATABASE_URL) ────────
+
+// TestEmbedPass_BatchEmbedsAllInOneCall: N pending chunks must be
+// embedded via a single EmbedBatch call (no per-chunk HTTP) and all
+// rows get their embedding written.
+func TestEmbedPass_BatchEmbedsAllInOneCall(t *testing.T) {
+	p := openDB(t)
+	ctx := context.Background()
+
+	var pid, pageID uuid.UUID
+	if err := p.QueryRow(ctx,
+		`INSERT INTO brain.projects (owner_id, name) VALUES ($1, $2) RETURNING id`,
+		uuid.New(), "embed-batch-test-"+uuid.NewString()).Scan(&pid); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM brain.projects WHERE id = $1`, pid)
+	})
+	if err := p.QueryRow(ctx,
+		`INSERT INTO brain.pages (project_id, title) VALUES ($1, $2) RETURNING id`,
+		pid, "batch page").Scan(&pageID); err != nil {
+		t.Fatalf("seed page: %v", err)
+	}
+	const nChunks = 5
+	for i := range nChunks {
+		if _, err := p.Exec(ctx,
+			`INSERT INTO brain.wiki_chunks (project_id, page_id, ord, text)
+			 VALUES ($1, $2, $3, $4)`,
+			pid, pageID, i, "batch chunk text"); err != nil {
+			t.Fatalf("seed chunk %d: %v", i, err)
+		}
+	}
+
+	fake := &batchFakeEmbedder{dim: 1024}
+	w := New(p, nil, chunks.New(p), fake, Config{
+		Interval: time.Hour,
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if _, got := w.RunOnce(ctx); got != nChunks {
+		t.Fatalf("embedded = %d, want %d", got, nChunks)
+	}
+	batch, single := fake.counts()
+	if batch != 1 || single != 0 {
+		t.Errorf("calls batch=%d single=%d, want 1/0", batch, single)
+	}
+	var pending int
+	if err := p.QueryRow(ctx,
+		`SELECT count(*) FROM brain.wiki_chunks
+		  WHERE page_id = $1 AND embedding IS NULL`, pageID).Scan(&pending); err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	if pending != 0 {
+		t.Errorf("NULL-embedding chunks left = %d, want 0", pending)
+	}
+}
+
+// TestEmbedPass_BatchFailureDegradesToSingles: when the batch endpoint
+// errors, the pass still embeds every chunk via the per-chunk path —
+// nothing is dropped or falsely marked failed.
+func TestEmbedPass_BatchFailureDegradesToSingles(t *testing.T) {
+	p := openDB(t)
+	ctx := context.Background()
+
+	var pid, pageID uuid.UUID
+	if err := p.QueryRow(ctx,
+		`INSERT INTO brain.projects (owner_id, name) VALUES ($1, $2) RETURNING id`,
+		uuid.New(), "embed-batch-fallback-test-"+uuid.NewString()).Scan(&pid); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM brain.projects WHERE id = $1`, pid)
+	})
+	if err := p.QueryRow(ctx,
+		`INSERT INTO brain.pages (project_id, title) VALUES ($1, $2) RETURNING id`,
+		pid, "batch fallback page").Scan(&pageID); err != nil {
+		t.Fatalf("seed page: %v", err)
+	}
+	const nChunks = 3
+	for i := range nChunks {
+		if _, err := p.Exec(ctx,
+			`INSERT INTO brain.wiki_chunks (project_id, page_id, ord, text)
+			 VALUES ($1, $2, $3, $4)`,
+			pid, pageID, i, "fallback chunk text"); err != nil {
+			t.Fatalf("seed chunk %d: %v", i, err)
+		}
+	}
+
+	fake := &batchFakeEmbedder{dim: 1024, batchErr: errors.New("embed: 503 batch endpoint down")}
+	w := New(p, nil, chunks.New(p), fake, Config{
+		Interval: time.Hour,
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+
+	if _, got := w.RunOnce(ctx); got != nChunks {
+		t.Fatalf("embedded = %d, want %d (singles must rescue)", got, nChunks)
+	}
+	batch, single := fake.counts()
+	if batch != 1 || single != nChunks {
+		t.Errorf("calls batch=%d single=%d, want 1/%d", batch, single, nChunks)
+	}
+	var attempts int
+	if err := p.QueryRow(ctx,
+		`SELECT COALESCE(sum(embed_attempts), 0) FROM brain.wiki_chunks
+		  WHERE page_id = $1`, pageID).Scan(&attempts); err != nil {
+		t.Fatalf("read attempts: %v", err)
+	}
+	if attempts != 0 {
+		t.Errorf("embed_attempts sum = %d, want 0 (fallback succeeded, no failures)", attempts)
 	}
 }

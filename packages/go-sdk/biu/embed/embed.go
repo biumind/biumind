@@ -36,6 +36,13 @@ type Embedder interface {
 	// Embed returns a fixed-length vector. Implementations MUST return
 	// a slice of exactly Dim() floats.
 	Embed(ctx context.Context, text string) ([]float32, error)
+	// EmbedBatch returns one fixed-length vector per input text, in the
+	// same order as the input. Batching matters for throughput: one HTTP
+	// round trip per N texts instead of N trips (OpenAI-compatible
+	// providers accept an array `input`). Implementations without a real
+	// batch endpoint MAY loop over Embed internally — the contract stays
+	// batch-oriented so callers never need to care.
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	// Dim is the output dimension. Stable across calls and restarts;
 	// must match the pgvector column type that stores the result.
 	Dim() int
@@ -82,7 +89,9 @@ func NewOpenAI(cfg OpenAIConfig) (Embedder, error) {
 }
 
 type openAIRequest struct {
-	Input          string `json:"input"`
+	// Input is string for single embeds, []string for batches — the
+	// OpenAI wire shape accepts both.
+	Input          any    `json:"input"`
 	Model          string `json:"model"`
 	Dimensions     int    `json:"dimensions,omitempty"`
 	EncodingFormat string `json:"encoding_format,omitempty"`
@@ -105,8 +114,25 @@ type openAIResponse struct {
 }
 
 func (e *openAIEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	vecs, err := e.call(ctx, text, 1)
+	if err != nil {
+		return nil, err
+	}
+	return vecs[0], nil
+}
+
+func (e *openAIEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	return e.call(ctx, texts, len(texts))
+}
+
+// call posts one /embeddings request (single or batch input) and
+// returns the vectors in input order, validating count and dims.
+func (e *openAIEmbedder) call(ctx context.Context, input any, want int) ([][]float32, error) {
 	body, _ := json.Marshal(openAIRequest{
-		Input:          text,
+		Input:          input,
 		Model:          e.cfg.Model,
 		Dimensions:     e.cfg.Dims,
 		EncodingFormat: "float",
@@ -139,12 +165,27 @@ func (e *openAIEmbedder) Embed(ctx context.Context, text string) ([]float32, err
 	if len(parsed.Data) == 0 {
 		return nil, fmt.Errorf("embed: empty data array in response")
 	}
-	v := parsed.Data[0].Embedding
-	if len(v) != e.cfg.Dims {
-		return nil, fmt.Errorf("embed: provider returned %d dims, want %d (model=%s)",
-			len(v), e.cfg.Dims, parsed.Model)
+	if len(parsed.Data) != want {
+		return nil, fmt.Errorf("embed: provider returned %d vectors for %d inputs (model=%s)",
+			len(parsed.Data), want, parsed.Model)
 	}
-	return v, nil
+	// OpenAI returns data ordered by input with a redundant index field;
+	// honour the index anyway so an out-of-order proxy can't scramble
+	// the text↔vector mapping.
+	out := make([][]float32, want)
+	seen := make([]bool, want)
+	for _, d := range parsed.Data {
+		if d.Index < 0 || d.Index >= want || seen[d.Index] {
+			return nil, fmt.Errorf("embed: bad/duplicate data index %d (want %d vectors)", d.Index, want)
+		}
+		seen[d.Index] = true
+		if len(d.Embedding) != e.cfg.Dims {
+			return nil, fmt.Errorf("embed: provider returned %d dims, want %d (model=%s)",
+				len(d.Embedding), e.cfg.Dims, parsed.Model)
+		}
+		out[d.Index] = d.Embedding
+	}
+	return out, nil
 }
 
 func (e *openAIEmbedder) Dim() int      { return e.cfg.Dims }
@@ -214,6 +255,18 @@ func (s *stubEmbedder) Embed(_ context.Context, text string) ([]float32, error) 
 		v[i] /= norm
 	}
 	return v, nil
+}
+
+func (s *stubEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, text := range texts {
+		v, err := s.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
 }
 
 func (s *stubEmbedder) Dim() int      { return s.dim }

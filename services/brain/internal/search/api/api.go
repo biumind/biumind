@@ -327,16 +327,20 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.Logger.Warn("vector embed failed", "err", err)
 		} else if len(qvec) > 0 {
+			// Over-fetch chunks (limit×3, floor 30) then collapse to page
+			// granularity with a blended max+tail score — a bare top-K
+			// chunk window starves recall when one page's chunks crowd
+			// out other pages. See vector.OverFetchLimit/CollapsePages.
 			vc, vcancel := context.WithTimeout(r.Context(), 5*time.Second)
 			vhits, verr := s.Vector.Search(vc, vector.SearchOptions{
 				OwnerID: uid, ProjectID: pid,
-				QueryEmbedding: qvec, Limit: req.Limit,
+				QueryEmbedding: qvec, Limit: vector.OverFetchLimit(req.Limit),
 			})
 			vcancel()
 			if verr != nil {
 				s.Logger.Warn("vector search failed", "err", verr)
 			} else {
-				vectorResults = vhits
+				vectorResults = vector.CollapsePages(vhits, req.Limit)
 				resp.Vector = make([]vectorHit, 0, len(vhits))
 				for _, h := range vhits {
 					resp.Vector = append(resp.Vector, vectorHit{
@@ -440,12 +444,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 			lists = append(lists, l)
 		}
 		if len(vectorResults) > 0 {
-			// Vector hits collapse to page granularity in fusion: a
-			// search query may match several chunks of the same page
-			// and we don't want one page to dominate the fused list
-			// with many slots. Keep the highest-scoring chunk per page
-			// and surface that. The chunk_id stays in Meta so callers
-			// can deep-link to the matching slice when desired.
+			// Vector hits already collapsed to page granularity upstream
+			// (vector.CollapsePages, blended max+tail score) so a search
+			// query matching several chunks of the same page doesn't let
+			// that page dominate the fused list with many slots. The
+			// seen-map dedup stays as a defensive no-op. The chunk_id
+			// stays in Meta so callers can deep-link to the matching
+			// slice when desired.
 			seen := map[string]bool{}
 			l := make([]rrf.Result, 0, len(vectorResults))
 			for _, h := range vectorResults {

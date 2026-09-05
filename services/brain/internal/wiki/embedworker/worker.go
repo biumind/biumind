@@ -26,6 +26,7 @@ package embedworker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -261,12 +262,17 @@ func extractBlockFields(content map[string]any) (text, caption, lang string, lev
 // ─── Embed pass ────────────────────────────────────────────────
 
 // embedPass mirrors memory/worker/worker.go: claim a batch with FOR
-// UPDATE SKIP LOCKED, embed each, write back in one tx.
+// UPDATE SKIP LOCKED, embed, write back in one tx.
 //
-// Two differences from the memory worker (both anti-poison-pill):
+// Embedding runs in provider batches (providerBatchSize texts per
+// EmbedBatch call — one HTTP round trip instead of N). If the batch
+// call fails (or returns a mismatched vector count) the group degrades
+// to the per-chunk path, so nothing is silently dropped.
+//
+// Two anti-poison-pill guards (unchanged from the per-chunk era):
 //
 //  1. Oversize inputs ("input too long" / context-length rejections) are
-//     retried at half length within the same per-row timeout — same idea
+//     retried at half length within the same per-chunk timeout — same idea
 //     as reference/llm_wiki embedding.ts fetchEmbedding, rewritten here.
 //  2. Every failure increments wiki_chunks.embed_attempts (committed in
 //     the same tx); chunks that reach chunks.MaxEmbedAttempts stop being
@@ -285,29 +291,12 @@ func (w *Worker) embedPass(ctx context.Context) int {
 
 	vecs := make(map[uuid.UUID][]float32, len(pending))
 	var failed []uuid.UUID
-	for _, p := range pending {
-		ec, cancel := context.WithTimeout(ctx, w.cfg.EmbedTO)
-		v, err := w.embedWithHalve(ec, p.ID, p.Text)
-		cancel()
-		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				w.logger.Warn("wiki embed: provider error",
-					"chunk_id", p.ID, "err", err)
-			}
-			failed = append(failed, p.ID)
-			if p.Attempts+1 >= chunks.MaxEmbedAttempts {
-				w.logger.Warn("wiki embed: chunk exhausted retries, giving up (poison pill)",
-					"chunk_id", p.ID, "attempts", p.Attempts+1)
-			}
-			continue
+	for start := 0; start < len(pending); start += providerBatchSize {
+		end := start + providerBatchSize
+		if end > len(pending) {
+			end = len(pending)
 		}
-		if len(v) != w.embedder.Dim() {
-			w.logger.Warn("wiki embed: bad dim",
-				"chunk_id", p.ID, "got", len(v), "want", w.embedder.Dim())
-			failed = append(failed, p.ID)
-			continue
-		}
-		vecs[p.ID] = v
+		w.embedGroup(ctx, pending[start:end], vecs, &failed)
 	}
 	if len(vecs) == 0 && len(failed) == 0 {
 		_ = tx.Rollback(ctx)
@@ -327,6 +316,93 @@ func (w *Worker) embedPass(ctx context.Context) int {
 	w.logger.Info("wiki embed batch",
 		"claimed", len(pending), "embedded", len(vecs), "failed", len(failed))
 	return len(vecs)
+}
+
+// providerBatchSize is the number of chunk texts per EmbedBatch call.
+// 32 aligns with common provider practice (OpenAI accepts up to 2048
+// array elements; self-hosted TEI/vLLM comfortably handle 32) and keeps
+// one call's payload + latency inside the per-batch EmbedTO budget.
+const providerBatchSize = 32
+
+// embedGroup embeds one provider batch into vecs/failed. Tries one
+// EmbedBatch call; on error or a mismatched vector count degrades to
+// per-chunk embedWithHalve (which also handles oversize halving). The
+// batch call shares the per-chunk EmbedTO budget — it's one HTTP round
+// trip, and a slow response falls back to the per-chunk path anyway.
+func (w *Worker) embedGroup(
+	ctx context.Context,
+	group []chunks.Pending,
+	vecs map[uuid.UUID][]float32,
+	failed *[]uuid.UUID,
+) {
+	texts := make([]string, len(group))
+	for i, p := range group {
+		texts[i] = p.Text
+	}
+	ec, cancel := context.WithTimeout(ctx, w.cfg.EmbedTO)
+	batchVecs, err := w.embedder.EmbedBatch(ec, texts)
+	cancel()
+	if err == nil && len(batchVecs) != len(group) {
+		err = fmt.Errorf("embed: batch returned %d vectors for %d texts", len(batchVecs), len(group))
+	}
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			w.logger.Warn("wiki embed: batch call failed, falling back to per-chunk",
+				"batch", len(group), "err", err)
+		}
+		w.embedGroupSingles(ctx, group, vecs, failed)
+		return
+	}
+	for i, p := range group {
+		v := batchVecs[i]
+		if len(v) != w.embedder.Dim() {
+			w.logger.Warn("wiki embed: bad dim",
+				"chunk_id", p.ID, "got", len(v), "want", w.embedder.Dim())
+			w.failChunk(p, failed)
+			continue
+		}
+		vecs[p.ID] = v
+	}
+}
+
+// embedGroupSingles is the per-chunk degradation path: one Embed call
+// per chunk (with oversize halving), used when the batch call fails.
+func (w *Worker) embedGroupSingles(
+	ctx context.Context,
+	group []chunks.Pending,
+	vecs map[uuid.UUID][]float32,
+	failed *[]uuid.UUID,
+) {
+	for _, p := range group {
+		ec, cancel := context.WithTimeout(ctx, w.cfg.EmbedTO)
+		v, err := w.embedWithHalve(ec, p.ID, p.Text)
+		cancel()
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				w.logger.Warn("wiki embed: provider error",
+					"chunk_id", p.ID, "err", err)
+			}
+			w.failChunk(p, failed)
+			continue
+		}
+		if len(v) != w.embedder.Dim() {
+			w.logger.Warn("wiki embed: bad dim",
+				"chunk_id", p.ID, "got", len(v), "want", w.embedder.Dim())
+			w.failChunk(p, failed)
+			continue
+		}
+		vecs[p.ID] = v
+	}
+}
+
+// failChunk records a chunk as failed for this pass and surfaces the
+// poison-pill transition when it reaches MaxEmbedAttempts.
+func (w *Worker) failChunk(p chunks.Pending, failed *[]uuid.UUID) {
+	*failed = append(*failed, p.ID)
+	if p.Attempts+1 >= chunks.MaxEmbedAttempts {
+		w.logger.Warn("wiki embed: chunk exhausted retries, giving up (poison pill)",
+			"chunk_id", p.ID, "attempts", p.Attempts+1)
+	}
 }
 
 // maxHalveRetries caps how many times one oversize input is halved before
