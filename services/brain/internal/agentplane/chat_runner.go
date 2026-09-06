@@ -65,6 +65,14 @@ type ChatRunner struct {
 	// 缓存。可空(单测/dev) — 空时兜底链跳过 relay 这一级。
 	DefaultModels *DefaultModelResolver
 
+	// Elicitations 是 chat 模式提问表单（AskUserQuestion → elicitation
+	// 控制帧）的进程内 pending map。非 nil 时 runSessionImpl 把
+	// askUserFn 接进 chat.SingleTurnInput.AskUser —— 模型可见
+	// AskUserQuestion 且有人应答；nil = 工具不进 catalog（无应答链路，
+	// 防 Decision channel 死锁,agent-ask-form P0）。main.go 注入,同时
+	// 也灌给 Ingress 做回包分流。
+	Elicitations *ElicitationCenter
+
 	// inflight 跟踪在跑的 session — sessionID → cancelCauseFunc。
 	// InterruptSession() 据此找到 cancel func 并 fire biumindkit.ErrInterrupted,
 	// 让 biumindkit / engine 走 clean-stop 路径(Done{interrupted} + 合成
@@ -312,6 +320,12 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 		History:           history,
 		Images:            images,
 		Emitter:           emitter,
+	}
+	// 提问表单（agent-ask-form P1-b）：注入了 ElicitationCenter 才把
+	// AskUser 接进引擎 —— 模型可见 AskUserQuestion 且提问经 elicitation
+	// 控制帧有人应答。未注入 = 工具不进 catalog（P0 防死锁）。
+	if cr.Elicitations != nil {
+		input.AskUser = cr.askUserFn(sessionID)
 	}
 	llmStart := time.Now()
 	result, err := cr.Loop.RunSingleTurn(ctx, input)

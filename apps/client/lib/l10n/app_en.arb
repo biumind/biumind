@@ -235,7 +235,7 @@
   "settingsNavDocproc": "Document Processing",
   "settingsDocprocSubtitle": "Where imported knowledge-base documents (PDF/DOCX/XLSX/PPTX/EPUB/HTML/MD/TXT) are parsed.",
   "settingsDocprocAuto": "Auto",
-  "settingsDocprocAutoDesc": "Small files are parsed on-device (free; \u226450MB desktop / \u226410MB mobile); larger files go to the cloud.",
+  "settingsDocprocAutoDesc": "Small files are parsed on-device (free; ≤50MB desktop / ≤10MB mobile); larger files go to the cloud.",
   "settingsDocprocPreferLocal": "Prefer on-device",
   "settingsDocprocPreferLocalDesc": "Parse on-device whenever possible (free); only very large files (>200MB / >80MB mobile) go to the cloud.",
   "settingsDocprocPreferCloud": "Prefer cloud",
@@ -651,6 +651,20 @@
   "chatV2ApprovalDeny": "Deny",
   "chatV2ApprovalAlways": "Always allow",
   "chatV2ApprovalShowMore": "Show full input ▾",
+  "chatV2FormSubmit": "Submit",
+  "chatV2FormSkip": "Skip",
+  "chatV2FormMultiHint": "Select all that apply",
+  "chatV2FormTextHint": "Type your answer",
+  "chatV2FormAnswered": "Answered: {answer}",
+  "chatV2FormSkipped": "Skipped",
+  "chatV2FormCancelled": "Cancelled",
+  "@chatV2FormAnswered": {
+    "placeholders": {
+      "answer": {
+        "type": "String"
+      }
+    }
+  },
   "chatV2ComposerModeChat": "Chat",
   "chatV2ComposerModeAgent": "Agent",
   "chatV2ComposerModeChatHint": "Pure model — no tools",

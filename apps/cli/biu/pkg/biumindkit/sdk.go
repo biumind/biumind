@@ -203,6 +203,20 @@ type Options struct {
 	// dir to working dirs").
 	PermissionPolicyExt PermissionPolicyExtFn
 
+	// AskUser, when non-nil, enables the built-in AskUserQuestion
+	// tool and is invoked once per question when the model calls it.
+	// The function may block until the human answers (e.g. round-trip
+	// through a UI or a WebSocket control frame) — the tool call
+	// waits, the rest of the process keeps running.
+	//
+	// nil (default): AskUserQuestion is NOT registered into the tool
+	// catalog. The engine wires env.AskUser to a blocking event +
+	// Decision channel; embedders only see translated SDK events, so
+	// without an answer hook the session would deadlock waiting on a
+	// human that isn't there. Hiding the tool is the safe failure
+	// mode (agent-ask-form P0).
+	AskUser AskUserFn
+
 	// MCPRegistry, when non-nil, has its connected servers' tools +
 	// resource / prompt wrappers registered into the agent's tool
 	// catalog with the standard `mcp__<server>__<tool>` prefix.
@@ -350,6 +364,39 @@ type PermissionPolicyFn func(ctx context.Context, req PermissionRequest) Permiss
 // approve the call AND fold the suggestion's update into the ctx.
 type PermissionPolicyExtFn func(ctx context.Context, req PermissionRequest) PermissionResponse
 
+// AskUserFn answers one AskUserQuestion prompt. Receives the parsed
+// question and returns the user's pick (option indices into
+// Question.Options) or a cancellation. Returning an error or
+// UserAnswer{Cancelled:true} makes the tool soft-error so the model
+// degrades gracefully instead of hanging.
+type AskUserFn func(ctx context.Context, q UserQuestion) (UserAnswer, error)
+
+// UserQuestion is one structured prompt from the AskUserQuestion tool.
+// Mirrors engine.UserQuestion with a public, stable shape.
+type UserQuestion struct {
+	Question    string
+	Header      string // short chip label (≤12 chars)
+	Options     []UserOption
+	MultiSelect bool
+}
+
+// UserOption is one choice in a UserQuestion.
+type UserOption struct {
+	Label       string
+	Description string
+	Preview     string
+}
+
+// UserAnswer is what the AskUserFn returns. Selected holds indices
+// into UserQuestion.Options (single entry for non-multi questions).
+// Notes carries free-form text; Cancelled marks dismissal — the tool
+// turns it into a soft "user cancelled" error for the model.
+type UserAnswer struct {
+	Selected  []int
+	Notes     string
+	Cancelled bool
+}
+
 // PermissionRequest is what the policy callback sees.
 //
 // Suggestions, when non-empty, are pre-computed shortcuts the runner
@@ -446,6 +493,7 @@ type Agent struct {
 	eng       *engine.QueryEngine
 	policy    PermissionPolicyFn
 	policyExt PermissionPolicyExtFn
+	askUser   AskUserFn
 
 	// In-flight Submit cancel. Set by Submit before kicking the engine,
 	// cleared after the channel closes. Interrupt() reads it under
@@ -699,6 +747,10 @@ func New(opt Options) (*Agent, error) {
 		CwdSwitcher: eng,
 		Notifier:    interactive.SystemNotifier("biu"),
 		Plans:       interactive.NewDiskPlanStore(""),
+		// AskUserQuestion 只对配了应答链路的 embedder 可见（Options.AskUser）。
+		// 无应答方时注册 = 模型可见但 UserQuestionAskEvent 没人应答 →
+		// session 死锁（agent-ask-form P0 地雷）。
+		SkipAskUser: opt.AskUser == nil,
 	})
 	policy := opt.PermissionPolicy
 	if policy == nil && opt.PermissionPolicyExt == nil {
@@ -711,7 +763,7 @@ func New(opt Options) (*Agent, error) {
 	// inside the engine — a future tweak that builds + discards an
 	// Agent in tests doesn't double-fire.
 	eng.FireSessionStart()
-	return &Agent{eng: eng, policy: policy, policyExt: opt.PermissionPolicyExt}, nil
+	return &Agent{eng: eng, policy: policy, policyExt: opt.PermissionPolicyExt, askUser: opt.AskUser}, nil
 }
 
 // Submit fires a user prompt. The returned channel emits SDK-level
@@ -794,6 +846,16 @@ func (a *Agent) SubmitContent(
 			// the public SDK channel.
 			if ask, ok := raw.(*engine.PermissionAskEvent); ok {
 				go a.replyToPermission(subCtx, ask)
+				continue
+			}
+			// Same interception for UserQuestionAskEvent (AskUserQuestion
+			// tool): route to Options.AskUser. The tool is only in the
+			// catalog when a handler is configured (see New), so a nil
+			// askUser here is unreachable — but answer Cancelled anyway
+			// as defense-in-depth; dropping the event would deadlock the
+			// session on the unanswered Decision channel.
+			if ask, ok := raw.(*engine.UserQuestionAskEvent); ok {
+				go a.replyToUserQuestion(subCtx, ask)
 				continue
 			}
 			// AssistantMessage → AssistantBlock fan-out before the
@@ -883,6 +945,51 @@ func (a *Agent) replyToPermission(ctx context.Context, ask *engine.PermissionAsk
 	select {
 	case ask.Decision <- answer:
 	case <-ctx.Done():
+	}
+}
+
+// replyToUserQuestion routes an AskUserQuestion prompt to the
+// configured AskUser handler and writes the decision back to the
+// engine. Runs on its own goroutine so a handler blocked on a remote
+// answer (brain chat mode waits on a WS control_response) doesn't
+// stall the event drain. Handler errors and nil handlers both degrade
+// to Cancelled — the tool emits a soft error and the model continues.
+func (a *Agent) replyToUserQuestion(ctx context.Context, ask *engine.UserQuestionAskEvent) {
+	answer := engine.UserAnswer{Cancelled: true}
+	if a.askUser != nil {
+		resp, err := a.askUser(ctx, userQuestionFromEngine(ask.Question))
+		switch {
+		case err != nil:
+			slog.Warn("biumindkit: AskUser handler failed; cancelling question",
+				"tool_use_id", ask.ToolUseID, "err", err)
+		default:
+			answer = userAnswerToEngine(resp)
+		}
+	}
+	select {
+	case ask.Decision <- answer:
+	case <-ctx.Done():
+	}
+}
+
+// userQuestionFromEngine / userAnswerToEngine convert across the
+// internal engine ↔ public SDK type boundary. Field-for-field mirrors.
+func userQuestionFromEngine(q engine.UserQuestion) UserQuestion {
+	opts := make([]UserOption, 0, len(q.Options))
+	for _, o := range q.Options {
+		opts = append(opts, UserOption{
+			Label: o.Label, Description: o.Description, Preview: o.Preview,
+		})
+	}
+	return UserQuestion{
+		Question: q.Question, Header: q.Header,
+		Options: opts, MultiSelect: q.MultiSelect,
+	}
+}
+
+func userAnswerToEngine(a UserAnswer) engine.UserAnswer {
+	return engine.UserAnswer{
+		Selected: a.Selected, Notes: a.Notes, Cancelled: a.Cancelled,
 	}
 }
 

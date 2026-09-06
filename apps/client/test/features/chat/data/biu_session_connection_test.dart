@@ -316,6 +316,12 @@ void main() {
         input: const {},
         respond: ({required bool allow}) {},
       ),
+      ElicitationRequested(
+        requestId: 'e',
+        message: 'q?',
+        schema: const {},
+        respond: (String action, [Map<String, dynamic>? content]) {},
+      ),
     ];
     for (final e in evs) {
       switch (e) {
@@ -327,9 +333,156 @@ void main() {
         case SessionCancelling():
         case SessionClosed():
         case PermissionRequested():
+        case ElicitationRequested():
       }
     }
-    expect(evs.length, 8);
+    expect(evs.length, 9);
+  });
+
+  // ─── elicitation（agent 提问表单） ─────────────────────────
+
+  test('elicitation control_request emits ElicitationRequested; respond sends control_response',
+      () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(() async => sub.cancel());
+
+    fake.push(jsonEncode({
+      'type': 'control_request',
+      'request_id': 'req-e1',
+      'request': {
+        'subtype': 'elicitation',
+        'mcp_server_name': 'biumind.agent',
+        'message': 'Pick a color?',
+        'mode': 'form',
+        'elicitation_id': 'req-e1',
+        'requested_schema': {
+          'type': 'object',
+          'title': 'Pick a color?',
+          'properties': {
+            'answer': {
+              'type': 'string',
+              'enum': ['red', 'blue'],
+            },
+          },
+          'required': ['answer'],
+          'x-biumind-question': {
+            'question': 'Pick a color?',
+            'header': 'Color',
+            'multi_select': false,
+            'options': [
+              {'label': 'red', 'description': 'warm'},
+              {'label': 'blue', 'description': 'cool'},
+            ],
+          },
+        },
+      },
+    }));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final eli = events.whereType<ElicitationRequested>().single;
+    expect(eli.requestId, 'req-e1');
+    expect(eli.message, 'Pick a color?');
+    expect(eli.schema['x-biumind-question'], isA<Map>());
+
+    // respond 单次保护 + 线上帧形状。
+    eli.respond('accept', {'answer': 'blue'});
+    eli.respond('cancel'); // 第二次必须被丢弃
+    await Future.delayed(const Duration(milliseconds: 50));
+    expect(fake.sent, hasLength(1));
+    final wire = jsonDecode(fake.sent.single) as Map<String, dynamic>;
+    expect(wire['type'], 'control_response');
+    final resp = wire['response'] as Map<String, dynamic>;
+    expect(resp['subtype'], 'success');
+    expect(resp['request_id'], 'req-e1');
+    final body = resp['response'] as Map<String, dynamic>;
+    expect(body['action'], 'accept');
+    expect((body['content'] as Map)['answer'], 'blue');
+  });
+
+  test('elicitation mode=url 一期不支持 → 立即 decline 回包,不抛事件', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(() async => sub.cancel());
+
+    fake.push(jsonEncode({
+      'type': 'control_request',
+      'request_id': 'req-url',
+      'request': {
+        'subtype': 'elicitation',
+        'mcp_server_name': 'x',
+        'message': 'open this',
+        'mode': 'url',
+        'url': 'https://example.com',
+      },
+    }));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    expect(events.whereType<ElicitationRequested>(), isEmpty);
+    expect(fake.sent, hasLength(1));
+    final wire = jsonDecode(fake.sent.single) as Map<String, dynamic>;
+    final resp = wire['response'] as Map<String, dynamic>;
+    expect(resp['request_id'], 'req-url');
+    expect((resp['response'] as Map)['action'], 'decline');
+  });
+
+  test('未知 control subtype 静默忽略（旧端兼容红线:不抛错不回包）', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(() async => sub.cancel());
+
+    fake.push(jsonEncode({
+      'type': 'control_request',
+      'request_id': 'req-unknown',
+      'request': {'subtype': 'some_future_subtype', 'foo': 1},
+    }));
+    await Future.delayed(const Duration(milliseconds: 100));
+    // 只 debugPrint:无事件、无回包、无异常。
+    expect(events.whereType<ElicitationRequested>(), isEmpty);
+    expect(events.whereType<PermissionRequested>(), isEmpty);
+    expect(fake.sent, isEmpty);
   });
 
   // ─── close lifecycle ──────────────────────────────────────

@@ -31,6 +31,14 @@ type Options struct {
 	// disables the tool entirely (interactive REPL doesn't need
 	// it).
 	StructuredOutputSchema map[string]any
+
+	// SkipAskUser, when true, leaves AskUserQuestion out of the
+	// catalog. The tool blocks on env.AskUser → UserQuestionAskEvent
+	// until someone writes to the Decision channel; consumers that
+	// only see translated SDK events (biumindkit embedders without
+	// an answer hook) would deadlock the session. Zero value keeps
+	// the tool registered (REPL wires the answer path itself).
+	SkipAskUser bool
 }
 
 // Register installs every interactive tool onto reg.
@@ -45,8 +53,10 @@ func Register(reg *engine.SimpleRegistry, opt Options) []string {
 	})
 	installed = append(installed, "EnterPlanMode", "ExitPlanMode")
 
-	reg.Register(AskUserQuestionTool{})
-	installed = append(installed, "AskUserQuestion")
+	if !opt.SkipAskUser {
+		reg.Register(AskUserQuestionTool{})
+		installed = append(installed, "AskUserQuestion")
+	}
 
 	enter := &EnterWorktreeTool{Cwd: opt.CwdSwitcher, State: opt.WorktreeState}
 	reg.Register(enter)

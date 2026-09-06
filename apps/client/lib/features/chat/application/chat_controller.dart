@@ -901,6 +901,11 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // ChatController 这层不改 ChatState —— streaming 状态在 daemon 等
           // 答复期间继续保持 isStreaming=true,UI 流不被打断。
           ref.read(pendingApprovalsProvider.notifier).add(arg, event);
+        case ElicitationRequested():
+          // agent 提问表单(chat 模式 elicitation)。投递到
+          // pendingElicitationsProvider 让 UI 弹 FormCard;不应答时服务端
+          // 5min 超时兜底,这里不改 ChatState,streaming 继续。
+          ref.read(pendingElicitationsProvider.notifier).add(arg, event);
       }
     });
   }
@@ -1200,6 +1205,84 @@ class PendingApprovalsController extends Notifier<PendingApprovalsState> {
 final pendingApprovalsProvider =
     NotifierProvider<PendingApprovalsController, PendingApprovalsState>(
   PendingApprovalsController.new,
+);
+
+// ── agent 提问表单（elicitation）队列 ──────────────────────
+
+/// ElicitationItem —— 一条提问 + 应答后的锁定快照。[answeredAction] 非空
+/// 表示已应答,FormCard 锁成只读展示(设计 §2.3:提交后卡片锁定显示已选)。
+class ElicitationItem {
+  final ElicitationRequested request;
+  final String? answeredAction; // accept | decline | cancel
+  final String? answerSummary; // accept 时已选答案的人类可读摘要
+  const ElicitationItem({
+    required this.request,
+    this.answeredAction,
+    this.answerSummary,
+  });
+
+  bool get answered => answeredAction != null;
+}
+
+/// PendingElicitationsState —— 每条 thread 的提问表单队列（含已答锁定项）。
+class PendingElicitationsState {
+  final Map<String, List<ElicitationItem>> byThread;
+  const PendingElicitationsState({this.byThread = const {}});
+
+  List<ElicitationItem> forThread(String threadId) =>
+      byThread[threadId] ?? const [];
+}
+
+/// PendingElicitationsController —— 镜像 PendingApprovalsController 的数
+/// 据流:BiuSessionConnection 经 ChatController 投递 ElicitationRequested;
+/// FormCard watch 本 provider 渲染。差异:应答后不摘除而是锁定展示已选
+/// (一期不落库,thread 切换 / 清理时随 clearThread 消失)。
+class PendingElicitationsController extends Notifier<PendingElicitationsState> {
+  @override
+  PendingElicitationsState build() => const PendingElicitationsState();
+
+  void add(String threadId, ElicitationRequested req) {
+    final next = Map<String, List<ElicitationItem>>.from(state.byThread);
+    next[threadId] = [...(next[threadId] ?? const []), ElicitationItem(request: req)];
+    state = PendingElicitationsState(byThread: next);
+  }
+
+  /// 应答完(req.respond 已经走过)后调,把这条标记为已答(锁定展示)。
+  void resolve(
+    String threadId,
+    String requestId, {
+    required String action,
+    String? summary,
+  }) {
+    final list = state.byThread[threadId];
+    if (list == null) return;
+    final next = Map<String, List<ElicitationItem>>.from(state.byThread);
+    next[threadId] = [
+      for (final item in list)
+        if (item.request.requestId == requestId)
+          ElicitationItem(
+            request: item.request,
+            answeredAction: action,
+            answerSummary: summary,
+          )
+        else
+          item,
+    ];
+    state = PendingElicitationsState(byThread: next);
+  }
+
+  /// thread 关闭时清空它的所有提问（含锁定项）。
+  void clearThread(String threadId) {
+    if (!state.byThread.containsKey(threadId)) return;
+    final next = Map<String, List<ElicitationItem>>.from(state.byThread);
+    next.remove(threadId);
+    state = PendingElicitationsState(byThread: next);
+  }
+}
+
+final pendingElicitationsProvider =
+    NotifierProvider<PendingElicitationsController, PendingElicitationsState>(
+  PendingElicitationsController.new,
 );
 
 // ── helpers ─────────────────────────────────────────────────

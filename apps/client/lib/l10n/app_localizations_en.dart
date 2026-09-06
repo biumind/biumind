@@ -2015,6 +2015,29 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2ApprovalShowMore => 'Show full input ▾';
 
   @override
+  String get chatV2FormSubmit => 'Submit';
+
+  @override
+  String get chatV2FormSkip => 'Skip';
+
+  @override
+  String get chatV2FormMultiHint => 'Select all that apply';
+
+  @override
+  String get chatV2FormTextHint => 'Type your answer';
+
+  @override
+  String chatV2FormAnswered(String answer) {
+    return 'Answered: $answer';
+  }
+
+  @override
+  String get chatV2FormSkipped => 'Skipped';
+
+  @override
+  String get chatV2FormCancelled => 'Cancelled';
+
+  @override
   String get chatV2ComposerModeChat => 'Chat';
 
   @override

@@ -66,6 +66,13 @@ type AgentRunInputV2 struct {
 	// chat WS 路径（agentplane.ChatRunner）传 NATS 帧 publisher，老 SSE
 	// 路径（HandleSend）继续传 *BlockEmitter —— RunV2 内核共用一份。
 	Emitter EventEmitter
+
+	// AskUser 非 nil 时启用 AskUserQuestion 工具（agent 提问表单，
+	// agent-ask-form P1）：模型调用后引擎阻塞等本回调返答案。nil =
+	// 工具不进 catalog（无应答链路时模型不可见，防 Decision channel
+	// 死锁）。当前只有 agentplane chat WS 路径接线（elicitation 控制帧
+	// + pending map），SSE / wiki agent run 路径保持 nil。
+	AskUser biumindkit.AskUserFn
 }
 
 // EventEmitter 是 RunV2 跑过程中 fire 事件的接收口子。BlockEmitter 实现
@@ -102,6 +109,11 @@ type SingleTurnInput struct {
 	History []PriorTurn
 	Images  []ImageInput // 图片附件(空 = 纯文本)。视觉模型才有效。
 	Emitter EventEmitter
+
+	// AskUser 透传进 RunV2 → biumindkit.Options.AskUser。非 nil 时 chat
+	// 模式模型可见 AskUserQuestion（提问走 elicitation 控制帧回客户端）。
+	// nil = 工具隐藏（无应答链路，防死锁）。
+	AskUser biumindkit.AskUserFn
 }
 
 // PriorTurn 是一轮历史消息(公开类型,跨包契约——避免暴露私有 hubMessage)。
@@ -148,6 +160,7 @@ func (a *AgentLoop) RunSingleTurn(ctx context.Context, in SingleTurnInput) (*Age
 		History:           hist,
 		Images:            in.Images,
 		Emitter:           in.Emitter,
+		AskUser:           in.AskUser,
 	})
 }
 
@@ -214,6 +227,7 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 		LoadProjectMemory:   biumindkit.NoMemory,          // brain 不读本地 BIUMIND.md
 		LoadProjectSettings: biumindkit.NoSettings,        // brain 不读本地 settings.json
 		BypassPermissions:   true,
+		AskUser:             in.AskUser, // nil → AskUserQuestion 不进 catalog（防死锁）
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agent_v2: build agent: %w", err)

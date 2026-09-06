@@ -27,6 +27,7 @@ import '../../domain/slash_commands.dart';
 import 'approval_card.dart';
 import 'composer_v2.dart';
 import 'context_window_bar.dart';
+import 'form_card.dart';
 import 'in_thread_search_bar.dart';
 import 'keyboard_shortcuts_dialog.dart';
 import 'message_list_v2.dart';
@@ -267,6 +268,8 @@ class ChatPageV2 extends ConsumerWidget {
         // Inline tool-call approval card —— 仅 thread.autoApprove != 'auto'
         // 时才会有 pending 请求,有就在 composer 上方浮一张 confirm 卡。
         ApprovalCardV2(threadId: threadId),
+        // agent 提问表单卡(chat 模式 elicitation)—— 同位置同数据流。
+        FormCard(threadId: threadId),
         ComposerV2(
           threadId: threadId,
           streaming: isStreaming,

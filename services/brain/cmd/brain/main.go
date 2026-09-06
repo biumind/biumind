@@ -1285,6 +1285,11 @@ func run() error {
 	// Wire control queue + chat-mode interrupt 回调,让 cancel 帧能反向投
 	// 到 daemon 或进程内 chat session。
 	agentPlaneIngress.SetQueue(agentPlaneQueue)
+	// agent 提问表单（agent-ask-form P1-b）：进程内 pending map,ChatRunner
+	// 发 elicitation 控制帧前注册、ingress 收 control_response 按
+	// request_id 分流唤醒。绝不持久化（重启=未答表单 soft error）。
+	agentPlaneElicitations := agentplanepkg.NewElicitationCenter(logger)
+	agentPlaneIngress.SetElicitations(agentPlaneElicitations)
 	agentPlaneSrv := agentplanepkg.NewServer(agentPlaneStore, verifier,
 		agentPlaneSigner, agentPlaneQueue, agentPlaneIngress, logger)
 	agentPlaneSrv.Readiness = agentPlaneReadiness
@@ -1328,6 +1333,10 @@ func run() error {
 			logger,
 		)
 		agentPlaneSrv.ChatRunner = chatRunner
+		// 提问表单接线：注入 pending map 后 chat 模式模型才可见
+		// AskUserQuestion（elicitation 控制帧有人应答）；ingress 那头
+		// 已在上面 SetElicitations 同一实例。
+		chatRunner.Elicitations = agentPlaneElicitations
 		// 同款 BYOK pre-resolve 让 createAgentSession / createTaskSession
 		// enqueue 前把用户 provider key 塞 WorkPayload(daemon 拿到再
 		// 当 X-Biumind-LLM-Key 透传给 model-relay)。P3: key 现从 identity 现取

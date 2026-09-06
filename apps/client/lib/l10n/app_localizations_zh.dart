@@ -1951,6 +1951,29 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2ApprovalShowMore => '展开完整入参 ▾';
 
   @override
+  String get chatV2FormSubmit => '提交';
+
+  @override
+  String get chatV2FormSkip => '跳过';
+
+  @override
+  String get chatV2FormMultiHint => '可多选';
+
+  @override
+  String get chatV2FormTextHint => '输入你的回答';
+
+  @override
+  String chatV2FormAnswered(String answer) {
+    return '已回答：$answer';
+  }
+
+  @override
+  String get chatV2FormSkipped => '已跳过';
+
+  @override
+  String get chatV2FormCancelled => '已取消';
+
+  @override
   String get chatV2ComposerModeChat => '对话';
 
   @override

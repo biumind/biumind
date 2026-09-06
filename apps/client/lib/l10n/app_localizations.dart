@@ -3707,6 +3707,48 @@ abstract class AppLocalizations {
   /// **'Show full input ▾'**
   String get chatV2ApprovalShowMore;
 
+  /// No description provided for @chatV2FormSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit'**
+  String get chatV2FormSubmit;
+
+  /// No description provided for @chatV2FormSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get chatV2FormSkip;
+
+  /// No description provided for @chatV2FormMultiHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all that apply'**
+  String get chatV2FormMultiHint;
+
+  /// No description provided for @chatV2FormTextHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Type your answer'**
+  String get chatV2FormTextHint;
+
+  /// No description provided for @chatV2FormAnswered.
+  ///
+  /// In en, this message translates to:
+  /// **'Answered: {answer}'**
+  String chatV2FormAnswered(String answer);
+
+  /// No description provided for @chatV2FormSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Skipped'**
+  String get chatV2FormSkipped;
+
+  /// No description provided for @chatV2FormCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get chatV2FormCancelled;
+
   /// No description provided for @chatV2ComposerModeChat.
   ///
   /// In en, this message translates to:

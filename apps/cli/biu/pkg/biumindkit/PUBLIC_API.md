@@ -172,12 +172,13 @@ cancel(biumindkit.ErrInterrupted)   // 等价于 agent.Interrupt()
 | `BypassPermissions` | `bool` | `false` | 等价 `PermissionMode="bypassPermissions"` |
 | `ExtraTools` | `[]Tool` | `nil` | 用户自定义工具（最后注册，可覆盖内置） |
 | `PermissionPolicy` | `PermissionPolicyFn` | `PermissionDeny()` | 权限决策回调 |
+| `AskUser` | `AskUserFn` | `nil` | AskUserQuestion 应答回调；nil 时该工具不进 catalog（防无应答方死锁） |
 | `MCPRegistry` | `*MCPRegistry` | `nil` | F1: 公开 wrapper,nil-safe,不再暴露 internal/mcp |
 | `PriorMessages` | `[]Message` | `nil` | F3: 注入 thread 历史让 Submit 看到上下文 |
 | `SessionID` | `string` | `""` | F10: 打到所有 Event 上的 SessionID() |
 | `ParentToolUseID` | `string` | `""` | F10/F13: 打到所有 Event 上的 ParentToolUseID()（sub-agent 用） |
 
-> **隐含装载**（无开关）：每个 `New` 都会自动加载 BIUMIND.md / 自动 memory / skills auto-attach prompt / settings 里的 sandbox 配置 / 4 个工具 family（files / orchestration / web / interactive）/ background-task store / cost tracker / usage logger / plan verifier / plan hint。
+> **隐含装载**（无开关）：每个 `New` 都会自动加载 BIUMIND.md / 自动 memory / skills auto-attach prompt / settings 里的 sandbox 配置 / 4 个工具 family（files / orchestration / web / interactive）/ background-task store / cost tracker / usage logger / plan verifier / plan hint。例外：interactive family 里的 `AskUserQuestion` 仅在 `Options.AskUser` 非 nil 时注册（引擎侧是阻塞事件 + Decision channel，无应答方会死锁 session）。
 
 ---
 

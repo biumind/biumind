@@ -39,6 +39,7 @@ import (
 	bauth "github.com/biumind/biumind/packages/go-sdk/biu/auth"
 	"github.com/biumind/biumind/packages/go-sdk/biu/bus"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
+	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/nats-io/nats.go/jetstream"
@@ -85,6 +86,14 @@ type Ingress struct {
 	// 由 main.go 注入:cb 闭包到 ChatRunner.InterruptSession。nil-safe。
 	chatInterrupt func(sessionID uuid.UUID) bool
 
+	// elicitations 是 chat 模式提问表单（elicitation）的进程内 pending
+	// map,与 ChatRunner 共享同一实例。control_response 回包先按
+	// request_id 在这里查 —— 命中 = elicitation 回包,进程内 Resolve;
+	// 不中 = daemon permission 回包,走 control 队列（原行为）。
+	// 由 main.go 注入;nil = 无提问能力（chat_runner 那边同样不接
+	// AskUser,模型看不到 AskUserQuestion）。
+	elicitations *ElicitationCenter
+
 	// activeMu 保护 active connection 计数 —— 用于 graceful shutdown 跟
 	// metrics。当前只是简单数 +1/-1。
 	activeMu    sync.Mutex
@@ -122,6 +131,13 @@ func (i *Ingress) SetQueue(q *Queue) { i.queue = q }
 // cancel 都走 environment control 队列。
 func (i *Ingress) SetChatInterrupt(fn func(sessionID uuid.UUID) bool) {
 	i.chatInterrupt = fn
+}
+
+// SetElicitations 注入 chat 模式提问表单的 pending map（与 ChatRunner
+// 共享）。注入后 control_response 按 request_id 分流:命中 = elicitation
+// 回包进程内 Resolve;不命中 = daemon permission 回包走 control 队列。
+func (i *Ingress) SetElicitations(c *ElicitationCenter) {
+	i.elicitations = c
 }
 
 // MountIngressRoutes 注册 WS 路由。Server.Mount 调它。
@@ -424,18 +440,19 @@ func (i *Ingress) maybeRouteCancel(ctx context.Context, sessionID uuid.UUID, env
 	return true
 }
 
-// maybeRoutePermissionResponse 探测 msg 是否是 control_response 帧;是则把
-// permission 答复通过 control 队列投到 daemon。返回 true 表示识别为
+// maybeRoutePermissionResponse 探测 msg 是否是 control_response 帧;是则
+// 先按 request_id 分流,再投到对应等候方。返回 true 表示识别为
 // control_response (无论后续路由是否成功); false 表示不是。
 //
-// 当前 daemon → client 唯一会发的 control 子类型就是 can_use_tool, 所以
-// 这里把所有 control_response 当作 permission_response 处理。如果将来
-// daemon 开始发 set_model / mcp_status 等其它 control_request, 需要在
-// askPermission map 注册原始 request_id 来分辨, 或者在协议层加
-// "in_response_to_subtype" 字段。
+// 分流（agent-ask-form P1-b,实现下方原 :431-436 预留的口子）：
+//   - request_id 命中 elicitations pending map → chat 模式提问表单回包,
+//     进程内 Resolve 唤醒 ChatRunner.askUserFn。chat-mode 没绑
+//     environment,必须在 envID 判空**之前**处理。
+//   - 否则 → daemon permission 答复,经 control 队列投到 daemon。
+//     这是当前 daemon → client 唯一的控制请求(can_use_tool),保持原行为。
 //
-// chat-mode 没有 daemon, 不可能产生 permission 反向请求 —— envID 为 nil
-// 时直接 return。
+// chat-mode 的 permission 不可能存在(没有 daemon)—— envID 为 nil 且非
+// elicitation 时直接 return。
 func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uuid.UUID, envID *uuid.UUID, msg []byte) bool {
 	var head inboundFrameHead
 	if err := json.Unmarshal(msg, &head); err != nil {
@@ -444,6 +461,37 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 	if head.Type != "control_response" {
 		return false
 	}
+	if head.Response == nil {
+		// 不该发生 —— control_response 强制带 response。日志即可。
+		i.logger.Warn("ingress: control_response missing response body",
+			"session_id", sessionID)
+		return true
+	}
+	// ── elicitation 分流：进程内 chat 模式的提问回包 ──
+	if i.elicitations != nil && i.elicitations.Has(head.Response.RequestID) {
+		// 回包体是 ElicitationResponse{action, content}。解析失败也
+		// Resolve 一个 cancel —— 让等候方立刻 soft error 出局,而不是
+		// 干等 5 分钟超时。
+		ans := ElicitationAnswer{Action: "cancel"}
+		if head.Response.Subtype == sdkproto.ControlSubtypeSuccess && len(head.Response.Response) > 0 {
+			var body struct {
+				Action  string         `json:"action"`
+				Content map[string]any `json:"content"`
+			}
+			if err := json.Unmarshal(head.Response.Response, &body); err != nil {
+				i.logger.Warn("ingress: elicitation response body unparseable; cancelling",
+					"session_id", sessionID, "request_id", head.Response.RequestID, "err", err)
+			} else {
+				ans = ElicitationAnswer{Action: body.Action, Content: body.Content}
+			}
+		}
+		i.elicitations.Resolve(head.Response.RequestID, ans)
+		i.logger.Info("ingress: elicitation_response routed in-process",
+			"session_id", sessionID, "request_id", head.Response.RequestID,
+			"action", ans.Action)
+		return true
+	}
+	// ── daemon permission 答复：走 control 队列 ──
 	if envID == nil {
 		i.logger.Info("ingress: permission_response — no environment, dropping",
 			"session_id", sessionID)
@@ -451,12 +499,6 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 	}
 	if i.queue == nil {
 		i.logger.Warn("ingress: permission_response cannot route — Queue not wired",
-			"session_id", sessionID)
-		return true
-	}
-	if head.Response == nil {
-		// 不该发生 —— control_response 强制带 response。日志即可。
-		i.logger.Warn("ingress: permission_response missing response body",
 			"session_id", sessionID)
 		return true
 	}

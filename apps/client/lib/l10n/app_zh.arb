@@ -618,6 +618,20 @@
   "chatV2ApprovalDeny": "拒绝",
   "chatV2ApprovalAlways": "始终允许",
   "chatV2ApprovalShowMore": "展开完整入参 ▾",
+  "chatV2FormSubmit": "提交",
+  "chatV2FormSkip": "跳过",
+  "chatV2FormMultiHint": "可多选",
+  "chatV2FormTextHint": "输入你的回答",
+  "chatV2FormAnswered": "已回答：{answer}",
+  "chatV2FormSkipped": "已跳过",
+  "chatV2FormCancelled": "已取消",
+  "@chatV2FormAnswered": {
+    "placeholders": {
+      "answer": {
+        "type": "String"
+      }
+    }
+  },
   "chatV2ComposerModeChat": "对话",
   "chatV2ComposerModeAgent": "智能",
   "chatV2ComposerModeChatHint": "纯模型对话，不调工具",

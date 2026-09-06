@@ -33,6 +33,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../../../data/agent_plane/agent_plane_client.dart';
 import '../../../data/api/biu_client.dart';
+import '../../../data/api/sdkproto/v1/control/elicitation.dart';
 import '../../../data/api/sdkproto/v1/control/wrappers.dart';
 import '../../../data/api/sdkproto/v1/data/assistant.dart';
 import '../../../data/api/sdkproto/v1/data/result.dart';
@@ -135,6 +136,30 @@ class PermissionRequested extends SessionEvent {
     required this.toolUseId,
     required this.input,
     this.reason,
+    required this.respond,
+  });
+}
+
+/// chat 模式 agent 通过 brain 反向发来的提问表单（elicitation, mode=form;
+/// agent-ask-form P1-b）。ChatController 投递到 pendingElicitationsProvider,
+/// FormCard 按 [schema] 动态渲染。
+///
+/// [respond] 单次保护:action ∈ accept | decline | cancel,accept 时
+/// content 带 `{"answer": "<label>" 或 ["<label>",...]}`（与 brain 端
+/// answerFromElicitation 的校验契约对齐）。重复调用静默丢弃;不应答时
+/// 服务端 5min 超时兜底 soft error,session 不死。
+class ElicitationRequested extends SessionEvent {
+  final String requestId;
+  final String message;
+  /// requested_schema 原文(JSON Schema 风格 + x-biumind-question 展示元
+  /// 数据)。FormCard 负责解析;解析不动就降级成只读展示 + 仅能 decline。
+  final Map<String, dynamic> schema;
+  final void Function(String action, [Map<String, dynamic>? content]) respond;
+
+  const ElicitationRequested({
+    required this.requestId,
+    required this.message,
+    required this.schema,
     required this.respond,
   });
 }
@@ -709,9 +734,15 @@ class BiuSessionConnection {
   }
 
   /// 处理 daemon 通过 brain 反向发来的 control request。
-  /// 当前唯一处理的子类型是 can_use_tool;其它(initialize/set_model 等)
-  /// daemon → client 链路上不该出现,记 debug 日志即可。
+  /// 当前处理的子类型:can_use_tool(权限询问) + elicitation(提问表单);
+  /// 其它(initialize/set_model 等)daemon → client 链路上不该出现,
+  /// 记 debug 日志即可。**旧端兼容红线:未知 subtype 只能 debugPrint,
+  /// 不能抛错**(服务端对新 subtype 有超时兜底,丢帧也安全)。
   void _onControlRequest(SDKControlRequest req) {
+    if (req.subtype == 'elicitation') {
+      _onElicitationRequest(req);
+      return;
+    }
     if (req.subtype != 'can_use_tool') {
       debugPrint('[biu_session] ignoring control_request subtype=${req.subtype}');
       return;
@@ -749,6 +780,59 @@ class BiuSessionConnection {
       reason: reason,
       respond: respond,
     ));
+  }
+
+  /// elicitation(form 模式)分支 —— brain chat 模式 agent 的提问表单。
+  /// mode=url / 缺 schema 一期不支持:立即回 decline 让服务端 soft error
+  /// 出局,不挂 5 分钟超时。
+  void _onElicitationRequest(SDKControlRequest req) {
+    final message = (req.request['message'] as String?) ?? '';
+    final schema = (req.request['requested_schema'] is Map<String, dynamic>)
+        ? req.request['requested_schema'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+
+    // 单次保护:UI 回调 / 不支持降级两条路径只许 send 一次。
+    var sent = false;
+    void respond(String action, [Map<String, dynamic>? content]) {
+      if (sent || _closed) return;
+      sent = true;
+      _sendElicitationResult(req.requestId, action: action, content: content);
+    }
+
+    final mode = (req.request['mode'] as String?) ?? 'form';
+    if (mode != 'form') {
+      debugPrint('[biu_session] unsupported elicitation mode=$mode, declining');
+      respond('decline');
+      return;
+    }
+    _events.add(ElicitationRequested(
+      requestId: req.requestId,
+      message: message,
+      schema: schema,
+      respond: respond,
+    ));
+  }
+
+  /// 发 SDKControlResponse{elicitation 答复} 回 brain;brain ingress 按
+  /// request_id 命中 ElicitationCenter 进程内唤醒等候的 askUser。
+  /// response 体对齐 ElicitationResponse{action, content}。
+  void _sendElicitationResult(
+    String requestId, {
+    required String action,
+    Map<String, dynamic>? content,
+  }) {
+    if (_closed) return;
+    final body = ControlResponseBody(
+      subtype: 'success',
+      requestId: requestId,
+      response: ElicitationResponse(action: action, content: content).toJson(),
+    );
+    try {
+      _ws.send(SDKControlResponse(response: body));
+    } catch (e) {
+      // send 失败 = WS 断了;服务端 5min 超时兜底 soft error,不重试。
+      debugPrint('[biu_session] sendElicitationResult failed: $e');
+    }
   }
 
   /// 发 SDKControlResponse{success/error} 回 brain;brain 走 maybeRoutePermissionResponse
