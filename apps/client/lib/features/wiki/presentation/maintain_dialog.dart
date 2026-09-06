@@ -33,6 +33,17 @@ import '../../../data/api/chat_client.dart';
 import '../../../data/api/wiki_agent_client.dart';
 import '../../../data/providers_providers.dart' show relayCatalogListProvider;
 import '../../../data/wiki_providers.dart';
+import '../application/maintain_changes.dart';
+import 'maintain_changes_panel.dart';
+
+/// 测试 seam：替换 SSE 数据源（widget 测试注入假事件流）。
+typedef MaintainAgentRunner = Stream<ChatStreamEvent> Function(
+  String projectId, {
+  required String runId,
+  required String instruction,
+  required String model,
+  required String mode,
+});
 
 /// Opens the wiki maintenance dialog. Void result — the agent may
 /// create/update many pages; the caller refreshes the page list itself
@@ -49,8 +60,17 @@ Future<void> showMaintainDialog(
 }
 
 class MaintainDialog extends ConsumerStatefulWidget {
-  const MaintainDialog({super.key, required this.projectId});
+  const MaintainDialog({
+    super.key,
+    required this.projectId,
+    @visibleForTesting this.agentRunner,
+    @visibleForTesting this.audit,
+  });
   final String projectId;
+
+  /// 测试注入：替换真实 SSE 流 / 审计后端（revisions + restore + deletePage）。
+  final MaintainAgentRunner? agentRunner;
+  final MaintainAuditClient? audit;
 
   @override
   ConsumerState<MaintainDialog> createState() => _MaintainDialogState();
@@ -84,6 +104,9 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
   StreamSubscription<ChatStreamEvent>? _sub;
   WikiAgentClient? _client;
 
+  /// 本 run 写工具改动聚合（BiuMind-Agent-Experience-Design §1.2 P1）。
+  MaintainChangeTracker _tracker = MaintainChangeTracker();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -112,14 +135,22 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
     );
   }
 
+  MaintainAuditClient? _ensureAudit() {
+    if (widget.audit != null) return widget.audit;
+    final repo = ref.read(wikiRepositoryProvider);
+    if (repo == null) return null;
+    return WikiMaintainAuditClient(repo.client);
+  }
+
   String _joinedText() =>
       _textBlocks.values.map((b) => b.toString()).join('\n\n').trim();
 
   Future<void> _start() async {
     final instr = _instruction.text.trim();
     if (instr.isEmpty) return;
-    final c = _ensureClient();
-    if (c == null) {
+    final runner = widget.agentRunner;
+    final c = runner == null ? _ensureClient() : null;
+    if (runner == null && c == null) {
       setState(() => _err = '请先在「设置」中登录');
       return;
     }
@@ -134,14 +165,23 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
       _textBlocks.clear();
       _summary = '';
     });
+    _tracker = MaintainChangeTracker();
     _runId = const Uuid().v4();
-    final stream = c.runAgentStream(
-      widget.projectId,
-      runId: _runId!,
-      instruction: instr,
-      model: _model!,
-      mode: _mode,
-    );
+    final stream = runner != null
+        ? runner(
+            widget.projectId,
+            runId: _runId!,
+            instruction: instr,
+            model: _model!,
+            mode: _mode,
+          )
+        : c!.runAgentStream(
+            widget.projectId,
+            runId: _runId!,
+            instruction: instr,
+            model: _model!,
+            mode: _mode,
+          );
     _sub = stream.listen(
       _onEvent,
       onError: (Object e) {
@@ -182,11 +222,14 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
         }
       case ChatBlockComplete():
         setState(() {}); // refresh to close any trailing state
-      case ChatToolCreated(:final blockId, :final name):
+      case ChatToolCreated(:final blockId, :final name, :final input):
         _tools[blockId] = _ToolStep(blockId: blockId, name: name);
-        // input not rendered in the compact step list
+        // input not rendered in the compact step list; 写工具的 input 进改动
+        // 清单（读工具/评论工具被 tracker 忽略）。
+        _tracker.onToolCreated(blockId, name, input);
         setState(() {});
-      case ChatToolCompleted(:final blockId, :final durationMs):
+      case ChatToolCompleted(:final blockId, :final result, :final durationMs):
+        _tracker.onToolCompleted(blockId, result);
         final step = _tools[blockId];
         if (step != null) {
           step.durationMs = durationMs;
@@ -424,12 +467,24 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
   }
 
   Widget _buildResult() {
+    final changes = _tracker.changes;
+    final audit = _ensureAudit();
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_tools.isNotEmpty) ...[
           _AgentActivity(steps: _tools.values.toList()),
+          const SizedBox(height: BiuTokens.space3),
+        ],
+        if (_phase != _Phase.error &&
+            changes.isNotEmpty &&
+            audit != null) ...[
+          MaintainChangesPanel(
+            projectId: widget.projectId,
+            changes: changes,
+            audit: audit,
+          ),
           const SizedBox(height: BiuTokens.space3),
         ],
         ConstrainedBox(

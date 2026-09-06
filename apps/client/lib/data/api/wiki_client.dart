@@ -725,6 +725,12 @@ class WikiClient {
     return WikiPage.fromJson(raw);
   }
 
+  /// 软删除页（`DELETE /v1/wiki/projects/{pid}/pages/{id}` → SoftDeletePage）。
+  /// maintain agent 审计清单里 undo「新建」用——create 无写前快照，撤销即删页。
+  Future<void> deletePage(String projectId, String pageId) async {
+    await _delete('/v1/wiki/projects/$projectId/pages/$pageId');
+  }
+
   Future<List<WikiBlock>> listBlocks(String projectId, String pageId) async {
     final raw = await _get('/v1/wiki/projects/$projectId/pages/$pageId/blocks');
     final list = (raw['blocks'] as List? ?? const []).cast<Map<String, dynamic>>();
