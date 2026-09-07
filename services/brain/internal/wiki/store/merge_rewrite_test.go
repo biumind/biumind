@@ -44,7 +44,7 @@ func TestMergePages_RewritesBacklinks(t *testing.T) {
 		t.Fatalf("create linker: %v", err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 
@@ -132,7 +132,7 @@ func TestMergePages_NoBacklinksNoRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 	got, err := h.st.GetPage(ctx, other.ID)

@@ -217,6 +217,7 @@ func WikiUpdatePage(st *wikistore.Store) tools.Tool {
 
 			// Metadata phase (title/frontmatter) — only if requested.
 			page := cur
+			runID := tools.RunIDFromContext(ctx) // agent run 审计归属；"" = NULL
 			if a.Title != nil || a.Frontmatter != nil {
 				updated, err := st.UpdatePage(ctx, wikistore.UpdatePageInput{
 					PageID:         pageID,
@@ -224,6 +225,7 @@ func WikiUpdatePage(st *wikistore.Store) tools.Tool {
 					Title:          a.Title,
 					Frontmatter:    a.Frontmatter,
 					ActorID:        uid.String(),
+					RunID:          runID,
 				})
 				if err != nil {
 					if errors.Is(err, wikistore.ErrConflict) {
@@ -243,6 +245,7 @@ func WikiUpdatePage(st *wikistore.Store) tools.Tool {
 					BodyMd:         a.BodyMd,
 					IfMatchVersion: page.Version,
 					ActorID:        uid.String(),
+					RunID:          runID,
 				})
 				if err != nil {
 					if errors.Is(err, wikistore.ErrConflict) {
@@ -319,7 +322,8 @@ func WikiMergePages(st *wikistore.Store, rv *wikireviews.Store) tools.Tool {
 			if duplicate.ProjectID != canonical.ProjectID {
 				return nil, errors.New("wiki_merge_pages: both pages must belong to the same project")
 			}
-			if err := st.MergePages(ctx, canonicalID, duplicateID, uid.String()); err != nil {
+			if err := st.MergePages(ctx, canonicalID, duplicateID, uid.String(),
+				tools.RunIDFromContext(ctx)); err != nil {
 				return nil, fmt.Errorf("wiki_merge_pages: %w", err)
 			}
 			// Best-effort auto-resolve of the matching dedup review

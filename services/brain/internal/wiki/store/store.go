@@ -76,7 +76,10 @@ type Revision struct {
 	BlocksJSON    json.RawMessage
 	ChangeType    string
 	ChangeSummary *string
-	CreatedAt     time.Time
+	// RunID —— 产生该快照的 agent run id（迁移 00010，§1.2 P2 变更审计）；
+	// 人工编辑 / MCP 路径无 run 上下文，为 ""。
+	RunID     string
+	CreatedAt time.Time
 }
 
 type Store struct {
@@ -429,6 +432,8 @@ type UpdatePageInput struct {
 	Title          *string
 	Frontmatter    map[string]any
 	ActorID        string
+	// RunID —— agent run 归属（tools.WithRunID 透传；"" = 人工/无 run → NULL）。
+	RunID string
 }
 
 func (s *Store) UpdatePage(ctx context.Context, in UpdatePageInput) (*Page, error) {
@@ -446,7 +451,7 @@ func (s *Store) UpdatePage(ctx context.Context, in UpdatePageInput) (*Page, erro
 		return nil, ErrConflict
 	}
 	// 写前快照旧态（title/frontmatter 变化触发；窗口合并由 snapshotPageRevisionTx 内部处理）。
-	if err := snapshotPageRevisionTx(ctx, tx, cur.ID, cur.ProjectID, in.ActorID); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, cur.ID, cur.ProjectID, in.ActorID, in.RunID); err != nil {
 		return nil, err
 	}
 	title := cur.Title
@@ -567,7 +572,7 @@ func (s *Store) MarkEnrichStale(ctx context.Context, pageID, projectID uuid.UUID
 // Both pages must exist, be non-deleted, and live in the same project.
 // Caller (reviews API / MCP wiki.merge_pages) is responsible for
 // ownership checks; this layer enforces the structural invariants.
-func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UUID, actor string) error {
+func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UUID, actor, runID string) error {
 	if canonicalID == duplicateID {
 		return fmt.Errorf("canonical and duplicate must differ")
 	}
@@ -634,10 +639,10 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	// duplicate soft-delete），写前快照两页态，事后可经 page_revisions restore
 	// 分别恢复（canonical 回到合并前、duplicate 回到删除前）。同 tx、同 actor。
 	// snapshotPageRevisionTx 内部 5min 窗口合并避免高频快照膨胀。
-	if err := snapshotPageRevisionTx(ctx, tx, canonical.id, canonical.projectID, actor); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, canonical.id, canonical.projectID, actor, runID); err != nil {
 		return fmt.Errorf("snapshot canonical pre-merge: %w", err)
 	}
-	if err := snapshotPageRevisionTx(ctx, tx, duplicate.id, duplicate.projectID, actor); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, duplicate.id, duplicate.projectID, actor, runID); err != nil {
 		return fmt.Errorf("snapshot duplicate pre-merge: %w", err)
 	}
 
@@ -728,7 +733,7 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	// 不漂移。在 duplicate soft-delete 之后跑，改写扫描天然排除它。
 	rewrittenPages, err := rewriteMergeBacklinksTx(ctx, tx,
 		canonical.projectID, canonicalID, duplicateID,
-		duplicate.title, canonical.title, actor)
+		duplicate.title, canonical.title, actor, runID)
 	if err != nil {
 		return fmt.Errorf("rewrite merge backlinks: %w", err)
 	}
@@ -929,7 +934,7 @@ func (s *Store) CreateBlock(ctx context.Context, in CreateBlockInput) (*Block, e
 	}
 	defer tx.Rollback(ctx)
 	// 写前快照（加 block 前的页态；窗口合并抑 agent 批量加 block 风暴）。
-	if err := snapshotPageRevisionTx(ctx, tx, in.PageID, in.ProjectID, in.ActorID); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, in.PageID, in.ProjectID, in.ActorID, ""); err != nil {
 		return nil, err
 	}
 	contentJSON, _ := json.Marshal(in.Content)
@@ -1024,7 +1029,7 @@ func (s *Store) UpdateBlock(ctx context.Context, in UpdateBlockInput) (*Block, e
 		return nil, ErrConflict
 	}
 	// 写前快照（改 block 前的页态）。
-	if err := snapshotPageRevisionTx(ctx, tx, cur.PageID, projectID, in.ActorID); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, cur.PageID, projectID, in.ActorID, ""); err != nil {
 		return nil, err
 	}
 
@@ -1090,7 +1095,7 @@ func (s *Store) SoftDeleteBlock(ctx context.Context, id uuid.UUID, actor string)
 	if err != nil {
 		return err
 	}
-	if err := snapshotPageRevisionTx(ctx, tx, pageID, projectID, actor); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, pageID, projectID, actor, ""); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1146,7 +1151,7 @@ const (
 )
 
 // pageRevisionColumns —— 不含 blocks_json（list 用）；detail 走 GetPageRevision 单列追加。
-const pageRevisionColumns = `id, page_id, project_id, actor_id, title, frontmatter, change_type, change_summary, created_at`
+const pageRevisionColumns = `id, page_id, project_id, actor_id, title, frontmatter, change_type, change_summary, COALESCE(run_id, ''), created_at`
 
 // listBlocksTx —— 事务内取一页全部 live blocks（写前快照 / restore 对账用）。
 // 与 ListBlocks 同 SELECT，但 tx-scoped 保证读到本事务一致态。
@@ -1269,6 +1274,8 @@ type UpdatePageBodyInput struct {
 	BodyMd         string
 	IfMatchVersion int
 	ActorID        string
+	// RunID —— agent run 归属（"" = 人工/无 run → 快照 run_id 落 NULL）。
+	RunID string
 }
 
 // UpdatePageBody —— body_md 权威写入口（§⑤ Path C，拍板同步写）。事务内：
@@ -1292,7 +1299,7 @@ func (s *Store) UpdatePageBody(ctx context.Context, in UpdatePageBodyInput) (*Pa
 	if in.IfMatchVersion != 0 && cur.Version != in.IfMatchVersion {
 		return nil, ErrConflict
 	}
-	if err := snapshotPageRevisionTx(ctx, tx, cur.ID, cur.ProjectID, in.ActorID); err != nil {
+	if err := snapshotPageRevisionTx(ctx, tx, cur.ID, cur.ProjectID, in.ActorID, in.RunID); err != nil {
 		return nil, err
 	}
 	p := &Page{}
@@ -1517,7 +1524,9 @@ func (s *Store) BackfillFrontmatter(ctx context.Context) (int, error) {
 // blocks_json 超 MaxBlocksJSONBytes 跳过本条（极大页罕见，保 restore 完整不截断）。
 // 内部 tx-scoped 读 page，统一 4 调用点（UpdatePage/CreateBlock/UpdateBlock/SoftDeleteBlock）。
 // SoftDeletePage 不快照：restore 无法 un-delete 页，快照成死数据；page 删除属回收站范畴。
-func snapshotPageRevisionTx(ctx context.Context, tx pgx.Tx, pageID, projectID uuid.UUID, actorID string) error {
+// runID 非空时快照落 run_id（agent run 审计）；窗口合并命中时不新增行，
+// 既有行的 run_id 保持首写归属、不被覆盖/清空（§1.2 P2）。
+func snapshotPageRevisionTx(ctx context.Context, tx pgx.Tx, pageID, projectID uuid.UUID, actorID, runID string) error {
 	var lastEdit time.Time
 	err := tx.QueryRow(ctx, `
 		SELECT created_at FROM brain.page_revisions
@@ -1553,9 +1562,9 @@ func snapshotPageRevisionTx(ctx context.Context, tx pgx.Tx, pageID, projectID uu
 		return nil // 超限跳过（不截断，保 restore 完整）
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit')
-	`, pageID, projectID, actorID, title, fm, bodyMd, blocksJSON); err != nil {
+		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, run_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', NULLIF($8, ''))
+	`, pageID, projectID, actorID, title, fm, bodyMd, blocksJSON, runID); err != nil {
 		return fmt.Errorf("snapshot page revision: %w", err)
 	}
 	return nil
@@ -1587,7 +1596,7 @@ func (s *Store) ListPageRevisions(ctx context.Context, pageID uuid.UUID, limit, 
 		r := &Revision{}
 		var fm []byte
 		if err := rows.Scan(&r.ID, &r.PageID, &r.ProjectID, &r.ActorID, &r.Title, &fm,
-			&r.ChangeType, &r.ChangeSummary, &r.CreatedAt); err != nil {
+			&r.ChangeType, &r.ChangeSummary, &r.RunID, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(fm, &r.Frontmatter)
@@ -1601,11 +1610,11 @@ func (s *Store) GetPageRevision(ctx context.Context, pageID, revisionID uuid.UUI
 	r := &Revision{}
 	var fm, blocks []byte
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, change_summary, created_at
+		SELECT id, page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, change_summary, COALESCE(run_id, ''), created_at
 		FROM brain.page_revisions WHERE id = $1 AND page_id = $2
 	`, revisionID, pageID).Scan(
 		&r.ID, &r.PageID, &r.ProjectID, &r.ActorID, &r.Title, &fm, &r.BodyMd, &blocks,
-		&r.ChangeType, &r.ChangeSummary, &r.CreatedAt,
+		&r.ChangeType, &r.ChangeSummary, &r.RunID, &r.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1623,7 +1632,11 @@ func (s *Store) GetPageRevision(ctx context.Context, pageID, revisionID uuid.UUI
 // 保 block_id 连续性（update/revive/soft-delete/insert 四分支）。page.version OCC +1，
 // emit page.restored（自动进 changelog）。内部 block 改写不走 snapshotPageRevisionTx
 // （已显式存 restore 备份，避免递归/多余 edit 快照，同 note RestoreRevision 不经 UpdateNote）。
-func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid.UUID, actorID string) (*Page, error) {
+//
+// ifMatchVersion > 0 时先比对当前 page.version（§1.2 P2 客户端 undo OCC：
+// 传 run 结束时刻的 version，run 之后页面又被改过则 ErrConflict → 409，
+// 不覆盖人工修改）；0 = 不校验（向后兼容既有调用）。
+func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid.UUID, actorID string, ifMatchVersion int) (*Page, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -1647,6 +1660,11 @@ func (s *Store) RestorePageRevision(ctx context.Context, pageID, revisionID uuid
 		return nil, err
 	}
 	_ = json.Unmarshal(curFM, &cur.Frontmatter)
+
+	// 客户端期望版本比对（undo OCC）：run 之后页面被改过 → 冲突，不动任何数据。
+	if ifMatchVersion > 0 && cur.Version != ifMatchVersion {
+		return nil, ErrConflict
+	}
 
 	// 2. 目标版本（含 body_md + blocks_json），严格 page_id 匹配。
 	// body_md 必须读出：步骤 5 以 rev.BodyMd 覆盖 pages.body_md，漏读会零值清空权威列。

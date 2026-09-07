@@ -129,6 +129,11 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	// 必须经此 endpoint 按 run_id 调 cancel 才停）。
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/agent/run/cancel",
 		s.requireAuth(s.handleWikiAgentCancel))
+	// §1.2 P2 run 持久化历史（审计「可回看历史」）：列表 + 详情（改动页清单）。
+	mux.HandleFunc("GET /v1/wiki/projects/{pid}/agent/runs",
+		s.requireAuth(s.handleListAgentRuns))
+	mux.HandleFunc("GET /v1/wiki/projects/{pid}/agent/runs/{runId}",
+		s.requireAuth(s.handleGetAgentRun))
 	mux.HandleFunc("DELETE /v1/wiki/projects/{pid}/pages/{id}", s.requireAuth(s.handleDeletePage))
 	mux.HandleFunc("GET /v1/wiki/projects/{pid}/pages/{id}/blocks", s.requireAuth(s.handleListBlocks))
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/pages/{id}/blocks", s.requireAuth(s.handleCreateBlock))

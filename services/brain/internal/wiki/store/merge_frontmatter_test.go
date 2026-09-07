@@ -131,7 +131,7 @@ func TestMergePages_FrontmatterUnion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 

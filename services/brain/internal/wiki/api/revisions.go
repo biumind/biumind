@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -113,13 +114,37 @@ func (s *Server) handleRestorePageRevision(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	actorID := mustUserID(r).String()
-	p, err := s.Store.RestorePageRevision(r.Context(), pageID, rid, actorID)
+	// §1.2 P2 可选 OCC：body 带 if_match_version（run 结束时刻的 page
+	// version）时先比对，不一致 → 409（带当前态供客户端 diff 确认）；
+	// 空 body / 不传 → 维持原覆盖式行为（向后兼容）。
+	ifMatch := 0
+	if r.Body != nil && r.ContentLength != 0 {
+		var req struct {
+			IfMatchVersion int `json:"if_match_version"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil &&
+			!errors.Is(err, io.EOF) {
+			writeErr(w, http.StatusBadRequest, "bad_request", err.Error())
+			return
+		}
+		ifMatch = req.IfMatchVersion
+	}
+	p, err := s.Store.RestorePageRevision(r.Context(), pageID, rid, actorID, ifMatch)
 	if errors.Is(err, store.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "not_found", "")
 		return
 	}
 	if errors.Is(err, store.ErrConflict) {
-		writeErr(w, http.StatusConflict, "version_conflict", "")
+		body := map[string]any{
+			"error": map[string]any{
+				"code": "version_conflict", "message": "if_match_version mismatch",
+			},
+		}
+		if cur, gerr := s.Store.GetPage(r.Context(), pageID); gerr == nil {
+			body["server_version"] = cur.Version
+			body["server_payload"] = pageOut(cur)
+		}
+		writeJSON(w, http.StatusConflict, body)
 		return
 	}
 	if err != nil {
@@ -174,6 +199,11 @@ func revisionOut(r *store.Revision, includeBlocks bool) map[string]any {
 	}
 	if r.ChangeSummary != nil {
 		out["change_summary"] = *r.ChangeSummary
+	}
+	// §1.2 P2：agent 产生的快照带 run_id（人工为 ""，不下发），客户端审计
+	// 面板据此精确匹配本 run 的写前快照（替代 P1 的时间窗启发式）。
+	if r.RunID != "" {
+		out["run_id"] = r.RunID
 	}
 	if includeBlocks {
 		out["frontmatter"] = r.Frontmatter

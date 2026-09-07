@@ -202,7 +202,7 @@ func TestPageRevisions_RestoreBlockReconcile(t *testing.T) {
 	}
 
 	// Restore R。
-	restored, err := h.st.RestorePageRevision(context.Background(), page.ID, rid, owner.String())
+	restored, err := h.st.RestorePageRevision(context.Background(), page.ID, rid, owner.String(), 0)
 	if err != nil {
 		t.Fatalf("RestorePageRevision: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestPageRevisions_RestorePreservesBodyMd(t *testing.T) {
 	}
 
 	// Restore → pages.body_md 必须回到 v1（GetPage 复查，不信 RETURNING）。
-	if _, err := h.st.RestorePageRevision(context.Background(), page.ID, targetID, owner.String()); err != nil {
+	if _, err := h.st.RestorePageRevision(context.Background(), page.ID, targetID, owner.String(), 0); err != nil {
 		t.Fatalf("RestorePageRevision: %v", err)
 	}
 	got, err := h.st.GetPage(context.Background(), page.ID)

@@ -22,6 +22,7 @@ import (
 
 	"github.com/biumind/biumind/services/brain/internal/chat"
 	"github.com/biumind/biumind/services/brain/internal/tools"
+	"github.com/biumind/biumind/services/brain/internal/wiki/store"
 )
 
 // handleWikiAgentRun — POST /v1/wiki/projects/{pid}/agent/run.
@@ -75,13 +76,29 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 	if runID == "" {
 		runID = uuid.NewString()
 	}
+	// §1.2 P2：run 持久化 —— 开始写 running 行，结束/失败/取消写终态
+	// （FinishAgentRun WHERE status='running' 保证 cancel 优先、重复写幂等）。
+	// 失败即 500：审计是 run 的一等语义，落不了库不如不开跑。
+	if err := s.Store.CreateAgentRun(r.Context(), store.AgentRun{
+		RunID:       runID,
+		ProjectID:   pid,
+		OwnerID:     uid,
+		Mode:        req.Mode,
+		Model:       req.Model,
+		Instruction: req.Instruction,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "agent_run_persist", err.Error())
+		return
+	}
 	// Tag the loop ctx with the caller's user id so write-tool Invokers can
-	// owner-scope (tools.UserIDFromContext). Detached from the request ctx
+	// owner-scope (tools.UserIDFromContext), and with the run id so their
+	// pre-write page_revisions snapshots carry run_id (tools.RunIDFromContext,
+	// §1.2 P2 变更审计). Detached from the request ctx
 	// so a client disconnect doesn't kill the in-flight model-relay stream
 	// (same pattern as chat HandleSend). Cancellation therefore goes
 	// through the dedicated /agent/run/cancel endpoint, which looks up
 	// runID in AgentRuns and calls the cancel func stored below.
-	hubCtx, cancel := context.WithCancel(tools.WithUserID(context.Background(), uid))
+	hubCtx, cancel := context.WithCancel(tools.WithRunID(tools.WithUserID(context.Background(), uid), runID))
 	defer cancel()
 	s.AgentRuns.Store(runID, cancel)
 	defer s.AgentRuns.Delete(runID)
@@ -100,11 +117,23 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 		// loops on search can't burn the whole MaxTurns allowance.
 		RetrievalBudget: wikiAgentRetrievalBudget(req.Mode),
 	}); err != nil {
+		// 终态：failed（cancel 已被 cancel 端点标 cancelled 时此写 no-op，
+		// FinishAgentRun 的 WHERE status='running' 保证不覆盖）。
+		if ferr := s.Store.FinishAgentRun(context.Background(), runID,
+			store.AgentRunFailed, err.Error()); ferr != nil && s.Logger != nil {
+			s.Logger.WarnContext(r.Context(), "wiki agent run: finish(failed) persist failed",
+				"run_id", runID, "err", ferr)
+		}
 		if s.Logger != nil {
 			s.Logger.WarnContext(r.Context(), "wiki agent run failed",
 				"project_id", pid, "user_id", uid, "err", err)
 		}
 		return
+	}
+	if err := s.Store.FinishAgentRun(context.Background(), runID,
+		store.AgentRunDone, ""); err != nil && s.Logger != nil {
+		s.Logger.WarnContext(r.Context(), "wiki agent run: finish(done) persist failed",
+			"run_id", runID, "err", err)
 	}
 	// S3 P1: agent run succeeded → fire a semantic lint scan server-side.
 	// Before this hook the scan was triggered by the client (maintain_dialog)
@@ -171,6 +200,14 @@ func (s *Server) handleWikiAgentCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v.(context.CancelFunc)()
+	// §1.2 P2：标 cancelled 终态。loop 退出后 handleWikiAgentRun 还会回写
+	// failed（ctx.Canceled），FinishAgentRun 的 status='running' 条件保证
+	// 此处写入不被覆盖。best-effort：落库失败不影响取消本身。
+	if err := s.Store.FinishAgentRun(r.Context(), runID,
+		store.AgentRunCancelled, ""); err != nil && s.Logger != nil {
+		s.Logger.WarnContext(r.Context(), "wiki agent cancel: persist failed",
+			"run_id", runID, "err", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "run_id": runID})
 }
 

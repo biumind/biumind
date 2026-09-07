@@ -931,7 +931,7 @@ func (s *Server) callWikiMergePages(ctx context.Context, uid uuid.UUID, raw json
 			Message: "both pages must belong to the same project"}
 	}
 
-	if err := s.Wiki.MergePages(ctx, canonicalID, duplicateID, uid.String()); err != nil {
+	if err := s.Wiki.MergePages(ctx, canonicalID, duplicateID, uid.String(), ""); err != nil {
 		return nil, &rpcError{Code: codeInternalError, Message: err.Error()}
 	}
 

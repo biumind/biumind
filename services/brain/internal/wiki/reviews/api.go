@@ -427,7 +427,7 @@ func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.Wiki.MergePages(r.Context(),
-		canonicalID, duplicateID, uid.String()); err != nil {
+		canonicalID, duplicateID, uid.String(), ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "merge_failed", err.Error())
 		return
 	}

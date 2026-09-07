@@ -98,7 +98,7 @@ func (s *Store) FindLivePageByTitle(ctx context.Context, projectID uuid.UUID, ti
 func rewriteMergeBacklinksTx(
 	ctx context.Context, tx pgx.Tx,
 	projectID, canonicalID, duplicateID uuid.UUID,
-	oldTitle, newTitle, actor string,
+	oldTitle, newTitle, actor, runID string,
 ) (int, error) {
 	if strings.TrimSpace(oldTitle) == "" || strings.EqualFold(
 		strings.TrimSpace(oldTitle), strings.TrimSpace(newTitle)) {
@@ -175,7 +175,7 @@ func rewriteMergeBacklinksTx(
 		if n == 0 {
 			continue // link disappeared between the two passes
 		}
-		if err := snapshotPageRevisionTx(ctx, tx, lp.id, projectID, actor); err != nil {
+		if err := snapshotPageRevisionTx(ctx, tx, lp.id, projectID, actor, runID); err != nil {
 			return rewritten, fmt.Errorf("snapshot pre-rewrite %s: %w", lp.id, err)
 		}
 		var version int

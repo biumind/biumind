@@ -58,7 +58,7 @@ func TestMergePages_FoldsDuplicateBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestMergePages_IdenticalBodiesNoAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestMergePages_RetryIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("first MergePages: %v", err)
 	}
 	before, err := h.st.GetPage(ctx, canonical.ID)
@@ -152,7 +152,7 @@ func TestMergePages_RetryIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String())
+	err = h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), "")
 	if err == nil {
 		t.Fatal("retry must fail on soft-deleted duplicate")
 	}
@@ -197,7 +197,7 @@ func TestMergePages_MergedBodyRewritesSelfLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String()); err != nil {
+	if err := h.st.MergePages(ctx, canonical.ID, duplicate.ID, owner.String(), ""); err != nil {
 		t.Fatalf("MergePages: %v", err)
 	}
 	got, err := h.st.GetPage(ctx, canonical.ID)
