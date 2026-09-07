@@ -384,6 +384,9 @@ class ChatSyncService {
         continue;
       }
       final text = _extractText(rm);
+      // 表单终态行（P3-b）：parts 里 type=form → 重建 FormBlock 保真回放
+      // （只读表单卡）；无 form part 时走原 text 摘要块路径。
+      final formBlocks = _extractFormBlocks(rm);
 
       // 1) id 相同 → 已 hydrated 的行，按服务端内容更新；
       //    本地 pending / failed 绝不被覆盖（防御：理论上本地那些行 id 是
@@ -407,6 +410,7 @@ class ChatSyncService {
           errorMessage: rm.errorMsg,
           createdAt: rm.createdAt,
           text: text,
+          formBlocks: formBlocks,
         );
         if (changed) written++;
         continue;
@@ -432,6 +436,7 @@ class ChatSyncService {
         errorMessage: rm.errorMsg,
         createdAt: rm.createdAt,
         text: text,
+        formBlocks: formBlocks,
       );
       if (changed) written++;
     }
@@ -446,8 +451,14 @@ class ChatSyncService {
       MessageStatus.streaming,
       MessageStatus.failed,
     };
+    // 本地 'elicit:' 前缀行是表单终态沉淀（P3-b 实时链路写入）。服务端
+    // 未部署 form_answer 时远端永远没有对应行，不能当孤儿删；已部署时
+    // 远端行会经 _findLocalCopy 的 request_id 认亲把它们标 matched。
     final orphans = locals
-        .where((l) => !matched.contains(l.id) && !inFlight.contains(l.status))
+        .where((l) =>
+            !matched.contains(l.id) &&
+            !inFlight.contains(l.status) &&
+            !l.id.startsWith('elicit:'))
         .map((l) => l.id)
         .toList(growable: false);
     if (orphans.isNotEmpty) {
@@ -466,6 +477,17 @@ class ChatSyncService {
     Set<String> matched,
     String text,
   ) {
+    // 表单终态行（P3-b）：实时链路已用 'elicit:<request_id>' 落本地
+    // （biu_session_connection._onFormAnswer），服务端行 id 不同 ——
+    // 按 parts 里的 form request_id 认亲，防重复灌入。
+    for (final p in rm.parts) {
+      if (p is Map && p['type'] == 'form' && p['request_id'] is String) {
+        final localId = 'elicit:${p['request_id']}';
+        for (final l in locals) {
+          if (!matched.contains(l.id) && l.id == localId) return l;
+        }
+      }
+    }
     // client_id 会话关联（精确）：服务端 client_id = "<session_id>:user" /
     // "<session_id>:assistant"（router.go persistUserAndAssemble /
     // transcript.go finish 的幂等键）。
@@ -566,6 +588,24 @@ class ChatSyncService {
       }
     }
     return sb.toString();
+  }
+
+  /// 服务端消息 parts → FormBlock 列表（P3-b 表单沉淀，parts 形态
+  /// [{type:'form', request_id, question, header, multi_select, options,
+  /// action, content}]）。form 行 content 本身已是人类可读摘要，
+  /// _extractText 天然工作；这里额外保真出只读表单卡所需的结构。
+  List<FormBlock> _extractFormBlocks(ChatMessage m) {
+    final out = <FormBlock>[];
+    for (final p in m.parts) {
+      if (p is Map && p['type'] == 'form') {
+        out.add(FormBlock.fromPayload(
+          Map<String, dynamic>.from(p),
+          id: '${m.id}_b${out.length}',
+          index: out.length,
+        ));
+      }
+    }
+    return out;
   }
 
   // ── HTTP ──────────────────────────────────────────────────

@@ -123,6 +123,8 @@ class ServiceFrame {
         return SDKSessionStateChanged.fromJson(json);
       case 'elicitation_complete':
         return SDKElicitationComplete.fromJson(json);
+      case 'form_answer':
+        return SDKFormAnswer.fromJson(json);
       case 'post_turn_summary':
         return SDKPostTurnSummary.fromJson(json);
       default:

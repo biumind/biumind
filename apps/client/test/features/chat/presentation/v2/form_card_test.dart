@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:biumind/features/chat/application/chat_controller.dart';
 import 'package:biumind/features/chat/data/biu_session_connection.dart';
+import 'package:biumind/features/chat/domain/chat_models.dart';
 import 'package:biumind/features/chat/presentation/v2/form_card.dart';
 import 'package:biumind/l10n/app_localizations.dart';
 
@@ -170,8 +171,102 @@ void main() {
     expect(find.text('已取消'), findsOneWidget);
   });
 
-  group('FormSpec.parse', () {
-    test('x-biumind-question 优先(带 option 描述)', () {
+  group('pendingElicitationsProvider 去重 / 摘除（P3-b replay 修复）', () {
+    ElicitationRequested req(String id) => ElicitationRequested(
+          requestId: id,
+          message: 'q?',
+          schema: const {},
+          respond: (String action, [Map<String, dynamic>? content]) {},
+        );
+
+    test('同 request_id 重复 add 只入队一次', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final n = container.read(pendingElicitationsProvider.notifier);
+      n.add('t1', req('r1'));
+      n.add('t1', req('r1'));
+      n.add('t1', req('r2'));
+      final items =
+          container.read(pendingElicitationsProvider).forThread('t1');
+      expect(items, hasLength(2));
+      expect(items.map((i) => i.request.requestId), ['r1', 'r2']);
+    });
+
+    test('resolve 后同 request_id 再 add 被抑制（WS replay 重弹修复）', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final n = container.read(pendingElicitationsProvider.notifier);
+      n.add('t1', req('r1'));
+      n.resolve('t1', 'r1', action: 'accept', summary: 'blue');
+      n.add('t1', req('r1'));
+      final items =
+          container.read(pendingElicitationsProvider).forThread('t1');
+      expect(items, hasLength(1));
+      expect(items.single.answeredAction, 'accept');
+    });
+
+    test('remove 摘除悬浮卡且抑制后续同 id add', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final n = container.read(pendingElicitationsProvider.notifier);
+      n.add('t1', req('r1'));
+      n.add('t1', req('r2'));
+      n.remove('t1', 'r1');
+      var items = container.read(pendingElicitationsProvider).forThread('t1');
+      expect(items.map((i) => i.request.requestId), ['r2']);
+      // 摘除后再 replay 同 id 的 control_request → 不弹。
+      n.add('t1', req('r1'));
+      items = container.read(pendingElicitationsProvider).forThread('t1');
+      expect(items.map((i) => i.request.requestId), ['r2']);
+    });
+  });
+
+  group('FormBlockCard（历史只读表单卡,四态）', () {
+    Future<void> pumpBlock(WidgetTester tester, FormBlock block) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: FormBlockCard(block: block)),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    FormBlock blockFor(String action, {String? summary}) => FormBlock(
+          id: 'b0',
+          index: 0,
+          state: BlockState.closed,
+          requestId: 'r1',
+          question: 'Pick a color?',
+          header: 'Color',
+          action: action,
+          answerSummary: summary,
+        );
+
+    testWidgets('accept：显示问题 + 已回答：摘要', (tester) async {
+      await pumpBlock(tester, blockFor('accept', summary: 'blue'));
+      expect(find.text('Pick a color?'), findsOneWidget);
+      expect(find.text('Color'), findsOneWidget);
+      expect(find.text('已回答：blue'), findsOneWidget);
+      // 只读：无任何按钮。
+      expect(find.byType(FilledButton), findsNothing);
+      expect(find.byType(TextButton), findsNothing);
+    });
+
+    testWidgets('decline：已跳过', (tester) async {
+      await pumpBlock(tester, blockFor('decline'));
+      expect(find.text('已跳过'), findsOneWidget);
+    });
+
+    testWidgets('cancel：已取消', (tester) async {
+      await pumpBlock(tester, blockFor('cancel'));
+      expect(find.text('已取消'), findsOneWidget);
+    });
+
+    testWidgets('timeout：超时未回答', (tester) async {
+      await pumpBlock(tester, blockFor('timeout'));
+      expect(find.text('超时未回答'), findsOneWidget);
+    });
+  });
+
+  group('FormSpec.parse', () {    test('x-biumind-question 优先(带 option 描述)', () {
       final spec = FormSpec.parse(schemaFor(multi: false), 'fallback');
       expect(spec, isNotNull);
       expect(spec!.question, 'Pick a color?');

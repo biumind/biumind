@@ -19,6 +19,8 @@
 //   SDKStreamlinedText            → TextBlock（streaming，文本累计 append）
 //   SDKAssistantMessage.content   → 整批 ToolUse / Text blocks（closed）
 //   SDKToolUseSummary             → ToolResultBlock（完成态）
+//   SDKFormAnswer                 → 独立 assistant message 挂 FormBlock（P3-b
+//                                   表单沉淀，message id = elicit:<request_id>）
 //   SDKResultSuccess              → finalizeMessage(completed) + finalizeSession
 //   SDKResultError                → finalizeMessage(failed) + finalizeSession
 //
@@ -38,6 +40,7 @@ import '../../../data/api/sdkproto/v1/control/wrappers.dart';
 import '../../../data/api/sdkproto/v1/data/assistant.dart';
 import '../../../data/api/sdkproto/v1/data/result.dart';
 import '../../../data/api/sdkproto/v1/data/streamlined.dart';
+import '../../../data/api/sdkproto/v1/data/system.dart';
 import '../../../data/api/sdkproto/v1/data/tool.dart';
 import '../domain/chat_models.dart';
 import 'chat_repo.dart';
@@ -161,6 +164,21 @@ class ElicitationRequested extends SessionEvent {
     required this.message,
     required this.schema,
     required this.respond,
+  });
+}
+
+/// 表单终态帧（P3-b 表单沉淀,system/form_answer）已到达。连接层已把
+/// FormBlock 落库;ChatController 据此把 pendingElicitationsProvider 里
+/// 同 requestId 的悬浮卡摘除,避免与消息流里的历史只读卡双份展示。
+class FormAnswered extends SessionEvent {
+  final String requestId;
+  /// accept | decline | cancel | timeout
+  final String action;
+  final String? answerSummary;
+  const FormAnswered({
+    required this.requestId,
+    required this.action,
+    this.answerSummary,
   });
 }
 
@@ -730,7 +748,48 @@ class BiuSessionConnection {
         await _onResultError(frame);
       case SDKControlRequest():
         _onControlRequest(frame);
+      case SDKFormAnswer():
+        await _onFormAnswer(frame);
     }
+  }
+
+  /// 表单终态帧(P3-b):把问答沉淀成一条独立 assistant message(id =
+  /// `elicit:<request_id>`,与服务端 client_id 幂等键同形) + 单个 FormBlock,
+  /// 再发 FormAnswered 事件让 controller 摘掉悬浮卡。
+  ///
+  /// 幂等:WS replay 重放终态帧时消息只落一次,但事件照发 —— 重放场景
+  /// 悬浮卡可能还活着(控制帧重放先于/后于终态帧都可能有残留),需要摘除。
+  Future<void> _onFormAnswer(SDKFormAnswer f) async {
+    final msgId = 'elicit:${f.requestId}';
+    final block = FormBlock.fromPayload(
+      <String, dynamic>{
+        'request_id': f.requestId,
+        'question': f.question,
+        'header': f.header,
+        'multi_select': f.multiSelect,
+        'options': [for (final o in f.options) o.toJson()],
+        'action': f.action,
+        if (f.content != null) 'content': f.content!.toJson(),
+      },
+      id: '${msgId}_b0',
+      index: 0,
+    );
+    final existing = await repo.getMessage(msgId);
+    if (existing == null) {
+      await repo.appendMessage(
+        id: msgId,
+        threadId: thread.id,
+        role: MessageRole.assistant,
+        status: MessageStatus.completed,
+        sessionId: _session.sessionId,
+      );
+      await repo.upsertBlock(block, messageId: msgId);
+    }
+    _events.add(FormAnswered(
+      requestId: f.requestId,
+      action: f.action,
+      answerSummary: block.answerSummary,
+    ));
   }
 
   /// 处理 daemon 通过 brain 反向发来的 control request。

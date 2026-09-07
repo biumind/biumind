@@ -165,6 +165,7 @@ Map<String, dynamic> _msgJson({
   required String threadId,
   String role = 'user',
   String content = '',
+  List<dynamic> parts = const [],
   String status = 'success',
   String? clientId,
   String? model,
@@ -179,7 +180,7 @@ Map<String, dynamic> _msgJson({
     'thread_id': threadId,
     'role': role,
     'content': content,
-    'parts': const [],
+    'parts': parts,
     'status': status,
     'client_id': ?clientId,
     'model': ?model,
@@ -731,5 +732,126 @@ void main() {
     expect(await repo.getMessage('orphan'), isNull, reason: '孤儿 message 应被对账删除');
     expect(await repo.getMessage('pending1'), isNotNull, reason: 'pending 在途 message 必须保留');
     expect(await repo.getMessage('streaming1'), isNotNull, reason: 'streaming 在途 message 必须保留');
+  });
+
+  // ─── form 行（P3-b 表单沉淀）─────────────────────────────
+
+  Map<String, dynamic> formPart({
+    String requestId = 'req-1',
+    String action = 'accept',
+    dynamic answer = 'blue',
+  }) =>
+      {
+        'type': 'form',
+        'request_id': requestId,
+        'question': 'Pick a color?',
+        'header': 'Color',
+        'multi_select': false,
+        'options': [
+          {'label': 'red', 'description': 'warm'},
+          {'label': 'blue', 'description': 'cool'},
+        ],
+        'action': action,
+        if (answer != null) 'content': {'answer': answer},
+      };
+
+  test('form 行灌入:parts type=form → FormBlock 保真回放', () async {
+    final t = DateTime.utc(2026, 7, 1, 12);
+    brain.addThread(_threadJson(id: 't1', title: 't1', updatedAt: t));
+    brain.addMessage(
+      't1',
+      _msgJson(
+        id: 'sm-form',
+        threadId: 't1',
+        role: 'assistant',
+        content: 'Q:Pick a color? A:blue',
+        clientId: 'elicit:req-1',
+        parts: [formPart()],
+        position: 1,
+        createdAt: t,
+      ),
+    );
+
+    final r = await makeSvc().syncThreads();
+    expect(r.errors, isEmpty);
+    expect(r.messagesWritten, 1);
+
+    final m = await repo.getMessage('sm-form');
+    expect(m, isNotNull);
+    expect(m!.role, MessageRole.assistant);
+    expect(m.blocks, hasLength(1));
+    final f = m.blocks.first;
+    expect(f, isA<FormBlock>());
+    final fb = f as FormBlock;
+    expect(fb.requestId, 'req-1');
+    expect(fb.question, 'Pick a color?');
+    expect(fb.action, 'accept');
+    expect(fb.answerSummary, 'blue');
+  });
+
+  test('form 行认亲:本地 elicit:<request_id> 已存在 → 不重复灌、不当孤儿删',
+      () async {
+    final t = DateTime.utc(2026, 7, 1, 12);
+    brain.addThread(_threadJson(id: 't1', title: 't1', updatedAt: t));
+    brain.addMessage(
+      't1',
+      _msgJson(
+        id: 'sm-form',
+        threadId: 't1',
+        role: 'assistant',
+        content: 'Q:Pick a color? A:blue',
+        clientId: 'elicit:req-1',
+        parts: [formPart()],
+        position: 1,
+        createdAt: t,
+      ),
+    );
+
+    // 本地实时链路（biu_session_connection._onFormAnswer）已落的行。
+    await repo.createThread(id: 't1', mode: ThreadMode.chat, title: 't1');
+    await repo.appendMessage(
+      id: 'elicit:req-1',
+      threadId: 't1',
+      role: MessageRole.assistant,
+      status: MessageStatus.completed,
+    );
+    await repo.upsertBlock(
+      FormBlock.fromPayload(formPart(), id: 'elicit:req-1_b0', index: 0),
+      messageId: 'elicit:req-1',
+    );
+
+    final r = await makeSvc().syncThreads();
+    expect(r.errors, isEmpty);
+    expect(r.messagesWritten, 0, reason: '同 request_id 已沉淀,不重复灌');
+
+    final msgs = await repo.listMessagesOnce('t1');
+    expect(msgs, hasLength(1));
+    expect(msgs.single.id, 'elicit:req-1',
+        reason: '本地沉淀行不被孤儿对账删掉');
+  });
+
+  test('form 行孤儿保护:服务端未部署 form_answer 时本地沉淀行不被删',
+      () async {
+    final t = DateTime.utc(2026, 7, 1, 12);
+    brain.addThread(_threadJson(id: 't1', title: 't1', updatedAt: t));
+    // 服务端无任何 form 行（旧版 brain）。
+
+    await repo.createThread(id: 't1', mode: ThreadMode.chat, title: 't1');
+    await repo.appendMessage(
+      id: 'elicit:req-9',
+      threadId: 't1',
+      role: MessageRole.assistant,
+      status: MessageStatus.completed,
+    );
+    await repo.upsertBlock(
+      FormBlock.fromPayload(formPart(requestId: 'req-9'),
+          id: 'elicit:req-9_b0', index: 0),
+      messageId: 'elicit:req-9',
+    );
+
+    await makeSvc().syncThread('t1');
+
+    expect(await repo.getMessage('elicit:req-9'), isNotNull,
+        reason: 'elicit: 前缀行不做孤儿删除（服务端可能尚未部署）');
   });
 }

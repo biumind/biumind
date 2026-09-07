@@ -255,6 +255,87 @@ void main() {
     expect((m3!.blocks.first as ImageBlock).mimeType, 'image/png');
   });
 
+  test('upsertBlock supports form type（P3-b 表单沉淀 round-trip）', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    await repo.appendMessage(
+        id: 'm1', threadId: 't1', role: MessageRole.assistant);
+    const block = FormBlock(
+      id: 'fb',
+      index: 0,
+      state: BlockState.closed,
+      requestId: 'req-1',
+      question: 'Pick a color?',
+      header: 'Color',
+      multiSelect: true,
+      options: [
+        (label: 'red', description: 'warm'),
+        (label: 'blue', description: 'cool'),
+      ],
+      action: 'accept',
+      answerSummary: 'red、blue',
+      notes: '都喜欢',
+    );
+    await repo.upsertBlock(block, messageId: 'm1');
+
+    final m = await repo.getMessage('m1');
+    expect(m!.blocks, hasLength(1));
+    final b = m.blocks.first;
+    expect(b, isA<FormBlock>());
+    final f = b as FormBlock;
+    expect(f.requestId, 'req-1');
+    expect(f.question, 'Pick a color?');
+    expect(f.header, 'Color');
+    expect(f.multiSelect, isTrue);
+    expect(f.options.map((o) => o.label), ['red', 'blue']);
+    expect(f.options.first.description, 'warm');
+    expect(f.action, 'accept');
+    expect(f.answerSummary, 'red、blue');
+    expect(f.notes, '都喜欢');
+  });
+
+  test('upsertMessageFromSync with formBlocks writes form block（保真回放）',
+      () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    const form = FormBlock(
+      id: 'srv-m1_b0',
+      index: 0,
+      state: BlockState.closed,
+      requestId: 'req-9',
+      question: '继续吗?',
+      action: 'timeout',
+    );
+    final wrote = await repo.upsertMessageFromSync(
+      id: 'srv-m1',
+      threadId: 't1',
+      role: MessageRole.assistant,
+      status: MessageStatus.completed,
+      seq: 1,
+      createdAt: DateTime(2026, 1, 1),
+      text: 'Q:继续吗? A:超时未答',
+      formBlocks: const [form],
+    );
+    expect(wrote, isTrue);
+
+    final m = await repo.getMessage('srv-m1');
+    expect(m!.blocks, hasLength(1));
+    final f = m.blocks.first;
+    expect(f, isA<FormBlock>());
+    expect((f as FormBlock).action, 'timeout');
+
+    // 幂等：同 payload 再同步不再写。
+    final wroteAgain = await repo.upsertMessageFromSync(
+      id: 'srv-m1',
+      threadId: 't1',
+      role: MessageRole.assistant,
+      status: MessageStatus.completed,
+      seq: 1,
+      createdAt: DateTime(2026, 1, 1),
+      text: 'Q:继续吗? A:超时未答',
+      formBlocks: const [form],
+    );
+    expect(wroteAgain, isFalse);
+  });
+
   test('replaceBlocks atomically swaps a message\'s blocks', () async {
     await repo.createThread(id: 't1', mode: ThreadMode.chat);
     await repo.appendMessage(

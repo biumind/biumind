@@ -50,6 +50,9 @@ void main() {
       "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
       "VALUES ('chat.sync','evt-1',1780000000)",
     );
+    // 真实 v32 库必有 chat_content_blocks（v10 建）—— v37 给它加
+    // form_payload_json 列（P3-b 表单沉淀），fixture 缺了会 no such table。
+    raw.execute('CREATE TABLE chat_content_blocks (id TEXT NOT NULL PRIMARY KEY)');
     raw.userVersion = 32;
 
     // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(32→34) ──
@@ -58,7 +61,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
+    expect(raw.userVersion, 37, reason: '迁移后 schema 版本应为 37');
 
     // v34:sse_cursors 旧的裸 topic 行已清（详细断言见
     // migration_v33_to_v34_test.dart）。

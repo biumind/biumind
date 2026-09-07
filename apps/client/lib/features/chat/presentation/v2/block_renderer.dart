@@ -16,6 +16,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../domain/chat_models.dart';
 import '../../domain/reasoning_parser.dart';
 import '../../markdown/pipeline.dart';
+import 'form_card.dart';
 
 class BlockRenderer extends StatelessWidget {
   const BlockRenderer({
@@ -45,6 +46,8 @@ class BlockRenderer extends StatelessWidget {
         _ToolResultBlockView(content: content, isError: isError),
       ImageBlock(:final id, :final mimeType, :final data) =>
         _ImageBlockView(cacheKey: id, mimeType: mimeType, base64Data: data),
+      // 表单终态（P3-b）：历史回放渲染只读表单卡。
+      FormBlock() => FormBlockCard(block: block as FormBlock),
     };
   }
 }

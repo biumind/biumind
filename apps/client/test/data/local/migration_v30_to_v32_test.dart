@@ -74,6 +74,9 @@ void main() {
       "INSERT INTO sse_cursors (scope,last_event_id,updated_at) "
       "VALUES ('notes.changes','42',1780000000)",
     );
+    // 真实 v30 库必有 chat_content_blocks（v10 建）—— v37 给它加
+    // form_payload_json 列（P3-b 表单沉淀），fixture 缺了会 no such table。
+    raw.execute('CREATE TABLE chat_content_blocks (id TEXT NOT NULL PRIMARY KEY)');
     final ts = DateTime.utc(2026, 8, 1).millisecondsSinceEpoch ~/ 1000;
     raw.execute(
       "INSERT INTO chat_threads_v2 (id,title,mode,created_at,updated_at,owner_key) "
@@ -87,7 +90,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36（v33 笔记五表加 owner_key，v34 清 sse_cursors）');
+    expect(raw.userVersion, 37, reason: '迁移后 schema 版本应为 37（v33 笔记五表加 owner_key，v34 清 sse_cursors，v37 chat_content_blocks 加 form_payload_json）');
 
     // v34:sse_cursors 旧的裸 topic 行已清。
     expect(

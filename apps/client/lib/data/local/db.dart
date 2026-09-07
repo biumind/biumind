@@ -487,7 +487,7 @@ class ChatContentBlocks extends Table {
   TextColumn get messageId => text()();
   /// 0-based 在 message.content 数组里的位置
   IntColumn get blockIndex => integer()();
-  /// 'text' | 'tool_use' | 'tool_result' | 'image'
+  /// 'text' | 'tool_use' | 'tool_result' | 'image' | 'form'
   TextColumn get type => text()();
   /// type=text
   TextColumn get textContent => text().nullable()();
@@ -503,6 +503,9 @@ class ChatContentBlocks extends Table {
   /// type=image
   TextColumn get imageMimeType => text().nullable()();
   TextColumn get imageData => text().nullable()();
+  /// type=form —— 表单终态（P3-b）整块 payload JSON：
+  /// {request_id, question, header, multi_select, options, action, content}。
+  TextColumn get formPayloadJson => text().nullable()();
   /// streaming 时 block 状态：'streaming'（text delta 还在拼）| 'closed'
   TextColumn get state => text().withDefault(const Constant('closed'))();
   DateTimeColumn get createdAt => dateTime()();
@@ -652,7 +655,7 @@ class AppDb extends _$AppDb {
   factory AppDb.memory() => AppDb.executor(opener.memoryExecutor());
 
   @override
-  int get schemaVersion => 36;
+  int get schemaVersion => 37;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -919,6 +922,16 @@ class AppDb extends _$AppDb {
             // （同 v33 owner_key / v35 base 列的 from >= 28 守卫）。
             if (from >= 28) {
               await m.addColumn(noteNotebooks, noteNotebooks.parentId);
+            }
+          }
+          if (from < 37) {
+            // Phase 37: 表单沉淀消息流（P3-b，设计 §6.2）——
+            // ChatContentBlocks 加可空 form_payload_json 存 form 块整块
+            // payload。下界防 duplicate column：from < 10 时 Phase 10 的
+            // createTable 已按当前 schema 建表（同 v36 的 from >= 28 守卫）。
+            if (from >= 10) {
+              await m.addColumn(
+                  chatContentBlocks, chatContentBlocks.formPayloadJson);
             }
           }
         },

@@ -187,6 +187,42 @@ void main() {
       expect((blocks[1] as ToolResultBlock).toolResultId, 'tu_abc');
       expect((blocks[1] as ToolResultBlock).content, 'file1\nfile2');
     });
+
+    test('preserves form blocks（P3-b 表单沉淀导出）', () {
+      final t = _thread();
+      final messages = [
+        _msg(
+          id: 'm1',
+          role: MessageRole.assistant,
+          seq: 1,
+          blocks: [
+            const FormBlock(
+              id: 'fb0',
+              index: 0,
+              state: BlockState.closed,
+              requestId: 'req-1',
+              question: 'Pick a color?',
+              header: 'Color',
+              multiSelect: false,
+              options: [(label: 'red', description: 'warm')],
+              action: 'accept',
+              answerSummary: 'red',
+            ),
+          ],
+        ),
+      ];
+      final parsed = parseThreadExportJson(
+          exportThreadAsJson(thread: t, messages: messages));
+      final blocks = parsed.messages.first.blocks;
+      expect(blocks, hasLength(1));
+      expect(blocks[0], isA<FormBlock>());
+      final f = blocks[0] as FormBlock;
+      expect(f.requestId, 'req-1');
+      expect(f.question, 'Pick a color?');
+      expect(f.action, 'accept');
+      expect(f.answerSummary, 'red');
+      expect(f.options.single.label, 'red');
+    });
   });
 
   group('exportAllAsJson', () {

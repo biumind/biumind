@@ -60,8 +60,14 @@ class _MessageBubbleV2State extends ConsumerState<MessageBubbleV2> {
   Widget build(BuildContext context) {
     final m = widget.message;
     final isUser = m.role == MessageRole.user;
-    final isAssistantCompleted =
-        m.role == MessageRole.assistant && m.status == MessageStatus.completed;
+    // 表单终态行（P3-b,整条只有 FormBlock）不参与 footer/hover 动作 —
+    // 复制/朗读/引用对空 assembledText 无意义,「重新生成」以表单行为
+    // pivot 更是错语义。只读卡 + 长按菜单(删除/debug)即可。
+    final isFormOnly =
+        m.blocks.isNotEmpty && m.blocks.every((b) => b is FormBlock);
+    final isAssistantCompleted = m.role == MessageRole.assistant &&
+        m.status == MessageStatus.completed &&
+        !isFormOnly;
     final theme = Theme.of(context);
     final avatarOnly = isUser
         ? MessageAvatar.user(name: widget.userName)

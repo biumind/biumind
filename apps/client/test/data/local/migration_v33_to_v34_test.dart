@@ -38,6 +38,9 @@ void main() {
     raw.execute('CREATE TABLE note_notes (id TEXT NOT NULL PRIMARY KEY)');
     // v36 给 note_notebooks 加 parent_id（多级目录）—— 同上，先补桩表。
     raw.execute('CREATE TABLE note_notebooks (id TEXT NOT NULL PRIMARY KEY)');
+    // v37 给 chat_content_blocks 加 form_payload_json（P3-b 表单沉淀）——
+    // 同上，先补桩表。
+    raw.execute('CREATE TABLE chat_content_blocks (id TEXT NOT NULL PRIMARY KEY)');
     raw.userVersion = 33;
 
     // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(33→34) ──
@@ -46,7 +49,7 @@ void main() {
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
+    expect(raw.userVersion, 37, reason: '迁移后 schema 版本应为 37');
     expect(
       raw.select('SELECT COUNT(*) AS c FROM sse_cursors').first['c'],
       0,

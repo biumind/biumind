@@ -8911,6 +8911,17 @@ class $ChatContentBlocksTable extends ChatContentBlocks
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _formPayloadJsonMeta = const VerificationMeta(
+    'formPayloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> formPayloadJson = GeneratedColumn<String>(
+    'form_payload_json',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _stateMeta = const VerificationMeta('state');
   @override
   late final GeneratedColumn<String> state = GeneratedColumn<String>(
@@ -8970,6 +8981,7 @@ class $ChatContentBlocksTable extends ChatContentBlocks
     toolResultContentJson,
     imageMimeType,
     imageData,
+    formPayloadJson,
     state,
     createdAt,
     updatedAt,
@@ -9091,6 +9103,15 @@ class $ChatContentBlocksTable extends ChatContentBlocks
         imageData.isAcceptableOrUnknown(data['image_data']!, _imageDataMeta),
       );
     }
+    if (data.containsKey('form_payload_json')) {
+      context.handle(
+        _formPayloadJsonMeta,
+        formPayloadJson.isAcceptableOrUnknown(
+          data['form_payload_json']!,
+          _formPayloadJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('state')) {
       context.handle(
         _stateMeta,
@@ -9180,6 +9201,10 @@ class $ChatContentBlocksTable extends ChatContentBlocks
         DriftSqlType.string,
         data['${effectivePrefix}image_data'],
       ),
+      formPayloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}form_payload_json'],
+      ),
       state: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}state'],
@@ -9213,7 +9238,7 @@ class LocalChatContentBlock extends DataClass
   /// 0-based 在 message.content 数组里的位置
   final int blockIndex;
 
-  /// 'text' | 'tool_use' | 'tool_result' | 'image'
+  /// 'text' | 'tool_use' | 'tool_result' | 'image' | 'form'
   final String type;
 
   /// type=text
@@ -9234,6 +9259,10 @@ class LocalChatContentBlock extends DataClass
   /// type=image
   final String? imageMimeType;
   final String? imageData;
+
+  /// type=form —— 表单终态（P3-b）整块 payload JSON：
+  /// {request_id, question, header, multi_select, options, action, content}。
+  final String? formPayloadJson;
 
   /// streaming 时 block 状态：'streaming'（text delta 还在拼）| 'closed'
   final String state;
@@ -9256,6 +9285,7 @@ class LocalChatContentBlock extends DataClass
     this.toolResultContentJson,
     this.imageMimeType,
     this.imageData,
+    this.formPayloadJson,
     required this.state,
     required this.createdAt,
     required this.updatedAt,
@@ -9294,6 +9324,9 @@ class LocalChatContentBlock extends DataClass
     }
     if (!nullToAbsent || imageData != null) {
       map['image_data'] = Variable<String>(imageData);
+    }
+    if (!nullToAbsent || formPayloadJson != null) {
+      map['form_payload_json'] = Variable<String>(formPayloadJson);
     }
     map['state'] = Variable<String>(state);
     map['created_at'] = Variable<DateTime>(createdAt);
@@ -9335,6 +9368,9 @@ class LocalChatContentBlock extends DataClass
       imageData: imageData == null && nullToAbsent
           ? const Value.absent()
           : Value(imageData),
+      formPayloadJson: formPayloadJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(formPayloadJson),
       state: Value(state),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
@@ -9363,6 +9399,7 @@ class LocalChatContentBlock extends DataClass
       ),
       imageMimeType: serializer.fromJson<String?>(json['imageMimeType']),
       imageData: serializer.fromJson<String?>(json['imageData']),
+      formPayloadJson: serializer.fromJson<String?>(json['formPayloadJson']),
       state: serializer.fromJson<String>(json['state']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
@@ -9388,6 +9425,7 @@ class LocalChatContentBlock extends DataClass
       ),
       'imageMimeType': serializer.toJson<String?>(imageMimeType),
       'imageData': serializer.toJson<String?>(imageData),
+      'formPayloadJson': serializer.toJson<String?>(formPayloadJson),
       'state': serializer.toJson<String>(state),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
@@ -9409,6 +9447,7 @@ class LocalChatContentBlock extends DataClass
     Value<String?> toolResultContentJson = const Value.absent(),
     Value<String?> imageMimeType = const Value.absent(),
     Value<String?> imageData = const Value.absent(),
+    Value<String?> formPayloadJson = const Value.absent(),
     String? state,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -9435,6 +9474,9 @@ class LocalChatContentBlock extends DataClass
         ? imageMimeType.value
         : this.imageMimeType,
     imageData: imageData.present ? imageData.value : this.imageData,
+    formPayloadJson: formPayloadJson.present
+        ? formPayloadJson.value
+        : this.formPayloadJson,
     state: state ?? this.state,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -9471,6 +9513,9 @@ class LocalChatContentBlock extends DataClass
           ? data.imageMimeType.value
           : this.imageMimeType,
       imageData: data.imageData.present ? data.imageData.value : this.imageData,
+      formPayloadJson: data.formPayloadJson.present
+          ? data.formPayloadJson.value
+          : this.formPayloadJson,
       state: data.state.present ? data.state.value : this.state,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
@@ -9494,6 +9539,7 @@ class LocalChatContentBlock extends DataClass
           ..write('toolResultContentJson: $toolResultContentJson, ')
           ..write('imageMimeType: $imageMimeType, ')
           ..write('imageData: $imageData, ')
+          ..write('formPayloadJson: $formPayloadJson, ')
           ..write('state: $state, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -9517,6 +9563,7 @@ class LocalChatContentBlock extends DataClass
     toolResultContentJson,
     imageMimeType,
     imageData,
+    formPayloadJson,
     state,
     createdAt,
     updatedAt,
@@ -9539,6 +9586,7 @@ class LocalChatContentBlock extends DataClass
           other.toolResultContentJson == this.toolResultContentJson &&
           other.imageMimeType == this.imageMimeType &&
           other.imageData == this.imageData &&
+          other.formPayloadJson == this.formPayloadJson &&
           other.state == this.state &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
@@ -9560,6 +9608,7 @@ class ChatContentBlocksCompanion
   final Value<String?> toolResultContentJson;
   final Value<String?> imageMimeType;
   final Value<String?> imageData;
+  final Value<String?> formPayloadJson;
   final Value<String> state;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
@@ -9579,6 +9628,7 @@ class ChatContentBlocksCompanion
     this.toolResultContentJson = const Value.absent(),
     this.imageMimeType = const Value.absent(),
     this.imageData = const Value.absent(),
+    this.formPayloadJson = const Value.absent(),
     this.state = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
@@ -9599,6 +9649,7 @@ class ChatContentBlocksCompanion
     this.toolResultContentJson = const Value.absent(),
     this.imageMimeType = const Value.absent(),
     this.imageData = const Value.absent(),
+    this.formPayloadJson = const Value.absent(),
     this.state = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
@@ -9624,6 +9675,7 @@ class ChatContentBlocksCompanion
     Expression<String>? toolResultContentJson,
     Expression<String>? imageMimeType,
     Expression<String>? imageData,
+    Expression<String>? formPayloadJson,
     Expression<String>? state,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
@@ -9645,6 +9697,7 @@ class ChatContentBlocksCompanion
         'tool_result_content_json': toolResultContentJson,
       if (imageMimeType != null) 'image_mime_type': imageMimeType,
       if (imageData != null) 'image_data': imageData,
+      if (formPayloadJson != null) 'form_payload_json': formPayloadJson,
       if (state != null) 'state': state,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
@@ -9667,6 +9720,7 @@ class ChatContentBlocksCompanion
     Value<String?>? toolResultContentJson,
     Value<String?>? imageMimeType,
     Value<String?>? imageData,
+    Value<String?>? formPayloadJson,
     Value<String>? state,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
@@ -9688,6 +9742,7 @@ class ChatContentBlocksCompanion
           toolResultContentJson ?? this.toolResultContentJson,
       imageMimeType: imageMimeType ?? this.imageMimeType,
       imageData: imageData ?? this.imageData,
+      formPayloadJson: formPayloadJson ?? this.formPayloadJson,
       state: state ?? this.state,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -9740,6 +9795,9 @@ class ChatContentBlocksCompanion
     if (imageData.present) {
       map['image_data'] = Variable<String>(imageData.value);
     }
+    if (formPayloadJson.present) {
+      map['form_payload_json'] = Variable<String>(formPayloadJson.value);
+    }
     if (state.present) {
       map['state'] = Variable<String>(state.value);
     }
@@ -9774,6 +9832,7 @@ class ChatContentBlocksCompanion
           ..write('toolResultContentJson: $toolResultContentJson, ')
           ..write('imageMimeType: $imageMimeType, ')
           ..write('imageData: $imageData, ')
+          ..write('formPayloadJson: $formPayloadJson, ')
           ..write('state: $state, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
@@ -18156,6 +18215,7 @@ typedef $$ChatContentBlocksTableCreateCompanionBuilder =
       Value<String?> toolResultContentJson,
       Value<String?> imageMimeType,
       Value<String?> imageData,
+      Value<String?> formPayloadJson,
       Value<String> state,
       required DateTime createdAt,
       required DateTime updatedAt,
@@ -18177,6 +18237,7 @@ typedef $$ChatContentBlocksTableUpdateCompanionBuilder =
       Value<String?> toolResultContentJson,
       Value<String?> imageMimeType,
       Value<String?> imageData,
+      Value<String?> formPayloadJson,
       Value<String> state,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
@@ -18255,6 +18316,11 @@ class $$ChatContentBlocksTableFilterComposer
 
   ColumnFilters<String> get imageData => $composableBuilder(
     column: $table.imageData,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get formPayloadJson => $composableBuilder(
+    column: $table.formPayloadJson,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -18353,6 +18419,11 @@ class $$ChatContentBlocksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get formPayloadJson => $composableBuilder(
+    column: $table.formPayloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get state => $composableBuilder(
     column: $table.state,
     builder: (column) => ColumnOrderings(column),
@@ -18438,6 +18509,11 @@ class $$ChatContentBlocksTableAnnotationComposer
   GeneratedColumn<String> get imageData =>
       $composableBuilder(column: $table.imageData, builder: (column) => column);
 
+  GeneratedColumn<String> get formPayloadJson => $composableBuilder(
+    column: $table.formPayloadJson,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get state =>
       $composableBuilder(column: $table.state, builder: (column) => column);
 
@@ -18504,6 +18580,7 @@ class $$ChatContentBlocksTableTableManager
                 Value<String?> toolResultContentJson = const Value.absent(),
                 Value<String?> imageMimeType = const Value.absent(),
                 Value<String?> imageData = const Value.absent(),
+                Value<String?> formPayloadJson = const Value.absent(),
                 Value<String> state = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
@@ -18523,6 +18600,7 @@ class $$ChatContentBlocksTableTableManager
                 toolResultContentJson: toolResultContentJson,
                 imageMimeType: imageMimeType,
                 imageData: imageData,
+                formPayloadJson: formPayloadJson,
                 state: state,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
@@ -18544,6 +18622,7 @@ class $$ChatContentBlocksTableTableManager
                 Value<String?> toolResultContentJson = const Value.absent(),
                 Value<String?> imageMimeType = const Value.absent(),
                 Value<String?> imageData = const Value.absent(),
+                Value<String?> formPayloadJson = const Value.absent(),
                 Value<String> state = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
@@ -18563,6 +18642,7 @@ class $$ChatContentBlocksTableTableManager
                 toolResultContentJson: toolResultContentJson,
                 imageMimeType: imageMimeType,
                 imageData: imageData,
+                formPayloadJson: formPayloadJson,
                 state: state,
                 createdAt: createdAt,
                 updatedAt: updatedAt,

@@ -838,6 +838,19 @@ class ChatRepo {
                 updatedAt: now,
               ),
             );
+      case FormBlock():
+        await db.into(db.chatContentBlocks).insert(
+              ChatContentBlocksCompanion.insert(
+                id: id,
+                messageId: messageId,
+                ownerKey: Value(scope),
+                blockIndex: index,
+                type: 'form',
+                formPayloadJson: Value(encodeJsonMap(b.toPayload())),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
     }
   }
 
@@ -1231,6 +1244,9 @@ class ChatRepo {
     String? errorMessage,
     required DateTime createdAt,
     required String text,
+    /// 表单终态行（P3-b）：parts 里带 type=form 时传重建好的 FormBlock，
+    /// 非空则写 form 块（只读表单卡回放）而不是 text 摘要块。
+    List<FormBlock> formBlocks = const [],
   }) async {
     final isTerminal = status == MessageStatus.completed ||
         status == MessageStatus.failed ||
@@ -1273,6 +1289,24 @@ class ChatRepo {
         completedAt: Value(completedAt),
       ));
       wrote = true;
+    }
+    // form 块（P3-b 表单沉淀）：整块 payload 没变就跳过，变了整批替换
+    // （replaceBlocks 幂等）。form 行不写 text 摘要块——卡片自含问答展示。
+    if (formBlocks.isNotEmpty) {
+      const formBlockIndex = 0;
+      final formBlockId = '${id}_b$formBlockIndex';
+      final payloadJson = encodeJsonMap(formBlocks.first.toPayload());
+      final existingForm = await (db.select(db.chatContentBlocks)
+            ..where(
+                (b) => b.id.equals(formBlockId) & b.ownerKey.equals(scope)))
+          .getSingleOrNull();
+      if (existingForm == null ||
+          existingForm.type != 'form' ||
+          existingForm.formPayloadJson != payloadJson) {
+        await replaceBlocks(id, formBlocks);
+        wrote = true;
+      }
+      return wrote;
     }
     // text block：内容没变就跳过（hydrated message 永远只有这一个块，
     // replaceBlocks 整批替换是安全且幂等的）。
@@ -1433,6 +1467,13 @@ Block _blockFromRow(LocalChatContentBlock r) {
         mimeType: r.imageMimeType ?? '',
         data: r.imageData ?? '',
       );
+    case 'form':
+      return FormBlock.fromPayload(
+        decodeJsonMap(r.formPayloadJson) ?? const {},
+        id: r.id,
+        index: r.blockIndex,
+        state: state,
+      );
     case 'text':
     default:
       return TextBlock(
@@ -1481,6 +1522,11 @@ ChatContentBlocksCompanion _blockToCompanion(
         type: const Value('image'),
         imageMimeType: Value(mimeType),
         imageData: Value(data),
+      );
+    case FormBlock():
+      return base.copyWith(
+        type: const Value('form'),
+        formPayloadJson: Value(encodeJsonMap(b.toPayload())),
       );
   }
 }

@@ -103,6 +103,25 @@ class _MessageDebugSheet extends StatelessWidget {
           'mimeType': mimeType,
           'dataLength': data.length,
         },
+      FormBlock(
+        :final id,
+        :final index,
+        :final state,
+        :final requestId,
+        :final question,
+        :final action,
+        :final answerSummary,
+      ) =>
+        {
+          'kind': 'form',
+          'id': id,
+          'index': index,
+          'state': state.name,
+          'requestId': requestId,
+          'question': question,
+          'action': action,
+          'answerSummary': answerSummary,
+        },
     };
   }
 

@@ -905,7 +905,22 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // agent 提问表单(chat 模式 elicitation)。投递到
           // pendingElicitationsProvider 让 UI 弹 FormCard;不应答时服务端
           // 5min 超时兜底,这里不改 ChatState,streaming 继续。
-          ref.read(pendingElicitationsProvider.notifier).add(arg, event);
+          //
+          // 重连 replay 抑制(P3-b):消息流里已有该 request_id 的 FormBlock
+          // (表单早已沉淀) → 不再弹可答卡。provider add() 内部另有
+          // request_id 去重 + settled 集合兜住同进程内重复。
+          final msgs = ref.read(messagesProvider(arg)).valueOrNull;
+          final alreadySettled = msgs != null &&
+              msgs.any((m) => m.blocks
+                  .any((b) => b is FormBlock && b.requestId == event.requestId));
+          if (!alreadySettled) {
+            ref.read(pendingElicitationsProvider.notifier).add(arg, event);
+          }
+        case FormAnswered(:final requestId):
+          // 表单终态已沉淀进消息流(FormBlock,见 BiuSessionConnection
+          // ._onFormAnswer)。摘掉同 requestId 的悬浮卡,避免与历史只读卡
+          // 双份展示。
+          ref.read(pendingElicitationsProvider.notifier).remove(arg, requestId);
       }
     });
   }
@@ -1235,15 +1250,28 @@ class PendingElicitationsState {
 
 /// PendingElicitationsController —— 镜像 PendingApprovalsController 的数
 /// 据流:BiuSessionConnection 经 ChatController 投递 ElicitationRequested;
-/// FormCard watch 本 provider 渲染。差异:应答后不摘除而是锁定展示已选
-/// (一期不落库,thread 切换 / 清理时随 clearThread 消失)。
+/// FormCard watch 本 provider 渲染。P3-b 起终态(form_answer 帧)落库后
+/// 由 ChatController 调 [remove] 摘除悬浮卡,历史里以 FormBlock 只读卡呈现。
 class PendingElicitationsController extends Notifier<PendingElicitationsState> {
   @override
   PendingElicitationsState build() => const PendingElicitationsState();
 
+  /// 已终结(答过/被摘除)的 requestId 集合 —— WS replay 重放
+  /// control_request 时不再弹出可答卡(修重连重弹已答表单的 bug)。
+  final _settled = <String>{};
+
   void add(String threadId, ElicitationRequested req) {
+    // 去重①:同 request_id 已终结(本进程内答过或终态帧已摘除) —— WS
+    // replay 重放 control_request 时不再弹出可答卡。
+    if (_settled.contains(req.requestId)) return;
+    final list = state.byThread[threadId] ?? const <ElicitationItem>[];
+    // 去重②:同 request_id 已在队列里(replay 重复投递)。
+    if (list.any((i) => i.request.requestId == req.requestId)) return;
+    // 去重③(消息流已有该 FormBlock)在 ChatController 的 ElicitationRequested
+    // 分支做 —— 那里能读 messagesProvider;这里保持纯内存,裸 ProviderContainer
+    // 也可测试。
     final next = Map<String, List<ElicitationItem>>.from(state.byThread);
-    next[threadId] = [...(next[threadId] ?? const []), ElicitationItem(request: req)];
+    next[threadId] = [...list, ElicitationItem(request: req)];
     state = PendingElicitationsState(byThread: next);
   }
 
@@ -1254,6 +1282,7 @@ class PendingElicitationsController extends Notifier<PendingElicitationsState> {
     required String action,
     String? summary,
   }) {
+    _settled.add(requestId);
     final list = state.byThread[threadId];
     if (list == null) return;
     final next = Map<String, List<ElicitationItem>>.from(state.byThread);
@@ -1268,6 +1297,23 @@ class PendingElicitationsController extends Notifier<PendingElicitationsState> {
         else
           item,
     ];
+    state = PendingElicitationsState(byThread: next);
+  }
+
+  /// 终态帧(form_answer)到达后摘除该条 —— 问答已沉淀进消息流,
+  /// 悬浮卡不再展示(含锁定态),避免与历史只读卡双份。
+  void remove(String threadId, String requestId) {
+    _settled.add(requestId);
+    final list = state.byThread[threadId];
+    if (list == null) return;
+    final filtered =
+        list.where((i) => i.request.requestId != requestId).toList();
+    final next = Map<String, List<ElicitationItem>>.from(state.byThread);
+    if (filtered.isEmpty) {
+      next.remove(threadId);
+    } else {
+      next[threadId] = filtered;
+    }
     state = PendingElicitationsState(byThread: next);
   }
 

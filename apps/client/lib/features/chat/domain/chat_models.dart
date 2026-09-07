@@ -264,6 +264,105 @@ class ImageBlock extends Block {
   });
 }
 
+/// FormBlock —— AskUserQuestion 表单终态（accept/decline/cancel/timeout）
+/// 沉淀进消息流的只读块（P3-b 表单沉淀，设计 §6.2）。payload 与服务端
+/// chat.messages.parts[{type:'form'}] 同形；[answerSummary] 是
+/// content.answer 的人类可读摘要（单选=label，多选=顿号拼接）。
+class FormBlock extends Block {
+  final String requestId;
+  final String question;
+  final String header;
+  final bool multiSelect;
+  final List<({String label, String description})> options;
+  /// accept | decline | cancel | timeout
+  final String action;
+  final String? answerSummary;
+  final String? notes;
+
+  const FormBlock({
+    required super.id,
+    required super.index,
+    required super.state,
+    required this.requestId,
+    this.question = '',
+    this.header = '',
+    this.multiSelect = false,
+    this.options = const [],
+    required this.action,
+    this.answerSummary,
+    this.notes,
+  });
+
+  /// 从 parts / form_answer 帧的 payload 重建。content.answer 可能是
+  /// String（单选/自由文本）或 `List<String>`（多选），统一 flatten 成摘要。
+  static FormBlock fromPayload(
+    Map<String, dynamic> p, {
+    required String id,
+    required int index,
+    BlockState state = BlockState.closed,
+  }) {
+    String? summary;
+    String? notes;
+    final content = p['content'];
+    if (content is Map) {
+      final answer = content['answer'];
+      if (answer is String) {
+        summary = answer;
+      } else if (answer is List) {
+        summary = answer.whereType<String>().join('、');
+      }
+      notes = content['notes'] as String?;
+    }
+    final options = <({String label, String description})>[];
+    final rawOptions = p['options'];
+    if (rawOptions is List) {
+      for (final o in rawOptions) {
+        if (o is Map && o['label'] is String) {
+          options.add((
+            label: o['label'] as String,
+            description: (o['description'] as String?) ?? '',
+          ));
+        }
+      }
+    }
+    return FormBlock(
+      id: id,
+      index: index,
+      state: state,
+      requestId: (p['request_id'] as String?) ?? '',
+      question: (p['question'] as String?) ?? '',
+      header: (p['header'] as String?) ?? '',
+      multiSelect: p['multi_select'] == true,
+      options: options,
+      action: (p['action'] as String?) ?? 'cancel',
+      answerSummary: summary,
+      notes: notes,
+    );
+  }
+
+  /// 反向编码成 parts payload（Drift form_payload_json 列 / 导出用）。
+  /// content.answer 统一落成 String（answerSummary）—— 多选原始 list 形状
+  /// 在 flatten 时即丢弃，本地 SoT 只需展示保真。
+  Map<String, dynamic> toPayload() => {
+        'type': 'form',
+        'request_id': requestId,
+        'question': question,
+        'header': header,
+        'multi_select': multiSelect,
+        'options': [
+          for (final o in options)
+            {'label': o.label, 'description': o.description},
+        ],
+        'action': action,
+        'content': {
+          // ignore: use_null_aware_elements
+          if (answerSummary != null) 'answer': answerSummary,
+          // ignore: use_null_aware_elements
+          if (notes != null) 'notes': notes,
+        },
+      };
+}
+
 class Message {
   final String id;
   final String threadId;

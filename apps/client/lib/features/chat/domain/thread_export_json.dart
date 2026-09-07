@@ -260,6 +260,9 @@ Map<String, dynamic> _blockToJson(Block b) {
         'isError': isError,
         'content': content,
       },
+    // FormBlock.toPayload 自带 'type': 'form' + 完整 payload（与服务端
+    // chat.messages.parts 同形），导出直接透传。
+    FormBlock() => b.toPayload(),
   };
 }
 
@@ -304,6 +307,8 @@ Block? _blockFromJson(Map<String, dynamic> j, {required int index}) {
         isError: (j['isError'] as bool?) ?? false,
         content: (j['content'] as String?) ?? '',
       );
+    case 'form':
+      return FormBlock.fromPayload(j, id: id, index: index);
     default:
       return null;
   }

@@ -13,14 +13,17 @@
 //
 // 渲染位置:ApprovalCardV2 之下、composer 之上(chat_page_v2)。
 //
-// 一期边界（设计 §2.3）:卡片不落库,读回历史看不到表单;mode=url 不支持
-// (BiuSessionConnection 收到即回 decline);不应答时服务端 5min 超时兜底。
+// 一期边界（设计 §2.3）:mode=url 不支持(BiuSessionConnection 收到即回
+// decline);不应答时服务端 5min 超时兜底。P3-b（设计 §6.2）起问答终态
+// 由服务端补发 form_answer 帧沉淀进消息流 —— 历史回放走 [FormBlockCard]
+// 只读卡,悬浮卡在终态帧到达时被摘除,不再双份展示。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../l10n/app_localizations.dart';
 import '../../application/chat_controller.dart';
+import '../../domain/chat_models.dart';
 
 /// 从 requested_schema 解出的表单描述。优先读 `x-biumind-question` 展示
 /// 元数据（带 option 描述）;缺失时降级从 JSON Schema 主体抠
@@ -116,13 +119,39 @@ class _AnsweredCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l = AppLocalizations.of(context)!;
     final statusText = switch (item.answeredAction) {
       'accept' => l.chatV2FormAnswered(item.answerSummary ?? ''),
       'decline' => l.chatV2FormSkipped,
       _ => l.chatV2FormCancelled,
     };
+    return ReadonlyFormShell(
+      icon: Icons.check_circle_outline,
+      statusText: statusText,
+    );
+  }
+}
+
+/// ReadonlyFormShell —— 只读表单卡外壳。FormCard 已答锁定态与历史
+/// FormBlock 卡（[FormBlockCard]）共用外观：可选 header chip + 问题行 +
+/// 状态行。
+class ReadonlyFormShell extends StatelessWidget {
+  const ReadonlyFormShell({
+    super.key,
+    required this.icon,
+    required this.statusText,
+    this.question,
+    this.header,
+  });
+
+  final IconData icon;
+  final String statusText;
+  final String? question;
+  final String? header;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Material(
       color: theme.colorScheme.surface,
       borderRadius: BorderRadius.circular(10),
@@ -136,23 +165,91 @@ class _AnsweredCard extends StatelessWidget {
           ),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_outline,
-                size: 16, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                statusText,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+            if (header != null && header!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    header!,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
+            if (question != null && question!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  question!,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            Row(
+              children: [
+                Icon(icon,
+                    size: 16, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    statusText,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// FormBlockCard —— 历史消息流里的只读表单卡（P3-b 表单沉淀）。从
+/// FormBlock 重建四态：已回答 / 已跳过 / 已取消 / 超时未回答。
+/// 硬编码中文文案，与 wiki feature 一致不走 AppLocalizations。
+class FormBlockCard extends StatelessWidget {
+  const FormBlockCard({super.key, required this.block});
+
+  final FormBlock block;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = block.answerSummary;
+    final (icon, statusText) = switch (block.action) {
+      'accept' => (
+          Icons.check_circle_outline,
+          summary != null && summary.isNotEmpty ? '已回答：$summary' : '已回答',
+        ),
+      'decline' => (Icons.skip_next_outlined, '已跳过'),
+      'timeout' => (Icons.timer_off_outlined, '超时未回答'),
+      _ => (Icons.cancel_outlined, '已取消'),
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: ReadonlyFormShell(
+        icon: icon,
+        statusText: statusText,
+        question: block.question,
+        header: block.header,
       ),
     );
   }

@@ -575,6 +575,77 @@ class SDKElicitationComplete extends SDKMessage {
   Map<String, dynamic> toJson() => _$SDKElicitationCompleteToJson(this);
 }
 
+// ── system: form_answer ─────────────────────────────────────
+
+/// AskUserQuestion 表单终态帧（P3-b 表单沉淀消息流）。brain / CLI 在
+/// elicitation 拿到终态（accept/decline/cancel/timeout）后补发；客户端据此
+/// 把问答落成消息流里的只读 FormBlock。
+@JsonSerializable(includeIfNull: false, anyMap: true)
+class SDKFormAnswerOption {
+  final String label;
+  final String description;
+
+  SDKFormAnswerOption({required this.label, this.description = ''});
+
+  factory SDKFormAnswerOption.fromJson(Map<String, dynamic> json) =>
+      _$SDKFormAnswerOptionFromJson(json);
+  Map<String, dynamic> toJson() => _$SDKFormAnswerOptionToJson(this);
+}
+
+@JsonSerializable(includeIfNull: false, anyMap: true)
+class SDKFormAnswerContent {
+  /// accept 时的答案：单选为 String label，多选为 `List<String>`，自由文本
+  /// 为 String；decline/cancel/timeout 时缺省。
+  final dynamic answer;
+  final String? notes;
+
+  SDKFormAnswerContent({this.answer, this.notes});
+
+  factory SDKFormAnswerContent.fromJson(Map<String, dynamic> json) =>
+      _$SDKFormAnswerContentFromJson(json);
+  Map<String, dynamic> toJson() => _$SDKFormAnswerContentToJson(this);
+}
+
+@JsonSerializable(includeIfNull: false, anyMap: true)
+class SDKFormAnswer extends SDKMessage {
+  @override
+  final String type;
+  final String subtype;
+  @JsonKey(name: 'request_id')
+  final String requestId;
+  final String question;
+  final String header;
+  @JsonKey(name: 'multi_select')
+  final bool multiSelect;
+  final List<SDKFormAnswerOption> options;
+  /// accept | decline | cancel | timeout
+  final String action;
+  final SDKFormAnswerContent? content;
+  @override
+  final String uuid;
+  @override
+  @JsonKey(name: 'session_id')
+  final String sessionId;
+
+  SDKFormAnswer({
+    this.type = 'system',
+    this.subtype = 'form_answer',
+    required this.requestId,
+    this.question = '',
+    this.header = '',
+    this.multiSelect = false,
+    this.options = const [],
+    required this.action,
+    this.content,
+    required this.uuid,
+    required this.sessionId,
+  });
+
+  factory SDKFormAnswer.fromJson(Map<String, dynamic> json) =>
+      _$SDKFormAnswerFromJson(json);
+  Map<String, dynamic> toJson() => _$SDKFormAnswerToJson(this);
+}
+
 // ── prompt_suggestion ───────────────────────────────────────
 
 @JsonSerializable(includeIfNull: false, anyMap: true)

@@ -396,6 +396,73 @@ Map<String, dynamic> _$SDKElicitationCompleteToJson(
   'session_id': instance.sessionId,
 };
 
+SDKFormAnswerOption _$SDKFormAnswerOptionFromJson(Map json) =>
+    SDKFormAnswerOption(
+      label: json['label'] as String,
+      description: json['description'] as String? ?? '',
+    );
+
+Map<String, dynamic> _$SDKFormAnswerOptionToJson(
+  SDKFormAnswerOption instance,
+) => <String, dynamic>{
+  'label': instance.label,
+  'description': instance.description,
+};
+
+SDKFormAnswerContent _$SDKFormAnswerContentFromJson(Map json) =>
+    SDKFormAnswerContent(
+      answer: json['answer'],
+      notes: json['notes'] as String?,
+    );
+
+Map<String, dynamic> _$SDKFormAnswerContentToJson(
+  SDKFormAnswerContent instance,
+) => <String, dynamic>{
+  if (instance.answer case final value?) 'answer': value,
+  if (instance.notes case final value?) 'notes': value,
+};
+
+SDKFormAnswer _$SDKFormAnswerFromJson(Map json) => SDKFormAnswer(
+  type: json['type'] as String? ?? 'system',
+  subtype: json['subtype'] as String? ?? 'form_answer',
+  requestId: json['request_id'] as String,
+  question: json['question'] as String? ?? '',
+  header: json['header'] as String? ?? '',
+  multiSelect: json['multi_select'] as bool? ?? false,
+  options:
+      (json['options'] as List<dynamic>?)
+          ?.map(
+            (e) => SDKFormAnswerOption.fromJson(
+              Map<String, dynamic>.from(e as Map),
+            ),
+          )
+          .toList() ??
+      const [],
+  action: json['action'] as String,
+  content: json['content'] == null
+      ? null
+      : SDKFormAnswerContent.fromJson(
+          Map<String, dynamic>.from(json['content'] as Map),
+        ),
+  uuid: json['uuid'] as String,
+  sessionId: json['session_id'] as String,
+);
+
+Map<String, dynamic> _$SDKFormAnswerToJson(SDKFormAnswer instance) =>
+    <String, dynamic>{
+      'type': instance.type,
+      'subtype': instance.subtype,
+      'request_id': instance.requestId,
+      'question': instance.question,
+      'header': instance.header,
+      'multi_select': instance.multiSelect,
+      'options': instance.options,
+      'action': instance.action,
+      if (instance.content case final value?) 'content': value,
+      'uuid': instance.uuid,
+      'session_id': instance.sessionId,
+    };
+
 SDKPromptSuggestion _$SDKPromptSuggestionFromJson(Map json) =>
     SDKPromptSuggestion(
       type: json['type'] as String? ?? 'prompt_suggestion',

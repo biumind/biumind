@@ -140,6 +140,46 @@ void main() {
       expect(frame, isA<SDKSystemInit>());
     });
 
+    test('system form_answer → SDKFormAnswer（P3-b 表单沉淀帧）', () {
+      final frame = ServiceFrame.fromJson({
+        'type': 'system',
+        'subtype': 'form_answer',
+        'request_id': 'req-1',
+        'question': 'Pick a color?',
+        'header': 'Color',
+        'multi_select': true,
+        'options': [
+          {'label': 'red', 'description': 'warm'},
+          {'label': 'blue', 'description': 'cool'},
+        ],
+        'action': 'accept',
+        'content': {
+          'answer': ['red', 'blue'],
+          'notes': '都喜欢',
+        },
+        'uuid': 'f1',
+        'session_id': 's1',
+      });
+      expect(frame, isA<SDKFormAnswer>());
+      final fa = frame as SDKFormAnswer;
+      expect(fa.requestId, 'req-1');
+      expect(fa.question, 'Pick a color?');
+      expect(fa.header, 'Color');
+      expect(fa.multiSelect, isTrue);
+      expect(fa.options.map((o) => o.label), ['red', 'blue']);
+      expect(fa.options.first.description, 'warm');
+      expect(fa.action, 'accept');
+      expect(fa.content!.answer, ['red', 'blue']);
+      expect(fa.content!.notes, '都喜欢');
+
+      // roundtrip：encode → decode 字段保留。
+      final decoded = SDKFormAnswer.fromJson(
+          jsonDecode(jsonEncode(fa.toJson())) as Map<String, dynamic>);
+      expect(decoded.requestId, 'req-1');
+      expect(decoded.action, 'accept');
+      expect(decoded.options, hasLength(2));
+    });
+
     test('unknown type throws', () {
       expect(
         () => ServiceFrame.fromJson({'type': 'totally_made_up'}),

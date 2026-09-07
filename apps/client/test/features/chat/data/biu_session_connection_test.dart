@@ -322,6 +322,7 @@ void main() {
         schema: const {},
         respond: (String action, [Map<String, dynamic>? content]) {},
       ),
+      const FormAnswered(requestId: 'e', action: 'accept'),
     ];
     for (final e in evs) {
       switch (e) {
@@ -334,9 +335,10 @@ void main() {
         case SessionClosed():
         case PermissionRequested():
         case ElicitationRequested():
+        case FormAnswered():
       }
     }
-    expect(evs.length, 9);
+    expect(evs.length, 10);
   });
 
   // ─── elicitation（agent 提问表单） ─────────────────────────
@@ -483,6 +485,125 @@ void main() {
     expect(events.whereType<ElicitationRequested>(), isEmpty);
     expect(events.whereType<PermissionRequested>(), isEmpty);
     expect(fake.sent, isEmpty);
+  });
+
+  // ─── form_answer（P3-b 表单沉淀） ─────────────────────────
+
+  Map<String, dynamic> formAnswerFrame({
+    String requestId = 'req-f1',
+    String action = 'accept',
+    dynamic answer = 'blue',
+  }) =>
+      {
+        'type': 'system',
+        'subtype': 'form_answer',
+        'request_id': requestId,
+        'question': 'Pick a color?',
+        'header': 'Color',
+        'multi_select': false,
+        'options': [
+          {'label': 'red', 'description': 'warm'},
+          {'label': 'blue', 'description': 'cool'},
+        ],
+        'action': action,
+        if (answer != null) 'content': {'answer': answer},
+        'uuid': 'f-$requestId',
+        'session_id': 's1',
+      };
+
+  test('form_answer 帧落库 FormBlock + 发 FormAnswered 事件', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(() async => sub.cancel());
+
+    fake.push(jsonEncode(formAnswerFrame()));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    // 落库：独立 assistant message(id = elicit:<request_id>) + FormBlock。
+    final m = await repo.getMessage('elicit:req-f1');
+    expect(m, isNotNull);
+    expect(m!.role, MessageRole.assistant);
+    expect(m.status, MessageStatus.completed);
+    expect(m.blocks, hasLength(1));
+    final f = m.blocks.first;
+    expect(f, isA<FormBlock>());
+    final fb = f as FormBlock;
+    expect(fb.requestId, 'req-f1');
+    expect(fb.question, 'Pick a color?');
+    expect(fb.action, 'accept');
+    expect(fb.answerSummary, 'blue');
+    expect(fb.options, hasLength(2));
+
+    final ev = events.whereType<FormAnswered>().single;
+    expect(ev.requestId, 'req-f1');
+    expect(ev.action, 'accept');
+    expect(ev.answerSummary, 'blue');
+  });
+
+  test('form_answer replay 幂等：消息只落一次,事件照发', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(() async => sub.cancel());
+
+    fake.push(jsonEncode(formAnswerFrame()));
+    await Future.delayed(const Duration(milliseconds: 100));
+    fake.push(jsonEncode(formAnswerFrame()));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final msgs = await repo.watchMessages('t1').first;
+    expect(msgs.where((m) => m.id == 'elicit:req-f1'), hasLength(1));
+    expect(events.whereType<FormAnswered>(), hasLength(2));
+  });
+
+  test('form_answer 多选 answer list flatten 成顿号摘要', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+
+    fake.push(jsonEncode(formAnswerFrame(answer: ['red', 'blue'])));
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    final m = await repo.getMessage('elicit:req-f1');
+    expect((m!.blocks.first as FormBlock).answerSummary, 'red、blue');
   });
 
   // ─── close lifecycle ──────────────────────────────────────

@@ -36,13 +36,17 @@ void main() {
     );
     raw.userVersion = 35;
 
+    // ── 1b. v37 给 chat_content_blocks 加 form_payload_json（P3-b 表单
+    // 沉淀）—— fixture 必须先有此表，否则 v37 addColumn 报 no such table。
+    raw.execute('CREATE TABLE chat_content_blocks (id TEXT NOT NULL PRIMARY KEY)');
+
     // ── 2. 同一句柄交给 drift，首次查询触发 onUpgrade(35→36) ──
     final db = AppDb.executor(NativeDatabase.opened(raw));
     addTearDown(db.close);
     await db.customSelect('SELECT 1').get();
 
     // ── 3. 断言 ──
-    expect(raw.userVersion, 36, reason: '迁移后 schema 版本应为 36');
+    expect(raw.userVersion, 37, reason: '迁移后 schema 版本应为 37');
 
     final cols = raw
         .select('PRAGMA table_info(note_notebooks)')
