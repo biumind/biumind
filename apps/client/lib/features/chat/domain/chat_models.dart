@@ -442,7 +442,10 @@ enum SessionStatus {
   // pending：agent 模式投给当前离线的设备，brain 已排队(agent_pending_work)，
   // 等设备上线自动派发(Runtime v3 R7)。客户端不应连 WS、应渲染"已排队"。
   pending,
-  // paused：会话被挂起(DB 态，早于 R7 即存在)。
+  // paused：elicitation 等待跨进程持久化（durable resume, P3-c）—— brain
+  // 端 loop 死在提问等待（janitor / brain 重启置 paused），session 未终结：
+  // 表单仍可作答，作答后客户端 POST resume 让 brain 重跑+答案注入复活。
+  // resume() 把 paused 与 active 并列当可恢复态拉起。
   paused,
   completed,
   failed,

@@ -56,9 +56,19 @@ class ControlResponseBody {
 @JsonSerializable(includeIfNull: false, anyMap: true)
 class SDKControlResponse {
   final String type;
+
+  /// 显式回包种类（P3-c durable resume 协议演进，同时了结 P2-b 遗留）：
+  /// elicitation 回包 = 'elicitation_response'，审批回包 =
+  /// 'permission_response'。服务端兼容无 kind 的旧端（按 response 体形状
+  /// 分流），旧服务端收到 kind 字段静默忽略。
+  final String? kind;
   final ControlResponseBody response;
 
-  SDKControlResponse({this.type = 'control_response', required this.response});
+  SDKControlResponse({
+    this.type = 'control_response',
+    this.kind,
+    required this.response,
+  });
 
   factory SDKControlResponse.fromJson(Map<String, dynamic> json) =>
       _$SDKControlResponseFromJson(json);

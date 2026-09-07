@@ -8,8 +8,10 @@
 // 单一职责：**一条 thread 当前活跃 brain session 的完整生命周期**。
 //
 //   open    → POST /v1/agent/sessions → BiuClient.connect → drain frames
-//   resume  → 找 active session → refresh token if expiring → connect
-//             with sinceSeq=lastSeenSeq + 1
+//   resume  → 找 active/paused session → refresh token if expiring → connect
+//             with sinceSeq=lastSeenSeq + 1；连上后 GET elicitations 把
+//             pending 表单行重建成 ElicitationRequested 事件（P3-c durable
+//             resume，事件在首个 listener 挂上时补投）
 //   sendUserMessage → 多 turn：往现有 session 推 user frame
 //   cancel  → 给 brain 发 SDKControlCancelRequest
 //   close   → drain + ChatRepo.finalizeSession
@@ -34,6 +36,7 @@ import 'dart:convert' show base64Encode;
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../../../data/agent_plane/agent_plane_client.dart';
+import '../../../data/api/_http_helpers.dart' show ApiError;
 import '../../../data/api/biu_client.dart';
 import '../../../data/api/sdkproto/v1/control/elicitation.dart';
 import '../../../data/api/sdkproto/v1/control/wrappers.dart';
@@ -42,6 +45,7 @@ import '../../../data/api/sdkproto/v1/data/result.dart';
 import '../../../data/api/sdkproto/v1/data/streamlined.dart';
 import '../../../data/api/sdkproto/v1/data/system.dart';
 import '../../../data/api/sdkproto/v1/data/tool.dart';
+import '../../../data/api/sdkproto/v1/lifecycle.dart';
 import '../domain/chat_models.dart';
 import 'chat_repo.dart';
 
@@ -115,6 +119,22 @@ class SessionCancelling extends SessionEvent {
 class SessionClosed extends SessionEvent {
   final SessionStatus finalStatus;
   const SessionClosed(this.finalStatus);
+}
+
+/// brain 把 session 置 paused（durable resume, P3-c）：loop 死在
+/// elicitation 等待（janitor / brain 重启）。连接层已把本地 session 落
+/// 成 paused；ChatController 据此停 spinner —— 但**表单仍可答**，作答
+/// 走迟到路径（POST resume 重跑+答案注入）。
+class SessionPausedEvent extends SessionEvent {
+  final String? reason;
+  const SessionPausedEvent({this.reason});
+}
+
+/// brain 接受 resume 后推的恢复帧：loop 已重跑，流式帧随后到达。
+/// ChatController 据此恢复 streaming 指示。
+class SessionResumedEvent extends SessionEvent {
+  final int? sinceSeq;
+  const SessionResumedEvent({this.sinceSeq});
 }
 
 /// daemon 通过 brain 反向问"这个工具能不能用"。ChatController 据此弹
@@ -194,7 +214,26 @@ class BiuSessionConnection {
   final Thread thread;
   Session _session;
   final BiuClient _ws;
-  final _events = StreamController<SessionEvent>.broadcast();
+
+  /// broadcast + onListen 补投：resume() 在 ChatController 绑定事件流**之前**
+  /// 就拉好了 pending elicitations（broadcast 丢 pre-listen 事件），所以重建
+  /// 的 ElicitationRequested 攒在 [_rebuiltElicitations]，等第一个 listener
+  /// 挂上（ChatController._bindEvents）时补投。重复挂载会重投，幂等性由
+  /// pendingElicitationsProvider 的 request_id 去重兜住。
+  late final _events = StreamController<SessionEvent>.broadcast(
+    onListen: _emitRebuiltElicitations,
+  );
+
+  /// resume() 从 GET /v1/agent/sessions/{id}/elicitations 拉回、待补投的
+  /// pending 表单事件（durable resume, P3-c）。
+  List<ElicitationRequested> _rebuiltElicitations = const [];
+
+  /// 迟到作答触发 POST resume 的 in-flight 防抖（一 session 一 in-flight）。
+  Future<void>? _resumeCallInFlight;
+
+  /// in-flight 期间又有作答 —— 落地后自动补一发 resume（见
+  /// [_maybeResumePausedSession] 注释的交错竞态）。
+  bool _resumePendingRetry = false;
 
   /// 当前正在 stream 的 assistant message id（用于把 frame route 到对的行）。
   String? _activeAssistantMessageId;
@@ -257,6 +296,10 @@ class BiuSessionConnection {
 
   /// 当前 brain session 的 ID。
   String get sessionId => _session.sessionId;
+
+  /// 当前 session 生命周期态（ChatController.build 据此决定初始
+  /// isStreaming：paused 的 session resume 起来后不该转 spinner）。
+  SessionStatus get sessionStatus => _session.status;
 
   /// thread 当前 mode（chat / agent / task）。
   ThreadMode get mode => thread.mode;
@@ -459,6 +502,9 @@ class BiuSessionConnection {
   /// 内部行为：
   ///   - 检查 token 是否快过期 → AgentPlaneClient.refreshSessionToken
   ///   - BiuClient.connect 带 sinceSeq=lastSeenSeq（>0 时启 replay）
+  ///   - durable resume（P3-c）：active 落空后再查 paused session；
+  ///     连上后 GET elicitations 拉 pending 行重建可答表单（见
+  ///     [_fetchPendingElicitations] / [_emitRebuiltElicitations]）
   static Future<BiuSessionConnection?> resume({
     required ChatRepo repo,
     required AgentPlaneClient agentPlane,
@@ -466,7 +512,10 @@ class BiuSessionConnection {
     required Thread thread,
     BiuTransport Function(Uri)? transportConnector,
   }) async {
-    final initial = await repo.activeSession(thread.id);
+    // active 优先；paused（durable resume：loop 死在 elicitation 等待）也
+    // 是可恢复态 —— 连上后拉 pending 表单作答 → POST resume 复活。
+    final initial = await repo.activeSession(thread.id) ??
+        await repo.pausedSession(thread.id);
     if (initial == null) return null;
     var session = initial;
 
@@ -534,9 +583,67 @@ class BiuSessionConnection {
     if (lastStreaming.id.isNotEmpty) {
       c._activeAssistantMessageId = lastStreaming.id;
     }
+    // 先挂帧监听再拉 pending 表单：BiuClient 帧流是 broadcast,未监听期间
+    // 到达的帧会被丢弃 —— GET 的网络耗时不该 widen 这个丢帧窗口。
     c._listenFrames();
+    await c._fetchPendingElicitations();
     c._scheduleTokenRefresh();
     return c;
+  }
+
+  /// durable resume（P3-c）：连接建立后主动 GET elicitations，把 pending
+  /// 行重建成 ElicitationRequested 事件（与 WS 收帧同一个通道、同一个
+  /// respond 闭包形状），等 ChatController 绑定事件流时由
+  /// [_emitRebuiltElicitations] 补投。request_id 去重在
+  /// pendingElicitationsProvider（P3-b）——WS replay 重放同一提问 / DB 行
+  /// 与重放帧撞车都天然幂等。
+  ///
+  /// 失败静默降级：GET 挂了不阻塞 resume，stream replay 兜底仍在。
+  Future<void> _fetchPendingElicitations() async {
+    final List<AgentElicitation> rows;
+    try {
+      rows = await agentPlane.listElicitations(_session.sessionId);
+    } catch (e) {
+      debugPrint('[biu_session] fetch pending elicitations failed: $e'
+          '（静默降级，replay 兜底仍在）');
+      return;
+    }
+    _rebuiltElicitations = [
+      for (final r in rows)
+        if (r.status == 'pending') _rebuildElicitationEvent(r),
+    ];
+    if (_rebuiltElicitations.isNotEmpty) {
+      debugPrint('[biu_session] rebuilt ${_rebuiltElicitations.length}'
+          ' pending elicitation(s) session=${_session.sessionId}');
+    }
+  }
+
+  /// DB pending 行 → ElicitationRequested。payload
+  /// （question/header/multi_select/options）与 FormCard 的
+  /// `x-biumind-question` 扩展同形，包一层即为 FormSpec.parse 的主路径
+  /// schema；message 取 question 作 fallback。
+  ElicitationRequested _rebuildElicitationEvent(AgentElicitation row) {
+    var sent = false;
+    void respond(String action, [Map<String, dynamic>? content]) {
+      if (sent || _closed) return;
+      sent = true;
+      _sendElicitationResult(row.requestId, action: action, content: content);
+    }
+
+    return ElicitationRequested(
+      requestId: row.requestId,
+      message: (row.payload['question'] as String?) ?? '',
+      schema: <String, dynamic>{'x-biumind-question': row.payload},
+      respond: respond,
+    );
+  }
+
+  /// 第一个事件 listener 挂上时补投重建的表单（见 [_events] 声明注释）。
+  void _emitRebuiltElicitations() {
+    if (_closed || _rebuiltElicitations.isEmpty) return;
+    for (final e in _rebuiltElicitations) {
+      _events.add(e);
+    }
   }
 
   // ─── Send / cancel ────────────────────────────────────────
@@ -664,7 +771,9 @@ class BiuSessionConnection {
 
   void _listenFrames() {
     _frameSub = _ws.frames.listen(_scheduleFrame, onError: (Object e, _) async {
-      if (_activeAssistantMessageId != null) {
+      // paused 时 WS 抖动不把 streaming message 判 failed（同 onDone 守卫）。
+      if (_activeAssistantMessageId != null &&
+          _session.status != SessionStatus.paused) {
         await repo.finalizeMessage(
           _activeAssistantMessageId!,
           status: MessageStatus.failed,
@@ -677,8 +786,12 @@ class BiuSessionConnection {
       // 先等帧链排空:result_success 可能还排在队列里没处理完,不等就会
       // 误判 streaming 未结束而 finalize=failed。
       await _frameChain;
-      // 如果 active message 还是 streaming，说明意外断；finalize=failed。
-      if (_activeAssistantMessageId != null && !_closed) {
+      // paused（durable resume）：session 没死,表单还可答、resume 后流
+      // 会继续 —— WS 断了不能把 streaming message 判 failed,否则 resumed
+      // 后新帧挂到一条 failed message 上。
+      if (_activeAssistantMessageId != null &&
+          !_closed &&
+          _session.status != SessionStatus.paused) {
         final m = await repo.getMessage(_activeAssistantMessageId!);
         if (m?.status == MessageStatus.streaming) {
           await repo.finalizeMessage(
@@ -750,7 +863,47 @@ class BiuSessionConnection {
         _onControlRequest(frame);
       case SDKFormAnswer():
         await _onFormAnswer(frame);
+      case SessionPaused():
+        await _onSessionPaused(frame);
+      case SessionResumed():
+        await _onSessionResumed(frame);
     }
+  }
+
+  /// biumind.session_paused（durable resume, P3-c）：brain 端 loop 死在
+  /// elicitation 等待（janitor 清扫 / brain 重启）。本地 session 落 paused
+  /// （可逆，不写 closedAt）并通知 ChatController 停 spinner；**不关 WS、
+  /// 不动 active message** —— 表单仍可答，作答后 POST resume 复活。
+  Future<void> _onSessionPaused(SessionPaused f) async {
+    if (f.sessionId.isNotEmpty && f.sessionId != _session.sessionId) return;
+    await _setSessionStatus(SessionStatus.paused);
+    _events.add(SessionPausedEvent(reason: f.reason));
+  }
+
+  /// biumind.session_resumed：brain 接受 resume（重跑+答案注入）后推的
+  /// 恢复帧。本地 session 回 active，流式帧随后在同一条 WS 上到达。
+  Future<void> _onSessionResumed(SessionResumed f) async {
+    if (f.sessionId.isNotEmpty && f.sessionId != _session.sessionId) return;
+    await _setSessionStatus(SessionStatus.active);
+    _events.add(SessionResumedEvent(sinceSeq: f.sinceSeq));
+  }
+
+  /// paused ↔ active 状态切换：更新内存 + Drift（updateSessionStatus 不碰
+  /// closedAt，与 finalize 终态语义区分）。
+  Future<void> _setSessionStatus(SessionStatus status) async {
+    if (_session.status == status) return;
+    _session = Session(
+      sessionId: _session.sessionId,
+      threadId: _session.threadId,
+      mode: _session.mode,
+      sessionToken: _session.sessionToken,
+      tokenExpiresAt: _session.tokenExpiresAt,
+      lastSeenSeq: _session.lastSeenSeq,
+      status: status,
+      createdAt: _session.createdAt,
+      closedAt: _session.closedAt,
+    );
+    await repo.updateSessionStatus(_session.sessionId, status: status);
   }
 
   /// 表单终态帧(P3-b):把问答沉淀成一条独立 assistant message(id =
@@ -873,8 +1026,13 @@ class BiuSessionConnection {
   }
 
   /// 发 SDKControlResponse{elicitation 答复} 回 brain;brain ingress 按
-  /// request_id 命中 ElicitationCenter 进程内唤醒等候的 askUser。
-  /// response 体对齐 ElicitationResponse{action, content}。
+  /// request_id 命中 ElicitationCenter 进程内唤醒等候的 askUser（durable
+  /// resume 后 miss 走 DB CAS 落答案行）。response 体对齐
+  /// ElicitationResponse{action, content}；帧头带显式
+  /// kind=elicitation_response（服务端兼容无 kind 旧端）。
+  ///
+  /// 迟到作答（P3-c）：session 已 paused（loop 死）时，回包落库后主动
+  /// POST resume 触发 brain 重跑+答案注入 —— 见 [_maybeResumePausedSession]。
   void _sendElicitationResult(
     String requestId, {
     required String action,
@@ -887,16 +1045,67 @@ class BiuSessionConnection {
       response: ElicitationResponse(action: action, content: content).toJson(),
     );
     try {
-      _ws.send(SDKControlResponse(response: body));
+      _ws.send(SDKControlResponse(
+        kind: 'elicitation_response',
+        response: body,
+      ));
     } catch (e) {
       // send 失败 = WS 断了;服务端 5min 超时兜底 soft error,不重试。
+      // paused 场景下答案可能没落到 brain —— resume POST 会拿到
+      // 409 pending_answers,语义自洽,不特殊处理。
       debugPrint('[biu_session] sendElicitationResult failed: $e');
+    }
+    _maybeResumePausedSession();
+  }
+
+  /// 迟到作答触发 resume（durable resume, P3-c）：本地 session 是 paused
+  /// 时,每答完一题试一次 POST /v1/agent/sessions/{id}/resume。
+  ///
+  /// - 一 session 一 in-flight 防抖：上一次 resume POST 未落地期间又有
+  ///   作答,只记 [_resumePendingRetry] 脏标记（答案回包本身已发出,不丢）;
+  ///   调用落地后若脏标记置位且仍 paused,**自动补一发** —— 覆盖「B 题作答
+  ///   与 A 题 resume 在途交错 → 409 pending_answers → 无人再触发」的
+  ///   卡死窗口。补发仍 409（用户真还有题没答）时不再自续,等下次作答触发,
+  ///   不会形成重试循环。
+  /// - 409 pending_answers = 还有别的未答题（多题场景）—— 不报错,全部
+  ///   答完后的那次调用会拿到 200。
+  /// - 409 invalid_state = 服务端非 paused（可能已被他端 resume / 已终态）
+  ///   —— 静默,等 SessionResumed / result 帧对齐。
+  /// - 200 后什么都不做：等 brain 推 biumind.session_resumed 帧恢复
+  ///   streaming（_onSessionResumed）。
+  void _maybeResumePausedSession() {
+    if (_closed || _session.status != SessionStatus.paused) return;
+    if (_resumeCallInFlight != null) {
+      _resumePendingRetry = true;
+      return;
+    }
+    _resumeCallInFlight = _postResume().whenComplete(() {
+      _resumeCallInFlight = null;
+      if (_resumePendingRetry &&
+          !_closed &&
+          _session.status == SessionStatus.paused) {
+        _resumePendingRetry = false;
+        _maybeResumePausedSession();
+      }
+    });
+  }
+
+  Future<void> _postResume() async {
+    try {
+      await agentPlane.resumePausedSession(_session.sessionId);
+    } on ApiError catch (e) {
+      debugPrint('[biu_session] resume session=${_session.sessionId}'
+          ' HTTP ${e.status}: ${e.body}');
+    } catch (e) {
+      debugPrint('[biu_session] resume session=${_session.sessionId}'
+          ' failed: $e');
     }
   }
 
   /// 发 SDKControlResponse{success/error} 回 brain;brain 走 maybeRoutePermissionResponse
   /// 把它路由到 daemon control queue,daemon worker.answerPermission 唤醒
-  /// askPermission goroutine。
+  /// askPermission goroutine。帧头带显式 kind=permission_response（与
+  /// elicitation_response 并列,服务端兼容无 kind 旧端）。
   void _sendPermissionResult(String requestId, {required bool allow}) {
     if (_closed) return;
     final body = ControlResponseBody(
@@ -906,7 +1115,7 @@ class BiuSessionConnection {
         'behavior': allow ? 'allow' : 'deny',
       },
     );
-    final resp = SDKControlResponse(response: body);
+    final resp = SDKControlResponse(kind: 'permission_response', response: body);
     try {
       _ws.send(resp);
     } catch (e) {

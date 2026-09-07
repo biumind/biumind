@@ -71,6 +71,22 @@ class FakeAgentPlane extends AgentPlaneClient {
       expiresAt: DateTime.now().add(const Duration(minutes: 30)),
     );
   }
+
+  // durable resume(P3-c) fake 钩子
+  List<AgentElicitation> elicitationRows = const [];
+  int listElicitationsCalls = 0;
+  int resumePausedCalls = 0;
+
+  @override
+  Future<List<AgentElicitation>> listElicitations(String sessionId) async {
+    listElicitationsCalls++;
+    return elicitationRows;
+  }
+
+  @override
+  Future<void> resumePausedSession(String sessionId) async {
+    resumePausedCalls++;
+  }
 }
 
 class FakeTransport implements BiuTransport {
@@ -606,5 +622,126 @@ void main() {
     // race (测试里 deps 是静态 fake, scope 不变); 生产上 deps 随 creds 重建,
     // 新 scope 的 repo.getThread(旧 threadId) 必为 null, 不会误接旧会话。
     // 这里只断言核心语义: 旧连接被关。
+  });
+
+  // ─── durable resume（P3-c）：paused/resumed 帧 + 迟到作答 ───
+
+  Map<String, dynamic> elicitationFrame(String requestId) => {
+        'type': 'control_request',
+        'request_id': requestId,
+        'request': {
+          'subtype': 'elicitation',
+          'mcp_server_name': 'biumind.agent',
+          'message': '选一个?',
+          'mode': 'form',
+          'elicitation_id': requestId,
+          'requested_schema': {
+            'type': 'object',
+            'title': '选一个?',
+            'properties': {
+              'answer': {'type': 'string', 'enum': ['A', 'B']},
+            },
+            'x-biumind-question': {
+              'question': '选一个?',
+              'header': 'H',
+              'multi_select': false,
+              'options': [
+                {'label': 'A', 'description': 'a'},
+                {'label': 'B', 'description': 'b'},
+              ],
+            },
+          },
+        },
+      };
+
+  test('session_paused 停 spinner 保留表单可答；作答触发 resume；resumed 恢复',
+      () async {
+    await createTestThread();
+    await container.read(chatControllerProvider('t1').future);
+    await container
+        .read(chatControllerProvider('t1').notifier)
+        .sendMessage('hi');
+    await Future.delayed(const Duration(milliseconds: 50));
+    final sessionId =
+        (await repo.activeSession('t1'))!.sessionId; // 'sess-1'
+
+    // agent 提问 → 表单弹出（streaming 不打断）
+    currentTransport().push(jsonEncode(elicitationFrame('req-x1')));
+    await Future.delayed(const Duration(milliseconds: 80));
+    expect(container.read(pendingElicitationsProvider).forThread('t1'),
+        hasLength(1));
+
+    // brain 死 loop → paused 帧：停 spinner,表单仍在（可答）
+    currentTransport().push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': sessionId,
+      'reason': 'brain_restart',
+    }));
+    await Future.delayed(const Duration(milliseconds: 80));
+    var st = container.read(chatControllerProvider('t1')).value!;
+    expect(st.isStreaming, false, reason: 'paused 停 spinner');
+    expect(st.isCancelling, false);
+    expect(container.read(pendingElicitationsProvider).forThread('t1'),
+        hasLength(1),
+        reason: 'paused 不摘表单 —— 迟到作答路径');
+    expect(await repo.pausedSession('t1'), isNotNull);
+
+    // 迟到作答：回包发出 + 本地 paused → POST resume
+    final item =
+        container.read(pendingElicitationsProvider).forThread('t1').single;
+    item.request.respond('accept', {'answer': 'A'});
+    container.read(pendingElicitationsProvider.notifier).resolve(
+        't1', 'req-x1',
+        action: 'accept', summary: 'A');
+    await Future.delayed(const Duration(milliseconds: 80));
+    expect(ap.resumePausedCalls, 1, reason: 'paused 态作答触发 POST resume');
+    final wire = jsonDecode(currentTransport().sent.last) as Map;
+    expect(wire['kind'], 'elicitation_response');
+
+    // brain 接受 resume → resumed 帧恢复 streaming
+    currentTransport().push(jsonEncode({
+      'type': 'biumind.session_resumed',
+      'session_id': sessionId,
+    }));
+    await Future.delayed(const Duration(milliseconds: 80));
+    st = container.read(chatControllerProvider('t1')).value!;
+    expect(st.isStreaming, true, reason: 'resumed 恢复 streaming 指示');
+    expect(await repo.activeSession('t1'), isNotNull);
+  });
+
+  test('build() 对 paused session 返回 isStreaming=false 并重建 pending 表单',
+      () async {
+    await createTestThread();
+    await repo.persistSession(Session(
+      sessionId: 'sess-paused',
+      threadId: 't1',
+      mode: ThreadMode.chat,
+      sessionToken: 'tok',
+      tokenExpiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      status: SessionStatus.paused,
+      createdAt: DateTime.now(),
+    ));
+    ap.elicitationRows = [
+      const AgentElicitation(
+        requestId: 'req-pend',
+        status: 'pending',
+        payload: {
+          'question': '继续吗?',
+          'header': 'H',
+          'multi_select': false,
+          'options': [
+            {'label': '继续', 'description': 'go'},
+          ],
+        },
+      ),
+    ];
+
+    final state = await container.read(chatControllerProvider('t1').future);
+    expect(state.isStreaming, false, reason: 'paused session 拉起不转 spinner');
+    await Future.delayed(const Duration(milliseconds: 80));
+    expect(ap.listElicitationsCalls, 1);
+    final items = container.read(pendingElicitationsProvider).forThread('t1');
+    expect(items, hasLength(1), reason: 'DB pending 行重建成可答表单');
+    expect(items.single.request.requestId, 'req-pend');
   });
 }

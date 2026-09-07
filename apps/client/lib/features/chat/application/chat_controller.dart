@@ -308,7 +308,9 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     _bindEvents(maybe.events);
     ref.onDispose(_disposeConnection);
     return ChatState(
-      isStreaming: true,
+      // paused session(durable resume)拉起后不转 spinner —— loop 是死的,
+      // 等用户作答触发 POST resume + SessionResumed 帧才恢复 streaming。
+      isStreaming: maybe.sessionStatus != SessionStatus.paused,
       activeAssistantMessageId: null, // resume 时由 SessionEvent 更新
     );
   }
@@ -921,6 +923,23 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // ._onFormAnswer)。摘掉同 requestId 的悬浮卡,避免与历史只读卡
           // 双份展示。
           ref.read(pendingElicitationsProvider.notifier).remove(arg, requestId);
+        case SessionPausedEvent():
+          // durable resume(P3-c):brain 端 loop 死在 elicitation 等待。
+          // 停 spinner/Streaming 态,但**保留表单可答**(FormCard 由
+          // pendingElicitationsProvider 驱动,不看 isStreaming)—— 作答走
+          // 迟到路径(连接层发 elicitation 回包后 POST resume)。
+          // 保留 activeAssistantMessageId:resumed 后同一条 message 继续流。
+          state = AsyncValue.data(cur.copyWith(
+            isStreaming: false,
+            isCancelling: false,
+          ));
+        case SessionResumedEvent():
+          // brain 接受 resume(重跑+答案注入) —— 恢复 streaming 指示,
+          // 后续流式帧由连接层继续挂到 active message 上。
+          state = AsyncValue.data(cur.copyWith(
+            isStreaming: true,
+            clearError: true,
+          ));
       }
     });
   }

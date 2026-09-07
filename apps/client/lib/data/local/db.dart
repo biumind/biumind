@@ -590,7 +590,12 @@ class ChatSessions extends Table {
   DateTimeColumn get tokenExpiresAt => dateTime()();
   /// 客户端已经 ack 过的最大 stream seq；resume 时给 brain ?since_seq=N
   IntColumn get lastSeenSeq => integer().withDefault(const Constant(0))();
-  /// 'active' | 'completed' | 'failed' | 'cancelled'
+  /// 'active' | 'pending' | 'paused' | 'completed' | 'failed' | 'cancelled'
+  /// pending：agent 模式投给离线设备已排队（Runtime v3 R7）。
+  /// paused（durable resume, P3-c）：brain 端 loop 死在 elicitation 等待
+  /// （janitor 清扫 / brain 重启置 paused），表单仍可作答；客户端作答后
+  /// POST /v1/agent/sessions/{id}/resume 重跑+答案注入复活回 active。
+  /// paused 不是终态（不写 closedAt），resume() 会把它当可恢复态拉起。
   TextColumn get status => text()();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get closedAt => dateTime().nullable()();

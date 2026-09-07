@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:biumind/data/agent_plane/agent_plane_client.dart';
+import 'package:biumind/data/api/_http_helpers.dart' show ApiError;
 import 'package:biumind/data/api/biu_client.dart';
 import 'package:biumind/data/local/db.dart';
 import 'package:biumind/features/chat/data/biu_session_connection.dart';
@@ -28,6 +29,30 @@ class FakeAgentPlane extends AgentPlaneClient {
   CreateSessionResp Function(String mode)? respFor;
   int refreshCalls = 0;
   String refreshToken = 'refreshed-token';
+
+  // durable resume(P3-c) fake 钩子
+  List<AgentElicitation> elicitationRows = const [];
+  Object? listElicitationsError;
+  int listElicitationsCalls = 0;
+  int resumePausedCalls = 0;
+  Object? resumePausedError;
+  Completer<void>? resumePausedGate;
+
+  @override
+  Future<List<AgentElicitation>> listElicitations(String sessionId) async {
+    listElicitationsCalls++;
+    final err = listElicitationsError;
+    if (err != null) throw err;
+    return elicitationRows;
+  }
+
+  @override
+  Future<void> resumePausedSession(String sessionId) async {
+    resumePausedCalls++;
+    await resumePausedGate?.future;
+    final err = resumePausedError;
+    if (err != null) throw err;
+  }
 
   @override
   Future<CreateSessionResp> createSession({
@@ -323,6 +348,8 @@ void main() {
         respond: (String action, [Map<String, dynamic>? content]) {},
       ),
       const FormAnswered(requestId: 'e', action: 'accept'),
+      const SessionPausedEvent(reason: 'brain_restart'),
+      const SessionResumedEvent(sinceSeq: 42),
     ];
     for (final e in evs) {
       switch (e) {
@@ -336,9 +363,11 @@ void main() {
         case PermissionRequested():
         case ElicitationRequested():
         case FormAnswered():
+        case SessionPausedEvent():
+        case SessionResumedEvent():
       }
     }
-    expect(evs.length, 10);
+    expect(evs.length, 12);
   });
 
   // ─── elicitation（agent 提问表单） ─────────────────────────
@@ -897,7 +926,337 @@ void main() {
         reason: 'timeout fallback emits MessageCancelled');
   }, timeout: const Timeout(Duration(seconds: 6)));
 
-  // anti-unused —— 让 import 保持
+  // ─── durable resume（P3-c） ────────────────────────────────
+
+  /// elicitation control_request 帧构造（与 brain 线上形状一致）。
+  Map<String, dynamic> elicitationFrame(String requestId, [String q = 'Pick?']) =>
+      {
+        'type': 'control_request',
+        'request_id': requestId,
+        'request': {
+          'subtype': 'elicitation',
+          'mcp_server_name': 'biumind.agent',
+          'message': q,
+          'mode': 'form',
+          'elicitation_id': requestId,
+          'requested_schema': {
+            'type': 'object',
+            'title': q,
+            'properties': {
+              'answer': {'type': 'string', 'enum': ['A', 'B']},
+            },
+            'x-biumind-question': {
+              'question': q,
+              'header': 'H',
+              'multi_select': false,
+              'options': [
+                {'label': 'A', 'description': 'a'},
+                {'label': 'B', 'description': 'b'},
+              ],
+            },
+          },
+        },
+      };
+
+  /// open() 一条 chat session 的样板（P3-c 测试组共用）。
+  Future<BiuSessionConnection> openChat(FakeTransport fake) async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    final thread = (await repo.getThread('t1'))!;
+    final c = await BiuSessionConnection.open(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      userPrompt: 'hi',
+      userMessageId: 'um1',
+      assistantMessageId: 'am1',
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c.close());
+    return c;
+  }
+
+  Future<void> pump([int ms = 100]) =>
+      Future.delayed(Duration(milliseconds: ms));
+
+  test('resume() 对 paused session 拉 pending elicitations 重建表单事件', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    await repo.persistSession(Session(
+      sessionId: 'sess-p1',
+      threadId: 't1',
+      mode: ThreadMode.chat,
+      sessionToken: 'tok-p1',
+      tokenExpiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      status: SessionStatus.paused,
+      createdAt: DateTime.now(),
+    ));
+    ap.elicitationRows = [
+      const AgentElicitation(
+        requestId: 'req-db1',
+        status: 'pending',
+        payload: {
+          'question': '继续吗?',
+          'header': 'Confirm',
+          'multi_select': false,
+          'options': [
+            {'label': '继续', 'description': 'go'},
+            {'label': '算了', 'description': 'stop'},
+          ],
+        },
+      ),
+      // 已答 / 过期 / 取消的行不重建
+      const AgentElicitation(requestId: 'req-db0', status: 'answered', payload: {}),
+      const AgentElicitation(requestId: 'req-db2', status: 'expired', payload: {}),
+    ];
+    final thread = (await repo.getThread('t1'))!;
+    final fake = FakeTransport();
+    final c = await BiuSessionConnection.resume(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      transportConnector: (_) => fake,
+    );
+    addTearDown(() async => c?.close());
+    expect(c, isNotNull, reason: 'paused session 也要能 resume 拉起');
+    expect(ap.listElicitationsCalls, 1);
+    expect(c!.sessionStatus, SessionStatus.paused);
+
+    // 事件在首个 listener 挂上时补投（resume() 早于 ChatController 绑定）。
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+    await pump();
+
+    final rebuilt = events.whereType<ElicitationRequested>().toList();
+    expect(rebuilt, hasLength(1), reason: '只有 pending 行重建');
+    expect(rebuilt.single.requestId, 'req-db1');
+    expect(rebuilt.single.message, '继续吗?');
+    final ext = rebuilt.single.schema['x-biumind-question'] as Map;
+    expect(ext['question'], '继续吗?');
+    expect((ext['options'] as List), hasLength(2));
+
+    // 重建表单的 respond 与 WS 收帧同一通道：回包带 kind，且 paused 态
+    // 作答触发 POST resume。
+    rebuilt.single.respond('accept', {'answer': '继续'});
+    rebuilt.single.respond('cancel'); // 单次保护,丢弃
+    await pump();
+    expect(fake.sent, hasLength(1));
+    final wire = jsonDecode(fake.sent.single) as Map<String, dynamic>;
+    expect(wire['type'], 'control_response');
+    expect(wire['kind'], 'elicitation_response');
+    expect(ap.resumePausedCalls, 1, reason: 'paused 态作答触发 POST resume');
+  });
+
+  test('resume() 拉 elicitations 失败静默降级（replay 兜底仍在）', () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.chat);
+    await repo.persistSession(Session(
+      sessionId: 'sess-a1',
+      threadId: 't1',
+      mode: ThreadMode.chat,
+      sessionToken: 'tok-a1',
+      tokenExpiresAt: DateTime.now().add(const Duration(minutes: 30)),
+      status: SessionStatus.active,
+      createdAt: DateTime.now(),
+    ));
+    ap.listElicitationsError = StateError('network down');
+    final thread = (await repo.getThread('t1'))!;
+    final c = await BiuSessionConnection.resume(
+      repo: repo,
+      agentPlane: ap,
+      brainBaseUrl: 'ws://test',
+      thread: thread,
+      transportConnector: (_) => FakeTransport(),
+    );
+    addTearDown(() async => c?.close());
+    expect(c, isNotNull, reason: 'GET 失败不阻塞 resume 本身');
+    expect(ap.listElicitationsCalls, 1);
+
+    final events = <SessionEvent>[];
+    final sub = c!.events.listen(events.add);
+    addTearDown(sub.cancel);
+    await pump(50);
+    expect(events.whereType<ElicitationRequested>(), isEmpty);
+  });
+
+  test('session_paused 帧：落 paused + 发事件 + streaming message 不判 failed', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    fake.push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': c.sessionId,
+      'reason': 'brain_restart',
+    }));
+    await pump();
+
+    final ev = events.whereType<SessionPausedEvent>().single;
+    expect(ev.reason, 'brain_restart');
+    expect(c.sessionStatus, SessionStatus.paused);
+    expect(await repo.activeSession('t1'), isNull);
+    expect(await repo.pausedSession('t1'), isNotNull);
+    // paused ≠ 终态：streaming 中的 assistant message 保持 streaming,
+    // 不写 closedAt（onDone/onError 的 failed 兜底也有 paused 守卫,见
+    // _listenFrames —— 该路径由 BiuClient 重连层包裹,单测不易构造,此处
+    // 只验 paused 落态本身不碰 message）。
+    final m = await repo.getMessage('am1');
+    expect(m!.status, MessageStatus.streaming);
+  });
+
+  test('session_resumed 帧：回 active + 发事件；错 session_id 帧忽略', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    // 别人的 session 的 paused 帧 —— 忽略。
+    fake.push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': 'sess-other',
+    }));
+    await pump(50);
+    expect(c.sessionStatus, SessionStatus.active);
+    expect(events.whereType<SessionPausedEvent>(), isEmpty);
+
+    fake.push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': c.sessionId,
+    }));
+    await pump(50);
+    fake.push(jsonEncode({
+      'type': 'biumind.session_resumed',
+      'session_id': c.sessionId,
+      'since_seq': 7,
+    }));
+    await pump();
+
+    final ev = events.whereType<SessionResumedEvent>().single;
+    expect(ev.sinceSeq, 7);
+    expect(c.sessionStatus, SessionStatus.active);
+    expect(await repo.activeSession('t1'), isNotNull);
+  });
+
+  test('paused 态作答触发 POST resume：in-flight 防抖 + 交错竞态补发', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    // 两道题 + paused
+    fake.push(jsonEncode(elicitationFrame('req-a', 'Q1?')));
+    fake.push(jsonEncode(elicitationFrame('req-b', 'Q2?')));
+    fake.push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': c.sessionId,
+    }));
+    await pump();
+    final forms = events.whereType<ElicitationRequested>().toList();
+    expect(forms, hasLength(2));
+    expect(c.sessionStatus, SessionStatus.paused);
+
+    // 答第一题 → resume in-flight（gate 挂着不落地）
+    ap.resumePausedGate = Completer<void>();
+    forms[0].respond('accept', {'answer': 'A'});
+    expect(ap.resumePausedCalls, 1);
+    // in-flight 期间答第二题 → 只记脏标记,不并发第二发；回包照发不丢。
+    forms[1].respond('accept', {'answer': 'B'});
+    expect(ap.resumePausedCalls, 1, reason: '一 session 一 in-flight');
+    expect(fake.sent, hasLength(2), reason: '两份 elicitation 回包都发出');
+
+    // 第一发落地 = 409 pending_answers（brain 还没看到 B 的答案）——
+    // 脏标记触发自动补发（fake 里 error 仍置位,补发也 409,但调用确实发生;
+    // 真实场景 brain 已落 B 的答案会返 200）。
+    ap.resumePausedError = const ApiError(
+      path: '/v1/agent/sessions/x/resume',
+      status: 409,
+      body: '{"error":{"code":"pending_answers"}}',
+    );
+    ap.resumePausedGate!.complete();
+    ap.resumePausedGate = null;
+    await pump(50);
+    expect(ap.resumePausedCalls, 2, reason: 'in-flight 交错竞态自动补发');
+    // 脏标记已被补发消费,且无新作答 —— 不再自续第三发（无重试循环）。
+    await pump(50);
+    expect(ap.resumePausedCalls, 2);
+  });
+
+  test('409 pending_answers 且无新作答时不自续重试（无重试循环）', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    fake.push(jsonEncode(elicitationFrame('req-a', 'Q1?')));
+    fake.push(jsonEncode({
+      'type': 'biumind.session_paused',
+      'session_id': c.sessionId,
+    }));
+    await pump();
+
+    ap.resumePausedError = const ApiError(
+      path: '/v1/agent/sessions/x/resume',
+      status: 409,
+      body: '{"error":{"code":"pending_answers"}}',
+    );
+    events.whereType<ElicitationRequested>().single.respond('accept', {'answer': 'A'});
+    await pump(50);
+    expect(ap.resumePausedCalls, 1, reason: '409 后等下次作答,不自动重试');
+
+    // 用户答完下一题 → 再触发（这次 200）。
+    fake.push(jsonEncode(elicitationFrame('req-b', 'Q2?')));
+    await pump();
+    ap.resumePausedError = null;
+    events
+        .whereType<ElicitationRequested>()
+        .firstWhere((e) => e.requestId == 'req-b')
+        .respond('accept', {'answer': 'B'});
+    await pump(50);
+    expect(ap.resumePausedCalls, 2, reason: '全部答完后的作答再次触发 resume');
+  });
+
+  test('control_response 帧头带显式 kind（elicitation / permission）', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    final events = <SessionEvent>[];
+    final sub = c.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    // elicitation 回包
+    fake.push(jsonEncode(elicitationFrame('req-k1')));
+    await pump();
+    events.whereType<ElicitationRequested>().single.respond('decline');
+    await pump(50);
+    var wire = jsonDecode(fake.sent.last) as Map<String, dynamic>;
+    expect(wire['kind'], 'elicitation_response');
+
+    // 审批回包（thread 默认 autoApprove=manual → 走 PermissionRequested）
+    fake.push(jsonEncode({
+      'type': 'control_request',
+      'request_id': 'req-p1',
+      'request': {
+        'subtype': 'can_use_tool',
+        'tool_name': 'Bash',
+        'tool_use_id': 'tu1',
+        'input': {'command': 'ls'},
+      },
+    }));
+    await pump();
+    events.whereType<PermissionRequested>().single.respond(allow: true);
+    await pump(50);
+    wire = jsonDecode(fake.sent.last) as Map<String, dynamic>;
+    expect(wire['type'], 'control_response');
+    expect(wire['kind'], 'permission_response');
+    final resp = wire['response'] as Map<String, dynamic>;
+    expect((resp['response'] as Map)['behavior'], 'allow');
+  });
+
+
   test('imports resolve', () {
     expect(http.Client, isNotNull);
     expect(jsonEncode, isNotNull);

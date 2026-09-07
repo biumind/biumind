@@ -44,13 +44,18 @@ Map<String, dynamic> _$ControlResponseBodyToJson(
 
 SDKControlResponse _$SDKControlResponseFromJson(Map json) => SDKControlResponse(
   type: json['type'] as String? ?? 'control_response',
+  kind: json['kind'] as String?,
   response: ControlResponseBody.fromJson(
     Map<String, dynamic>.from(json['response'] as Map),
   ),
 );
 
 Map<String, dynamic> _$SDKControlResponseToJson(SDKControlResponse instance) =>
-    <String, dynamic>{'type': instance.type, 'response': instance.response};
+    <String, dynamic>{
+      'type': instance.type,
+      if (instance.kind case final value?) 'kind': value,
+      'response': instance.response,
+    };
 
 SDKControlCancelRequest _$SDKControlCancelRequestFromJson(Map json) =>
     SDKControlCancelRequest(

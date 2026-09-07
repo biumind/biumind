@@ -1346,6 +1346,22 @@ class ChatRepo {
     return row == null ? null : _sessionFromRow(row);
   }
 
+  /// 取 thread 当前 paused 的 session（durable resume, P3-c）。
+  /// paused = brain 端 loop 死在 elicitation 等待（janitor / 进程重启置
+  /// paused），可经 POST /v1/agent/sessions/{id}/resume 复活 —— 因此
+  /// BiuSessionConnection.resume() 在 active 落空后还要查这一态。
+  Future<Session?> pausedSession(String threadId) async {
+    final q = db.select(db.chatSessions)
+      ..where((s) =>
+          s.threadId.equals(threadId) &
+          s.status.equals('paused') &
+          s.ownerKey.equals(scope))
+      ..orderBy([(s) => OrderingTerm(expression: s.createdAt, mode: OrderingMode.desc)])
+      ..limit(1);
+    final row = await q.getSingleOrNull();
+    return row == null ? null : _sessionFromRow(row);
+  }
+
   Future<void> persistSession(Session s) async {
     await db.into(db.chatSessions).insertOnConflictUpdate(
           ChatSessionsCompanion.insert(
@@ -1378,6 +1394,19 @@ class ChatRepo {
       status: Value(status.name),
       closedAt: Value(DateTime.now()),
     ));
+  }
+
+  /// 仅改 session 状态、不动 closedAt（durable resume, P3-c）：
+  /// paused ↔ active 是**可逆**的生命周期态（paused 等作答 → resume 复活
+  /// 回 active），不是 finalize 那种终态，不能写 closedAt。
+  Future<void> updateSessionStatus(
+    String sessionId, {
+    required SessionStatus status,
+  }) async {
+    await (db.update(db.chatSessions)
+          ..where(
+            (s) => s.sessionId.equals(sessionId) & s.ownerKey.equals(scope)))
+        .write(ChatSessionsCompanion(status: Value(status.name)));
   }
 
   Future<void> updateSessionToken(

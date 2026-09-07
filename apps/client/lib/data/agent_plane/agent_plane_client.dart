@@ -8,6 +8,10 @@
 //   GET    /v1/agent/environments         列出当前用户的 worker
 //   POST   /v1/agent/sessions             创建 session（chat / agent / task）
 //   POST   /v1/agent/sessions/{id}/refresh-token   续 session_token
+//   GET    /v1/agent/sessions/{id}/elicitations    durable resume：拉该
+//                                                  session 的提问表单行
+//   POST   /v1/agent/sessions/{id}/resume          durable resume：paused
+//                                                  session 重跑+答案注入
 
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
@@ -180,8 +184,51 @@ class AgentPlaneClient {
       sinceSeq: sinceSeq,
     );
   }
-}
 
+  /// durable resume（P3-c）：拉该 session 的 elicitation 行（含各状态），
+  /// 客户端主要消费 status='pending' 的行重建可答 FormCard。
+  ///
+  /// 调用方：BiuSessionConnection.resume() 在 WS 连上后调用；失败静默
+  /// 降级（stream replay 兜底仍在），不向 UI 抛错。
+  Future<List<AgentElicitation>> listElicitations(String sessionId) async {
+    final tok = await tokenProvider();
+    final sw = Stopwatch()..start();
+    final json = await apiRequest(
+      method: 'GET',
+      url: Uri.parse('$baseUrl/v1/agent/sessions/$sessionId/elicitations'),
+      bearerToken: tok,
+      onAuthError: onAuthError,
+    );
+    final rows = json['elicitations'] as List?;
+    debugPrint('[agent_plane] listElicitations session=$sessionId'
+        ' count=${rows?.length ?? 0} latency_ms=${sw.elapsedMilliseconds}');
+    if (rows == null) return const [];
+    return rows
+        .cast<Map<String, dynamic>>()
+        .map(AgentElicitation.fromJson)
+        .toList();
+  }
+
+  /// durable resume（P3-c）：请求 brain 把 paused session 重跑 + 注入已答
+  /// 答案（POST /v1/agent/sessions/{id}/resume）。成功 200 后等
+  /// biumind.session_resumed 帧恢复 streaming。
+  ///
+  /// 409 语义（调用方按 [ApiError.body] 里的 error.code 区分）：
+  ///   - pending_answers：还有未答表单 —— 用户全部答完后下一次作答再调。
+  ///   - invalid_state ：session 非 paused（可能已被他端 resume）—— 静默。
+  Future<void> resumePausedSession(String sessionId) async {
+    final tok = await tokenProvider();
+    final sw = Stopwatch()..start();
+    await apiRequest(
+      method: 'POST',
+      url: Uri.parse('$baseUrl/v1/agent/sessions/$sessionId/resume'),
+      bearerToken: tok,
+      onAuthError: onAuthError,
+    );
+    debugPrint('[agent_plane] resumePausedSession session=$sessionId'
+        ' latency_ms=${sw.elapsedMilliseconds}');
+  }
+}
 /// ChatImageInput —— createSession 携带的单张图片附件。跟 brain 端
 /// `agentplane.ChatImageInput` 字段名一一对应（mime_type / data）。
 /// data 是 base64 编码字节，不带 `data:image/...;base64,` 前缀。
@@ -259,6 +306,40 @@ class RefreshTokenResp {
   factory RefreshTokenResp.fromJson(Map<String, dynamic> json) {
     return RefreshTokenResp(
       sessionToken: json['session_token'] as String,
+      expiresAt: _parseTime(json['expires_at']),
+    );
+  }
+}
+
+/// AgentElicitation —— GET /v1/agent/sessions/{id}/elicitations 返回的一行
+/// （durable resume, P3-c）。[payload] 是出题时的展示载荷
+/// （question/header/multi_select/options），与 FormCard 解析的
+/// `x-biumind-question` 扩展同形，客户端直接包一层喂给 FormSpec.parse。
+class AgentElicitation {
+  final String requestId;
+  final Map<String, dynamic> payload;
+
+  /// pending | answered | expired | cancelled
+  final String status;
+  final DateTime? createdAt;
+  final DateTime? expiresAt;
+
+  const AgentElicitation({
+    required this.requestId,
+    required this.payload,
+    required this.status,
+    this.createdAt,
+    this.expiresAt,
+  });
+
+  factory AgentElicitation.fromJson(Map<String, dynamic> json) {
+    return AgentElicitation(
+      requestId: json['request_id'] as String? ?? '',
+      payload: (json['payload'] is Map<String, dynamic>)
+          ? json['payload'] as Map<String, dynamic>
+          : const {},
+      status: json['status'] as String? ?? '',
+      createdAt: _parseTime(json['created_at']),
       expiresAt: _parseTime(json['expires_at']),
     );
   }
