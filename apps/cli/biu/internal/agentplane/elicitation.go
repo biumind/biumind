@@ -34,6 +34,9 @@
 //	客户端回包 content：单选 {"answer": "<label>"} /
 //	多选 {"answer": ["<label>", ...]}，均可选带 "notes": "<自由文本>"。
 //
+// 拿到终态（accept/decline/cancel/timeout 含 ctx.Done）后补发
+// system/form_answer 数据平面帧（方案 B），与 brain chat 模式同构。
+//
 // 红线（设计 §3.4）：pendingAsks 只在内存，绝不从持久化状态重建；daemon
 // 重启 = pending 丢失，未答表单按超时 soft error 收场。所有失败路径
 // （发布失败 / 超时 / ctx 取消 / decline / cancel / 回包非法）都收口成
@@ -135,16 +138,56 @@ func (w *Worker) askUserFor(sessionID uuid.UUID) biumindkit.AskUserFn {
 		defer timer.Stop()
 		select {
 		case ans := <-respCh:
+			// 终态落定 → 补发 form_answer 数据平面帧（方案 B：经 publishFrame
+			// 发 brain `.out`，广播给其他在线设备 + brain TranscriptRecorder
+			// 落库）。补帧失败不影响已拿到的答案。
+			action := ans.Action
+			switch action {
+			case "accept", "decline", "cancel":
+			default:
+				action = "cancel" // 未知 action 与 answerFromElicitationContent 同语义
+			}
+			w.publishFormAnswer(ctx, sessionID, requestID, q, action, ans.Content)
 			return answerFromElicitationContent(q, ans)
 		case <-ctx.Done():
 			// turn 被 interrupt / 父 ctx 取消 —— 与 askPermissionFor 的 ctx
-			// 分支同语义。
+			// 分支同语义。终态帧用脱离取消的 ctx 发（原 ctx 已死）。
+			w.publishFormAnswer(context.WithoutCancel(ctx), sessionID, requestID, q, "cancel", nil)
 			return biumindkit.UserAnswer{}, ctx.Err()
 		case <-timer.C:
 			w.logger.Info("askUser: timed out (user unanswered)",
 				"session_id", sessionID, "request_id", requestID)
+			w.publishFormAnswer(ctx, sessionID, requestID, q, "timeout", nil)
 			return biumindkit.UserAnswer{Cancelled: true}, nil
 		}
+	}
+}
+
+// publishFormAnswer 在提问拿到终态后补发 SDKFormAnswer 数据平面帧，与 brain
+// chat 模式（chat_elicitation.go::publishFormAnswer）逐字段对齐。发布失败只
+// 记日志 —— 答案已经拿到（或已超时），工具结果不该被补帧拖累；落库幂等靠
+// client_id="elicit:<request_id>"，丢帧即历史缺这一行（拍板 B3：接受空洞）。
+func (w *Worker) publishFormAnswer(ctx context.Context, sessionID uuid.UUID, requestID string, q biumindkit.UserQuestion, action string, content map[string]any) {
+	options := make([]sdkproto.SDKFormAnswerOption, 0, len(q.Options))
+	for _, o := range q.Options {
+		options = append(options, sdkproto.SDKFormAnswerOption{Label: o.Label, Description: o.Description})
+	}
+	frame := &sdkproto.SDKFormAnswer{
+		Type:        sdkproto.TypeSystem,
+		Subtype:     sdkproto.SubtypeFormAnswer,
+		RequestID:   requestID,
+		Question:    q.Question,
+		Header:      q.Header,
+		MultiSelect: q.MultiSelect,
+		Options:     options,
+		Action:      action,
+		Content:     content,
+		UUID:        uuid.NewString(),
+		SessionID:   sessionID.String(),
+	}
+	if err := w.publishFrame(ctx, sessionID, frame); err != nil {
+		w.logger.Warn("askUser: publish form_answer frame failed",
+			"err", err, "session_id", sessionID, "request_id", requestID, "action", action)
 	}
 }
 

@@ -48,7 +48,7 @@ make schema-validate
 ## 当前状态
 
 - **S1-1** ✅ 建 46 个 schema 文件骨架 + 校验工具链
-- **S1-2** ✅ 数据平面：`_common.json` 共享类型 + `data/*.json` 8 个文件覆盖 28 个 SDKMessage variant + Go struct (`packages/go-sdk/biu/sdkproto/v1/`) + 27 个 round-trip 单测 + 8 个 fixture
+- **S1-2** ✅ 数据平面：`_common.json` 共享类型 + `data/*.json` 8 个文件覆盖 29 个 SDKMessage variant + Go struct (`packages/go-sdk/biu/sdkproto/v1/`) + 28 个 round-trip 单测 + 8 个 fixture
 - **S1-3** ✅ 控制平面：`control/*.json` 14 个文件覆盖 21 ControlRequest + wrappers + Go struct + 21+5 round-trip 单测 + 6 个 fixture
 - **S1-4** ✅ Hook + MCP + Permissions + Agents + Settings：14 hook 文件（27 variant + union）+ permissions/mcp/agents/settings 4 个顶层文件 + 5 个 Go 文件 + 43 个新测 + 8 个新 fixture
 - **S1-5** ✅ Lifecycle + 顶层 union + Dart 全量 codegen：lifecycle.json（6 BiuMind 自有帧）+ biumind_ext.json + service.json + Go 3 文件 + **Dart 45 源文件 + 41 .g.dart**（80+ class）+ TS 占位 + Go E2E 9 帧 session 测试 = **S1 协议层全部完成**

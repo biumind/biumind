@@ -360,6 +360,114 @@ func TestWorker_AskUserFor_TimeoutDegradesToCancelled(t *testing.T) {
 	}
 }
 
+// 方案 B 终态补帧：accept 回包后补发 system/form_answer 帧到 .out（brain
+// 广播给其他设备 + TranscriptRecorder 落库）。帧内容 = 提问快照 + 终态。
+func TestWorker_AskUserFor_PublishesFormAnswerOnAccept(t *testing.T) {
+	w, frames := newAskTestWorker(t)
+	sessionID := uuid.New()
+	res, requestID, _ := startAsk(t, w, frames, sessionID, askTestQuestion)
+
+	w.answerAsk(requestID, elicitationAnswer{
+		Action:  "accept",
+		Content: map[string]any{"answer": "Blue", "notes": "cool tone"},
+	})
+	r := recvAsk(t, res)
+	if r.err != nil {
+		t.Fatalf("unexpected error: %v", r.err)
+	}
+	var fa struct {
+		Type        string           `json:"type"`
+		Subtype     string           `json:"subtype"`
+		RequestID   string           `json:"request_id"`
+		Question    string           `json:"question"`
+		Header      string           `json:"header"`
+		MultiSelect bool             `json:"multi_select"`
+		Options     []map[string]any `json:"options"`
+		Action      string           `json:"action"`
+		Content     map[string]any   `json:"content"`
+		UUID        string           `json:"uuid"`
+		SessionID   string           `json:"session_id"`
+	}
+	select {
+	case raw := <-frames:
+		if err := json.Unmarshal(raw, &fa); err != nil {
+			t.Fatalf("form_answer frame unparseable: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("accept 后未补发 form_answer 帧")
+	}
+	if fa.Type != "system" || fa.Subtype != "form_answer" {
+		t.Errorf("type/subtype = %q/%q", fa.Type, fa.Subtype)
+	}
+	if fa.RequestID != requestID {
+		t.Errorf("request_id %q != %q", fa.RequestID, requestID)
+	}
+	if fa.Question != "Pick a color" || fa.Header != "color" || fa.MultiSelect {
+		t.Errorf("question snapshot = %+v", fa)
+	}
+	if len(fa.Options) != 2 || fa.Options[0]["label"] != "Red" {
+		t.Errorf("options = %+v", fa.Options)
+	}
+	if fa.Action != "accept" || fa.Content["answer"] != "Blue" || fa.Content["notes"] != "cool tone" {
+		t.Errorf("action/content = %q/%+v", fa.Action, fa.Content)
+	}
+	if fa.UUID == "" || fa.SessionID != sessionID.String() {
+		t.Errorf("uuid/session_id missing: %+v", fa)
+	}
+}
+
+// 超时 / decline / cancel 终态同样补帧（timeout 由生产者发，无 content）。
+func TestWorker_AskUserFor_PublishesFormAnswerTerminalStates(t *testing.T) {
+	t.Run("timeout", func(t *testing.T) {
+		orig := askUserTimeout
+		askUserTimeout = 150 * time.Millisecond
+		t.Cleanup(func() { askUserTimeout = orig })
+
+		w, frames := newAskTestWorker(t)
+		res, _, _ := startAsk(t, w, frames, uuid.New(), askTestQuestion)
+		recvAsk(t, res)
+		var fa struct {
+			Subtype string         `json:"subtype"`
+			Action  string         `json:"action"`
+			Content map[string]any `json:"content"`
+		}
+		select {
+		case raw := <-frames:
+			if err := json.Unmarshal(raw, &fa); err != nil {
+				t.Fatalf("form_answer frame unparseable: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("超时后未补发 form_answer 帧")
+		}
+		if fa.Subtype != "form_answer" || fa.Action != "timeout" || fa.Content != nil {
+			t.Errorf("frame = %+v, want form_answer/timeout/nil-content", fa)
+		}
+	})
+	for _, action := range []string{"decline", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			w, frames := newAskTestWorker(t)
+			res, requestID, _ := startAsk(t, w, frames, uuid.New(), askTestQuestion)
+			w.answerAsk(requestID, elicitationAnswer{Action: action})
+			recvAsk(t, res)
+			var fa struct {
+				Subtype string `json:"subtype"`
+				Action  string `json:"action"`
+			}
+			select {
+			case raw := <-frames:
+				if err := json.Unmarshal(raw, &fa); err != nil {
+					t.Fatalf("form_answer frame unparseable: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s 后未补发 form_answer 帧", action)
+			}
+			if fa.Subtype != "form_answer" || fa.Action != action {
+				t.Errorf("frame = %+v, want form_answer/%s", fa, action)
+			}
+		})
+	}
+}
+
 func TestWorker_AskUserFor_DeclineAndCancel(t *testing.T) {
 	w, frames := newAskTestWorker(t)
 	for _, action := range []string{"decline", "cancel"} {
@@ -369,6 +477,7 @@ func TestWorker_AskUserFor_DeclineAndCancel(t *testing.T) {
 		if r.err != nil || !r.ans.Cancelled {
 			t.Errorf("action=%s: answer=%+v err=%v, want Cancelled nil-err", action, r.ans, r.err)
 		}
+		<-frames // 收掉终态补发的 form_answer 帧，避免污染下一轮 startAsk
 	}
 }
 

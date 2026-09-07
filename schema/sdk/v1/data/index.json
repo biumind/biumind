@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://biumind.dev/sdk/v1/data/index.json",
   "title": "BiuMind SDK v1 — SDK Message Union",
-  "description": "顶层 SDKMessage union (oneOf, discriminator: type)。覆盖全部 28 个 variant + post_turn_summary（subtype 区分）。",
+  "description": "顶层 SDKMessage union (oneOf, discriminator: type)。覆盖全部 29 个 variant + post_turn_summary（subtype 区分）。",
   "$defs": {
     "SDKMessage": {
       "oneOf": [
@@ -27,6 +27,7 @@
         { "$ref": "system.json#/$defs/SDKSessionStateChanged" },
         { "$ref": "system.json#/$defs/SDKRateLimitEvent" },
         { "$ref": "system.json#/$defs/SDKElicitationComplete" },
+        { "$ref": "system.json#/$defs/SDKFormAnswer" },
         { "$ref": "system.json#/$defs/SDKPromptSuggestion" },
         { "$ref": "tool.json#/$defs/SDKToolProgress" },
         { "$ref": "tool.json#/$defs/SDKToolUseSummary" },

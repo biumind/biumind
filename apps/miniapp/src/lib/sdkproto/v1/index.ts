@@ -21,6 +21,10 @@ export type SDKControlRequest = unknown;
 export type SDKControlResponse = unknown;
 export type Lifecycle = unknown;
 
+// system/form_answer（SDKMessage 第 29 个 variant）：AskUserQuestion 表单问答
+// 终态帧。miniapp 不渲染表单卡，仅声明占位 —— 收到该帧静默忽略即可。
+export type SDKFormAnswer = unknown;
+
 // BiuMind Mode enum —— S10 之前已可使用的常量。
 export const Mode = {
   chat: 'chat',

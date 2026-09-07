@@ -34,11 +34,12 @@ const (
 	SubtypeTaskProgress        = "task_progress"
 	SubtypeSessionStateChanged = "session_state_changed"
 	SubtypeElicitationComplete = "elicitation_complete"
+	SubtypeFormAnswer          = "form_answer"
 	SubtypePostTurnSummary     = "post_turn_summary"
 	SubtypeSuccess             = "success"
 )
 
-// SDKMessage 是数据平面 union 标记接口。所有 28 个 variant 都实现 isSDKMessage()。
+// SDKMessage 是数据平面 union 标记接口。所有 29 个 variant 都实现 isSDKMessage()。
 // 嵌入 Frame —— 数据平面消息也是合法 WS 帧 wire 类型。
 type SDKMessage interface {
 	Frame
@@ -66,6 +67,7 @@ func (*SDKTaskProgress) isSDKMessage()              {}
 func (*SDKSessionStateChanged) isSDKMessage()       {}
 func (*SDKRateLimitEvent) isSDKMessage()            {}
 func (*SDKElicitationComplete) isSDKMessage()       {}
+func (*SDKFormAnswer) isSDKMessage()                {}
 func (*SDKPromptSuggestion) isSDKMessage()          {}
 func (*SDKToolProgress) isSDKMessage()              {}
 func (*SDKToolUseSummary) isSDKMessage()            {}
@@ -95,6 +97,7 @@ func (*SDKTaskProgress) isFrame()              {}
 func (*SDKSessionStateChanged) isFrame()       {}
 func (*SDKRateLimitEvent) isFrame()            {}
 func (*SDKElicitationComplete) isFrame()       {}
+func (*SDKFormAnswer) isFrame()                {}
 func (*SDKPromptSuggestion) isFrame()          {}
 func (*SDKToolProgress) isFrame()              {}
 func (*SDKToolUseSummary) isFrame()            {}
@@ -204,6 +207,9 @@ func unmarshalSystem(subtype string, data []byte) (SDKMessage, error) {
 		return &m, json.Unmarshal(data, &m)
 	case SubtypeElicitationComplete:
 		var m SDKElicitationComplete
+		return &m, json.Unmarshal(data, &m)
+	case SubtypeFormAnswer:
+		var m SDKFormAnswer
 		return &m, json.Unmarshal(data, &m)
 	case SubtypePostTurnSummary:
 		var m SDKPostTurnSummary

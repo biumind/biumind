@@ -302,6 +302,53 @@ func TestSDKMessage_ElicitationComplete(t *testing.T) {
 	}`, &SDKElicitationComplete{}, []string{`"subtype":"elicitation_complete"`, `"mcp_server_name":"supabase"`})
 }
 
+func TestSDKMessage_FormAnswer(t *testing.T) {
+	roundTrip(t, "form_answer", `{
+		"type": "system",
+		"subtype": "form_answer",
+		"request_id": "req-1",
+		"question": "Pick a color?",
+		"header": "Color",
+		"multi_select": false,
+		"options": [{"label": "red", "description": "warm"}, {"label": "blue"}],
+		"action": "accept",
+		"content": {"answer": "blue", "notes": "cool tone"},
+		"uuid": "fa1",
+		"session_id": "s1"
+	}`, &SDKFormAnswer{}, []string{
+		`"subtype":"form_answer"`, `"request_id":"req-1"`,
+		`"action":"accept"`, `"answer":"blue"`, `"multi_select":false`,
+	})
+}
+
+// form_answer 的 timeout 终态由生产者发（无 content）。
+func TestSDKMessage_FormAnswerTimeout(t *testing.T) {
+	msg, err := UnmarshalSDKMessage([]byte(`{
+		"type": "system",
+		"subtype": "form_answer",
+		"request_id": "req-2",
+		"question": "Pick a color?",
+		"multi_select": true,
+		"options": [{"label": "red"}],
+		"action": "timeout",
+		"uuid": "fa2",
+		"session_id": "s1"
+	}`))
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	fa, ok := msg.(*SDKFormAnswer)
+	if !ok {
+		t.Fatalf("dispatched to %T, want *SDKFormAnswer", msg)
+	}
+	if fa.Action != "timeout" || !fa.MultiSelect || fa.Content != nil {
+		t.Errorf("fa = %+v", fa)
+	}
+	if len(fa.Options) != 1 || fa.Options[0].Label != "red" {
+		t.Errorf("options = %+v", fa.Options)
+	}
+}
+
 func TestSDKMessage_PromptSuggestion(t *testing.T) {
 	roundTrip(t, "prompt_suggestion", `{
 		"type": "prompt_suggestion",

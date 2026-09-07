@@ -24,6 +24,10 @@
 //	客户端回包 content：单选 {"answer": "<label>"} /
 //	多选 {"answer": ["<label>", ...]}，均可选带 "notes": "<自由文本>"。
 //
+// 拿到终态（accept/decline/cancel/timeout 含 ctx.Done）后补发
+// system/form_answer 数据平面帧（方案 B）：既广播给其他在线设备，也经
+// PublishSessionFrame 旁路进 TranscriptRecorder 落 chat.messages。
+//
 // 所有失败路径（发布失败 / 超时 / ctx 取消 / decline / cancel / 回包非法）
 // 都收口成「工具 soft error」：模型看到 "user cancelled/unanswered" 自行
 // 降级，session 绝不死锁（设计 §2.3.3「丢帧也安全」）。
@@ -86,16 +90,62 @@ func (cr *ChatRunner) askUserFn(sessionID uuid.UUID) biumindkit.AskUserFn {
 		defer timer.Stop()
 		select {
 		case ans := <-answers:
+			// 终态落定 → 补发 form_answer 数据平面帧（方案 B：广播给其他
+			// 在线设备 + 经 PublishSessionFrame 旁路进 TranscriptRecorder
+			// 落库）。补帧失败不影响已拿到的答案。
+			action := ans.Action
+			switch action {
+			case "accept", "decline", "cancel":
+			default:
+				action = "cancel" // 未知 action 与 answerFromElicitation 同语义
+			}
+			cr.publishFormAnswer(ctx, sessionID, requestID, q, action, ans.Content)
 			return answerFromElicitation(q, ans)
 		case <-ctx.Done():
 			// turn 被 interrupt / 父 ctx 取消 —— 跟 daemon askPermission
-			// 的 ctx 分支同语义。
+			// 的 ctx 分支同语义。终态帧用脱离取消的 ctx 发（原 ctx 已死）。
+			cr.publishFormAnswer(context.WithoutCancel(ctx), sessionID, requestID, q, "cancel", nil)
 			return biumindkit.UserAnswer{}, ctx.Err()
 		case <-timer.C:
 			cr.Logger.Info("chat runner: elicitation timed out (user unanswered)",
 				"session_id", sessionID, "request_id", requestID)
+			cr.publishFormAnswer(ctx, sessionID, requestID, q, "timeout", nil)
 			return biumindkit.UserAnswer{}, fmt.Errorf("elicitation: user unanswered within %s", ElicitationTimeout)
 		}
+	}
+}
+
+// publishFormAnswer 在提问拿到终态后补发 SDKFormAnswer 数据平面帧。
+// question/header/multi_select/options 直接取提问时的原始结构（与发出的
+// requested_schema 同源）。发布失败只记日志 —— 答案已经拿到（或已超时），
+// 工具结果不该被补帧拖累；落库幂等靠 client_id="elicit:<request_id>"，
+// 丢帧即历史缺这一行（拍板 B3：接受空洞）。
+func (cr *ChatRunner) publishFormAnswer(ctx context.Context, sessionID uuid.UUID, requestID string, q biumindkit.UserQuestion, action string, content map[string]any) {
+	options := make([]sdkproto.SDKFormAnswerOption, 0, len(q.Options))
+	for _, o := range q.Options {
+		options = append(options, sdkproto.SDKFormAnswerOption{Label: o.Label, Description: o.Description})
+	}
+	raw, err := json.Marshal(&sdkproto.SDKFormAnswer{
+		Type:        sdkproto.TypeSystem,
+		Subtype:     sdkproto.SubtypeFormAnswer,
+		RequestID:   requestID,
+		Question:    q.Question,
+		Header:      q.Header,
+		MultiSelect: q.MultiSelect,
+		Options:     options,
+		Action:      action,
+		Content:     content,
+		UUID:        uuid.NewString(),
+		SessionID:   sessionID.String(),
+	})
+	if err != nil {
+		cr.Logger.Warn("chat runner: marshal form_answer frame failed",
+			"session_id", sessionID, "request_id", requestID, "err", err)
+		return
+	}
+	if err := cr.Queue.PublishSessionFrame(ctx, sessionID, raw); err != nil {
+		cr.Logger.Warn("chat runner: publish form_answer frame failed",
+			"session_id", sessionID, "request_id", requestID, "action", action, "err", err)
 	}
 }
 

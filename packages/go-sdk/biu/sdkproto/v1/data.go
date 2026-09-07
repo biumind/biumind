@@ -295,6 +295,32 @@ type SDKRateLimitEvent struct {
 	SessionID     string        `json:"session_id"`
 }
 
+// ── system: form_answer ─────────────────────────────────────
+
+// SDKFormAnswerOption 是提问时的选项快照（label + description）。
+type SDKFormAnswerOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// SDKFormAnswer 是 AskUserQuestion 表单问答的终态帧（方案 B：生产者补发
+// 终态帧 + TranscriptRecorder 统一落库）。action 四态：accept（用户作答）/
+// decline / cancel / timeout（等答案超时，由生产者发）。Content 直接回显
+// ElicitationResponse.content（自由 JSON，可缺省）；Options 为提问时快照。
+type SDKFormAnswer struct {
+	Type        string                `json:"type"`    // "system"
+	Subtype     string                `json:"subtype"` // "form_answer"
+	RequestID   string                `json:"request_id"`
+	Question    string                `json:"question"`
+	Header      string                `json:"header,omitempty"`
+	MultiSelect bool                  `json:"multi_select"`
+	Options     []SDKFormAnswerOption `json:"options"`
+	Action      string                `json:"action"` // accept | decline | cancel | timeout
+	Content     map[string]any        `json:"content,omitempty"`
+	UUID        string                `json:"uuid"`
+	SessionID   string                `json:"session_id"`
+}
+
 // ── system: elicitation_complete ────────────────────────────
 
 type SDKElicitationComplete struct {

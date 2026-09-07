@@ -270,6 +270,35 @@
       },
       "additionalProperties": true
     },
+    "SDKFormAnswer": {
+      "type": "object",
+      "required": ["type", "subtype", "request_id", "question", "multi_select", "options", "action", "uuid", "session_id"],
+      "properties": {
+        "type": { "const": "system" },
+        "subtype": { "const": "form_answer" },
+        "request_id": { "type": "string" },
+        "question": { "type": "string" },
+        "header": { "type": "string" },
+        "multi_select": { "type": "boolean" },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label"],
+            "properties": {
+              "label": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "action": { "type": "string", "enum": ["accept", "decline", "cancel", "timeout"] },
+        "content": { "type": "object" },
+        "uuid": { "$ref": "../_common.json#/$defs/Uuid" },
+        "session_id": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
     "SDKPromptSuggestion": {
       "type": "object",
       "required": ["type", "suggestion", "uuid", "session_id"],

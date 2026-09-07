@@ -3,6 +3,7 @@ package agentplane
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -100,9 +101,121 @@ func (t *TranscriptRecorder) ObserveFrame(ctx context.Context, sessionID uuid.UU
 			sc.buf.WriteString(f.Text)
 		}
 		t.mu.Unlock()
+	case sdkproto.TypeSystem:
+		// system/form_answer：AskUserQuestion 终态帧(生产者补发,方案 B)。
+		// turn 中间到达,立即落独立一行 —— 回放时排在 assistant 文本之前
+		// (拍板 B2 接受的排序)。
+		if f.Subtype == sdkproto.SubtypeFormAnswer {
+			t.persistFormAnswer(ctx, sessionID, payload)
+		}
 	case sdkproto.TypeResult: // "result" turn 终止(success/error)
 		t.finish(ctx, sessionID, f)
 	}
+}
+
+// persistFormAnswer 把一条 form_answer 终态帧落成 chat.messages 一行：
+// role=assistant、status=success、content=人类可读摘要(进模型历史,拍板 B1)、
+// parts=[{type:"form",...}] 供客户端重建只读表单卡。幂等靠
+// client_id="elicit:<request_id>" —— CreateMessage 撞唯一约束返回既有行
+// (不报错),重试/双发天然只落一行。
+func (t *TranscriptRecorder) persistFormAnswer(ctx context.Context, sessionID uuid.UUID, payload []byte) {
+	t.mu.Lock()
+	sc := t.sess[sessionID]
+	t.mu.Unlock()
+	if sc == nil {
+		return // 未注册(无 thread / turn 已终止)——拍板 B3:缺上下文即不落
+	}
+	var f sdkproto.SDKFormAnswer
+	if err := json.Unmarshal(payload, &f); err != nil || f.RequestID == "" {
+		if err == nil {
+			err = fmt.Errorf("missing request_id")
+		}
+		if t.logger != nil {
+			t.logger.Warn("transcript: form_answer frame unparseable",
+				"session_id", sessionID, "err", err)
+		}
+		return
+	}
+	parts, err := json.Marshal([]map[string]any{{
+		"type":         "form",
+		"request_id":   f.RequestID,
+		"question":     f.Question,
+		"header":       f.Header,
+		"multi_select": f.MultiSelect,
+		"options":      f.Options,
+		"action":       f.Action,
+		"content":      f.Content,
+	}})
+	if err != nil {
+		if t.logger != nil {
+			t.logger.Warn("transcript: marshal form part failed",
+				"session_id", sessionID, "request_id", f.RequestID, "err", err)
+		}
+		return
+	}
+	in := chatpkg.CreateMessageInput{
+		ThreadID: sc.threadID,
+		UserID:   sc.userID,
+		Role:     chatpkg.RoleAssistant,
+		Content:  formAnswerSummary(f.Question, f.Action, f.Content),
+		Parts:    parts,
+		Status:   chatpkg.StatusSuccess,
+	}
+	if sc.model != "" {
+		in.Model = &sc.model
+	}
+	cid := "elicit:" + f.RequestID
+	in.ClientID = &cid
+	if _, err := t.chat.CreateMessage(ctx, in); err != nil && t.logger != nil {
+		t.logger.Warn("transcript: persist form answer failed",
+			"session_id", sessionID, "thread_id", sc.threadID,
+			"request_id", f.RequestID, "err", err)
+	}
+}
+
+// formAnswerSummary 生成 form 行的人类可读摘要（进 content,模型历史可见）。
+func formAnswerSummary(question, action string, content map[string]any) string {
+	switch action {
+	case "accept":
+		s := "Q: " + question + "\nA: " + formAnswerText(content)
+		if notes, _ := content["notes"].(string); notes != "" {
+			s += "\nNotes: " + notes
+		}
+		return s
+	case "decline":
+		return "Q: " + question + "\nA: (declined)"
+	case "timeout":
+		return "Q: " + question + "\nA: (no answer — timed out)"
+	default: // cancel 及未知 action
+		return "Q: " + question + "\nA: (cancelled)"
+	}
+}
+
+// formAnswerText 把回包 content["answer"] 渲染成文本：单选是 label 字符串,
+// 多选是 label 数组(逗号连接);缺省/异常形态退化为 JSON 原文或占位。
+func formAnswerText(content map[string]any) string {
+	switch a := content["answer"].(type) {
+	case string:
+		if a != "" {
+			return a
+		}
+	case []any:
+		labels := make([]string, 0, len(a))
+		for _, item := range a {
+			if s, ok := item.(string); ok {
+				labels = append(labels, s)
+			}
+		}
+		if len(labels) > 0 {
+			return strings.Join(labels, ", ")
+		}
+	}
+	if len(content) > 0 {
+		if raw, err := json.Marshal(content); err == nil {
+			return string(raw)
+		}
+	}
+	return "(no answer)"
 }
 
 // finish 在 result 帧(turn 终止)时把累积的 assistant 文本落库 + 清理。

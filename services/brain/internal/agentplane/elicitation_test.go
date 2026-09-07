@@ -208,6 +208,130 @@ func TestAskUserFn_PublishFailure(t *testing.T) {
 	}
 }
 
+// waitPublishes 轮询 fakeJS 直到攒够 n 条 publish（超时 fail）。
+func waitPublishes(t *testing.T, js *fakeJS, n int) []fakePublish {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		js.mu.Lock()
+		if len(js.publishes) >= n {
+			out := append([]fakePublish(nil), js.publishes...)
+			js.mu.Unlock()
+			return out
+		}
+		js.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatalf("publishes=%d, want >= %d", len(js.publishes), n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// 方案 B 终态补帧：accept 后补发 system/form_answer 帧（广播 + recorder 落库），
+// 帧内容 = 提问快照 + 终态 action/content。
+func TestAskUserFn_PublishesFormAnswerOnAccept(t *testing.T) {
+	js := &fakeJS{}
+	center := NewElicitationCenter(discardLogger())
+	cr := &ChatRunner{Queue: NewQueue(js), Elicitations: center, Logger: discardLogger()}
+	sessionID := uuid.New()
+
+	resCh := make(chan biumindkit.UserAnswer, 1)
+	go func() {
+		ans, _ := runAsk(cr, sessionID)
+		resCh <- ans
+	}()
+	pubs := waitPublishes(t, js, 1)
+	var ctrl sdkproto.SDKControlRequest
+	if err := json.Unmarshal(pubs[0].Payload.(json.RawMessage), &ctrl); err != nil {
+		t.Fatalf("control frame: %v", err)
+	}
+	center.Resolve(ctrl.RequestID, ElicitationAnswer{
+		Action:  "accept",
+		Content: map[string]any{"answer": "blue", "notes": "cool tone"},
+	})
+	<-resCh // 等 askUserFn 返回（补帧在返回前发出）
+
+	pubs = waitPublishes(t, js, 2)
+	var fa sdkproto.SDKFormAnswer
+	if err := json.Unmarshal(pubs[1].Payload.(json.RawMessage), &fa); err != nil {
+		t.Fatalf("form_answer frame: %v", err)
+	}
+	if fa.Type != sdkproto.TypeSystem || fa.Subtype != sdkproto.SubtypeFormAnswer {
+		t.Errorf("type/subtype = %q/%q", fa.Type, fa.Subtype)
+	}
+	if fa.RequestID != ctrl.RequestID {
+		t.Errorf("request_id %q != control %q", fa.RequestID, ctrl.RequestID)
+	}
+	if fa.Question != "Pick a color?" || fa.Header != "Color" || fa.MultiSelect {
+		t.Errorf("question snapshot = %+v", fa)
+	}
+	if len(fa.Options) != 3 || fa.Options[0].Label != "red" || fa.Options[0].Description != "warm" {
+		t.Errorf("options = %+v", fa.Options)
+	}
+	if fa.Action != "accept" || fa.Content["answer"] != "blue" || fa.Content["notes"] != "cool tone" {
+		t.Errorf("action/content = %q/%+v", fa.Action, fa.Content)
+	}
+	if fa.UUID == "" || fa.SessionID != sessionID.String() {
+		t.Errorf("uuid/session_id missing: %+v", fa)
+	}
+}
+
+// runAsk 小工具：调 askUserFn（上面 goroutine 里用）。
+func runAsk(cr *ChatRunner, sessionID uuid.UUID) (biumindkit.UserAnswer, error) {
+	return cr.askUserFn(sessionID)(context.Background(), testQuestion())
+}
+
+// 超时终态也补帧（action=timeout，无 content）；decline/cancel 回包按原样透出。
+func TestAskUserFn_PublishesFormAnswerOnTimeoutAndDecline(t *testing.T) {
+	orig := ElicitationTimeout
+	ElicitationTimeout = 50 * time.Millisecond
+	defer func() { ElicitationTimeout = orig }()
+
+	t.Run("timeout", func(t *testing.T) {
+		js := &fakeJS{}
+		cr := &ChatRunner{
+			Queue:        NewQueue(js),
+			Elicitations: NewElicitationCenter(discardLogger()),
+			Logger:       discardLogger(),
+		}
+		_, err := cr.askUserFn(uuid.New())(context.Background(), testQuestion())
+		if err == nil {
+			t.Fatal("timeout should surface an error")
+		}
+		pubs := waitPublishes(t, js, 2)
+		var fa sdkproto.SDKFormAnswer
+		if err := json.Unmarshal(pubs[1].Payload.(json.RawMessage), &fa); err != nil {
+			t.Fatalf("form_answer frame: %v", err)
+		}
+		if fa.Action != "timeout" || fa.Content != nil {
+			t.Errorf("action/content = %q/%+v, want timeout/nil", fa.Action, fa.Content)
+		}
+	})
+	t.Run("decline", func(t *testing.T) {
+		js := &fakeJS{}
+		center := NewElicitationCenter(discardLogger())
+		cr := &ChatRunner{Queue: NewQueue(js), Elicitations: center, Logger: discardLogger()}
+		resCh := make(chan biumindkit.UserAnswer, 1)
+		go func() {
+			ans, _ := runAsk(cr, uuid.New())
+			resCh <- ans
+		}()
+		pubs := waitPublishes(t, js, 1)
+		var ctrl sdkproto.SDKControlRequest
+		_ = json.Unmarshal(pubs[0].Payload.(json.RawMessage), &ctrl)
+		center.Resolve(ctrl.RequestID, ElicitationAnswer{Action: "decline"})
+		<-resCh
+		pubs = waitPublishes(t, js, 2)
+		var fa sdkproto.SDKFormAnswer
+		if err := json.Unmarshal(pubs[1].Payload.(json.RawMessage), &fa); err != nil {
+			t.Fatalf("form_answer frame: %v", err)
+		}
+		if fa.Action != "decline" {
+			t.Errorf("action = %q, want decline", fa.Action)
+		}
+	})
+}
+
 func TestAnswerFromElicitation_Validation(t *testing.T) {
 	q := testQuestion()
 	multi := testQuestion()
