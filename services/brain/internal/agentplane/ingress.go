@@ -88,8 +88,9 @@ type Ingress struct {
 
 	// elicitations 是 chat 模式提问表单（elicitation）的进程内 pending
 	// map,与 ChatRunner 共享同一实例。control_response 回包先按
-	// request_id 在这里查 —— 命中 = elicitation 回包,进程内 Resolve;
-	// 不中 = daemon permission 回包,走 control 队列（原行为）。
+	// request_id 在这里查 —— 命中 = chat 模式 elicitation 回包,进程内
+	// Resolve;不中 = daemon 回包（permission / daemon elicitation）,
+	// 走 control 队列（daemon 回包再按 response 体形状分 type）。
 	// 由 main.go 注入;nil = 无提问能力（chat_runner 那边同样不接
 	// AskUser,模型看不到 AskUserQuestion）。
 	elicitations *ElicitationCenter
@@ -134,8 +135,9 @@ func (i *Ingress) SetChatInterrupt(fn func(sessionID uuid.UUID) bool) {
 }
 
 // SetElicitations 注入 chat 模式提问表单的 pending map（与 ChatRunner
-// 共享）。注入后 control_response 按 request_id 分流:命中 = elicitation
-// 回包进程内 Resolve;不命中 = daemon permission 回包走 control 队列。
+// 共享）。注入后 control_response 按 request_id 分流:命中 = chat 模式
+// elicitation 回包进程内 Resolve;不命中 = daemon 回包走 control 队列
+// （permission / daemon elicitation,按 response 体形状再分 type）。
 func (i *Ingress) SetElicitations(c *ElicitationCenter) {
 	i.elicitations = c
 }
@@ -347,11 +349,13 @@ func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 		// chat 模式同时尝试进程内打断 —— 都是幂等 best-effort, fall through
 		// 继续 publish 到 .in 让客户端可见的协议状态保持完整。
 		i.maybeRouteCancel(r.Context(), sessionID, envID, msg)
-		// 同样的旁路:control_response 是 client→daemon 的 permission 答复。
-		// daemon 不订阅 .in,只通过 PollControl 拿 control 队列消息。
-		// 当前唯一的 daemon→client 控制请求是 can_use_tool,所以所有
-		// control_response 都视作 permission_response 路由(将来扩协议
-		// 时这里要按 subtype 分流)。
+		// 同样的旁路:control_response 是 client→daemon 的控制回包
+		// (permission 答复 / elicitation 表单作答)。daemon 不订阅 .in,
+		// 只通过 PollControl 拿 control 队列消息。分流在
+		// maybeRoutePermissionResponse 内做:chat 模式按 request_id 命中
+		// 进程内 pending map;daemon 回包按 response 体形状
+		// ({action,content} vs {behavior})分 elicitation_response /
+		// permission_response 两种 type 投 control 队列。
 		i.maybeRoutePermissionResponse(r.Context(), sessionID, envID, msg)
 		// publish 到 in subject。失败仅 log，不断 connection —— 客户端可
 		// 重发；publish 失败通常是 broker 短时间不可用。
@@ -375,7 +379,8 @@ type inboundFrameHead struct {
 	Type      string `json:"type"`
 	RequestID string `json:"request_id,omitempty"`
 	// Response 字段仅 control_response 帧使用。我们只关心 request_id +
-	// subtype + response 三个 leaf 字段(behavior),不展开整个 PermissionResult。
+	// subtype + response 三个 leaf 字段,不展开嵌套体（PermissionResult 的
+	// behavior / ElicitationResponse 的 action+content,分流只看键形状）。
 	Response *struct {
 		Subtype   string          `json:"subtype"`
 		RequestID string          `json:"request_id"`
@@ -448,8 +453,12 @@ func (i *Ingress) maybeRouteCancel(ctx context.Context, sessionID uuid.UUID, env
 //   - request_id 命中 elicitations pending map → chat 模式提问表单回包,
 //     进程内 Resolve 唤醒 ChatRunner.askUserFn。chat-mode 没绑
 //     environment,必须在 envID 判空**之前**处理。
-//   - 否则 → daemon permission 答复,经 control 队列投到 daemon。
-//     这是当前 daemon → client 唯一的控制请求(can_use_tool),保持原行为。
+//   - 否则 → daemon 回包,经 control 队列投到 daemon。再按 response 体
+//     形状分两种 type（agent-ask-form P2-b）：elicitation 表单作答
+//     (ElicitationResponse{action, content}) → elicitation_response；
+//     permission 答复 (PermissionResult{behavior}) → permission_response。
+//     判别依据见 isElicitationResultBody —— 帧头不带种类字段
+//     (subtype 只有 success/error),只能看嵌套体形状。
 //
 // chat-mode 的 permission 不可能存在(没有 daemon)—— envID 为 nil 且非
 // elicitation 时直接 return。
@@ -491,34 +500,66 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 			"action", ans.Action)
 		return true
 	}
-	// ── daemon permission 答复：走 control 队列 ──
+	// ── daemon 回包：走 control 队列 ──
 	if envID == nil {
-		i.logger.Info("ingress: permission_response — no environment, dropping",
+		i.logger.Info("ingress: control_response — no environment, dropping",
 			"session_id", sessionID)
 		return true
 	}
 	if i.queue == nil {
-		i.logger.Warn("ingress: permission_response cannot route — Queue not wired",
+		i.logger.Warn("ingress: control_response cannot route — Queue not wired",
 			"session_id", sessionID)
 		return true
 	}
+	// daemon 侧现有两种 client 回包：permission 答复 (can_use_tool) 与
+	// elicitation 表单作答（agent-ask-form P2-b, worker.askUserFor）。
+	// 按嵌套体形状分流投递 type,daemon handleControl 按 type 分发到
+	// pendingPerms / pendingAsks。
+	kind := "permission_response"
+	if isElicitationResultBody(head.Response.Response) {
+		kind = "elicitation_response"
+	}
 	payload := map[string]any{
-		"type":       "permission_response",
+		"type":       kind,
 		"session_id": sessionID.String(),
 		"request_id": head.Response.RequestID,
 		"subtype":    head.Response.Subtype,  // "success" | "error"
-		"response":   head.Response.Response, // 嵌套 PermissionResult JSON
+		"response":   head.Response.Response, // 嵌套 PermissionResult / ElicitationResponse JSON
 		"error":      head.Response.Error,
 	}
 	if err := i.queue.EnqueueControl(ctx, *envID, payload); err != nil {
-		i.logger.Warn("ingress: permission_response enqueue failed",
-			"session_id", sessionID, "env_id", *envID, "err", err)
+		i.logger.Warn("ingress: control_response enqueue failed",
+			"session_id", sessionID, "env_id", *envID, "kind", kind, "err", err)
 		return true
 	}
-	i.logger.Info("ingress: permission_response routed via control queue",
-		"session_id", sessionID, "env_id", *envID,
+	i.logger.Info("ingress: control_response routed via control queue",
+		"session_id", sessionID, "env_id", *envID, "kind", kind,
 		"request_id", head.Response.RequestID)
 	return true
+}
+
+// isElicitationResultBody 按 control_response 嵌套 response 体的形状判别
+// daemon 回包种类（agent-ask-form P2-b）：
+//
+//	elicitation 表单作答 → ElicitationResponse{action, content}（action 必填）
+//	permission 答复      → PermissionResult{behavior, ...}
+//
+// action 键在且 behavior 键不在 → elicitation；其余一律 permission 兜底
+// （空体 / 非对象 / 解析失败 → 保持改动前行为）。客户端两条发送路径
+// （_sendElicitationResult / _sendPermissionResult）体形状固定且不重叠,
+// 判别可靠；subtype=error 时体为空,同样落 permission 兜底（elicitation
+// 客户端路径从不发 error subtype —— decline/cancel 都是 success+action）。
+func isElicitationResultBody(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return false
+	}
+	_, hasAction := body["action"]
+	_, hasBehavior := body["behavior"]
+	return hasAction && !hasBehavior
 }
 
 // startStreamConsumer 起 server→client 推流路径。两条分支：
