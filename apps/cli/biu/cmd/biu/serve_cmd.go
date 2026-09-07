@@ -450,8 +450,10 @@ func startAgentWorker(parent context.Context, cfg *config.Config, f *rootFlags, 
 	roots := resolveAllowedRoots(allowedRoots)
 	daemonPreset := normalizePreset(toolPolicy)
 	fmt.Fprintf(os.Stderr, "[biu] serve: tool floor: policy=%s roots=%v\n", daemonPreset, roots)
-	builder := func(ctx context.Context, work agentplane.WorkPayload, askPerm biumindkit.PermissionPolicyFn) (*biumindkit.Agent, error) {
+	builder := func(ctx context.Context, work agentplane.WorkPayload, askPerm biumindkit.PermissionPolicyFn, askUser biumindkit.AskUserFn) (*biumindkit.Agent, error) {
 		// askPerm 走 brain control queue 反向问 client (见 worker.askPermissionFor)。
+		// askUser 同款链路（agent-ask-form P2-b）：elicitation 控制帧让 client 弹
+		// FormCard，回包经 control queue 投回 —— 接上后 AskUserQuestion 工具可见。
 		// work.UserBearer (P4) 是 brain 投下来的委托 user JWT, 优先作 model-relay
 		// Authorization → relay 原生解析该 user 的 BYOK。空 → 回退 BIUMIND_TOKEN/PAT。
 		preset := intersectPreset(daemonPreset, work.ToolPolicy)
@@ -472,6 +474,7 @@ func startAgentWorker(parent context.Context, cfg *config.Config, f *rootFlags, 
 			// §8.2 翻案:brain 服务端组装的 prior 多轮 → PriorMessages,
 			// 让 agent 模式不再单轮(否则"你还没问过我")。
 			withPriorMessages(priorMessagesFromHistory(work.History)),
+			withAskUser(askUser),
 		}
 		// client-side BYOK 命中 (brain 透传 ClientSideRecordID) → 用 work.UserBearer
 		// (brain 透传 user JWT) 调 identity 取明文 key (统一加密存 identity),

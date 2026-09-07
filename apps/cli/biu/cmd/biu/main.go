@@ -481,6 +481,10 @@ type buildSDKAgentOpts struct {
 	allowedRoots  []string
 	toolFloor     *biumindkit.ToolFloor
 	priorMessages []biumindkit.Message
+	// askUser（agent-ask-form P2-b）：daemon worker 注入的提问表单应答闭包
+	// （elicitation 控制帧走 brain 反向问 client）。nil = AskUserQuestion
+	// 工具不进目录（P0 安全默认）——bridge / headless 路径不传。
+	askUser biumindkit.AskUserFn
 	// clientSide: 非空时覆盖 cloud mode —— daemon 跳 relay，用本地 key 建
 	// engine 直连上游。builder 从 identity (user JWT 取 client-side key) 取好后注入。
 	clientSide *clientSideCreds
@@ -570,6 +574,13 @@ func withClientSide(key, baseURL, protocol string) buildSDKAgentOption {
 	}
 }
 
+// withAskUser（agent-ask-form P2-b）注入 daemon worker 的提问表单应答闭包
+// 到 biumindkit.Options.AskUser —— AskUserQuestion 工具由此对模型可见。
+// nil → 不注入（工具隐藏，P0 安全默认）。
+func withAskUser(fn biumindkit.AskUserFn) buildSDKAgentOption {
+	return func(o *buildSDKAgentOpts) { o.askUser = fn }
+}
+
 func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOverride biumindkit.PermissionPolicyFn, opts ...buildSDKAgentOption) (*biumindkit.Agent, error) {
 	mode := firstNonEmpty(f.mode, cfg.Default.Mode, string(client.ModeCloud))
 	var o buildSDKAgentOpts
@@ -620,6 +631,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 			AllowedRoots:  o.allowedRoots,
 			ToolFloor:     o.toolFloor,
 			PriorMessages: o.priorMessages,
+			AskUser:       o.askUser,
 		}
 		switch providerName {
 		case "anthropic":
@@ -650,6 +662,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 				AllowedRoots:        o.allowedRoots,
 				ToolFloor:           o.toolFloor,
 				PriorMessages:       o.priorMessages,
+				AskUser:             o.askUser,
 			}
 			if o.clientSide.protocol == "anthropic" {
 				csOpts.Provider = client.NewAnthropicEngine(o.clientSide.key, o.clientSide.baseURL)
@@ -708,6 +721,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 			AllowedRoots:  o.allowedRoots,
 			ToolFloor:     o.toolFloor,
 			PriorMessages: o.priorMessages,
+			AskUser:       o.askUser,
 		})
 
 	default:

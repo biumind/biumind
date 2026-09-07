@@ -39,7 +39,7 @@ data: {"type":"message_start","message":{"id":"m_1","model":"test"}}
 		<-r.Context().Done()
 		once.Do(func() { close(canceled) })
 	}))
-	build := func(_ context.Context, _ WorkPayload, _ biumindkit.PermissionPolicyFn) (*biumindkit.Agent, error) {
+	build := func(_ context.Context, _ WorkPayload, _ biumindkit.PermissionPolicyFn, _ biumindkit.AskUserFn) (*biumindkit.Agent, error) {
 		return biumindkit.New(biumindkit.Options{
 			APIKey:              "sk-fake",
 			AnthropicEndpoint:   upstream.URL,
@@ -182,7 +182,7 @@ func TestWorker_ObserveCancelLatency_OnlyAfterInterrupt(t *testing.T) {
 	// Case B: 注册 + 没 InterruptSession → cancelStartedAt 是空,
 	// observeCancelLatency 也 no-op
 	sidB := uuid.New()
-	a, err := build(context.Background(), WorkPayload{SessionID: sidB}, nil)
+	a, err := build(context.Background(), WorkPayload{SessionID: sidB}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestWorker_ObserveCancelLatency_OnlyAfterInterrupt(t *testing.T) {
 	// Case C: 注册 + InterruptSession + observeCancelLatency → 时间戳
 	// 被消费(防止重复 observe),Interrupt 真触发了 agent ctx
 	sidC := uuid.New()
-	a2, err := build(context.Background(), WorkPayload{SessionID: sidC}, nil)
+	a2, err := build(context.Background(), WorkPayload{SessionID: sidC}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -119,7 +119,7 @@ func newAgentWorkerCmd(f *rootFlags) *cobra.Command {
 			}
 
 			model := firstNonEmpty(f.model, cfg.Default.Model)
-			builder := func(ctx context.Context, work agentplane.WorkPayload, askPerm biumindkit.PermissionPolicyFn) (*biumindkit.Agent, error) {
+			builder := func(ctx context.Context, work agentplane.WorkPayload, askPerm biumindkit.PermissionPolicyFn, askUser biumindkit.AskUserFn) (*biumindkit.Agent, error) {
 				// R6.3：有效 preset = daemon flag ∩ brain per-device stamp（取更严，
 				// flag 是上限 brain 只能收窄）。floor → 能力地板；roots → 路径地板。
 				preset := intersectPreset(daemonPreset, work.ToolPolicy)
@@ -135,6 +135,10 @@ func newAgentWorkerCmd(f *rootFlags) *cobra.Command {
 				// 推到 .out NATS subject(brain 透传到 client WS),client 答复
 				// 经 brain control queue 投回 worker.answerPermission。这条链
 				// 接通后,worker 模式不再 deny 兜底,工具调用真能走到 client。
+				//
+				// askUser 同款链路（agent-ask-form P2-b）：elicitation 控制帧让
+				// client 弹 FormCard，回包经 control queue 投回 worker.answerAsk。
+				// 接到 Options.AskUser 后 AskUserQuestion 工具才对模型可见。
 				//
 				// work.Workdir 由 brain 从 chat.threads.workdir 透传:让 daemon
 				// 在指定目录跑工具。空 → fall back 到 daemon 启动 cwd。
@@ -153,6 +157,7 @@ func newAgentWorkerCmd(f *rootFlags) *cobra.Command {
 					withToolFloor(floor),
 					// §8.2 翻案:brain 服务端组装的 prior 多轮 → PriorMessages。
 					withPriorMessages(priorMessagesFromHistory(work.History)),
+					withAskUser(askUser),
 				)
 			}
 

@@ -47,15 +47,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// AgentBuilder 给定一条 work payload + worker 提供的 askPermission 闭包,
-// 返回一个准备好的 *biumindkit.Agent。daemon 启动时由 wiring 层注入 —— 让
-// worker 包不直接依赖 anthropic 配置 / MCP 注册等具体细节。
+// AgentBuilder 给定一条 work payload + worker 提供的 askPermission /
+// askUser 闭包, 返回一个准备好的 *biumindkit.Agent。daemon 启动时由 wiring
+// 层注入 —— 让 worker 包不直接依赖 anthropic 配置 / MCP 注册等具体细节。
 //
 // askPermission 走 brain control queue 反向问 client(见 askPermissionFor)。
 // builder 应该把它传给 biumindkit.Options.PermissionPolicy 让 engine 在触
 // 发 PermissionAsk 时调用。如果 builder 出于策略原因(单测 / fully-allow
 // 模式)不想把它接入,可以忽略;deny 兜底仍然安全。
-type AgentBuilder func(ctx context.Context, work WorkPayload, askPermission biumindkit.PermissionPolicyFn) (*biumindkit.Agent, error)
+//
+// askUser（agent-ask-form P2-b）同款链路：elicitation 控制帧 → client
+// FormCard 作答 → control queue 投回。builder 把它传给
+// biumindkit.Options.AskUser 让 AskUserQuestion 工具进目录；忽略（传 nil）
+// 则工具隐藏（P0 安全默认）。
+type AgentBuilder func(ctx context.Context, work WorkPayload, askPermission biumindkit.PermissionPolicyFn, askUser biumindkit.AskUserFn) (*biumindkit.Agent, error)
 
 // WorkPayload 跟 brain 端 router.go::WorkPayload 字段同步。S3-6 brain 投递；
 // S3-8 worker 反序列化。
@@ -206,6 +211,13 @@ type Worker struct {
 	// chan buffer=1 让 answerPermission 永远不阻塞;关 chan 表示已应答。
 	pendingPermsMu sync.Mutex
 	pendingPerms   map[string]chan biumindkit.PermissionDecision
+
+	// pendingAsks 是提问表单（agent-ask-form P2-b）的 pending map，与
+	// pendingPerms 同构。entry 带 sessionID：session 结束 / 中断时
+	// cancelPendingAsks 按会话批量投 cancel 释放等候 goroutine
+	// （防泄漏；见 elicitation.go）。锁独立同理。
+	pendingAsksMu sync.Mutex
+	pendingAsks   map[string]pendingAskEntry
 }
 
 // permissionTimeout 是单条 can_use_tool 等待 client 应答的最大时长。超过
@@ -226,6 +238,7 @@ func NewWorker(client *Client, cfg WorkerConfig, build AgentBuilder, logger *slo
 		agents:          map[uuid.UUID]*biumindkit.Agent{},
 		cancelStartedAt: map[uuid.UUID]time.Time{},
 		pendingPerms:    map[string]chan biumindkit.PermissionDecision{},
+		pendingAsks:     map[string]pendingAskEntry{},
 	}
 }
 
@@ -556,14 +569,15 @@ func (w *Worker) controlLoop(ctx context.Context) {
 }
 
 // controlBody 跟 brain ingress.maybeRouteCancel / maybeRoutePermissionResponse
-// 投递的 schema 对齐。字段都 omitempty 是为了未来扩展不破坏老 daemon 解析。
+// （permission 与 elicitation 回包共用此投递 schema）对齐。字段都 omitempty
+// 是为了未来扩展不破坏老 daemon 解析。
 type controlBody struct {
 	Type      string `json:"type"`
 	SessionID string `json:"session_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
-	// permission_response only:
+	// permission_response / elicitation_response only:
 	Subtype  string          `json:"subtype,omitempty"`  // "success" | "error"
-	Response json.RawMessage `json:"response,omitempty"` // permission_result JSON
+	Response json.RawMessage `json:"response,omitempty"` // permission_result / elicitation_response JSON
 	Error    string          `json:"error,omitempty"`
 }
 
@@ -601,6 +615,15 @@ func (w *Worker) handleControl(ctx context.Context, envID uuid.UUID, ctrl *Contr
 			"request_id", body.RequestID,
 			"subtype", body.Subtype,
 			"decision", decisionName(decision))
+	case "elicitation_response":
+		// 提问表单（agent-ask-form P2-b）的 client 回包。解析失败 /
+		// subtype=error → cancel，等候方立刻 soft error 出局。
+		ans := decodeElicitationAnswer(body)
+		w.answerAsk(body.RequestID, ans)
+		w.logger.Info("control: elicitation_response",
+			"request_id", body.RequestID,
+			"subtype", body.Subtype,
+			"action", ans.Action)
 	default:
 		// 未知 type —— 老 daemon 跑新协议时合法,不要 spam ERROR。
 		w.logger.Info("control: ignoring unknown type", "type", body.Type)
@@ -765,8 +788,14 @@ func (w *Worker) handleWork(ctx context.Context, work *WorkItem) {
 	// biumindkit.Options.PermissionPolicy。这样 engine 触发 PermissionAsk
 	// 时,会通过 publishFrame → brain ingress → client WS 询问;client 应
 	// 答经 brain control queue 投回到 worker 的 pendingPerms map。
+	//
+	// askUserFor(sessionID) 同款链路（agent-ask-form P2-b）：elicitation
+	// 控制帧让 client 弹 FormCard，回包经 control queue 投回 pendingAsks。
+	// builder 接到 biumindkit.Options.AskUser 后 AskUserQuestion 工具才对
+	// 模型可见（nil = 隐藏，P0 安全默认）。
 	askPerm := w.askPermissionFor(payload.SessionID)
-	agent, err := w.buildAgent(ctx, payload, askPerm)
+	askUser := w.askUserFor(payload.SessionID)
+	agent, err := w.buildAgent(ctx, payload, askPerm, askUser)
 	if err != nil {
 		w.logger.Error("build agent", "err", err, "session_id", payload.SessionID)
 		w.publishErrorFrame(ctx, payload, err)
@@ -781,6 +810,9 @@ func (w *Worker) handleWork(ctx context.Context, work *WorkItem) {
 	// 避免别人再 Interrupt 一个正在被关的 agent）。
 	w.trackAgent(payload.SessionID, agent)
 	defer w.untrackAgent(payload.SessionID)
+	// session 结束 / 中断时释放该会话全部待答提问 —— 等候的 askUserFor
+	// goroutine 立刻 Cancelled 出局，不干等 askUserTimeout（防泄漏）。
+	defer w.cancelPendingAsks(payload.SessionID)
 
 	for ev := range agent.Submit(ctx, payload.Prompt) {
 		// 在事件 → frame 翻译之前先检测 Done{interrupted}。这是 daemon-side

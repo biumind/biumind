@@ -158,6 +158,13 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		LoadProjectSettings: biumindkit.NoSettings, // runtime 不读本地 settings.json
 		// BypassPermissions=false —— 我们要 PermissionPolicy 实际生效；
 		// 不像 chat 模式 cloud 工具全 read-only 可以 bypass
+		//
+		// AskUser 本期（agent-ask-form P2-b）刻意不传：提问表单只接通了
+		// daemon worker（apps/cli/biu worker.askUserFor，elicitation 控制帧
+		// 经 brain control queue 回包）。runtime 没有对应的 control 回包通路，
+		// 传 nil = AskUserQuestion 工具不进目录（P0 安全默认，模型看不到就
+		// 不会调用）。runtime 要支持时照 daemon 侧模式接 pending map +
+		// elicitation_response 回包路由。
 	})
 	if err != nil {
 		return nil, fmt.Errorf("agent: build biumindkit agent: %w", err)
