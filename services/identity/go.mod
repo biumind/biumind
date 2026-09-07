@@ -1,14 +1,14 @@
 module github.com/biumind/biumind/services/identity
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/biumind/biumind/packages/go-sdk/biu v0.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nats-io/nats.go v1.52.0
-	golang.org/x/crypto v0.55.0
+	github.com/nats-io/nats.go v1.53.1
+	golang.org/x/crypto v0.56.0
 )
 
 require (
