@@ -76,14 +76,22 @@ func (s *Server) handleGetAgentRun(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(changes))
 	for _, c := range changes {
-		out = append(out, map[string]any{
+		m := map[string]any{
 			"revision_id": c.RevisionID.String(),
 			"page_id":     c.PageID.String(),
 			"title":       c.Title,
 			"op":          c.Op,
 			"change_type": c.ChangeType,
 			"created_at":  c.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		}
+		// §6.1 P3-a：merge 行带 merge_id 关联时补 undo 所需的三个 id；
+		// 老数据（无 merge_id）不下发，客户端回退纯 op 推断。
+		if c.CanonicalID != nil {
+			m["canonical_id"] = c.CanonicalID.String()
+			m["canonical_revision_id"] = c.CanonicalRevisionID.String()
+			m["duplicate_revision_id"] = c.DuplicateRevisionID.String()
+		}
+		out = append(out, m)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"run":     agentRunOut(run),

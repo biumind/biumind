@@ -52,6 +52,14 @@ type AgentRunChange struct {
 	Op         string // "update" | "merge"（推断）
 	ChangeType string // page_revisions.change_type（'edit'/'restore'）
 	CreatedAt  time.Time
+	// §6.1 P3-a merge undo：快照带 merge_id（00011 起 MergePages 写入）时，
+	// 经 merge_id 自关联出同一次 merge 的对侧页 + 两条 revision id，客户端
+	// 审计面板据此调 unmerge 端点。老数据 merge_id IS NULL → 三字段 nil，
+	// 回退纯 Op 推断（向后兼容）。本行是 duplicate 侧（Op=merge）时
+	// DuplicateRevisionID == RevisionID；canonical 侧行则相反。
+	CanonicalID         *uuid.UUID
+	CanonicalRevisionID *uuid.UUID
+	DuplicateRevisionID *uuid.UUID
 }
 
 // CreateAgentRun —— run 开始写 running 行。run_id 客户端生成，重复 id
@@ -148,12 +156,18 @@ func (s *Store) GetAgentRun(ctx context.Context, projectID uuid.UUID, runID stri
 // ListAgentRunChanges —— run 的改动页清单：该 run_id 的快照（写前态）按时间
 // 正序，LEFT JOIN pages 推断操作类型（merge = 软删 + merged_into 提示）。
 // 页被后续硬删时 pages 行不在，标题仍取快照留存的写前标题。
+// §6.1 P3-a：快照带 merge_id 时自关联出 merge 对侧（partner 行），回填
+// canonical_id / canonical_revision_id / duplicate_revision_id；哪一侧是
+// duplicate 用 merged 推断（该页软删且带 merged_into → duplicate 侧）。
 func (s *Store) ListAgentRunChanges(ctx context.Context, runID string) ([]*AgentRunChange, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT r.id, r.page_id, r.title, r.change_type, r.created_at,
-		       (p.deleted_at IS NOT NULL AND p.frontmatter ? 'merged_into') AS merged
+		       (p.deleted_at IS NOT NULL AND p.frontmatter ? 'merged_into') AS merged,
+		       partner.id, partner.page_id
 		  FROM brain.page_revisions r
 		  LEFT JOIN brain.pages p ON p.id = r.page_id
+		  LEFT JOIN brain.page_revisions partner
+		         ON partner.merge_id = r.merge_id AND partner.page_id <> r.page_id
 		 WHERE r.run_id = $1
 		 ORDER BY r.created_at ASC
 	`, runID)
@@ -165,14 +179,31 @@ func (s *Store) ListAgentRunChanges(ctx context.Context, runID string) ([]*Agent
 	for rows.Next() {
 		c := &AgentRunChange{}
 		var merged *bool
+		var partnerRevID, partnerPageID *uuid.UUID
 		if err := rows.Scan(&c.RevisionID, &c.PageID, &c.Title, &c.ChangeType,
-			&c.CreatedAt, &merged); err != nil {
+			&c.CreatedAt, &merged, &partnerRevID, &partnerPageID); err != nil {
 			return nil, err
 		}
 		if merged != nil && *merged {
 			c.Op = "merge"
 		} else {
 			c.Op = "update"
+		}
+		if partnerRevID != nil && partnerPageID != nil {
+			if c.Op == "merge" {
+				// 本行 = duplicate 侧快照。
+				c.CanonicalID = partnerPageID
+				c.CanonicalRevisionID = partnerRevID
+				dupRevID := c.RevisionID
+				c.DuplicateRevisionID = &dupRevID
+			} else {
+				// 本行 = canonical 侧快照。
+				canonID := c.PageID
+				c.CanonicalID = &canonID
+				canonRevID := c.RevisionID
+				c.CanonicalRevisionID = &canonRevID
+				c.DuplicateRevisionID = partnerRevID
+			}
 		}
 		out = append(out, c)
 	}

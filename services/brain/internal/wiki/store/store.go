@@ -26,6 +26,14 @@ import (
 var (
 	ErrNotFound = errors.New("not found")
 	ErrConflict = errors.New("version conflict")
+	// ErrMergeUndoUnavailable —— merge 写前快照缺失（5 分钟窗口合并 / >512KB
+	// 跳过 / Prune 清理，或 merge 发生在 00011 之前无 merge_id），undo 无法
+	// 精确回滚，诚实降级不猜（§6.1 P3-a A1）。
+	ErrMergeUndoUnavailable = errors.New("merge undo unavailable")
+	// ErrMergeStateInvalid —— 页对当前状态已不是可撤销的 merge 关系：
+	// 链式 merge（canonical 自身又被 merge 走）、duplicate 未软删或
+	// merged_into 不再指向该 canonical（§6.1 P3-a A2）。
+	ErrMergeStateInvalid = errors.New("merge state invalid")
 )
 
 type Project struct {
@@ -583,42 +591,11 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	defer tx.Rollback(ctx)
 
 	// Lock both pages FOR UPDATE so a concurrent edit / second merge
-	// can't race us. We lock by ascending UUID order so two merges of
-	// the same pair from opposite directions don't deadlock.
-	first, second := canonicalID, duplicateID
-	if first.String() > second.String() {
-		first, second = second, first
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT id, project_id, title, body_md, frontmatter, version, deleted_at
-		  FROM brain.pages
-		 WHERE id IN ($1, $2)
-		 ORDER BY id
-		 FOR UPDATE
-	`, first, second)
+	// can't race us (ascending UUID order — see lockPagePairTx).
+	pages, err := lockPagePairTx(ctx, tx, canonicalID, duplicateID)
 	if err != nil {
 		return err
 	}
-	type pageRow struct {
-		id          uuid.UUID
-		projectID   uuid.UUID
-		title       string
-		bodyMd      string
-		frontmatter []byte
-		version     int
-		deletedAt   *time.Time
-	}
-	pages := map[uuid.UUID]*pageRow{}
-	for rows.Next() {
-		p := &pageRow{}
-		if err := rows.Scan(&p.id, &p.projectID, &p.title, &p.bodyMd,
-			&p.frontmatter, &p.version, &p.deletedAt); err != nil {
-			rows.Close()
-			return err
-		}
-		pages[p.id] = p
-	}
-	rows.Close()
 
 	canonical, ok := pages[canonicalID]
 	if !ok {
@@ -638,11 +615,14 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 	// S3 P0-1 / S2 ④ —— merge 是破坏性重组（canonical 吞 duplicate 的 blocks，
 	// duplicate soft-delete），写前快照两页态，事后可经 page_revisions restore
 	// 分别恢复（canonical 回到合并前、duplicate 回到删除前）。同 tx、同 actor。
-	// snapshotPageRevisionTx 内部 5min 窗口合并避免高频快照膨胀。
-	if err := snapshotPageRevisionTx(ctx, tx, canonical.id, canonical.projectID, actor, runID); err != nil {
+	// §6.1 P3-a：两页快照共享一个 merge_id，UnmergePages 据此把两条快照关联成
+	// 同一次 merge 精确回滚；窗口合并命中任一页时该页快照不新增 → undo 降级
+	// ErrMergeUndoUnavailable。snapshot 内部 5min 窗口合并避免高频快照膨胀。
+	mergeID := uuid.New()
+	if err := snapshotPageRevisionMergeTx(ctx, tx, canonical.id, canonical.projectID, actor, runID, &mergeID); err != nil {
 		return fmt.Errorf("snapshot canonical pre-merge: %w", err)
 	}
-	if err := snapshotPageRevisionTx(ctx, tx, duplicate.id, duplicate.projectID, actor, runID); err != nil {
+	if err := snapshotPageRevisionMergeTx(ctx, tx, duplicate.id, duplicate.projectID, actor, runID, &mergeID); err != nil {
 		return fmt.Errorf("snapshot duplicate pre-merge: %w", err)
 	}
 
@@ -794,6 +774,367 @@ func (s *Store) MergePages(ctx context.Context, canonicalID, duplicateID uuid.UU
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// mergePageRow —— MergePages/UnmergePages 双页 FOR UPDATE 加锁读的行。
+type mergePageRow struct {
+	id          uuid.UUID
+	projectID   uuid.UUID
+	title       string
+	bodyMd      string
+	frontmatter []byte
+	version     int
+	deletedAt   *time.Time
+}
+
+// lockPagePairTx —— 按 UUID 升序 FOR UPDATE 锁住两页（MergePages/UnmergePages
+// 共用；升序保证两个方向并发操作同一对页不死锁），返回 id→行。
+func lockPagePairTx(ctx context.Context, tx pgx.Tx, idA, idB uuid.UUID) (map[uuid.UUID]*mergePageRow, error) {
+	first, second := idA, idB
+	if first.String() > second.String() {
+		first, second = second, first
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id, project_id, title, body_md, frontmatter, version, deleted_at
+		  FROM brain.pages
+		 WHERE id IN ($1, $2)
+		 ORDER BY id
+		 FOR UPDATE
+	`, first, second)
+	if err != nil {
+		return nil, err
+	}
+	pages := map[uuid.UUID]*mergePageRow{}
+	for rows.Next() {
+		p := &mergePageRow{}
+		if err := rows.Scan(&p.id, &p.projectID, &p.title, &p.bodyMd,
+			&p.frontmatter, &p.version, &p.deletedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		pages[p.id] = p
+	}
+	rows.Close()
+	return pages, rows.Err()
+}
+
+// UnmergePages undoes a previous MergePages(canonicalID, duplicateID)
+// （§6.1 P3-a，单 tx，双页升序加锁同 MergePages）：
+//
+//  1. 前置校验（不满足即拒绝，不猜）：canonical 未删除且自身无 merged_into
+//     （链式 merge 拒绝，A2）；duplicate 软删中且 frontmatter.merged_into
+//     仍指向 canonical
+//  2. 按 merge_id 找回两页 merge 前快照（各自最新一条）；任一侧缺失
+//     （5min 窗口合并 / >512KB 跳过 / Prune 清理 / 00011 前的老 merge 无
+//     merge_id）→ ErrMergeUndoUnavailable（A1 诚实降级）
+//  3. canonical OCC：ifMatchVersion > 0 且 != 当前 version → ErrConflict
+//     （语义同 RestorePageRevision，端点 409 带 server_version/server_payload）
+//  4. 两页当前态各存一条 change_type='restore' 自动备份（同 Restore 语义）
+//  5. canonical 先对账回 merge 前快照：迁入块不在快照内 → 软删释放（此间
+//     仍挂 canonical page_id）
+//  6. duplicate 复活：deleted_at=NULL + title/frontmatter/body_md 回写快照
+//     值（merged_into/merged_at 天然消掉）+ version+1；块对账走
+//     reconcileSnapshotBlocksTx——按 id UPDATE 时连 page_id 一起回写，把
+//     merge 迁走的块搬回 duplicate（RestorePageRevision 的 revive 分支不写
+//     page_id，不能直接复用）
+//  7. enriched_at 置空两页（MarkEnrichStale 语义，tx 内原子）：merge 时
+//     wiki_chunks.page_id 已改写无法精确回滚，embed worker 下一拍重切
+//  8. 事件：page.unmerged（结构事件，镜像 page.merged）+ 两页各一条
+//     page.restored（per-page changelog + client 页流刷新）
+//
+// 防陈旧 merge_id：merge 从不改写 duplicate 的 body/frontmatter（只注入
+// merged_into/merged_at），若当前软删态与快照对不上，说明找到的 merge_id
+// 不是产生当前态的那次 merge（undo 后重 merge 且新快照被窗口合并跳过），
+// 拿它回滚会写错内容 → ErrMergeUndoUnavailable。
+func (s *Store) UnmergePages(ctx context.Context, canonicalID, duplicateID uuid.UUID, actor string, ifMatchVersion int) (*Page, *Page, error) {
+	if canonicalID == duplicateID {
+		return nil, nil, fmt.Errorf("canonical and duplicate must differ")
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	pages, err := lockPagePairTx(ctx, tx, canonicalID, duplicateID)
+	if err != nil {
+		return nil, nil, err
+	}
+	canonical, ok := pages[canonicalID]
+	if !ok {
+		return nil, nil, ErrNotFound
+	}
+	duplicate, ok := pages[duplicateID]
+	if !ok {
+		return nil, nil, ErrNotFound
+	}
+
+	// A2 链式 merge 拒绝：canonical 必须活着且自身未被 merge 进别的页。
+	if canonical.deletedAt != nil || frontmatterHasMergedInto(canonical.frontmatter) {
+		return nil, nil, ErrMergeStateInvalid
+	}
+	// duplicate 必须是这次 merge 的软删产物。
+	if duplicate.deletedAt == nil {
+		return nil, nil, ErrMergeStateInvalid
+	}
+	var dupFM map[string]any
+	if len(duplicate.frontmatter) > 0 {
+		_ = json.Unmarshal(duplicate.frontmatter, &dupFM)
+	}
+	if dupFM["merged_into"] != canonicalID.String() {
+		return nil, nil, ErrMergeStateInvalid
+	}
+	if canonical.projectID != duplicate.projectID {
+		return nil, nil, ErrMergeStateInvalid
+	}
+
+	// 找回 merge_id：duplicate 最新一条带 merge_id 的快照，且同一 merge_id
+	// 下 canonical 也有快照（窗口合并只跳一侧时该 merge_id 不成立）。
+	var mergeID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT r.merge_id FROM brain.page_revisions r
+		 WHERE r.page_id = $1 AND r.merge_id IS NOT NULL
+		   AND EXISTS (SELECT 1 FROM brain.page_revisions c
+		                WHERE c.merge_id = r.merge_id AND c.page_id = $2)
+		 ORDER BY r.created_at DESC, r.id DESC
+		 LIMIT 1
+	`, duplicateID, canonicalID).Scan(&mergeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, ErrMergeUndoUnavailable
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	canonSnap, err := loadMergeSnapshotTx(ctx, tx, canonicalID, mergeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	dupSnap, err := loadMergeSnapshotTx(ctx, tx, duplicateID, mergeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	// 陈旧 merge_id 守卫（见 doc comment）：duplicate 当前态必须恰好是
+	// 快照态 + merge 注入的两个提示键。
+	if duplicate.bodyMd != dupSnap.bodyMd ||
+		!frontmatterMatchesPreMerge(dupSnap.fm, duplicate.frontmatter, canonicalID) {
+		return nil, nil, ErrMergeUndoUnavailable
+	}
+
+	// canonical OCC（undo 语义同 RestorePageRevision）：merge 之后 canonical
+	// 又被改过 → 冲突，不动任何数据。
+	if ifMatchVersion > 0 && canonical.version != ifMatchVersion {
+		return nil, nil, ErrConflict
+	}
+
+	// undo 前自动备份：两页当前态各存一条 restore 版本（永久，同 Restore）。
+	for _, p := range []*mergePageRow{canonical, duplicate} {
+		curBlocks, err := listBlocksTx(ctx, tx, p.id)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list current blocks: %w", err)
+		}
+		curBlocksJSON, err := json.Marshal(curBlocks)
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal current blocks: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, change_summary)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'restore', $8)
+		`, p.id, p.projectID, actor, p.title, p.frontmatter, p.bodyMd, curBlocksJSON, RevisionRestoreSummary); err != nil {
+			return nil, nil, fmt.Errorf("backup before unmerge: %w", err)
+		}
+	}
+
+	// canonical 先回写：迁入块随对账软删释放。
+	if err := reconcileSnapshotBlocksTx(ctx, tx, canonicalID, canonSnap.blocks); err != nil {
+		return nil, nil, fmt.Errorf("restore canonical blocks: %w", err)
+	}
+	canonPage := &Page{}
+	canonFM := []byte("{}")
+	err = tx.QueryRow(ctx, `
+		UPDATE brain.pages SET title = $2, frontmatter = $3::jsonb, body_md = $4,
+		    version = version + 1, updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL AND version = $5
+		RETURNING id, project_id, parent_id, title, frontmatter, body_md, share_mode, version, created_at, updated_at
+	`, canonicalID, canonSnap.title, canonSnap.fm, canonSnap.bodyMd, canonical.version).Scan(
+		&canonPage.ID, &canonPage.ProjectID, &canonPage.ParentID, &canonPage.Title, &canonFM,
+		&canonPage.BodyMd, &canonPage.ShareMode, &canonPage.Version, &canonPage.CreatedAt, &canonPage.UpdatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, ErrConflict
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("restore canonical page: %w", err)
+	}
+	_ = json.Unmarshal(canonFM, &canonPage.Frontmatter)
+
+	// duplicate 复活：块对账带 page_id 回写，把 merge 迁走的块搬回来。
+	if err := reconcileSnapshotBlocksTx(ctx, tx, duplicateID, dupSnap.blocks); err != nil {
+		return nil, nil, fmt.Errorf("restore duplicate blocks: %w", err)
+	}
+	dupPage := &Page{}
+	dupGotFM := []byte("{}")
+	err = tx.QueryRow(ctx, `
+		UPDATE brain.pages SET title = $2, frontmatter = $3::jsonb, body_md = $4,
+		    deleted_at = NULL, version = version + 1, updated_at = now()
+		WHERE id = $1
+		RETURNING id, project_id, parent_id, title, frontmatter, body_md, share_mode, version, created_at, updated_at
+	`, duplicateID, dupSnap.title, dupSnap.fm, dupSnap.bodyMd).Scan(
+		&dupPage.ID, &dupPage.ProjectID, &dupPage.ParentID, &dupPage.Title, &dupGotFM,
+		&dupPage.BodyMd, &dupPage.ShareMode, &dupPage.Version, &dupPage.CreatedAt, &dupPage.UpdatedAt,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("revive duplicate page: %w", err)
+	}
+	_ = json.Unmarshal(dupGotFM, &dupPage.Frontmatter)
+
+	// MarkEnrichStale 语义 tx 内原子版：embed worker 自愈扫描下一拍重切两页
+	// chunk（merge 时 wiki_chunks.page_id 被改写，无法精确回滚）。
+	if _, err := tx.Exec(ctx, `
+		UPDATE brain.pages SET enriched_at = NULL WHERE id IN ($1, $2)
+	`, canonicalID, duplicateID); err != nil {
+		return nil, nil, fmt.Errorf("mark enrich stale: %w", err)
+	}
+
+	if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
+		"page.unmerged", map[string]any{
+			"canonical_id": canonicalID,
+			"duplicate_id": duplicateID,
+			"merge_id":     mergeID,
+			"canonical_v":  canonPage.Version,
+			"duplicate_v":  dupPage.Version,
+		}); err != nil {
+		return nil, nil, err
+	}
+	for _, p := range []*Page{canonPage, dupPage} {
+		if err := emitEvent(ctx, tx, canonical.projectID, "user", actor,
+			"page.restored", map[string]any{
+				"page_id": p.ID,
+				"title":   p.Title,
+				"cause":   "unmerge",
+			}); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+	return canonPage, dupPage, nil
+}
+
+// mergeSnapshot —— merge 写前快照（UnmergePages 回滚目标态）。
+type mergeSnapshot struct {
+	revID  uuid.UUID
+	title  string
+	fm     []byte
+	bodyMd string
+	blocks []*Block
+}
+
+// loadMergeSnapshotTx —— 取 pageID 在 mergeID 下的写前快照（最新一条）；
+// 缺失 → ErrMergeUndoUnavailable。
+func loadMergeSnapshotTx(ctx context.Context, tx pgx.Tx, pageID, mergeID uuid.UUID) (*mergeSnapshot, error) {
+	snap := &mergeSnapshot{}
+	var blocksJSON []byte
+	err := tx.QueryRow(ctx, `
+		SELECT id, title, frontmatter, body_md, blocks_json
+		  FROM brain.page_revisions
+		 WHERE page_id = $1 AND merge_id = $2
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT 1
+	`, pageID, mergeID).Scan(&snap.revID, &snap.title, &snap.fm, &snap.bodyMd, &blocksJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrMergeUndoUnavailable
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(blocksJSON) > 0 {
+		if err := json.Unmarshal(blocksJSON, &snap.blocks); err != nil {
+			return nil, fmt.Errorf("unmarshal merge snapshot blocks: %w", err)
+		}
+	}
+	return snap, nil
+}
+
+// reconcileSnapshotBlocksTx —— UnmergePages 专用的快照块对账：让 pageID 的
+// live blocks 精确等于 snap（update/revive 同一句按 id UPDATE + 带快照 id
+// insert + 软删多余，保 block_id 连续性）。与 RestorePageRevision 步骤 4 的
+// 差异：一律回写 page_id = pageID——merge 把 duplicate 的 live 块迁到了
+// canonical，undo 复活时必须连归属一起搬回（RestorePageRevision 的 revive
+// 分支不写 page_id，不能直接复用）；canonical 侧对账带上 page_id 是无害
+// 恒等写。
+func reconcileSnapshotBlocksTx(ctx context.Context, tx pgx.Tx, pageID uuid.UUID, snap []*Block) error {
+	curBlocks, err := listBlocksTx(ctx, tx, pageID)
+	if err != nil {
+		return fmt.Errorf("list current blocks: %w", err)
+	}
+	snapIDs := make(map[uuid.UUID]bool, len(snap))
+	for _, sb := range snap {
+		snapIDs[sb.ID] = true
+		contentJSON, _ := json.Marshal(sb.Content)
+		tag, err := tx.Exec(ctx, `
+			UPDATE brain.blocks SET page_id = $2, parent_id = $3, position = $4, type = $5, content = $6,
+			    deleted_at = NULL, version = version + 1, updated_at = now()
+			WHERE id = $1
+		`, sb.ID, pageID, sb.ParentID, sb.Position, sb.Type, contentJSON)
+		if err != nil {
+			return fmt.Errorf("reconcile snapshot block: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			// 不存在 → 用 snap 的 id 新增（保 block_id 连续性）。
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO brain.blocks (id, page_id, parent_id, position, type, content)
+				VALUES ($1, $2, $3, $4, $5, $6)
+			`, sb.ID, pageID, sb.ParentID, sb.Position, sb.Type, contentJSON); err != nil {
+				return fmt.Errorf("reconcile insert block: %w", err)
+			}
+		}
+	}
+	// live 但不在 snap → 软删（canonical 侧：merge 迁入块 / merge reconcile
+	// 新插入的标注块在这里释放；保留行不硬删，审计 + block_id 不复用）。
+	for _, lb := range curBlocks {
+		if !snapIDs[lb.ID] {
+			if _, err := tx.Exec(ctx, `
+				UPDATE brain.blocks SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL
+			`, lb.ID); err != nil {
+				return fmt.Errorf("reconcile soft-delete block: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// frontmatterHasMergedInto —— frontmatter 含 merged_into 提示键（merge 软删
+// 产物 / 链式 merge 判定用）。
+func frontmatterHasMergedInto(fm []byte) bool {
+	var m map[string]any
+	if len(fm) > 0 {
+		_ = json.Unmarshal(fm, &m)
+	}
+	_, ok := m["merged_into"]
+	return ok
+}
+
+// frontmatterMatchesPreMerge —— 当前（软删态）frontmatter 必须恰好等于快照
+// frontmatter + merge 注入的 merged_into/merged_at 两个键（map 重序列化
+// 比较，json.Marshal map 键序确定）。
+func frontmatterMatchesPreMerge(snapFM, curFM []byte, canonicalID uuid.UUID) bool {
+	snap := map[string]any{}
+	if len(snapFM) > 0 {
+		_ = json.Unmarshal(snapFM, &snap)
+	}
+	cur := map[string]any{}
+	if len(curFM) > 0 {
+		_ = json.Unmarshal(curFM, &cur)
+	}
+	if cur["merged_into"] != canonicalID.String() {
+		return false
+	}
+	delete(cur, "merged_into")
+	delete(cur, "merged_at")
+	snapJSON, _ := json.Marshal(snap)
+	curJSON, _ := json.Marshal(cur)
+	return string(snapJSON) == string(curJSON)
 }
 
 // mergedBodyForMerge computes canonical's post-merge body_md. Returns
@@ -1527,6 +1868,15 @@ func (s *Store) BackfillFrontmatter(ctx context.Context) (int, error) {
 // runID 非空时快照落 run_id（agent run 审计）；窗口合并命中时不新增行，
 // 既有行的 run_id 保持首写归属、不被覆盖/清空（§1.2 P2）。
 func snapshotPageRevisionTx(ctx context.Context, tx pgx.Tx, pageID, projectID uuid.UUID, actorID, runID string) error {
+	return snapshotPageRevisionMergeTx(ctx, tx, pageID, projectID, actorID, runID, nil)
+}
+
+// snapshotPageRevisionMergeTx —— snapshotPageRevisionTx 的 merge 变体
+// （§6.1 P3-a）：mergeID 非空时快照落 merge_id，同一次 MergePages 的
+// canonical + duplicate 两条快照共享同一 merge_id，UnmergePages 据此精确
+// 找回 merge 前态。窗口合并命中时不新增行 → 该次 merge 无 merge_id 落库，
+// undo 诚实降级 ErrMergeUndoUnavailable（A1）。
+func snapshotPageRevisionMergeTx(ctx context.Context, tx pgx.Tx, pageID, projectID uuid.UUID, actorID, runID string, mergeID *uuid.UUID) error {
 	var lastEdit time.Time
 	err := tx.QueryRow(ctx, `
 		SELECT created_at FROM brain.page_revisions
@@ -1562,9 +1912,9 @@ func snapshotPageRevisionTx(ctx context.Context, tx pgx.Tx, pageID, projectID uu
 		return nil // 超限跳过（不截断，保 restore 完整）
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, run_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', NULLIF($8, ''))
-	`, pageID, projectID, actorID, title, fm, bodyMd, blocksJSON, runID); err != nil {
+		INSERT INTO brain.page_revisions (page_id, project_id, actor_id, title, frontmatter, body_md, blocks_json, change_type, run_id, merge_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'edit', NULLIF($8, ''), $9)
+	`, pageID, projectID, actorID, title, fm, bodyMd, blocksJSON, runID, mergeID); err != nil {
 		return fmt.Errorf("snapshot page revision: %w", err)
 	}
 	return nil

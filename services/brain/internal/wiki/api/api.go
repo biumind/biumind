@@ -156,6 +156,9 @@ func (s *Server) Mount(mux *http.ServeMux) {
 		s.requireAuth(s.handleRestorePageRevision))
 	mux.HandleFunc("POST /v1/wiki/projects/{pid}/pages/{id}/revisions/{rid}/save-as-copy",
 		s.requireAuth(s.handleSavePageRevisionAsCopy))
+	// §6.1 P3-a merge undo：撤销一次页面合并（{id} = canonical）。
+	mux.HandleFunc("POST /v1/wiki/projects/{pid}/pages/{id}/unmerge",
+		s.requireAuth(s.handleUnmergePage))
 }
 
 // ─── Projects ───────────────────────────────────────────
