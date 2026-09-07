@@ -11,6 +11,7 @@ WikiPageRevision _rev(
   String id,
   DateTime at, {
   String changeType = 'edit',
+  String? runId,
 }) =>
     WikiPageRevision(
       id: id,
@@ -21,6 +22,7 @@ WikiPageRevision _rev(
       changeType: changeType,
       changeSummary: '',
       createdAt: at,
+      runId: runId,
     );
 
 void main() {
@@ -91,6 +93,8 @@ void main() {
       expect(changes, hasLength(1));
       expect(changes.single.beforeVersion, 3);
       expect(changes.single.afterBodyMd, 'v5');
+      // P2 OCC：afterVersion = 本 run 最后写完的 version（undo if_match 用）。
+      expect(changes.single.afterVersion, 5);
     });
 
     test('create 后同页 update：保持 create（undo 仍是删页），after 滚动', () {
@@ -170,6 +174,53 @@ void main() {
             firstWriteAt: t0, lastWriteDoneAt: t0),
         isNull,
       );
+    });
+
+    test('P2：有 runId 时按 run_id 精确匹配（忽略时间窗外的同 run 快照）', () {
+      // 同 run 的快照在"时间窗"外（客户端时钟偏差大）也应命中——精确匹配
+      // 不依赖时间；别的 run / 人工的快照即使在窗口内也不抢。
+      final revs = [
+        _rev('other', t0.add(const Duration(seconds: 5)), runId: 'run-b'),
+        _rev('manual', t0.add(const Duration(seconds: 6))),
+        _rev('mine2', t0.add(const Duration(minutes: 30)), runId: 'run-a'),
+        _rev('mine1', t0.add(const Duration(minutes: 29)), runId: 'run-a'),
+      ];
+      final hit = pickBeforeRevision(
+        revs,
+        firstWriteAt: t0,
+        lastWriteDoneAt: t0.add(const Duration(seconds: 10)),
+        runId: 'run-a',
+      );
+      expect(hit?.id, 'mine1'); // 同 run 最早一条
+    });
+
+    test('P2：新服务端上该 run 无快照（>512KB 跳过）→ null，不回退到人工快照',
+        () {
+      final revs = [
+        _rev('manual', t0.add(const Duration(seconds: 5))),
+        _rev('other', t0.add(const Duration(seconds: 6)), runId: 'run-b'),
+      ];
+      final hit = pickBeforeRevision(
+        revs,
+        firstWriteAt: t0,
+        lastWriteDoneAt: t0.add(const Duration(seconds: 10)),
+        runId: 'run-a',
+      );
+      expect(hit, isNull);
+    });
+
+    test('P2：旧 run（列表里没有任何 run_id 快照）回退时间窗匹配', () {
+      final revs = [
+        _rev('r1', t0.add(const Duration(seconds: 5))),
+        _rev('r0', t0.subtract(const Duration(minutes: 10))),
+      ];
+      final hit = pickBeforeRevision(
+        revs,
+        firstWriteAt: t0,
+        lastWriteDoneAt: t0.add(const Duration(seconds: 10)),
+        runId: 'run-old',
+      );
+      expect(hit?.id, 'r1');
     });
   });
 }

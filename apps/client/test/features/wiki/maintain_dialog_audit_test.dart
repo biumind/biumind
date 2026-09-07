@@ -10,9 +10,11 @@
 // 无网络。
 
 import 'package:biumind/app/theme/theme.dart';
+import 'package:biumind/data/api/_http_helpers.dart' show ApiError;
 import 'package:biumind/data/api/chat_client.dart';
 import 'package:biumind/data/api/relay_catalog_client.dart';
-import 'package:biumind/data/api/wiki_client.dart' show WikiPageRevision;
+import 'package:biumind/data/api/wiki_client.dart'
+    show WikiAgentRun, WikiAgentRunChange, WikiPage, WikiPageRevision;
 import 'package:biumind/data/providers_providers.dart'
     show relayCatalogListProvider;
 import 'package:biumind/features/wiki/application/maintain_changes.dart';
@@ -26,9 +28,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _FakeAudit implements MaintainAuditClient {
   Map<String, List<WikiPageRevision>> revisions = {};
   Map<String, WikiPageRevision> details = {};
-  final List<(String, String, String)> restored = [];
+
+  /// (projectId, pageId, revisionId, ifMatchVersion)。
+  final List<(String, String, String, int?)> restored = [];
   final List<(String, String)> deleted = [];
   bool failRestore = false;
+
+  /// 非 null 时 restoreRevision 抛该异常（如 ApiError 409 模拟 OCC 冲突）。
+  Object? restoreError;
+  Map<String, WikiPage> pages = {};
 
   @override
   Future<List<WikiPageRevision>> listRevisions(
@@ -42,15 +50,30 @@ class _FakeAudit implements MaintainAuditClient {
 
   @override
   Future<void> restoreRevision(
-      String projectId, String pageId, String revisionId) async {
+      String projectId, String pageId, String revisionId,
+      {int? ifMatchVersion}) async {
     if (failRestore) throw Exception('version_conflict');
-    restored.add((projectId, pageId, revisionId));
+    if (restoreError != null) throw restoreError!;
+    restored.add((projectId, pageId, revisionId, ifMatchVersion));
   }
 
   @override
   Future<void> deletePage(String projectId, String pageId) async {
     deleted.add((projectId, pageId));
   }
+
+  @override
+  Future<WikiPage> getPage(String projectId, String pageId) async =>
+      pages[pageId]!;
+
+  @override
+  Future<List<WikiAgentRun>> listAgentRuns(String projectId) async =>
+      const [];
+
+  @override
+  Future<(WikiAgentRun, List<WikiAgentRunChange>)> getAgentRun(
+          String projectId, String runId) async =>
+      throw UnimplementedError();
 }
 
 WikiPageRevision _revision(String id, String pageId, String beforeText) =>
@@ -190,6 +213,43 @@ Future<void> _runDialog(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('form 阶段有「历史运行」入口，点开出 run 历史对话框', (tester) async {
+    final audit = _FakeAudit();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          relayCatalogListProvider.overrideWith(
+            (ref) async => const [
+              RelayCatalogModel(
+                code: 'm1',
+                displayName: 'M1',
+                family: 'test',
+                mode: 'chat',
+              ),
+            ],
+          ),
+        ],
+        child: MaterialApp(
+          theme: buildTheme(
+            palette: PaletteId.inkblueOrange,
+            mode: Brightness.light,
+            fontSize: FontSize.small,
+          ),
+          home: Scaffold(
+            body: MaintainDialog(projectId: 'p1', audit: audit),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('历史运行'), findsOneWidget);
+    await tester.tap(find.text('历史运行'));
+    await tester.pumpAndSettle();
+    // _FakeAudit.listAgentRuns 返回空 → 空态文案。
+    expect(find.textContaining('还没有历史运行'), findsOneWidget);
+  });
+
   testWidgets('写工具事件聚合成改动清单（徽章 + 页标题）', (tester) async {
     final audit = _FakeAudit()
       ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')];
@@ -250,7 +310,7 @@ void main() {
     expect(find.textContaining('diff unavailable'), findsOneWidget);
   });
 
-  testWidgets('update undo 调 restore 对应 revision，成功标「已撤销」',
+  testWidgets('update undo 调 restore 对应 revision（带 if_match OCC），成功标「已撤销」',
       (tester) async {
     final audit = _FakeAudit()
       ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')];
@@ -259,8 +319,67 @@ void main() {
     await tester.tap(find.text('撤销'));
     await tester.pumpAndSettle();
 
-    expect(audit.restored, [('p1', 'pg1', 'r1')]);
+    // P2 OCC：if_match = 本 run 最后写完的 version（result.page.version=4）。
+    expect(audit.restored, [('p1', 'pg1', 'r1', 4)]);
     expect(find.text('已撤销'), findsOneWidget);
+  });
+
+  testWidgets('update undo 409 → 弹「run 之后有新修改」diff 确认，确认后无 if_match 重试',
+      (tester) async {
+    final audit = _FakeAudit()
+      ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')]
+      ..details['r1'] = _revision('r1', 'pg1', '阿尔法段落')
+      ..pages['pg1'] = WikiPage(
+        id: 'pg1',
+        projectId: 'p1',
+        title: '第一页',
+        version: 5,
+        updatedAt: DateTime.now(),
+        bodyMd: '人工新改的内容',
+      )
+      // 第一次带 if_match 的 restore 抛 409；确认后重试放行。
+      ..restoreError = const ApiError(path: '/restore', status: 409, body: '{}');
+    await _runDialog(tester, events: _updateEvents(), audit: audit);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    // 409 → 确认对话框（含当前态 vs 目标态 diff），尚未重试。
+    expect(find.text('run 之后有新修改'), findsOneWidget);
+    expect(find.text('仍要撤销'), findsOneWidget);
+    expect(audit.restored, isEmpty);
+
+    audit.restoreError = null;
+    await tester.tap(find.text('仍要撤销'));
+    await tester.pumpAndSettle();
+
+    // 无 if_match 重试 → 成功。
+    expect(audit.restored, [('p1', 'pg1', 'r1', null)]);
+    expect(find.text('已撤销'), findsOneWidget);
+  });
+
+  testWidgets('update undo 409 确认框点「取消」不重试', (tester) async {
+    final audit = _FakeAudit()
+      ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')]
+      ..details['r1'] = _revision('r1', 'pg1', '阿尔法段落')
+      ..pages['pg1'] = WikiPage(
+        id: 'pg1',
+        projectId: 'p1',
+        title: '第一页',
+        version: 5,
+        updatedAt: DateTime.now(),
+        bodyMd: '人工新改的内容',
+      )
+      ..restoreError = const ApiError(path: '/restore', status: 409, body: '{}');
+    await _runDialog(tester, events: _updateEvents(), audit: audit);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+
+    expect(audit.restored, isEmpty);
+    expect(find.text('已撤销'), findsNothing);
   });
 
   testWidgets('update undo 失败（restore 抛错）行内提示，不静默', (tester) async {

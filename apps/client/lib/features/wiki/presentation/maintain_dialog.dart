@@ -35,6 +35,7 @@ import '../../../data/providers_providers.dart' show relayCatalogListProvider;
 import '../../../data/wiki_providers.dart';
 import '../application/maintain_changes.dart';
 import 'maintain_changes_panel.dart';
+import 'maintain_runs_panel.dart';
 
 /// 测试 seam：替换 SSE 数据源（widget 测试注入假事件流）。
 typedef MaintainAgentRunner = Stream<ChatStreamEvent> Function(
@@ -484,6 +485,7 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
             projectId: widget.projectId,
             changes: changes,
             audit: audit,
+            runId: _runId,
           ),
           const SizedBox(height: BiuTokens.space3),
         ],
@@ -517,6 +519,16 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
   List<Widget> _buildActions() {
     return switch (_phase) {
       _Phase.form => [
+          // P2 run 持久化：历史 run 回看（改动清单 + 安全 undo）。
+          if (_ensureAudit() != null)
+            TextButton(
+              onPressed: () => showMaintainRunsHistory(
+                context,
+                projectId: widget.projectId,
+                audit: _ensureAudit()!,
+              ),
+              child: const Text('历史运行'),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('取消'),

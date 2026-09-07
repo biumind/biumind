@@ -104,6 +104,9 @@ class WikiPageRevision {
   final DateTime createdAt;
   final Map<String, dynamic> frontmatter;
 
+  /// 产生该快照的 agent run id（迁移 00010，§1.2 P2）；人工编辑快照为 null。
+  final String? runId;
+
   /// 详情响应才有：写前 live blocks 序列化（List<Map>）。list 响应为 null。
   final List<Map<String, dynamic>>? blocksJson;
 
@@ -116,6 +119,7 @@ class WikiPageRevision {
     required this.changeType,
     required this.changeSummary,
     required this.createdAt,
+    this.runId,
     this.frontmatter = const {},
     this.blocksJson,
   });
@@ -131,10 +135,94 @@ class WikiPageRevision {
         createdAt: DateTime.tryParse(j['created_at'] as String? ?? '')
                 ?.toUtc() ??
             DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        runId: j['run_id'] as String?,
         frontmatter:
             ((j['frontmatter'] as Map?) ?? const {}).cast<String, dynamic>(),
         blocksJson: (j['blocks_json'] as List?)
             ?.cast<Map<String, dynamic>>(),
+      );
+}
+
+/// wiki maintain agent run 历史行（迁移 00010，
+/// `GET /v1/wiki/projects/{pid}/agent/runs`）。
+class WikiAgentRun {
+  final String runId;
+  final String projectId;
+  final String mode;
+  final String model;
+  final String instruction;
+
+  /// running / done / failed / cancelled。
+  final String status;
+  final DateTime startedAt;
+  final DateTime? finishedAt;
+  final String error;
+
+  /// 该 run 的写前快照涉及的去重页数（list 端点聚合；create 无快照不计）。
+  final int changedPages;
+
+  const WikiAgentRun({
+    required this.runId,
+    required this.projectId,
+    required this.mode,
+    required this.model,
+    required this.instruction,
+    required this.status,
+    required this.startedAt,
+    this.finishedAt,
+    this.error = '',
+    this.changedPages = 0,
+  });
+
+  factory WikiAgentRun.fromJson(Map<String, dynamic> j) => WikiAgentRun(
+        runId: j['run_id'] as String,
+        projectId: j['project_id'] as String? ?? '',
+        mode: j['mode'] as String? ?? '',
+        model: j['model'] as String? ?? '',
+        instruction: j['instruction'] as String? ?? '',
+        status: j['status'] as String? ?? '',
+        startedAt: DateTime.tryParse(j['started_at'] as String? ?? '')
+                ?.toUtc() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        finishedAt: DateTime.tryParse(j['finished_at'] as String? ?? '')
+            ?.toUtc(),
+        error: j['error'] as String? ?? '',
+        changedPages: (j['changed_pages'] as num? ?? 0).toInt(),
+      );
+}
+
+/// run 详情里的一行改动（该 run_id 的写前快照 join pages）。
+class WikiAgentRunChange {
+  final String revisionId;
+  final String pageId;
+
+  /// 快照留存的写前标题（页已删也能展示）。
+  final String title;
+
+  /// 操作类型（服务端推断）：update / merge。create 无写前快照，不进清单。
+  final String op;
+  final String changeType;
+  final DateTime createdAt;
+
+  const WikiAgentRunChange({
+    required this.revisionId,
+    required this.pageId,
+    required this.title,
+    required this.op,
+    required this.changeType,
+    required this.createdAt,
+  });
+
+  factory WikiAgentRunChange.fromJson(Map<String, dynamic> j) =>
+      WikiAgentRunChange(
+        revisionId: j['revision_id'] as String,
+        pageId: j['page_id'] as String,
+        title: j['title'] as String? ?? '',
+        op: j['op'] as String? ?? 'update',
+        changeType: j['change_type'] as String? ?? '',
+        createdAt: DateTime.tryParse(j['created_at'] as String? ?? '')
+                ?.toUtc() ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       );
 }
 
@@ -800,16 +888,44 @@ class WikiClient {
 
   /// 覆盖式恢复到该版本（服务端恢复前自动备份当前态为恢复点），
   /// 返回恢复后的 page。block 对账 in-place 由服务端处理。
+  /// [ifMatchVersion]（§1.2 P2 undo OCC）非空时服务端先比对当前
+  /// page.version，不一致返回 409（body 带 server_version/server_payload）。
   Future<WikiPage> restorePageRevision(
     String projectId,
     String pageId,
-    String revisionId,
-  ) async {
+    String revisionId, {
+    int? ifMatchVersion,
+  }) async {
     final raw = await _post(
       '/v1/wiki/projects/$projectId/pages/$pageId/revisions/$revisionId/restore',
-      const {},
+      {'if_match_version': ?ifMatchVersion},
     );
     return WikiPage.fromJson(raw);
+  }
+
+  // ─── Agent runs（maintain 审计历史，迁移 00010） ─────────────
+
+  /// 项目的 maintain agent run 历史（新→旧，含改动页数聚合）。
+  Future<List<WikiAgentRun>> listAgentRuns(String projectId,
+      {int? limit}) async {
+    final qs = limit != null ? '?limit=$limit' : '';
+    final raw = await _get('/v1/wiki/projects/$projectId/agent/runs$qs');
+    final list = (raw['runs'] as List? ?? const []).cast<Map<String, dynamic>>();
+    return list.map(WikiAgentRun.fromJson).toList();
+  }
+
+  /// 单次 run 详情 + 改动页清单（该 run_id 的写前快照，操作类型为服务端推断）。
+  Future<(WikiAgentRun, List<WikiAgentRunChange>)> getAgentRun(
+    String projectId,
+    String runId,
+  ) async {
+    final raw =
+        await _get('/v1/wiki/projects/$projectId/agent/runs/$runId');
+    final run = WikiAgentRun.fromJson(
+        (raw['run'] as Map).cast<String, dynamic>());
+    final list =
+        (raw['changes'] as List? ?? const []).cast<Map<String, dynamic>>();
+    return (run, list.map(WikiAgentRunChange.fromJson).toList());
   }
 
   /// 以该版本新建页（同 project/parent，标题加「（历史副本）」，复制 blocks）。

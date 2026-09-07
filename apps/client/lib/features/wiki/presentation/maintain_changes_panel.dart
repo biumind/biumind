@@ -1,13 +1,18 @@
 // MaintainChangesPanel — maintain agent run 结束后的「改动清单」区
-// （BiuMind-Agent-Experience-Design §1.2 P1）。
+// （BiuMind-Agent-Experience-Design §1.2 P1 面板 / P2 run 关联 + OCC）。
 //
 // 每行：页标题 + 操作徽章（新建/修改/合并）+ 撤销按钮；点开进词级 diff
 // （SectionedWordDiffView，before = 写前快照 body，after = 改后全文）。
-// undo：update → restore 写前快照；create → 删页（二次确认）；merge → 置灰
-// （服务端还不支持 un-delete duplicate）。
+// undo：update → restore 写前快照（带 if_match_version OCC，run 之后页面
+// 被改过 → 409 → 展示当前态 vs 目标态 diff 确认后才无 if_match 重试）；
+// create → 删页（二次确认）；merge → 置灰（服务端还不支持 un-delete
+// duplicate）。
 //
-// 已知局限（页脚诚实标注）：dialog 关闭清单即丢（无持久化）；restore 为
-// 覆盖式、无 OCC，可能覆盖 run 之后的人工修改。
+// 写前快照匹配：P2 起服务端快照带 run_id，有 runId 时精确匹配；旧 run
+// 回退时间窗启发式。找不到快照 → diffUnavailable（不猜）。
+//
+// 已知局限（页脚诚实标注）：dialog 关闭本 run 清单即丢（历史回看走
+// 「历史运行」入口）；create 删页 undo 无 OCC。
 
 import 'package:diff_match_patch/diff_match_patch.dart';
 import 'package:flutter/material.dart';
@@ -25,11 +30,15 @@ class MaintainChangesPanel extends StatefulWidget {
     required this.projectId,
     required this.changes,
     required this.audit,
+    this.runId,
   });
 
   final String projectId;
   final List<MaintainChange> changes;
   final MaintainAuditClient audit;
+
+  /// 本 run id（P2）：快照精确匹配用；null = 旧 run，回退时间窗匹配。
+  final String? runId;
 
   @override
   State<MaintainChangesPanel> createState() => _MaintainChangesPanelState();
@@ -56,6 +65,7 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
           revs,
           firstWriteAt: c.firstWriteAt,
           lastWriteDoneAt: c.lastWriteDoneAt,
+          runId: widget.runId,
         );
         if (!mounted) return;
         setState(() {
@@ -182,20 +192,103 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
         if (rid == null) return; // 无快照，按钮已禁用
         await _runUndo(
           c,
-          () => widget.audit.restoreRevision(widget.projectId, c.pageId, rid),
+          () => widget.audit.restoreRevision(
+            widget.projectId,
+            c.pageId,
+            rid,
+            // P2 OCC：本 run 最后写完的 version。run 之后页面被改过 → 409。
+            ifMatchVersion: c.afterVersion,
+          ),
+          onConflict: () => _confirmConflictRetry(c, rid),
         );
     }
   }
 
-  Future<void> _runUndo(MaintainChange c, Future<void> Function() op) async {
+  /// 409（run 之后有新修改）→ 展示「当前态 vs 恢复目标态」diff，用户确认后
+  /// 无 if_match 重试（显式覆盖）。取消则保持现状，行内不标错误。
+  Future<void> _confirmConflictRetry(MaintainChange c, String rid) async {
+    String? current;
+    String? target;
+    try {
+      final page = await widget.audit.getPage(widget.projectId, c.pageId);
+      current = page.bodyMd;
+      target = await _loadBefore(c);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => c.undoError = '读取当前内容失败：$e');
+      return;
+    }
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('run 之后有新修改'),
+        content: SizedBox(
+          width: 560,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '页面「${c.title}」在本次维护后被再次修改。继续撤销将覆盖这些新修改'
+                    '（覆盖前服务端会自动备份当前态，仍可从版本历史找回）。',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: BiuTokens.textMuted,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (target != null)
+                    SectionedWordDiffView(
+                      before: current ?? '',
+                      after: target,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('仍要撤销'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runUndo(
+      c,
+      () => widget.audit.restoreRevision(widget.projectId, c.pageId, rid),
+    );
+  }
+
+  Future<void> _runUndo(
+    MaintainChange c,
+    Future<void> Function() op, {
+    Future<void> Function()? onConflict,
+  }) async {
     setState(() => c.undoError = null);
     try {
       await op();
       if (!mounted) return;
       setState(() => c.undone = true);
     } catch (e) {
-      // 失败（如页面 run 后被改/网络错误）——行内展示，不静默。
       if (!mounted) return;
+      // P2 OCC：409 = run 之后有新修改 → 走 diff 确认流程（不是失败）。
+      if (onConflict != null && isVersionConflict(e)) {
+        await onConflict();
+        return;
+      }
+      // 其余失败（网络/删页冲突等）——行内展示，不静默。
       setState(() => c.undoError = e.toString());
     }
   }
@@ -229,7 +322,8 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
             ),
           const SizedBox(height: 4),
           Text(
-            '清单仅本次对话内可见；撤销为覆盖式恢复，不校验 run 之后是否有新修改。',
+            '清单仅本次对话内可见（历史回看走「历史运行」）；撤销带版本校验，'
+            'run 之后有新修改时会先提示确认。',
             style: TextStyle(
               fontSize: 10,
               color: BiuTokens.textMuted,
