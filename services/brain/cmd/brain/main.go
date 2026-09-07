@@ -1301,7 +1301,26 @@ func run() error {
 	agentPlaneSrv.ChatStore = chatStore
 	agentPlaneTranscript := agentplanepkg.NewTranscriptRecorder(chatStore, logger)
 	agentPlaneSrv.Transcript = agentPlaneTranscript
-	agentPlaneQueue.SetObserver(agentPlaneTranscript)
+	// P3-c durable resume：elicitation observer 与 transcript 串成
+	// FrameObserver 链挂同一 choke point —— control_request{elicitation}
+	// 帧落 agent_elicitations pending 行（chat/daemon 两模式的提问帧都过
+	// PublishSessionFrame，daemon 不直连 DB 由此解决），form_answer 帧
+	// CAS 置 answered + 幂等补落 chat.messages form 行。
+	agentPlaneElicObserver := agentplanepkg.NewElicitationObserver(agentPlaneStore, chatStore, logger)
+	agentPlaneQueue.SetObserver(agentplanepkg.ObserverChain{agentPlaneTranscript, agentPlaneElicObserver})
+
+	// P3-c boot sweep：brain 重启即所有 chat 进程内 loop 已死，把卡在
+	// active 的 chat 僵尸 session（environment_id IS NULL）置 paused,
+	// 用户作答后走 /v1/agent/sessions/{id}/resume 重跑。daemon 模式不动
+	// （work redeliver 天然重跑重问）。同步在 HTTP 开始服务前执行,避免
+	// 扫到本进程新建的 session。注意多副本部署前提：chat session 绑定在
+	// 创建它的副本上,任一副本重启都会把其他副本的活 chat session 一并
+	// 置 paused —— 当前部署形态（单副本 / 重启即全量 loop 死）下成立。
+	if n, err := agentPlaneStore.PauseZombieChatSessions(ctx); err != nil {
+		logger.Error("agentplane boot sweep (pause zombie chat sessions) failed", "err", err)
+	} else if n > 0 {
+		logger.Info("agentplane boot sweep: paused zombie chat sessions", "count", n)
+	}
 
 	// S4-5/6/7: chat-mode in-process runner —— 经 model-relay PassThrough
 	// 打 LLM + 推 SDK Protocol 帧到 .out subject。NATS_URL 为空时 runner

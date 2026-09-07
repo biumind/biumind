@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -42,12 +43,16 @@ type apiHarness struct {
 
 // fakeJSForAPI 是 fakeJS 的拷贝（避免 _test.go 跨文件用），让 api_test
 // 也能持有一个 mock JetStream 让 Queue.Enqueue 跑通而不真发 NATS。
+// P3-c：加 mutex —— resume 测试会 spawn ChatRunner goroutine 异步 publish。
 type fakeJSForAPI struct {
+	mu        sync.Mutex
 	publishes []fakePublish
 }
 
 func (f *fakeJSForAPI) EnsureStream(_ context.Context, _ bus.StreamSpec) error { return nil }
 func (f *fakeJSForAPI) Publish(_ context.Context, subject string, payload any, headers ...bus.Header) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.publishes = append(f.publishes, fakePublish{Subject: subject, Payload: payload, Headers: headers})
 	return nil
 }
@@ -102,9 +107,9 @@ func newAPIHarness(t *testing.T) *apiHarness {
 	}
 	// Truncate 表保证测试隔离。CASCADE 因为 sessions / results 有 FK。
 	// R6.3：含 agent_devices / agent_pairings，否则 device-token 测试的固定
-	// token_hash 跨 run 撞 UNIQUE 约束。
+	// token_hash 跨 run 撞 UNIQUE 约束。P3-c：含 agent_elicitations。
 	_, _ = pool.Exec(context.Background(),
-		`TRUNCATE agent_environments, agent_sessions, agent_session_results, agent_devices, agent_pairings CASCADE`)
+		`TRUNCATE agent_environments, agent_sessions, agent_session_results, agent_devices, agent_pairings, agent_elicitations CASCADE`)
 
 	store := NewStore(pool)
 	fakeJS := &fakeJSForAPI{}

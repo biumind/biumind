@@ -89,6 +89,20 @@ type FrameObserver interface {
 	ObserveFrame(ctx context.Context, sessionID uuid.UUID, payload []byte)
 }
 
+// ObserverChain 把多个 FrameObserver 串成一个（P3-c：transcript 落对话轮 +
+// elicitation 落提问行，都挂在同一 choke point）。nil 成员跳过；单个成员
+// 的 panic 不应拖垮 publish 路径 —— 成员自身负责兜异常（现有实现都满足）。
+type ObserverChain []FrameObserver
+
+// ObserveFrame 实现 FrameObserver，按序转发给链上每个成员。
+func (c ObserverChain) ObserveFrame(ctx context.Context, sessionID uuid.UUID, payload []byte) {
+	for _, o := range c {
+		if o != nil {
+			o.ObserveFrame(ctx, sessionID, payload)
+		}
+	}
+}
+
 // Queue 是 brain 这边对 work queue 的入口。零依赖 store —— 它只对 NATS。
 type Queue struct {
 	// jsMu 保护 js —— readiness reconciler 在 broker 连上 + 流 ensured 后
@@ -96,7 +110,7 @@ type Queue struct {
 	// "nil JetStream handle" 错误。
 	jsMu     sync.RWMutex
 	js       bus.JetStream
-	observer FrameObserver // 可空;SetObserver 注入 TranscriptRecorder
+	observer FrameObserver // 可空;SetObserver 注入（TranscriptRecorder 或 ObserverChain）
 
 	// durable consumer 缓存 (per env_id). FetchWork/FetchControl 首次 create-or-update
 	// 后入缓存, 后续命中直接 Fetch, 不再每次发 $JS.API.CONSUMER.CREATE RPC —— 该
@@ -128,7 +142,8 @@ func (q *Queue) getJS() bus.JetStream {
 	return q.js
 }
 
-// SetObserver 注入帧观察者(TranscriptRecorder)。可空 → 退化为今天行为。
+// SetObserver 注入帧观察者（TranscriptRecorder / ObserverChain）。
+// 可空 → 退化为今天行为。
 func (q *Queue) SetObserver(o FrameObserver) { q.observer = o }
 
 // EnsureSessionStream 创建 session 帧流（S3-5 ingress 用）。所有 session

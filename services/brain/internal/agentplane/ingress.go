@@ -378,6 +378,10 @@ func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 type inboundFrameHead struct {
 	Type      string `json:"type"`
 	RequestID string `json:"request_id,omitempty"`
+	// Kind（P3-c/C3）：control_response 帧头显式声明的回包种类
+	// （elicitation_response / permission_response）。旧端不发 → 空串，
+	// 分流回退 response 体形状判别（isElicitationResultBody）。
+	Kind string `json:"kind,omitempty"`
 	// Response 字段仅 control_response 帧使用。我们只关心 request_id +
 	// subtype + response 三个 leaf 字段,不展开嵌套体（PermissionResult 的
 	// behavior / ElicitationResponse 的 action+content,分流只看键形状）。
@@ -453,12 +457,19 @@ func (i *Ingress) maybeRouteCancel(ctx context.Context, sessionID uuid.UUID, env
 //   - request_id 命中 elicitations pending map → chat 模式提问表单回包,
 //     进程内 Resolve 唤醒 ChatRunner.askUserFn。chat-mode 没绑
 //     environment,必须在 envID 判空**之前**处理。
-//   - 否则 → daemon 回包,经 control 队列投到 daemon。再按 response 体
-//     形状分两种 type（agent-ask-form P2-b）：elicitation 表单作答
-//     (ElicitationResponse{action, content}) → elicitation_response；
-//     permission 答复 (PermissionResult{behavior}) → permission_response。
-//     判别依据见 isElicitationResultBody —— 帧头不带种类字段
-//     (subtype 只有 success/error),只能看嵌套体形状。
+//   - miss 且是 elicitation 回包 → 第二级 DB CAS（P3-c durable resume）：
+//     ResolveElicitationCAS 原子认领 pending 行（防 replay×sweep×resume
+//     并发双写）。命中且 session 无 environment（chat 僵尸,loop 已死）→
+//     答案落库 + 补发 form_answer 帧（经 PublishSessionFrame,复用 P3-b
+//     落库与广播链；原生产者 loop 死了没人补这帧）,用户随后走 resume
+//     端点重跑。命中且 daemon 模式 → 照常投 control 队列（daemon 还活着
+//     在等）。行不存在 → 回退下方兜底。
+//   - 否则 → daemon 回包,经 control 队列投到 daemon。
+//
+// 回包种类判别（P3-c/C3）：帧头 kind 字段优先（elicitation_response /
+// permission_response）；旧端无 kind → 回退 isElicitationResultBody 形状
+// 判别（elicitation 表单作答 ElicitationResponse{action, content} vs
+// permission 答复 PermissionResult{behavior}）。
 //
 // chat-mode 的 permission 不可能存在(没有 daemon)—— envID 为 nil 且非
 // elicitation 时直接 return。
@@ -476,29 +487,29 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 			"session_id", sessionID)
 		return true
 	}
-	// ── elicitation 分流：进程内 chat 模式的提问回包 ──
-	if i.elicitations != nil && i.elicitations.Has(head.Response.RequestID) {
-		// 回包体是 ElicitationResponse{action, content}。解析失败也
-		// Resolve 一个 cancel —— 让等候方立刻 soft error 出局,而不是
-		// 干等 5 分钟超时。
-		ans := ElicitationAnswer{Action: "cancel"}
-		if head.Response.Subtype == sdkproto.ControlSubtypeSuccess && len(head.Response.Response) > 0 {
-			var body struct {
-				Action  string         `json:"action"`
-				Content map[string]any `json:"content"`
-			}
-			if err := json.Unmarshal(head.Response.Response, &body); err != nil {
-				i.logger.Warn("ingress: elicitation response body unparseable; cancelling",
-					"session_id", sessionID, "request_id", head.Response.RequestID, "err", err)
-			} else {
-				ans = ElicitationAnswer{Action: body.Action, Content: body.Content}
-			}
+	// 回包种类：显式 kind 优先；空 / 未知值回退形状判别（旧端兼容）。
+	kind := head.Kind
+	if kind != sdkproto.KindElicitationResponse && kind != sdkproto.KindPermissionResponse {
+		kind = sdkproto.KindPermissionResponse
+		if isElicitationResultBody(head.Response.Response) {
+			kind = sdkproto.KindElicitationResponse
 		}
+	}
+	// ── elicitation 第一级：进程内 chat 模式的提问回包（活 loop）──
+	if i.elicitations != nil && i.elicitations.Has(head.Response.RequestID) {
+		ans := decodeElicitationAns(i.logger, sessionID, &head)
 		i.elicitations.Resolve(head.Response.RequestID, ans)
 		i.logger.Info("ingress: elicitation_response routed in-process",
 			"session_id", sessionID, "request_id", head.Response.RequestID,
 			"action", ans.Action)
 		return true
+	}
+	// ── elicitation 第二级：DB CAS（durable resume 迟到作答）──
+	if kind == sdkproto.KindElicitationResponse && i.store != nil {
+		if i.resolveLateElicitation(ctx, sessionID, envID, &head) {
+			return true
+		}
+		// CAS miss（无 pending 行）→ 落下方兜底（daemon 老路径 / drop）。
 	}
 	// ── daemon 回包：走 control 队列 ──
 	if envID == nil {
@@ -513,12 +524,7 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 	}
 	// daemon 侧现有两种 client 回包：permission 答复 (can_use_tool) 与
 	// elicitation 表单作答（agent-ask-form P2-b, worker.askUserFor）。
-	// 按嵌套体形状分流投递 type,daemon handleControl 按 type 分发到
-	// pendingPerms / pendingAsks。
-	kind := "permission_response"
-	if isElicitationResultBody(head.Response.Response) {
-		kind = "elicitation_response"
-	}
+	// daemon handleControl 按 type 分发到 pendingPerms / pendingAsks。
 	payload := map[string]any{
 		"type":       kind,
 		"session_id": sessionID.String(),
@@ -535,6 +541,75 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 	i.logger.Info("ingress: control_response routed via control queue",
 		"session_id", sessionID, "env_id", *envID, "kind", kind,
 		"request_id", head.Response.RequestID)
+	return true
+}
+
+// decodeElicitationAns 把 control_response 嵌套体解成 ElicitationAnswer。
+// 回包体是 ElicitationResponse{action, content}。解析失败也回一个
+// cancel —— 让等候方立刻 soft error 出局,而不是干等 5 分钟超时。
+func decodeElicitationAns(logger *slog.Logger, sessionID uuid.UUID, head *inboundFrameHead) ElicitationAnswer {
+	ans := ElicitationAnswer{Action: "cancel"}
+	if head.Response.Subtype == sdkproto.ControlSubtypeSuccess && len(head.Response.Response) > 0 {
+		var body struct {
+			Action  string         `json:"action"`
+			Content map[string]any `json:"content"`
+		}
+		if err := json.Unmarshal(head.Response.Response, &body); err != nil {
+			logger.Warn("ingress: elicitation response body unparseable; cancelling",
+				"session_id", sessionID, "request_id", head.Response.RequestID, "err", err)
+		} else {
+			ans = ElicitationAnswer{Action: body.Action, Content: body.Content}
+		}
+	}
+	return ans
+}
+
+// resolveLateElicitation 是 elicitation 回包的第二级（durable resume）：
+// 进程内 pending map miss 后按 request_id 对 agent_elicitations 做 CAS
+// 认领。返回 true = 本函数已完整处理（调用方直接收工）：
+//
+//   - CAS 命中且 chat 僵尸（envID==nil,loop 已死）→ 答案已落库,补发
+//     form_answer 帧（广播给在线客户端 + 经 observer 幂等落 chat.messages
+//     form 行）,收工。用户之后调 resume 端点注入答案重跑。
+//   - CAS 命中且 daemon 模式（envID!=nil,daemon 还活着在等）→ 答案已落库,
+//     返回 false 让调用方继续走 control 队列投递（现逻辑不变）。
+//   - CAS miss（无 pending 行：replay / 已过期 / P3-c 前提问）→ false,
+//     回退兜底。
+func (i *Ingress) resolveLateElicitation(ctx context.Context, sessionID uuid.UUID, envID *uuid.UUID, head *inboundFrameHead) bool {
+	requestID, err := uuid.Parse(head.Response.RequestID)
+	if err != nil {
+		return false // 非 uuid 的 request_id 不是本表产的,回退兜底
+	}
+	ans := decodeElicitationAns(i.logger, sessionID, head)
+	answerJSON, err := json.Marshal(map[string]any{"action": ans.Action, "content": ans.Content})
+	if err != nil {
+		return false
+	}
+	sessID, payloadSnap, ok, err := i.store.ResolveElicitationCAS(ctx, requestID, answerJSON)
+	if err != nil {
+		i.logger.Warn("ingress: late elicitation CAS failed",
+			"session_id", sessionID, "request_id", requestID, "err", err)
+		return false
+	}
+	if !ok {
+		return false
+	}
+	if envID != nil {
+		// daemon 模式：CAS 已把答案落库（daemon 重跑重问时旧行作废有凭
+		// 据）,投递走调用方的 control 队列分支。
+		return false
+	}
+	// chat 僵尸：loop 已死没人补终态帧,这里代发。发布失败只 Warn —— 答案
+	// 已落库（DB 是 SoT）,resume 端点读库照样能注入。
+	raw, err := formAnswerFrameFromPayload(sessID, requestID, payloadSnap, ans.Action, ans.Content)
+	if err == nil && i.queue != nil {
+		if perr := i.queue.PublishSessionFrame(ctx, sessID, raw); perr != nil {
+			i.logger.Warn("ingress: publish late form_answer failed",
+				"session_id", sessID, "request_id", requestID, "err", perr)
+		}
+	}
+	i.logger.Info("ingress: late elicitation answer persisted (chat zombie)",
+		"session_id", sessID, "request_id", requestID, "action", ans.Action)
 	return true
 }
 

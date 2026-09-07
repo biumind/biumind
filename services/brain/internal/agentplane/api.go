@@ -90,6 +90,8 @@ func (s *Server) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST   /v1/agent/sessions/{id}/refresh-token", s.requireAuth(s.handleRefreshSessionToken))
 	// S3-6: CreateSession + mode 分流
 	s.MountSessionRoutes(mux)
+	// P3-c: durable resume（paused chat session 重跑 / 待答提问列表 / result）
+	s.MountResumeRoutes(mux)
 	// S3-5: WS session stream（路由恒挂；JS 未就绪时 503 no_jetstream）
 	s.MountIngressRoutes(mux)
 	// S3-8: worker poll / ack / publish（路由恒挂；queue 未就绪时 503）

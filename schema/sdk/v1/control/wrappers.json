@@ -67,6 +67,11 @@
       "required": ["type", "response"],
       "properties": {
         "type": { "const": "control_response" },
+        "kind": {
+          "type": "string",
+          "enum": ["elicitation_response", "permission_response"],
+          "description": "P3-c/C3：显式声明回包种类。可选 —— 旧端不发，接收方回退 response 体形状判别。"
+        },
         "response": {
           "oneOf": [
             { "$ref": "#/$defs/ControlSuccess" },

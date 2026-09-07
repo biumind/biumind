@@ -14,6 +14,11 @@ const (
 	ControlSubtypeSuccess = "success"
 	ControlSubtypeError   = "error"
 
+	// control_response 帧头 kind（P3-c/C3）：显式声明回包种类，ingress
+	// 优先读它分流，缺失（旧客户端）回退 response 体形状判别。
+	KindElicitationResponse = "elicitation_response"
+	KindPermissionResponse  = "permission_response"
+
 	SubtypeInitialize           = "initialize"
 	SubtypeInterrupt            = "interrupt"
 	SubtypeCanUseTool           = "can_use_tool"
@@ -138,7 +143,11 @@ func (*SDKControlCancelRequest) isFrame() {}
 
 // SDKControlResponse 包了 type=control_response 帧。
 type SDKControlResponse struct {
-	Type     string               `json:"type"` // "control_response"
+	Type string `json:"type"` // "control_response"
+	// Kind（P3-c/C3）显式声明回包种类：elicitation_response |
+	// permission_response。omitempty —— 旧端不发，接收方回退 response
+	// 体形状判别（isElicitationResultBody）。
+	Kind     string               `json:"kind,omitempty"`
 	Response *ControlResponseBody `json:"response"`
 }
 

@@ -62,11 +62,12 @@ type Janitor struct {
 
 // JanitorStats 是累计统计 —— 启动后到当前的 tick 数 + 标记数。
 type JanitorStats struct {
-	Sweeps         int64 // 总扫描次数
-	OfflineMarked  int64 // 累计标 offline 的行数
-	OfflineDeleted int64 // 累计 GC 删除的 offline 行数
-	OrphanFailed   int64 // 累计因 environment offline 而被标 failed 的孤儿 session
-	Errors         int64 // 累计 SQL 错误次数
+	Sweeps              int64 // 总扫描次数
+	OfflineMarked       int64 // 累计标 offline 的行数
+	OfflineDeleted      int64 // 累计 GC 删除的 offline 行数
+	OrphanFailed        int64 // 累计因 environment offline 而被标 failed 的孤儿 session
+	ElicitationsExpired int64 // 累计置 expired 的 pending elicitation 行数（P3-c）
+	Errors              int64 // 累计 SQL 错误次数
 }
 
 // NewJanitor 构造一个未启动的 Janitor。logger 可空（用 slog.Default）。
@@ -174,6 +175,21 @@ func (j *Janitor) RunOnce(ctx context.Context) int64 {
 		j.logger.Error("agentplane janitor: pairing GC failed", "err", pErr)
 	} else if pN := pTag.RowsAffected(); pN > 0 {
 		j.logger.Debug("agentplane janitor: swept expired pairings", "count", pN)
+	}
+
+	// P3-c: elicitation 过期 sweep —— pending 超过 expires_at（创建后 7 天）
+	// 仍未答 → status='expired'。不推帧（客户端靠 resume 前拉
+	// GET elicitations 重建表单,过期行不再返回；拍板 §6.3-10）。
+	if eTag, eErr := j.pool.Exec(ctx, `
+		UPDATE agent_elicitations
+		   SET status = 'expired'
+		 WHERE status = 'pending' AND expires_at < now()
+	`); eErr != nil {
+		j.stats.Errors++
+		j.logger.Error("agentplane janitor: elicitation expire sweep failed", "err", eErr)
+	} else if eN := eTag.RowsAffected(); eN > 0 {
+		j.stats.ElicitationsExpired += eN
+		j.logger.Info("agentplane janitor: expired pending elicitations", "count", eN)
 	}
 
 	// R7: 过期挂起 agent 任务收尾。设备 7 天没上线 → 把 pending session 标

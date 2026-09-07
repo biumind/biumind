@@ -10,9 +10,19 @@
 //	  → ingress.maybeRoutePermissionResponse 按 request_id 命中本 map
 //	    → Resolve 唤醒等候的 askUser goroutine
 //
-// 红线（设计 §3.4）：**绝不从持久化状态重建**。map 只在内存；brain 重启
-// = 未答表单按超时 soft error 收场，诚实降级。多副本部署下回包必须落回
-// 发提问的那个进程（chat session 本身就绑定在创建它的副本上，天然成立）。
+// P3-c（durable resume）翻案 §3.4 旧红线：agent_elicitations 表才是提问
+// 的持久化真相源（SoT）—— 提问帧经 Queue.PublishSessionFrame 的
+// FrameObserver 链落库（ElicitationObserver），本 map 降级为活 loop 的
+// fast-path 缓存：命中 = 本进程有等候中的 goroutine，进程内唤醒；miss 由
+// ingress 第二级走 DB CAS（ResolveElicitationCAS）认领迟到作答，chat
+// 僵尸会话（loop 已死）落答案 + 补发 form_answer 帧，用户随后经
+// POST /v1/agent/sessions/{id}/resume 注入答案重跑。brain 重启不再等于
+// 未答表单石沉大海。
+//
+// 本类型自身保持纯内存：DB 读写全部收敛在 store + observer + ingress
+// 两级分流里，Center 不做 IO（askUser 热路径不引入 DB 延迟）。多副本部署
+// 下活 loop 的回包必须落回发提问的那个进程（chat session 本身就绑定在
+// 创建它的副本上，天然成立）；副本不对时的迟到作答由 DB 级兜底。
 
 package agentplane
 
