@@ -5,8 +5,9 @@
 // （SectionedWordDiffView，before = 写前快照 body，after = 改后全文）。
 // undo：update → restore 写前快照（带 if_match_version OCC，run 之后页面
 // 被改过 → 409 → 展示当前态 vs 目标态 diff 确认后才无 if_match 重试）；
-// create → 删页（二次确认）；merge → 置灰（服务端还不支持 un-delete
-// duplicate）。
+// create → 删页（二次确认）；merge → unmerge 端点（§6.1 P3-a：canonical
+// 恢复 merge 前快照 + duplicate 复活），同样 OCC；快照缺失 / 链式 merge
+// 等状态不符 → 行内诚实提示，不猜。
 //
 // 写前快照匹配：P2 起服务端快照带 run_id，有 runId 时精确匹配；旧 run
 // 回退时间窗启发式。找不到快照 → diffUnavailable（不猜）。
@@ -166,7 +167,24 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
   Future<void> _undo(MaintainChange c) async {
     switch (c.op) {
       case MaintainChangeOp.merge:
-        return; // 按钮已置灰，双保险
+        // canonical = c.pageId；duplicate 从工具事件 result/input 取。
+        final dupId = c.duplicateId;
+        if (dupId == null || dupId.isEmpty) return; // 按钮已禁用，双保险
+        await _runUndo(
+          c,
+          () => widget.audit.unmergePage(
+            widget.projectId,
+            c.pageId,
+            dupId,
+            // OCC 同 update：本 run 最后写完的 canonical version。
+            ifMatchVersion: c.afterVersion,
+          ),
+          onConflict: () => _confirmConflictRetry(
+            c,
+            () => widget.audit
+                .unmergePage(widget.projectId, c.pageId, dupId),
+          ),
+        );
       case MaintainChangeOp.create:
         final ok = await showDialog<bool>(
           context: context,
@@ -199,14 +217,22 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
             // P2 OCC：本 run 最后写完的 version。run 之后页面被改过 → 409。
             ifMatchVersion: c.afterVersion,
           ),
-          onConflict: () => _confirmConflictRetry(c, rid),
+          onConflict: () => _confirmConflictRetry(
+            c,
+            () => widget.audit
+                .restoreRevision(widget.projectId, c.pageId, rid),
+          ),
         );
     }
   }
 
   /// 409（run 之后有新修改）→ 展示「当前态 vs 恢复目标态」diff，用户确认后
-  /// 无 if_match 重试（显式覆盖）。取消则保持现状，行内不标错误。
-  Future<void> _confirmConflictRetry(MaintainChange c, String rid) async {
+  /// 无 if_match 重试（显式覆盖，[retry] 为 restore 或 unmerge）。取消则
+  /// 保持现状，行内不标错误。
+  Future<void> _confirmConflictRetry(
+    MaintainChange c,
+    Future<void> Function() retry,
+  ) async {
     String? current;
     String? target;
     try {
@@ -265,10 +291,7 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
       ),
     );
     if (ok != true) return;
-    await _runUndo(
-      c,
-      () => widget.audit.restoreRevision(widget.projectId, c.pageId, rid),
-    );
+    await _runUndo(c, retry);
   }
 
   Future<void> _runUndo(
@@ -288,9 +311,20 @@ class _MaintainChangesPanelState extends State<MaintainChangesPanel> {
         await onConflict();
         return;
       }
-      // 其余失败（网络/删页冲突等）——行内展示，不静默。
-      setState(() => c.undoError = e.toString());
+      // merge undo 的另两种 409 诚实降级为用户可读文案；其余失败
+      // （网络/删页冲突等）行内展示原文，不静默。
+      setState(() => c.undoError = _undoErrorText(e));
     }
+  }
+
+  static String _undoErrorText(Object e) {
+    if (isMergeUndoUnavailable(e)) {
+      return '合并前快照缺失（页面过大或快照已被清理），无法精确撤销';
+    }
+    if (isMergeStateInvalid(e)) {
+      return '页面合并状态已变化（如 canonical 又被合并进其他页），无法撤销';
+    }
+    return e.toString();
   }
 
   @override
@@ -402,12 +436,21 @@ class _ChangeRow extends StatelessWidget {
     }
     switch (c.op) {
       case MaintainChangeOp.merge:
-        return const Tooltip(
-          message: '合并撤销将在后续版本支持',
-          child: TextButton(
-            onPressed: null,
-            child: Text('撤销', style: TextStyle(fontSize: 11)),
-          ),
+        // 工具事件没带 duplicate_id（异常结果/旧事件流）→ 无法定位被合并页，
+        // 禁用而非猜。
+        final dupId = c.duplicateId;
+        if (dupId == null || dupId.isEmpty) {
+          return const Tooltip(
+            message: '缺少被合并页信息，无法撤销',
+            child: TextButton(
+              onPressed: null,
+              child: Text('撤销', style: TextStyle(fontSize: 11)),
+            ),
+          );
+        }
+        return TextButton(
+          onPressed: onUndo,
+          child: const Text('撤销', style: TextStyle(fontSize: 11)),
         );
       case MaintainChangeOp.create:
         return TextButton(

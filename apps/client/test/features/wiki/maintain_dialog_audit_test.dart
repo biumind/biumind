@@ -4,7 +4,8 @@
 //   * 点开 diff：before = 写前快照（revision blocks_json 还原 markdown），
 //     after = result body_md；缺快照 → diff unavailable 降级
 //   * undo：update → restore 对应 revision（成功标「已撤销」，失败行内提示）；
-//     create → deletePage（「删除此新建页」二次确认）；merge → 置灰
+//     create → deletePage（「删除此新建页」二次确认）；merge → unmerge 端点
+//     （OCC 同 update；undo_unavailable / merge_state_invalid 行内诚实提示）
 //
 // 后端依赖全部 fake：agentRunner 注入假事件流，MaintainAuditClient 记录调用，
 // 无网络。
@@ -32,10 +33,17 @@ class _FakeAudit implements MaintainAuditClient {
   /// (projectId, pageId, revisionId, ifMatchVersion)。
   final List<(String, String, String, int?)> restored = [];
   final List<(String, String)> deleted = [];
+
+  /// (projectId, canonicalId, duplicateId, ifMatchVersion)。
+  final List<(String, String, String, int?)> unmerged = [];
   bool failRestore = false;
 
   /// 非 null 时 restoreRevision 抛该异常（如 ApiError 409 模拟 OCC 冲突）。
   Object? restoreError;
+
+  /// 非 null 时 unmergePage 抛该异常（409 version_conflict /
+  /// undo_unavailable / merge_state_invalid 等）。
+  Object? unmergeError;
   Map<String, WikiPage> pages = {};
 
   @override
@@ -60,6 +68,14 @@ class _FakeAudit implements MaintainAuditClient {
   @override
   Future<void> deletePage(String projectId, String pageId) async {
     deleted.add((projectId, pageId));
+  }
+
+  @override
+  Future<void> unmergePage(
+      String projectId, String canonicalId, String duplicateId,
+      {int? ifMatchVersion}) async {
+    if (unmergeError != null) throw unmergeError!;
+    unmerged.add((projectId, canonicalId, duplicateId, ifMatchVersion));
   }
 
   @override
@@ -426,18 +442,89 @@ void main() {
     expect(find.text('已撤销'), findsNothing);
   });
 
-  testWidgets('merge 行 undo 置灰（后续版本支持）', (tester) async {
+  testWidgets('merge undo 调 unmerge（带 if_match OCC），成功标「已撤销」',
+      (tester) async {
     final audit = _FakeAudit()
       ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')];
     await _runDialog(tester, events: _mergeEvents(), audit: audit);
 
     expect(find.text('合并'), findsOneWidget);
-    final undoBtn = tester.widget<TextButton>(find.ancestor(
-      of: find.text('撤销'),
-      matching: find.byType(TextButton),
-    ));
-    expect(undoBtn.onPressed, isNull);
-    expect(audit.restored, isEmpty);
-    expect(audit.deleted, isEmpty);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    // OCC 同 update：if_match = 本 run merge 完的 canonical version（=5）。
+    expect(audit.unmerged, [('p1', 'pg1', 'pg9', 5)]);
+    expect(find.text('已撤销'), findsOneWidget);
+  });
+
+  testWidgets('merge undo 409 → 弹 diff 确认，确认后无 if_match 重试',
+      (tester) async {
+    final audit = _FakeAudit()
+      ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')]
+      ..details['r1'] = _revision('r1', 'pg1', '阿尔法段落')
+      ..pages['pg1'] = WikiPage(
+        id: 'pg1',
+        projectId: 'p1',
+        title: '第一页',
+        version: 6,
+        updatedAt: DateTime.now(),
+        bodyMd: '人工新改的内容',
+      )
+      ..unmergeError = ApiError(
+        path: '/unmerge',
+        status: 409,
+        body: '{"error":{"code":"version_conflict"}}',
+      );
+    await _runDialog(tester, events: _mergeEvents(), audit: audit);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('run 之后有新修改'), findsOneWidget);
+    expect(audit.unmerged, isEmpty);
+
+    audit.unmergeError = null;
+    await tester.tap(find.text('仍要撤销'));
+    await tester.pumpAndSettle();
+
+    expect(audit.unmerged, [('p1', 'pg1', 'pg9', null)]);
+    expect(find.text('已撤销'), findsOneWidget);
+  });
+
+  testWidgets('merge undo undo_unavailable → 行内诚实提示，不走确认流',
+      (tester) async {
+    final audit = _FakeAudit()
+      ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')]
+      ..unmergeError = ApiError(
+        path: '/unmerge',
+        status: 409,
+        body: '{"error":{"code":"undo_unavailable"}}',
+      );
+    await _runDialog(tester, events: _mergeEvents(), audit: audit);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('合并前快照缺失'), findsOneWidget);
+    expect(find.text('run 之后有新修改'), findsNothing);
+    expect(find.text('已撤销'), findsNothing);
+  });
+
+  testWidgets('merge undo merge_state_invalid → 行内诚实提示', (tester) async {
+    final audit = _FakeAudit()
+      ..revisions['pg1'] = [_revision('r1', 'pg1', '阿尔法段落')]
+      ..unmergeError = ApiError(
+        path: '/unmerge',
+        status: 409,
+        body: '{"error":{"code":"merge_state_invalid"}}',
+      );
+    await _runDialog(tester, events: _mergeEvents(), audit: audit);
+
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('页面合并状态已变化'), findsOneWidget);
+    expect(find.text('已撤销'), findsNothing);
   });
 }

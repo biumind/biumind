@@ -6,8 +6,10 @@
 //
 // 只读为主；update 行允许 undo（restore 写前快照，if_match = 打开时刻的
 // 当前 version——读取到恢复之间页面被改过 → 409 兜住，确认后才显式覆盖）。
-// merge 行 undo 置灰（同本 run 面板）；create 无快照、天然不在清单内
-// （服务端语义，见 store.AgentRunChange 注释）。
+// merge 行（带 canonical_id，迁移 00011 起）允许 undo：unmerge 端点撤销
+// 合并（§6.1 P3-a，canonical 恢复快照 + duplicate 复活），OCC 同上；
+// 老 run（无 canonical_id）置灰，快照缺失 / 链式 merge → 行内诚实提示。
+// create 无快照、天然不在清单内（服务端语义，见 store.AgentRunChange 注释）。
 
 import 'package:flutter/material.dart';
 
@@ -94,18 +96,32 @@ class _MaintainRunsHistoryDialogState
     }
   }
 
-  /// 历史 undo（仅 update 行）：if_match = 此刻当前 version，读取到恢复之间
+  /// 历史 undo：if_match = 此刻当前 version，读取到恢复/撤销之间
   /// 被改 → 409 → 展示当前态 vs 目标态 diff 确认后显式覆盖。
+  /// update 行 restore 写前快照；merge 行（带 canonicalId）走 unmerge
+  /// （pageId = duplicate，canonicalId = canonical）。
   Future<void> _undo(WikiAgentRunChange c) async {
     setState(() => _undoErrors.remove(c.revisionId));
     try {
-      final page = await widget.audit.getPage(widget.projectId, c.pageId);
-      await widget.audit.restoreRevision(
-        widget.projectId,
-        c.pageId,
-        c.revisionId,
-        ifMatchVersion: page.version,
-      );
+      if (c.op == 'merge') {
+        final canonicalId = c.canonicalId;
+        if (canonicalId == null || canonicalId.isEmpty) return; // 按钮已禁用
+        final page = await widget.audit.getPage(widget.projectId, canonicalId);
+        await widget.audit.unmergePage(
+          widget.projectId,
+          canonicalId,
+          c.pageId,
+          ifMatchVersion: page.version,
+        );
+      } else {
+        final page = await widget.audit.getPage(widget.projectId, c.pageId);
+        await widget.audit.restoreRevision(
+          widget.projectId,
+          c.pageId,
+          c.revisionId,
+          ifMatchVersion: page.version,
+        );
+      }
       if (!mounted) return;
       setState(() => _undone.add(c.revisionId));
     } catch (e) {
@@ -114,18 +130,35 @@ class _MaintainRunsHistoryDialogState
         await _confirmConflictRetry(c);
         return;
       }
-      setState(() => _undoErrors[c.revisionId] = e.toString());
+      setState(() => _undoErrors[c.revisionId] = _undoErrorText(e));
     }
   }
 
+  /// merge undo 的另两种 409 诚实降级为用户可读文案；其余失败展示原文。
+  static String _undoErrorText(Object e) {
+    if (isMergeUndoUnavailable(e)) {
+      return '合并前快照缺失（页面过大或快照已被清理），无法精确撤销';
+    }
+    if (isMergeStateInvalid(e)) {
+      return '页面合并状态已变化（如 canonical 又被合并进其他页），无法撤销';
+    }
+    return e.toString();
+  }
+
   Future<void> _confirmConflictRetry(WikiAgentRunChange c) async {
+    // merge 行：当前态 / 目标态都取 canonical 页（merge 前快照 =
+    // canonicalRevisionId）；update 行取本行页 + 本行快照。
+    final isMerge = c.op == 'merge';
+    final pageId = isMerge ? c.canonicalId! : c.pageId;
+    final revisionId =
+        isMerge ? (c.canonicalRevisionId ?? c.revisionId) : c.revisionId;
     final String current;
     final String target;
     try {
-      final page = await widget.audit.getPage(widget.projectId, c.pageId);
+      final page = await widget.audit.getPage(widget.projectId, pageId);
       current = page.bodyMd;
       final rev = await widget.audit
-          .getRevision(widget.projectId, c.pageId, c.revisionId);
+          .getRevision(widget.projectId, pageId, revisionId);
       final blocks = (rev.blocksJson ?? const [])
           .map(
             (b) => RepoBlock(
@@ -190,13 +223,17 @@ class _MaintainRunsHistoryDialogState
     );
     if (ok != true) return;
     try {
-      await widget.audit
-          .restoreRevision(widget.projectId, c.pageId, c.revisionId);
+      if (isMerge) {
+        await widget.audit.unmergePage(widget.projectId, pageId, c.pageId);
+      } else {
+        await widget.audit
+            .restoreRevision(widget.projectId, c.pageId, c.revisionId);
+      }
       if (!mounted) return;
       setState(() => _undone.add(c.revisionId));
     } catch (e) {
       if (!mounted) return;
-      setState(() => _undoErrors[c.revisionId] = e.toString());
+      setState(() => _undoErrors[c.revisionId] = _undoErrorText(e));
     }
   }
 
@@ -329,9 +366,11 @@ class _MaintainRunsHistoryDialogState
                 Text('已撤销',
                     style:
                         TextStyle(fontSize: 11, color: BiuTokens.textMuted))
-              else if (c.op == 'merge')
+              else if (c.op == 'merge' &&
+                  (c.canonicalId == null || c.canonicalId!.isEmpty))
+                // 老 run（快照无 merge_id）关联不出 canonical → 不猜，置灰。
                 const Tooltip(
-                  message: '合并撤销将在后续版本支持',
+                  message: '该 run 缺少合并快照信息，无法撤销',
                   child: TextButton(
                     onPressed: null,
                     child: Text('撤销', style: TextStyle(fontSize: 11)),

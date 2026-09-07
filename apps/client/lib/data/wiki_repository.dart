@@ -290,18 +290,48 @@ class WikiRepository {
     String revisionId,
   ) async {
     final page = await client.restorePageRevision(projectId, pageId, revisionId);
-    await _reconcileBlocksFromServer(projectId, pageId);
-    await dao.upsertPages([
-      LocalWikiPage(
-        id: page.id,
-        projectId: page.projectId,
-        title: page.title,
-        version: page.version,
-        parentId: page.parentId,
-        updatedAt: page.updatedAt,
-      ),
-    ]);
+    await _reconcilePagesFromServer([page]);
     _cacheFrontmatter(page.id, page.frontmatter);
+  }
+
+  /// §6.1 P3-a merge undo：server 单事务恢复 canonical merge 前快照 +
+  /// 复活 duplicate（un-delete + 块归属写回）。本地 Drift 回写两页：
+  /// duplicate 此前软删（refreshPages 只 upsert 不删，本地可能残留软删前
+  /// 旧行或完全没有行），响应里的最新态 upsert 为 live + 两页块对账。
+  Future<void> unmergePage(
+    String projectId,
+    String canonicalId,
+    String duplicateId, {
+    int? ifMatchVersion,
+  }) async {
+    final (canonical, duplicate) = await client.unmergePage(
+      projectId,
+      canonicalId,
+      duplicateId: duplicateId,
+      ifMatchVersion: ifMatchVersion,
+    );
+    await _reconcilePagesFromServer([canonical, duplicate]);
+    _cacheFrontmatter(canonical.id, canonical.frontmatter);
+    _cacheFrontmatter(duplicate.id, duplicate.frontmatter);
+  }
+
+  /// restore/unmerge 共用的本地对账：每页拉 server live blocks 同步 Drift
+  /// （upsert + 标删本地多余），再 upsert page 行（title/version/frontmatter
+  /// 以 server 为准）。page 列表 watch 流自动刷新（复活页重新出现）。
+  Future<void> _reconcilePagesFromServer(List<api.WikiPage> pages) async {
+    for (final page in pages) {
+      await _reconcileBlocksFromServer(page.projectId, page.id);
+      await dao.upsertPages([
+        LocalWikiPage(
+          id: page.id,
+          projectId: page.projectId,
+          title: page.title,
+          version: page.version,
+          parentId: page.parentId,
+          updatedAt: page.updatedAt,
+        ),
+      ]);
+    }
   }
 
   /// §⑤ body_md 权威写：client PUT body → server reconcile blocks 投影 →

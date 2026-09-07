@@ -13,6 +13,7 @@
 //	GET    /v1/wiki/projects/{pid}/changes?since={id}       catchup events
 
 import 'dart:async';
+import 'dart:convert';
 import '_http_helpers.dart';
 
 class WikiProject {
@@ -204,6 +205,14 @@ class WikiAgentRunChange {
   final String changeType;
   final DateTime createdAt;
 
+  /// §6.1 P3-a merge undo：merge 行（快照带 merge_id，迁移 00011 起）回填
+  /// canonical 页 id + 两页 merge 前快照 revision id，撤销合并调 unmerge
+  /// 端点用。merge 行的 [pageId] 是 duplicate（被软删）页。
+  /// 老数据（merge_id IS NULL）三字段为 null，回退纯 [op] 推断。
+  final String? canonicalId;
+  final String? canonicalRevisionId;
+  final String? duplicateRevisionId;
+
   const WikiAgentRunChange({
     required this.revisionId,
     required this.pageId,
@@ -211,6 +220,9 @@ class WikiAgentRunChange {
     required this.op,
     required this.changeType,
     required this.createdAt,
+    this.canonicalId,
+    this.canonicalRevisionId,
+    this.duplicateRevisionId,
   });
 
   factory WikiAgentRunChange.fromJson(Map<String, dynamic> j) =>
@@ -223,6 +235,9 @@ class WikiAgentRunChange {
         createdAt: DateTime.tryParse(j['created_at'] as String? ?? '')
                 ?.toUtc() ??
             DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+        canonicalId: j['canonical_id'] as String?,
+        canonicalRevisionId: j['canonical_revision_id'] as String?,
+        duplicateRevisionId: j['duplicate_revision_id'] as String?,
       );
 }
 
@@ -903,6 +918,33 @@ class WikiClient {
     return WikiPage.fromJson(raw);
   }
 
+  /// 撤销一次 merge（§6.1 P3-a）：{id} = canonical 页，body 带 [duplicateId]
+  /// （被合并走、软删中的那页）。服务端单事务：canonical 恢复 merge 前快照
+  /// + duplicate 复活（un-delete + 块归属写回），返回两页最新态。
+  ///
+  /// [ifMatchVersion] 非空时先比对 canonical 当前 version，不一致 → 409
+  /// version_conflict（带 server_version/server_payload，同 restore 端点）。
+  /// 另两种 409 用 [WikiApiError.errorCode] 区分：undo_unavailable（merge
+  /// 前快照缺失，诚实降级）/ merge_state_invalid（链式 merge 等状态不符）。
+  Future<(WikiPage canonical, WikiPage duplicate)> unmergePage(
+    String projectId,
+    String pageId, {
+    required String duplicateId,
+    int? ifMatchVersion,
+  }) async {
+    final raw = await _post(
+      '/v1/wiki/projects/$projectId/pages/$pageId/unmerge',
+      {
+        'duplicate_id': duplicateId,
+        'if_match_version': ?ifMatchVersion,
+      },
+    );
+    return (
+      WikiPage.fromJson((raw['canonical'] as Map).cast<String, dynamic>()),
+      WikiPage.fromJson((raw['duplicate'] as Map).cast<String, dynamic>()),
+    );
+  }
+
   // ─── Agent runs（maintain 审计历史，迁移 00010） ─────────────
 
   /// 项目的 maintain agent run 历史（新→旧，含改动页数聚合）。
@@ -1273,6 +1315,20 @@ class WikiApiError implements Exception {
 
   bool get isVersionConflict => status == 409;
   bool get isNotFound => status == 404;
+
+  /// 服务端结构化错误码（body `{"error":{"code":...}}`）；非该形状 → null。
+  /// unmerge 端点的三种 409（version_conflict / undo_unavailable /
+  /// merge_state_invalid）靠它区分。
+  String? get errorCode {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map) {
+        final err = decoded['error'];
+        if (err is Map) return err['code']?.toString();
+      }
+    } catch (_) {/* 非 JSON 错误体（网关 HTML 等） */}
+    return null;
+  }
 
   @override
   String toString() => 'WikiApiError $status $method $path: $body';

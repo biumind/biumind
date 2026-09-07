@@ -15,14 +15,56 @@
 //   * undo OCC（P2）：update 的 undo 传 if_match_version = 本 run 最后写完的
 //     version（result.page.version），run 之后页面又被改过 → 409，客户端
 //     展示当前态 vs 目标态 diff 由用户确认后才无 if_match 重试。
-//   * create 无快照 → undo = 删页；merge 的 undo 本期不做（需 un-delete
-//     duplicate，服务端还不支持）。
+//   * create 无快照 → undo = 删页；merge 的 undo 走 unmerge 端点（§6.1
+//     P3-a：canonical 恢复 merge 前快照 + duplicate 复活），同样的 OCC；
+//     快照缺失（undo_unavailable）/ 链式 merge（merge_state_invalid）
+//     诚实降级，行内提示不猜。
+
+import 'dart:convert';
 
 import '../../../data/api/wiki_client.dart';
 import '../../../data/api/_http_helpers.dart' show ApiError;
+import '../../../data/wiki_repository.dart' show WikiRepository;
 
-/// 409 判定：restore 带 if_match_version 被服务端拒绝（run 之后有新修改）。
-bool isVersionConflict(Object e) => e is ApiError && e.status == 409;
+/// 409 判定：restore/unmerge 带 if_match_version 被服务端拒绝（run 之后有新修改）。
+/// unmerge 的另两种 409（undo_unavailable / merge_state_invalid）不能走
+/// diff 确认流：body 可解析出 code 时必须 == version_conflict；解析不出
+/// （非 JSON 错误体）回退 status 判定（restore 端点历史行为）。
+bool isVersionConflict(Object e) => switch (e) {
+      ApiError(:final status, :final body) =>
+        status == 409 &&
+            (_parseErrorCode(body) ?? 'version_conflict') ==
+                'version_conflict',
+      WikiApiError(:final status, :final errorCode) =>
+        status == 409 &&
+            (errorCode ?? 'version_conflict') == 'version_conflict',
+      _ => false,
+    };
+
+/// 409 undo_unavailable：merge 前快照缺失（5min 窗口合并 / >512KB /
+/// Prune / 00011 前老 merge 无 merge_id），无法精确撤销。
+bool isMergeUndoUnavailable(Object e) => _errorCode(e) == 'undo_unavailable';
+
+/// 409 merge_state_invalid：链式 merge（canonical 又被 merge 走）或
+/// duplicate 已不指向该 canonical，状态不符拒绝。
+bool isMergeStateInvalid(Object e) => _errorCode(e) == 'merge_state_invalid';
+
+String? _errorCode(Object e) => switch (e) {
+      WikiApiError(:final errorCode) => errorCode,
+      ApiError(:final body) => _parseErrorCode(body),
+      _ => null,
+    };
+
+String? _parseErrorCode(String body) {
+  try {
+    final decoded = jsonDecode(body);
+    if (decoded is Map) {
+      final err = decoded['error'];
+      if (err is Map) return err['code']?.toString();
+    }
+  } catch (_) {/* 非 JSON 错误体 */}
+  return null;
+}
 
 /// 写工具操作类型。
 enum MaintainChangeOp { create, update, merge }
@@ -156,7 +198,7 @@ class MaintainChangeTracker {
         }
       case MaintainChangeOp.merge:
         // input/result 含 canonical_id + duplicate_id；每个 merge 单独一行
-        // （undo 本期禁用，不做跨行聚合）。
+        // （undo 走 unmerge 端点，不做跨行聚合）。
         final canonicalId =
             (res?['canonical_id'] ?? p.input['canonical_id'])?.toString();
         if (canonicalId == null || canonicalId.isEmpty) return;
@@ -242,6 +284,16 @@ abstract class MaintainAuditClient {
   });
   Future<void> deletePage(String projectId, String pageId);
 
+  /// §6.1 P3-a merge undo：撤销一次 merge（[canonicalId] 恢复 merge 前快照 +
+  /// [duplicateId] 复活）。OCC 同 [restoreRevision]；409 三码由
+  /// isVersionConflict / isMergeUndoUnavailable / isMergeStateInvalid 区分。
+  Future<void> unmergePage(
+    String projectId,
+    String canonicalId,
+    String duplicateId, {
+    int? ifMatchVersion,
+  });
+
   /// 409 确认 diff 用：取页面当前态（body_md + version）。
   Future<WikiPage> getPage(String projectId, String pageId);
 
@@ -253,9 +305,13 @@ abstract class MaintainAuditClient {
   );
 }
 
-/// 生产实现：薄封装 [WikiClient]。
+/// 生产实现：薄封装 [WikiClient]（unmerge 走 [WikiRepository]，成功后在
+/// 本地 Drift 回写两页 live + 块对账——duplicate 此前软删，需显式补回）。
 class WikiMaintainAuditClient implements MaintainAuditClient {
-  WikiMaintainAuditClient(this._client);
+  WikiMaintainAuditClient(WikiRepository repo)
+      : _repo = repo,
+        _client = repo.client;
+  final WikiRepository _repo;
   final WikiClient _client;
 
   @override
@@ -286,6 +342,16 @@ class WikiMaintainAuditClient implements MaintainAuditClient {
   @override
   Future<void> deletePage(String projectId, String pageId) =>
       _client.deletePage(projectId, pageId);
+
+  @override
+  Future<void> unmergePage(
+    String projectId,
+    String canonicalId,
+    String duplicateId, {
+    int? ifMatchVersion,
+  }) =>
+      _repo.unmergePage(projectId, canonicalId, duplicateId,
+          ifMatchVersion: ifMatchVersion);
 
   @override
   Future<WikiPage> getPage(String projectId, String pageId) =>

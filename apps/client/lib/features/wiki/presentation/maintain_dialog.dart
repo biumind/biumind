@@ -69,7 +69,8 @@ class MaintainDialog extends ConsumerStatefulWidget {
   });
   final String projectId;
 
-  /// 测试注入：替换真实 SSE 流 / 审计后端（revisions + restore + deletePage）。
+  /// 测试注入：替换真实 SSE 流 / 审计后端（revisions + restore + deletePage
+  /// + unmerge）。
   final MaintainAgentRunner? agentRunner;
   final MaintainAuditClient? audit;
 
@@ -140,7 +141,7 @@ class _MaintainDialogState extends ConsumerState<MaintainDialog> {
     if (widget.audit != null) return widget.audit;
     final repo = ref.read(wikiRepositoryProvider);
     if (repo == null) return null;
-    return WikiMaintainAuditClient(repo.client);
+    return WikiMaintainAuditClient(repo);
   }
 
   String _joinedText() =>

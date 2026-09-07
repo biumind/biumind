@@ -3,7 +3,8 @@
 //   * run 列表渲染（指令 / 状态点 / 改动页数）
 //   * 点进详情渲染改动页清单（操作徽章 + 写前标题）
 //   * update 行 undo：if_match = 当前 version；409 → 确认后无 if_match 重试；
-//     merge 行 undo 置灰
+//     merge 行 undo：带 canonical_id 走 unmerge（OCC 同上），老 run 无
+//     canonical_id 置灰；undo_unavailable 行内诚实提示
 //
 // 后端依赖全部 fake（MaintainAuditClient 记录调用），无网络。
 
@@ -25,6 +26,10 @@ class _FakeAudit implements MaintainAuditClient {
   /// (projectId, pageId, revisionId, ifMatchVersion)。
   final List<(String, String, String, int?)> restored = [];
   Object? restoreError;
+
+  /// (projectId, canonicalId, duplicateId, ifMatchVersion)。
+  final List<(String, String, String, int?)> unmerged = [];
+  Object? unmergeError;
 
   @override
   Future<List<WikiAgentRun>> listAgentRuns(String projectId) async => runs;
@@ -58,6 +63,14 @@ class _FakeAudit implements MaintainAuditClient {
 
   @override
   Future<void> deletePage(String projectId, String pageId) async {}
+
+  @override
+  Future<void> unmergePage(
+      String projectId, String canonicalId, String duplicateId,
+      {int? ifMatchVersion}) async {
+    if (unmergeError != null) throw unmergeError!;
+    unmerged.add((projectId, canonicalId, duplicateId, ifMatchVersion));
+  }
 }
 
 WikiAgentRun _run(String id, String status, {int changed = 1}) => WikiAgentRun(
@@ -73,7 +86,14 @@ WikiAgentRun _run(String id, String status, {int changed = 1}) => WikiAgentRun(
       changedPages: changed,
     );
 
-WikiAgentRunChange _change(String revId, String op, {String title = '页'}) =>
+WikiAgentRunChange _change(
+  String revId,
+  String op, {
+  String title = '页',
+  String? canonicalId,
+  String? canonicalRevisionId,
+  String? duplicateRevisionId,
+}) =>
     WikiAgentRunChange(
       revisionId: revId,
       pageId: 'pg-$revId',
@@ -81,6 +101,9 @@ WikiAgentRunChange _change(String revId, String op, {String title = '页'}) =>
       op: op,
       changeType: 'edit',
       createdAt: DateTime.utc(2026, 9, 7, 10, 1),
+      canonicalId: canonicalId,
+      canonicalRevisionId: canonicalRevisionId,
+      duplicateRevisionId: duplicateRevisionId,
     );
 
 Future<void> _pump(WidgetTester tester, _FakeAudit audit) async {
@@ -199,7 +222,7 @@ void main() {
     expect(find.text('已撤销'), findsOneWidget);
   });
 
-  testWidgets('merge 行 undo 置灰', (tester) async {
+  testWidgets('老 run 的 merge 行（无 canonical_id）undo 置灰', (tester) async {
     final audit = _FakeAudit()
       ..runs = [_run('r1', 'done')]
       ..changes['r1'] = [_change('rev-b', 'merge', title: '被合并页')];
@@ -214,5 +237,67 @@ void main() {
     ));
     expect(undoBtn.onPressed, isNull);
     expect(audit.restored, isEmpty);
+    expect(audit.unmerged, isEmpty);
+  });
+
+  testWidgets('merge 行 undo：调 unmerge（if_match = canonical 当前 version）',
+      (tester) async {
+    final audit = _FakeAudit()
+      ..runs = [_run('r1', 'done')]
+      ..changes['r1'] = [
+        _change('rev-b', 'merge',
+            title: '被合并页',
+            canonicalId: 'pg-canon',
+            canonicalRevisionId: 'rev-canon',
+            duplicateRevisionId: 'rev-b'),
+      ]
+      ..pages['pg-canon'] = WikiPage(
+        id: 'pg-canon',
+        projectId: 'p1',
+        title: '第一页',
+        version: 3,
+        updatedAt: DateTime.now(),
+        bodyMd: '合并后内容',
+      );
+    await _pump(tester, audit);
+
+    await tester.tap(find.text('整理知识库 r1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    // pageId（pg-rev-b）= duplicate；canonicalId = canonical。
+    expect(audit.unmerged, [('p1', 'pg-canon', 'pg-rev-b', 3)]);
+    expect(find.text('已撤销'), findsOneWidget);
+  });
+
+  testWidgets('merge 行 undo undo_unavailable → 行内诚实提示', (tester) async {
+    final audit = _FakeAudit()
+      ..runs = [_run('r1', 'done')]
+      ..changes['r1'] = [
+        _change('rev-b', 'merge', title: '被合并页', canonicalId: 'pg-canon'),
+      ]
+      ..pages['pg-canon'] = WikiPage(
+        id: 'pg-canon',
+        projectId: 'p1',
+        title: '第一页',
+        version: 3,
+        updatedAt: DateTime.now(),
+        bodyMd: '合并后内容',
+      )
+      ..unmergeError = ApiError(
+        path: '/unmerge',
+        status: 409,
+        body: '{"error":{"code":"undo_unavailable"}}',
+      );
+    await _pump(tester, audit);
+
+    await tester.tap(find.text('整理知识库 r1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('撤销'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('合并前快照缺失'), findsOneWidget);
+    expect(find.text('已撤销'), findsNothing);
   });
 }
