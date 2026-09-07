@@ -6,7 +6,7 @@ require (
 	github.com/biumind/biumind/packages/go-sdk/biu v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/oklog/ulid/v2 v2.1.1
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/robfig/cron/v3 v3.0.1
 )
