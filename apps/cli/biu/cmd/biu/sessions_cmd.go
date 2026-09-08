@@ -1,6 +1,7 @@
 // `biu sessions` — list / show / export saved session logs. The
-// JSONL log files live under ~/.biumind/sessions/<id>.jsonl; the
-// REPL writes one record per Event when [no-log] is unset.
+// JSONL log files live under ~/.biu/sessions/<project-dir>/<id>.jsonl
+// (project-dir = session.ProjectDir of the launch cwd); the REPL
+// writes one record per Event when [no-log] is unset.
 
 package main
 
@@ -23,29 +24,42 @@ func newSessionsCmd() *cobra.Command {
 		Use:   "sessions",
 		Short: "List or inspect saved session logs",
 	}
-	c.AddCommand(&cobra.Command{
+	var listAll bool
+	listCmd := &cobra.Command{
 		Use:   "list",
-		Short: "Print every saved session, newest first",
+		Short: "Print saved sessions for the current project, newest first",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := config.SessionsDir()
 			if err != nil {
 				return err
 			}
-			rows, err := session.ListSessions(dir)
+			var rows []session.Summary
+			if listAll {
+				rows, err = session.ListSessions(dir)
+			} else {
+				cwd, _ := os.Getwd()
+				rows, err = session.ListSessionsIn(dir, session.ProjectDir(cwd))
+			}
 			if err != nil {
 				return err
 			}
 			if len(rows) == 0 {
-				fmt.Println("(no saved sessions)")
+				if listAll {
+					fmt.Println("(no saved sessions)")
+				} else {
+					fmt.Println("(no saved sessions in this project — `biu sessions list --all` lists every project)")
+				}
 				return nil
 			}
 			for _, r := range rows {
 				fmt.Printf("%s  %5d msgs  %4d KB  [%s]  %s\n",
-					r.ID, r.MessageCount, r.BytesOnDisk/1024, r.ProjectHash, r.FirstPrompt)
+					r.ID, r.MessageCount, r.BytesOnDisk/1024, r.Project, r.FirstPrompt)
 			}
 			return nil
 		},
-	})
+	}
+	listCmd.Flags().BoolVar(&listAll, "all", false, "list sessions across every project, not just the current directory")
+	c.AddCommand(listCmd)
 	c.AddCommand(&cobra.Command{
 		Use:   "show <id>",
 		Short: "Print every event from a session as JSONL",

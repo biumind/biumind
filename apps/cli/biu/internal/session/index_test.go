@@ -42,8 +42,8 @@ func TestListSessionsSortsNewestFirst(t *testing.T) {
 	}
 	// Newest IDs encode timestamp; "p2" written second so its file's
 	// id is lexicographically larger.
-	if got[0].ProjectHash == "" {
-		t.Errorf("missing project hash")
+	if got[0].Project == "" {
+		t.Errorf("missing project name")
 	}
 	if got[0].FirstPrompt == "" {
 		t.Errorf("first prompt not extracted")
@@ -134,6 +134,39 @@ func TestFindLatestIsAliasForIndex1(t *testing.T) {
 	idx1, _ := FindByIndex(dir, 1)
 	if got.ID != idx1.ID {
 		t.Errorf("FindLatest != FindByIndex(1): %s vs %s", got.ID, idx1.ID)
+	}
+}
+
+func TestListSessionsInScopesToProject(t *testing.T) {
+	dir := t.TempDir()
+	writeSession(t, dir, "p1", []Event{{Type: "user_message", Content: "in p1"}})
+	writeSession(t, dir, "p2", []Event{{Type: "user_message", Content: "in p2"}})
+
+	p1, err := ListSessionsIn(dir, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p1) != 1 || p1[0].Project != "p1" || p1[0].FirstPrompt != "in p1" {
+		t.Errorf("ListSessionsIn(p1) = %+v", p1)
+	}
+	// Missing project dir → empty, no error.
+	if got, err := ListSessionsIn(dir, "nope"); err != nil || len(got) != 0 {
+		t.Errorf("ListSessionsIn(missing) = (%v, %v)", got, err)
+	}
+	// Empty project falls back to global.
+	if got, _ := ListSessionsIn(dir, ""); len(got) != 2 {
+		t.Errorf("ListSessionsIn(\"\") should be global, got %d", len(got))
+	}
+
+	if _, ok := FindLatestIn(dir, "nope"); ok {
+		t.Errorf("FindLatestIn on missing project should be ok=false")
+	}
+	latest, ok := FindLatestIn(dir, "p2")
+	if !ok || latest.FirstPrompt != "in p2" {
+		t.Errorf("FindLatestIn(p2) = (%+v, %v)", latest, ok)
+	}
+	if _, ok := FindByIndexIn(dir, "p1", 2); ok {
+		t.Errorf("FindByIndexIn(p1, 2) should be out of range")
 	}
 }
 

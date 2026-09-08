@@ -7,7 +7,7 @@
 //
 // Filesystem layout (matches the Writer):
 //
-//   ~/.biu/sessions/<project-hash>/<session-id>.jsonl
+//   ~/.biu/sessions/<project-dir>/<session-id>.jsonl
 //
 // We don't store a separate `meta.json` today — every fact about a
 // session is reconstructable from its event stream + filesystem
@@ -31,7 +31,7 @@ import (
 // a `biu sessions list` table without loading every event.
 type Summary struct {
 	ID           string
-	ProjectHash  string
+	Project      string // project subdirectory name (see ProjectDir)
 	Path         string
 	BytesOnDisk  int64
 	FirstPrompt  string // truncated to ~100 chars
@@ -54,31 +54,61 @@ func ListSessions(dir string) ([]Summary, error) {
 		if !projEntry.IsDir() {
 			continue
 		}
-		projDir := filepath.Join(dir, projEntry.Name())
-		files, _ := os.ReadDir(projDir)
-		for _, f := range files {
-			if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
-				continue
-			}
-			fullPath := filepath.Join(projDir, f.Name())
-			info, err := f.Info()
-			if err != nil {
-				continue
-			}
-			id := strings.TrimSuffix(f.Name(), ".jsonl")
-			s := Summary{
-				ID:          id,
-				ProjectHash: projEntry.Name(),
-				Path:        fullPath,
-				BytesOnDisk: info.Size(),
-			}
-			peek(&s)
-			out = append(out, s)
-		}
+		out = appendSessionsIn(out, dir, projEntry.Name())
 	}
-	// Newest first by ID (writer's ID encodes timestamp + random).
-	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	sortNewestFirst(out)
 	return out, nil
+}
+
+// ListSessionsIn scopes the listing to one project subdirectory (as
+// produced by ProjectDir). Empty project falls back to the global
+// ListSessions. Missing dirs → empty result, no error.
+func ListSessionsIn(dir, project string) ([]Summary, error) {
+	if project == "" {
+		return ListSessions(dir)
+	}
+	out := []Summary{}
+	if _, err := os.Stat(filepath.Join(dir, project)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return out, nil
+		}
+		return nil, err
+	}
+	out = appendSessionsIn(out, dir, project)
+	sortNewestFirst(out)
+	return out, nil
+}
+
+// appendSessionsIn scans one project subdirectory for .jsonl session
+// files and appends their summaries.
+func appendSessionsIn(out []Summary, dir, project string) []Summary {
+	projDir := filepath.Join(dir, project)
+	files, _ := os.ReadDir(projDir)
+	for _, f := range files {
+		if f.IsDir() || !strings.HasSuffix(f.Name(), ".jsonl") {
+			continue
+		}
+		fullPath := filepath.Join(projDir, f.Name())
+		info, err := f.Info()
+		if err != nil {
+			continue
+		}
+		id := strings.TrimSuffix(f.Name(), ".jsonl")
+		s := Summary{
+			ID:          id,
+			Project:     project,
+			Path:        fullPath,
+			BytesOnDisk: info.Size(),
+		}
+		peek(&s)
+		out = append(out, s)
+	}
+	return out
+}
+
+// Newest first by ID (writer's ID encodes timestamp + random).
+func sortNewestFirst(out []Summary) {
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 }
 
 // peek reads the first user_message + counts events to populate
@@ -146,12 +176,31 @@ func FindByIndex(dir string, n int) (Summary, bool) {
 	return all[n-1], true
 }
 
+// FindByIndexIn is FindByIndex scoped to one project subdirectory.
+func FindByIndexIn(dir, project string, n int) (Summary, bool) {
+	if n <= 0 {
+		return Summary{}, false
+	}
+	all, err := ListSessionsIn(dir, project)
+	if err != nil || n > len(all) {
+		return Summary{}, false
+	}
+	return all[n-1], true
+}
+
 // FindLatest returns the most-recently-modified session in dir, or
 // ok=false when the directory has none. Convenience wrapper around
 // FindByIndex(dir, 1) so callers can spell intent ("latest") rather
 // than a magic number.
 func FindLatest(dir string) (Summary, bool) {
 	return FindByIndex(dir, 1)
+}
+
+// FindLatestIn is FindLatest scoped to one project subdirectory — the
+// lookup `--continue` and bare `/resume` use so "latest" means "latest
+// in the project I'm standing in".
+func FindLatestIn(dir, project string) (Summary, bool) {
+	return FindByIndexIn(dir, project, 1)
 }
 
 // Replay reads `path`, parses every event, and rebuilds an AppState's
@@ -233,7 +282,7 @@ func SessionsDir() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(home, ".biu", "sessions")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil

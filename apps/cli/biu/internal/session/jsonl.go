@@ -1,6 +1,7 @@
 // Package session writes JSONL session logs compatible with Claude Code's format.
 //
-// One file per session: ~/.biu/sessions/<project-hash>/<session-id>.jsonl
+// One file per session: ~/.biu/sessions/<project-dir>/<session-id>.jsonl
+// where <project-dir> is ProjectDir(launch cwd) — see project.go.
 // Each line is a JSON event:
 //
 //	{"type":"user_message","ts":"...","content":"..."}
@@ -46,18 +47,20 @@ type Writer struct {
 }
 
 // Open creates a new session file and returns a Writer.
-// dir is typically ~/.biu/sessions; we create dir/<project-hash>/<sid>.jsonl.
-func Open(dir, projectHash string) (*Writer, error) {
-	if projectHash == "" {
-		projectHash = "default"
+// dir is typically ~/.biu/sessions; we create dir/<project-dir>/<sid>.jsonl.
+// Session logs hold full conversation content, so directories are 0o700
+// and files 0o600.
+func Open(dir, projectDir string) (*Writer, error) {
+	if projectDir == "" {
+		projectDir = "default"
 	}
-	parent := filepath.Join(dir, projectHash)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+	parent := filepath.Join(dir, projectDir)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return nil, err
 	}
 	sid := newID()
 	path := filepath.Join(parent, sid+".jsonl")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}

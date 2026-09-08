@@ -1104,13 +1104,13 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 			m.appendSystemNote("/sessions: " + err.Error())
 			return m, nil
 		}
-		rows, err := session.ListSessions(dir)
+		rows, err := session.ListSessionsIn(dir, m.currentProject())
 		if err != nil {
 			m.appendSystemNote("/sessions: " + err.Error())
 			return m, nil
 		}
 		if len(rows) == 0 {
-			m.appendSystemNote("(no saved sessions)")
+			m.appendSystemNote("(no saved sessions in this project — `biu sessions list --all` lists every project)")
 			return m, nil
 		}
 		var b strings.Builder
@@ -1173,13 +1173,13 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		// This avoids the REPL needing a modal "pending pick" state and
 		// keeps every transition replayable from history.
 		if len(parts) < 2 {
-			m.appendSystemNote(buildResumeMenu(dir))
+			m.appendSystemNote(buildResumeMenu(dir, m.currentProject()))
 			return m, nil
 		}
-		s, ok := resolveResumeArg(dir, parts[1])
+		s, ok := resolveResumeArg(dir, m.currentProject(), parts[1])
 		if !ok {
 			m.appendSystemNote("/resume: no session matching " + parts[1] +
-				" (try `/resume` for the picker)")
+				" in this project (try `/resume` for the picker; `<id>` also matches other projects)")
 			return m, nil
 		}
 		if err := session.Replay(s.Path, m.engine.State()); err != nil {

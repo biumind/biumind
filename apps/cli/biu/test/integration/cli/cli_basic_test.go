@@ -215,8 +215,9 @@ func TestB13_McpListEmpty(t *testing.T) {
 
 // TestB11_SessionsListAndShow seeds a fixture session JSONL into the
 // expected ~/.biu/sessions/default/<id>.jsonl path and asserts that
-// `biu sessions list` lists it and `biu sessions show <id>` replays
-// the event stream.
+// `biu sessions list --all` lists it (`list` without --all is scoped
+// to the current project bucket, which the fixture isn't in) and
+// `biu sessions show <id>` replays the event stream.
 //
 // Why fixture-based: biu's --headless mode does NOT persist sessions
 // (the writer only wires into the REPL path; see cmd/biu/main.go).
@@ -232,7 +233,7 @@ func TestB11_SessionsListAndShow(t *testing.T) {
 	})
 
 	listed := harness.RunBiu(t, harness.RunOpts{
-		Sandbox: sb, Args: []string{"sessions", "list"},
+		Sandbox: sb, Args: []string{"sessions", "list", "--all"},
 	}).CombinedOK(t)
 	if !strings.Contains(listed, id) {
 		t.Errorf("sessions list missing seeded id %s\n%s", id, listed)
