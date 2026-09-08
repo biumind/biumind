@@ -86,8 +86,8 @@ func TestVerificationAgent_DefinitionRegistered(t *testing.T) {
 	if d.Source != "builtin" {
 		t.Errorf("Source: got %q, want builtin", d.Source)
 	}
-	if d.Model != "claude-sonnet-4-6" {
-		t.Errorf("default model should be sonnet; got %q", d.Model)
+	if d.Model != "inherit" {
+		t.Errorf("model should inherit the parent session model; got %q", d.Model)
 	}
 	// The agent's contract is that it runs commands AND can spawn
 	// long-running probes via background tasks.
@@ -188,11 +188,10 @@ func TestVerificationAgent_DispatchVerdictRoundTrip(t *testing.T) {
 	if prov.gotChildSystem == "" {
 		t.Fatalf("child stream never invoked; events=%d", len(events))
 	}
-	// Parent runs opus; Verification's definition must downshift to
-	// sonnet — same posture as CodeReview, locked here so a future
-	// "use parent model" tweak doesn't silently regress quality.
-	if prov.gotChildModel != "claude-sonnet-4-6" {
-		t.Errorf("child model: want sonnet, got %q", prov.gotChildModel)
+	// Parent runs opus; Verification inherits it — the builtin pins no
+	// model id, so the session-level chain decides for both.
+	if prov.gotChildModel != "claude-opus-4-7" {
+		t.Errorf("child model: want parent's opus (inherit), got %q", prov.gotChildModel)
 	}
 
 	// Catalog must include the bg-task partners — without them

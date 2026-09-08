@@ -24,7 +24,7 @@ import (
 // Pipeline holds the configuration for an ingestion run.
 type Pipeline struct {
 	Provider     llm.Provider
-	Model        string
+	Model        string        // required — no built-in default model
 	MaxBlocks    int           // safety cap on generated blocks; 0 → 64
 	MaxBodyChars int           // truncate giant sources for prompts; 0 → 24000
 	Timeout      time.Duration // per LLM call; 0 → 90s
@@ -167,21 +167,26 @@ func (p *Pipeline) step2Generate(ctx context.Context, o *Outline, body string) (
 
 // callJSON sends a one-shot system+user prompt and collects the full response.
 // Strips common markdown fences if the model adds them.
+//
+// Model must be set explicitly by the caller — there is no built-in
+// fallback model name. `biu ingest` resolves it from
+// --model / [default].model before constructing the Pipeline; the
+// server-side ingest path (wiki-llm worker) runs its own resolver chain
+// (user preference → relay default-chat) and does not use this package.
 func (p *Pipeline) callJSON(ctx context.Context, system, user string) (string, error) {
 	if p.Provider == nil {
 		return "", errors.New("ingest: no provider configured")
+	}
+	if p.Model == "" {
+		return "", errors.New("ingest: no model configured (pass --model or set [default].model in ~/.biu/config.toml)")
 	}
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, p.Timeout)
 		defer cancel()
 	}
-	model := p.Model
-	if model == "" {
-		model = "claude-sonnet-4-6"
-	}
 	frames, err := p.Provider.ChatStream(ctx, llm.ChatRequest{
-		Model:     model,
+		Model:     p.Model,
 		System:    system,
 		Messages:  []llm.Message{{Role: "user", Content: user}},
 		MaxTokens: 4096,

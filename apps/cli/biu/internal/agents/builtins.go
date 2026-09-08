@@ -158,7 +158,10 @@ the question is answered.
 //
 //   - explicit deny-list for write tools and the Agent tool itself
 //     (so Explore can't recursively spawn agents and balloon cost)
-//   - claude-haiku-4-5 model for speed when the host doesn't override
+//   - model inherited from the parent — no hardcoded model id; the
+//     parent's session model (CLI --model / [default].model) wins.
+//     Users who want a cheaper explore pass set `model:` in their own
+//     agent definition.
 //   - permission mode INHERITED from the parent (we don't lock to
 //     plan mode here: plan mode unconditionally denies non-readonly
 //     tools, which would silently break Bash even though Bash is
@@ -180,8 +183,7 @@ func exploreBuiltin() *Definition {
 			"Agent", "ExitPlanMode",
 			"Edit", "Write", "MultiEdit", "NotebookEdit",
 		},
-		// Default to haiku for speed; users can override per-agent.
-		Model:        "claude-haiku-4-5",
+		Model:        "inherit",
 		SystemPrompt: exploreBuiltinSystemPrompt,
 		Source:       "builtin",
 		Path:         "<built-in:explore>",
@@ -286,9 +288,9 @@ Now read the diff and review.
 // deny-list + the system prompt. Plan mode would over-rotate (kills
 // Bash for `git diff`); we trust the prompt and the deny-list.
 //
-// Default model is sonnet-4-6: code review benefits from reasoning
-// (catching subtle bugs) more than from raw speed; users who want
-// haiku-quick passes can override per-agent.
+// Model inherits the parent's session model — no hardcoded model id.
+// Users who want a different reasoning/speed trade-off override
+// per-agent via their own definition's `model:` field.
 func codeReviewBuiltin() *Definition {
 	return &Definition{
 		Name:        "CodeReview",
@@ -301,10 +303,7 @@ func codeReviewBuiltin() *Definition {
 			"Agent", "ExitPlanMode",
 			"Edit", "Write", "MultiEdit", "NotebookEdit",
 		},
-		// Default to sonnet for reasoning quality; haiku is a tempting
-		// default but reviewers benefit from the better long-context
-		// + bug-spotting that sonnet provides.
-		Model:        "claude-sonnet-4-6",
+		Model:        "inherit",
 		SystemPrompt: codeReviewBuiltinSystemPrompt,
 		Source:       "builtin",
 		Path:         "<built-in:codereview>",
@@ -468,9 +467,9 @@ func verificationBuiltin() *Definition {
 			"Agent", "ExitPlanMode",
 			"Edit", "Write", "MultiEdit", "NotebookEdit",
 		},
-		// Sonnet for reasoning quality on probe selection. Caller can
-		// override per-agent if they want haiku for fast suites.
-		Model:        "claude-sonnet-4-6",
+		// Model inherits the parent's session model — no hardcoded
+		// model id; override per-agent via a custom definition.
+		Model:        "inherit",
 		SystemPrompt: verificationBuiltinSystemPrompt,
 		Source:       "builtin",
 		Path:         "<built-in:verification>",

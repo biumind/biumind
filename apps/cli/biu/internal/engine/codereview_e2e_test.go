@@ -7,7 +7,8 @@
 //   * the agent ships with severity vocabulary (BLOCKER / MAJOR /
 //     MINOR / NITPICK / QUESTION / PRAISE) the parent's renderer
 //     can rely on
-//   * default model is sonnet (reasoning > speed for review work)
+//   * the model is inherited from the parent session (no hardcoded
+//     model id in the builtin definition)
 //   * deny-list mirrors Explore — no recursive Agent, no edits
 //   * the child sees a curated read-only catalog (Read / Glob /
 //     Grep / Bash / WebFetch) and nothing else
@@ -96,8 +97,8 @@ func TestCodeReviewAgent_DefinitionRegistered(t *testing.T) {
 	if d.Source != "builtin" {
 		t.Errorf("Source: want builtin, got %q", d.Source)
 	}
-	if d.Model != "claude-sonnet-4-6" {
-		t.Errorf("default model should be sonnet for reasoning quality; got %q", d.Model)
+	if d.Model != "inherit" {
+		t.Errorf("model should inherit the parent session model; got %q", d.Model)
 	}
 	// Severity vocabulary the rendering layer depends on must all
 	// be present in the system prompt.
@@ -150,16 +151,17 @@ func TestCodeReviewAgent_FilterToolsExcludesWrite(t *testing.T) {
 	}
 }
 
-// ─── test 3: Apply produces a SpawnRequest with sonnet override ──
+// ─── test 3: Apply keeps the parent model (definition is inherit) ──
 
-func TestCodeReviewAgent_DefinitionApplyOverridesParentModel(t *testing.T) {
+func TestCodeReviewAgent_DefinitionApplyInheritsParentModel(t *testing.T) {
 	r, _ := agents.Load(t.TempDir())
 	d, _ := r.Lookup("CodeReview")
-	// Parent runs opus; CodeReview must downshift to sonnet so the
-	// reviewer matches its design point regardless of the parent.
+	// Parent runs opus; CodeReview inherits it — the builtin pins no
+	// model id, so the session-level chain (--model / [default].model)
+	// decides for both parent and child.
 	got := d.Apply(agents.SpawnRequest{Model: "claude-opus-4-7"})
-	if got.Model != "claude-sonnet-4-6" {
-		t.Errorf("CodeReview should override parent model with sonnet; got %q", got.Model)
+	if got.Model != "claude-opus-4-7" {
+		t.Errorf("CodeReview should inherit the parent model; got %q", got.Model)
 	}
 	if string(got.PermissionMode) != "" {
 		t.Errorf("permission mode should inherit (empty); got %q", got.PermissionMode)
@@ -219,8 +221,8 @@ func TestCodeReviewAgent_DispatchViaAgentToolE2E(t *testing.T) {
 		t.Errorf("child got unexpected system prompt; first chars=%q",
 			prov.gotChildSystem[:min(160, len(prov.gotChildSystem))])
 	}
-	if prov.gotChildModel != "claude-sonnet-4-6" {
-		t.Errorf("child model: want sonnet, got %q", prov.gotChildModel)
+	if prov.gotChildModel != "claude-opus-4-7" {
+		t.Errorf("child model: want parent's opus (inherit), got %q", prov.gotChildModel)
 	}
 
 	// Child's tool catalog must be filtered.

@@ -46,6 +46,9 @@ func Run(ctx context.Context, opt Options) error {
 	if opt.Provider == nil {
 		return fmt.Errorf("ingest: no provider configured")
 	}
+	if opt.Model == "" {
+		return fmt.Errorf("ingest: no model configured (pass --model or set [default].model in ~/.biu/config.toml)")
+	}
 	if opt.Path == "" {
 		return fmt.Errorf("ingest: path required")
 	}
@@ -66,7 +69,7 @@ func Run(ctx context.Context, opt Options) error {
 	pipe := ingest.NewPipeline(opt.Provider, opt.Model)
 
 	fmt.Fprintf(os.Stderr, "[biu] ingesting %s (%s) via provider=%s model=%s\n",
-		opt.Path, kind, opt.Provider.Name(), orDefault(opt.Model, "claude-sonnet-4-6"))
+		opt.Path, kind, opt.Provider.Name(), opt.Model)
 
 	draft, err := pipe.Ingest(ctx, src)
 	if err != nil {

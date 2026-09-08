@@ -58,7 +58,7 @@ type Definition struct {
 	DisallowedTools []string
 
 	// Model overrides the parent's model. "inherit" or "" = use the
-	// parent's. Otherwise a model id like "claude-haiku-4-5".
+	// parent's. Otherwise an explicit model id (from the relay catalog).
 	Model string
 
 	// PermissionMode overrides the parent's mode for this run.

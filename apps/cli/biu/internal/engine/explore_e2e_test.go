@@ -22,7 +22,7 @@
 //     wrapped with the `[Explore] …` tag the orchestration tool adds
 //   * a per-call model override on the SpawnRequest beats the
 //     definition default (the caller can ask for opus on a tricky
-//     query even though Explore defaults to haiku).
+//     query even though Explore inherits the parent's model).
 //
 // Lives in `package engine_test` (external) so it can import
 // `internal/tools/orchestration` and `internal/agents` without an
@@ -164,8 +164,8 @@ func TestExploreAgent_DefinitionRegistered(t *testing.T) {
 	if len(wantDeny) > 0 {
 		t.Errorf("missing deny-list entries: %v", wantDeny)
 	}
-	if d.Model != "claude-haiku-4-5" {
-		t.Errorf("Model default should be haiku for speed; got %q", d.Model)
+	if d.Model != "inherit" {
+		t.Errorf("Model should inherit the parent session model; got %q", d.Model)
 	}
 	if !strings.Contains(d.SystemPrompt, "READ-ONLY") {
 		t.Errorf("system prompt must enforce read-only contract")
@@ -216,8 +216,8 @@ func TestExploreAgent_DefinitionApplyShape(t *testing.T) {
 	if got.System != d.SystemPrompt {
 		t.Errorf("System should override base; got %q", got.System)
 	}
-	if got.Model != "claude-haiku-4-5" {
-		t.Errorf("Model should be haiku from def; got %q", got.Model)
+	if got.Model != "claude-opus-4-7" {
+		t.Errorf("Model should inherit base (def is inherit); got %q", got.Model)
 	}
 	if string(got.PermissionMode) != "" {
 		t.Errorf("PermissionMode should inherit (empty); got %q", got.PermissionMode)
@@ -281,9 +281,10 @@ func TestExploreAgent_DispatchViaAgentToolE2E(t *testing.T) {
 	if !strings.Contains(prov.gotChildSystem, "READ-ONLY") {
 		t.Errorf("child system prompt missing read-only section")
 	}
-	// Model: haiku from the definition, NOT opus from parent.
-	if prov.gotChildModel != "claude-haiku-4-5" {
-		t.Errorf("child model: want haiku, got %q", prov.gotChildModel)
+	// Model: inherited from the parent (Explore's definition is
+	// model-inherit), NOT a definition-level override.
+	if prov.gotChildModel != "claude-opus-4-7" {
+		t.Errorf("child model: want parent's opus, got %q", prov.gotChildModel)
 	}
 
 	// Child saw a filtered tool catalog: only the allow-list, deny-list
@@ -392,8 +393,8 @@ func TestExploreAgent_AllowListShrinksCatalogStrictly(t *testing.T) {
 
 // TestExploreAgent_ApplyHonoursInheritModel — a Definition with
 // Model="inherit" should NOT override the base SpawnRequest's model
-// (the parent's choice wins). Counterpart of the Explore default
-// where Definition.Model="claude-haiku-4-5" replaces the base.
+// (the parent's choice wins). Same posture as the Explore builtin,
+// which is also model-inherit.
 func TestExploreAgent_ApplyHonoursInheritModel(t *testing.T) {
 	d := &agents.Definition{Name: "X", Model: "inherit"}
 	got := d.Apply(agents.SpawnRequest{Model: "claude-opus-4-7"})

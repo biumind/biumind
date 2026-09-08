@@ -190,8 +190,8 @@ func TestScaffoldPresetExploreShape(t *testing.T) {
 	if !ok {
 		t.Fatal("explore preset did not load")
 	}
-	if d.Model != "claude-haiku-4-5" {
-		t.Errorf("model: got %q, want haiku", d.Model)
+	if d.Model != "inherit" {
+		t.Errorf("model: got %q, want inherit (no hardcoded model id)", d.Model)
 	}
 	for _, banned := range []string{"Edit", "Write", "Agent", "ExitPlanMode"} {
 		found := false
@@ -217,8 +217,8 @@ func TestScaffoldPresetReviewShape(t *testing.T) {
 	}
 	r, _ := Load(t.TempDir())
 	d, _ := r.Lookup("my-review")
-	if d.Model != "claude-sonnet-4-6" {
-		t.Errorf("review preset should use sonnet; got %q", d.Model)
+	if d.Model != "inherit" {
+		t.Errorf("review preset should inherit parent model; got %q", d.Model)
 	}
 	if !strings.Contains(d.SystemPrompt, "BLOCKER") {
 		t.Errorf("review preset prompt missing severity vocab")

@@ -280,9 +280,9 @@ func TestBuiltinCodeReviewSeededByLoad(t *testing.T) {
 	if cr.PermissionMode != "" {
 		t.Errorf("CodeReview should inherit permission mode; got %q", cr.PermissionMode)
 	}
-	// Default model matters: sonnet for reasoning quality.
-	if cr.Model != "claude-sonnet-4-6" {
-		t.Errorf("CodeReview default model should be sonnet-4-6; got %q", cr.Model)
+	// Model inherits the parent session — no hardcoded model id.
+	if cr.Model != "inherit" {
+		t.Errorf("CodeReview model should be inherit; got %q", cr.Model)
 	}
 	// Deny-list locks down write paths + recursive Agent.
 	for _, banned := range []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Agent", "ExitPlanMode"} {
@@ -335,8 +335,8 @@ func TestBuiltinVerificationSeededByLoad(t *testing.T) {
 	if v.PermissionMode != "" {
 		t.Errorf("Verification should inherit mode; got %q", v.PermissionMode)
 	}
-	if v.Model != "claude-sonnet-4-6" {
-		t.Errorf("default model should be sonnet; got %q", v.Model)
+	if v.Model != "inherit" {
+		t.Errorf("model should inherit the parent session; got %q", v.Model)
 	}
 	// Allow-list must include the bg-task partners so server-side
 	// probes work end-to-end.

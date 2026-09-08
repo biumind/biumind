@@ -62,7 +62,7 @@ Two particles correlate.`,
 		{systemMustContain: "JSON outline", reply: outlineJSON},
 		{systemMustContain: "Wiki page", reply: blocksJSON},
 	}}
-	p := NewPipeline(fp, "")
+	p := NewPipeline(fp, "test-model")
 
 	draft, err := p.Ingest(context.Background(), src)
 	if err != nil {
@@ -107,12 +107,22 @@ func TestPipelineHandlesFenced(t *testing.T) {
 		{reply: outlineFenced},
 		{reply: blocksFenced},
 	}}
-	p := NewPipeline(fp, "")
+	p := NewPipeline(fp, "test-model")
 	draft, err := p.Ingest(context.Background(), src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if draft.Title != "X" || len(draft.Blocks) != 1 {
 		t.Errorf("draft = %+v", draft)
+	}
+}
+
+// Model 为空必须明确报错 —— pipeline 层不再有内置兜底模型名。
+func TestPipelineRequiresModel(t *testing.T) {
+	fp := &fakeProvider{t: t}
+	p := NewPipeline(fp, "")
+	_, err := p.Ingest(context.Background(), Source{Kind: KindPlainText, Content: "hi"})
+	if err == nil || !strings.Contains(err.Error(), "no model configured") {
+		t.Fatalf("empty model should error; got %v", err)
 	}
 }

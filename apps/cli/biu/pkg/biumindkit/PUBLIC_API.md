@@ -161,7 +161,8 @@ cancel(biumindkit.ErrInterrupted)   // 等价于 agent.Interrupt()
 | `APIKey` | `string` | （必填） | Anthropic key 或 model-relay bearer（依 `UseRelayAuth`） |
 | `AnthropicEndpoint` | `string` | `api.anthropic.com` | 直连模式或 model-relay URL |
 | `UseRelayAuth` | `bool` | `false` | true = 走 BiuMind model-relay Bearer 鉴权 |
-| `Model` | `string` | `claude-sonnet-4-6` | LLM 选型 |
+| `Model` | `string` | （必填，或设 `ResolveDefaultModel`） | LLM 选型；无内置默认模型名 |
+| `ResolveDefaultModel` | `func(context.Context) (string, error)` | `nil` | `Model` 为空时由宿主应用解析默认模型（CLI 配置 / 服务端解析链）；未设或失败 → `New` 报错 |
 | `Cwd` | `string` | `os.Getwd()` | 工作目录（文件工具用） |
 | `System` | `string` | `""` | 自定义 system prompt（会跟 BIUMIND.md / skills 拼接） |
 | `MaxToolTurns` | `int` | 25 | 工具循环上限 |

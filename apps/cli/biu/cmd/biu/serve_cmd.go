@@ -401,7 +401,11 @@ func buildCommitGenerator(cfg *config.Config, f *rootFlags, model string) gitass
 		return nil
 	}
 	if model == "" {
-		model = "claude-opus-4-8"
+		// 无硬编码兜底:模型未配置时 AI commit msg 明确报错,不静默选型。
+		return func(context.Context, string) (string, error) {
+			return "", errors.New("commit message: no model configured " +
+				"(set [default].model in ~/.biu/config.toml or pass --model)")
+		}
 	}
 	p := client.New(relayURL, token)
 	return func(ctx context.Context, prompt string) (string, error) {

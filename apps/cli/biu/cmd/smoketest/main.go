@@ -5,7 +5,8 @@
 //
 //   ANTHROPIC_API_KEY    — required
 //   ANTHROPIC_BASE_URL   — defaults to https://api.anthropic.com
-//   ANTHROPIC_MODEL      — defaults to claude-sonnet-4-6
+//   ANTHROPIC_MODEL      — required (no default; pick the model under test
+//                          explicitly so results are attributable)
 //   ANTHROPIC_MODEL_ALT  — optional; A19 model-override case skips when unset
 //   SMOKETEST_FILTER     — optional substring; only matching cases run
 //
@@ -47,7 +48,7 @@ func main() {
 	baseURL := os.Getenv("ANTHROPIC_BASE_URL")
 	model := os.Getenv("ANTHROPIC_MODEL")
 	if model == "" {
-		model = "claude-sonnet-4-6"
+		fail("ANTHROPIC_MODEL not set (no built-in default — e.g. ANTHROPIC_MODEL=<model-code> go run ./cmd/smoketest)")
 	}
 	filter := os.Getenv("SMOKETEST_FILTER")
 

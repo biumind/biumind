@@ -209,19 +209,21 @@ func renderScaffold(name, preset string) string {
 		description = "Read-only repo exploration. Use when you need files / patterns located fast."
 		tools = "Read, Glob, Grep, Bash, WebFetch"
 		disallowedTools = "Edit, Write, MultiEdit, NotebookEdit, Agent, ExitPlanMode"
-		model = "claude-haiku-4-5"
+		// 模板不写死模型 id —— "inherit" = 继承父会话模型（--model /
+		// [default].model 解析链），用户想固定模型可自行改这行。
+		model = "inherit"
 		body = exploreBodyTemplate(name)
 	case "review", "code-review", "codereview":
 		description = "Read-only code reviewer. Pass the diff scope or files in the prompt; returns severity-tagged feedback."
 		tools = "Read, Glob, Grep, Bash, WebFetch"
 		disallowedTools = "Edit, Write, MultiEdit, NotebookEdit, Agent, ExitPlanMode"
-		model = "claude-sonnet-4-6"
+		model = "inherit"
 		body = reviewBodyTemplate(name)
 	case "verify", "verification":
 		description = "Runs the implementation to find runtime issues. Returns PASS / FAIL / PARTIAL with command outputs."
 		tools = "Read, Glob, Grep, Bash, WebFetch, BashOutput, KillBash"
 		disallowedTools = "Edit, Write, MultiEdit, NotebookEdit, Agent, ExitPlanMode"
-		model = "claude-sonnet-4-6"
+		model = "inherit"
 		body = verifyBodyTemplate(name)
 	case "plan":
 		description = "Read-only planner. Designs an implementation plan, then ExitPlanMode with allowedPrompts."
