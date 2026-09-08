@@ -178,13 +178,24 @@ func TestMCP_WikiListProjects(t *testing.T) {
 func TestMCP_WikiChat_NonStreamingAnswer(t *testing.T) {
 	p := openDB(t)
 
-	// Fake model-relay: one SSE turn, plain answer, no tools.
+	// Fake model-relay: one Anthropic-SSE turn, plain answer, no tools.
+	// (内核收敛后 RunAgentLoopBuffered 走 RunV2/biumindkit，说 verbatim
+	// Anthropic SSE —— 与生产 model-relay X-Stream-Format: anthropic 一致。)
 	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "event: delta\ndata: {\"text\":\"grounded answer\"}\n\n"+
-			"event: stop\ndata: {\"reason\":\"end_turn\",\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n"+
-			"event: end\ndata: {}\n\n")
+		fmt.Fprint(w, "event: message_start\n"+
+			"data: {\"type\":\"message_start\",\"message\":{\"id\":\"m_1\",\"model\":\"test\",\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}\n\n"+
+			"event: content_block_start\n"+
+			"data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n"+
+			"event: content_block_delta\n"+
+			"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"grounded answer\"}}\n\n"+
+			"event: content_block_stop\n"+
+			"data: {\"type\":\"content_block_stop\",\"index\":0}\n\n"+
+			"event: message_delta\n"+
+			"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n"+
+			"event: message_stop\n"+
+			"data: {\"type\":\"message_stop\"}\n\n")
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}

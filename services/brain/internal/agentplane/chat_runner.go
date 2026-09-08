@@ -86,7 +86,7 @@ type ChatRunner struct {
 	cancelStartedAt map[uuid.UUID]time.Time
 }
 
-// NewChatRunner 构造 ChatRunner。loop 必填(chat.NewAgentLoop(nil, toolReg)
+// NewChatRunner 构造 ChatRunner。loop 必填(chat.NewAgentLoop(toolReg)
 // 即可,HTTPSender 不需要);queue/store 必填用于 publish + finalize。
 //
 // 凭证模型(chat 去 env 化):chat 模式一律走 model-relay PassThrough ——

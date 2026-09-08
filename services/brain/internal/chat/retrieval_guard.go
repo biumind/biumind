@@ -30,10 +30,10 @@ package chat
 // standard tier at cmd/brain/main.go). A zero budget leaves the loop
 // untouched — plain chat keeps its existing behaviour.
 //
-// Two wirings share this guard: v1 Run calls check/record inline in
-// invoke; RunV2 (biumindkit kernel owns the tool loop) folds the guard
-// into retrieval-class tools via WrapTool — rejections come back as soft
-// tool errors with the same visible ToolFailed step + error tool_result.
+// Wiring: the tool loop lives inside the biumindkit kernel (RunV2), so the
+// guard is folded into retrieval-class tools via WrapTool — rejections come
+// back as soft tool errors with a visible ToolFailed step + error
+// tool_result fed back to the model.
 
 import (
 	"context"
@@ -118,14 +118,13 @@ func (g *retrievalGuard) record(name string, input json.RawMessage, result any, 
 	}
 }
 
-// WrapTool gates a retrieval-class tool behind the guard — the RunV2
-// wiring (P2 #19, agent-42 leftover). RunV2's tool loop lives inside the
-// biumindkit kernel, so brain has no per-call interception point there;
-// instead the guard is folded into the tool's Invoker: check before
-// invoke, record after. A rejection returns an error — biumindkit turns
-// it into a soft tool error fed back to the model, surfaced through
-// ToolResult(IsError) → EventEmitter.ToolFailed, the same visible-step +
-// error-tool_result shape as v1 invoke's rejection path.
+// WrapTool gates a retrieval-class tool behind the guard. The tool loop
+// lives inside the biumindkit kernel, so brain has no per-call
+// interception point there; instead the guard is folded into the tool's
+// Invoker: check before invoke, record after. A rejection returns an
+// error — biumindkit turns it into a soft tool error fed back to the
+// model, surfaced through ToolResult(IsError) → EventEmitter.ToolFailed
+// as a visible step + error tool_result.
 //
 // Non-retrieval tools and descriptor-only tools (Invoke nil) pass
 // through unchanged. The wrapped result stays the brain Invoker's `any`

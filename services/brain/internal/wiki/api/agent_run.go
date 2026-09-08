@@ -90,9 +90,9 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "agent_run_persist", err.Error())
 		return
 	}
-	// Owner identity goes through AgentLoopRunInput.OwnerID (AgentLoop.Run
-	// injects it via tools.WithUserID) so write-tool Invokers can
-	// owner-scope (tools.UserIDFromContext); the run id is tagged on the
+	// Owner identity goes through AgentLoopRunInput.OwnerID (RunV2 injects
+	// it via tools.WithUserID) so write-tool Invokers can owner-scope
+	// (tools.UserIDFromContext); the run id is tagged on the
 	// ctx so their pre-write page_revisions snapshots carry run_id
 	// (tools.RunIDFromContext, §1.2 P2 变更审计). Detached from the request
 	// ctx so a client disconnect doesn't kill the in-flight model-relay

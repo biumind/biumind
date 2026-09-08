@@ -1330,9 +1330,9 @@ func run() error {
 	// 否则 chat session 创建后立即 finalize failed (missing_bearer)。
 	if cfg.NatsURL != "" {
 		// chat.AgentLoop 是 chat 模式的真正内核 —— RunSingleTurn 跑
-		// biumindkit + tool catalog。HTTPSender 传 nil —— 那是 legacy
-		// /v1/threads/:id/send SSE 路径的依赖,WS 路径不用。
-		chatLoop := chatpkg.NewAgentLoop(nil, toolReg)
+		// biumindkit + tool catalog。WS 路径不依赖 HTTPSender（那是
+		// legacy /v1/threads/:id/send SSE 路径的载体）。
+		chatLoop := chatpkg.NewAgentLoop(toolReg)
 		// Q1: chat-mode tool whitelist (default-deny). See tools/chatmode.go.
 		chatLoop.ChatToolAllowlist = toolspkg.DefaultChatToolAllowlist
 		// P2 #19（agent-42 遗留）：WS chat 路径（RunV2/biumindkit 内核）接

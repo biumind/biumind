@@ -291,8 +291,8 @@ func (s *Server) callWikiChat(ctx context.Context, uid uuid.UUID, raw json.RawMe
 
 	// Same contract as the wiki HTTP agent run
 	// (wiki/api handleWikiAgentRun → chat RunAgentLoop): the caller's user
-	// id goes through AgentLoopRunInput.OwnerID (AgentLoop.Run injects it
-	// via tools.WithUserID) so tool Invokers owner-scope, and the caller's
+	// id goes through AgentLoopRunInput.OwnerID (RunV2 injects it via
+	// tools.WithUserID) so tool Invokers owner-scope, and the caller's
 	// JWT is forwarded to model-relay (PassThrough) so billing / quota /
 	// BYOK attribute to the user — I6 preserved. The loop is read-only
 	// Q&A (DefaultChatToolAllowlist); the wiki write tools stay off this

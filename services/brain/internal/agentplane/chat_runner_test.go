@@ -107,7 +107,7 @@ func chatRunnerHarness(t *testing.T) (
 
 	srv := NewServer(store, verifier, signer, q, ingress,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
-	loop := chatpkg.NewAgentLoop(nil, tools.New())
+	loop := chatpkg.NewAgentLoop(tools.New())
 	srv.ChatRunner = NewChatRunner(q, store, loop,
 		"",           // defaultModel — 单测走硬兜底
 		upstream.URL, // RelayURL — PassThrough:user JWT 当 Bearer 透传到 fake upstream
@@ -235,7 +235,7 @@ func TestChatRunner_MissingBearerFinalizesFailed(t *testing.T) {
 	if q.js != nil {
 		t.Fatal("expected nil js")
 	}
-	loop := chatpkg.NewAgentLoop(nil, tools.New())
+	loop := chatpkg.NewAgentLoop(tools.New())
 	r := NewChatRunner(q, nil, loop, "", "", nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	r.runSessionImpl(context.Background(),

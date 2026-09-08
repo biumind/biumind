@@ -12,10 +12,10 @@ package chat
 //
 // The caller (wiki/api handleWikiAgentRun) owns:
 //   - auth + project ownership (ownsProject)
-//   - caller identity (AgentLoopRunInput.OwnerID — AgentLoop.Run injects it
+//   - caller identity (AgentLoopRunInput.OwnerID — RunV2 injects it
 //     into ctx via tools.WithUserID; tool Invokers read it)
 //   - system prompt + instruction text + mode→budget mapping
-// and passes them here. This method owns the SSE + emitter + loop wiring.
+// and passes them here. This method owns the SSE + emitter + kernel wiring.
 
 import (
 	"bytes"
@@ -41,7 +41,7 @@ type AgentLoopRunInput struct {
 	// 知识，补全缺失页，合并重复"). There is no multi-turn history — the
 	// agent loop's tool round-trips ARE the turns.
 	UserText string
-	// OwnerID 是本 run 归属的用户 —— 显式身份契约,透传进 AgentLoop.Run
+	// OwnerID 是本 run 归属的用户 —— 显式身份契约,透传进 RunV2
 	// 由入口注入 ctx (tools.WithUserID) 供 owner-scoped 工具读取。
 	// uuid.Nil = 无身份场景,no-op。
 	OwnerID uuid.UUID
@@ -65,10 +65,9 @@ type AgentLoopRunInput struct {
 var ErrStreamingUnsupported = errors.New("chat: streaming unsupported (ResponseWriter is not a Flusher)")
 
 // RunAgentLoop drives a one-shot agent loop and streams ChunkType v2 SSE
-// events to w. in.OwnerID carries the caller's user id — AgentLoop.Run
-// injects it into ctx (tools.WithUserID) so tool Invokers can owner-scope
-// their writes; r is used only to forward the bearer when PassThroughAuth
-// is on. No thread or message rows are touched — persistence is the
+// events to w. in.OwnerID carries the caller's user id — RunV2 injects it
+// into ctx (tools.WithUserID) so tool Invokers can owner-scope their
+// writes; r is used only to forward the bearer when PassThroughAuth is on. No thread or message rows are touched — persistence is the
 // caller's concern (for wiki, there is none: the tool calls themselves
 // emit page.* events).
 //
@@ -130,26 +129,42 @@ func (h *HTTPSender) RunAgentLoopBuffered(ctx context.Context, bearer string,
 
 // runAgentLoop is the shared core of RunAgentLoop / RunAgentLoopBuffered:
 // build the single-user-turn history, wire the loop (allowlist, turn +
-// retrieval budgets), run it against model-relay, and finish the emitter
-// (message.done on success, block.error on failure).
+// retrieval budgets), run it through the RunV2/biumindkit kernel against
+// model-relay (PassThrough: bearer as Authorization, verbatim Anthropic
+// SSE), and finish the emitter (message.done on success, block.error on
+// failure).
 func (h *HTTPSender) runAgentLoop(ctx context.Context, be *BlockEmitter,
 	msgID uuid.UUID, bearer string, in AgentLoopRunInput,
 ) (*AgentRunResult, error) {
 	history := []hubMessage{{Role: "user", Content: in.UserText}}
 
-	loop := NewAgentLoop(h, h.Tools)
+	loop := NewAgentLoop(h.Tools)
 	loop.ChatToolAllowlist = in.Allowlist
-	loop.MaxTurns = in.MaxTurns
 	loop.RetrievalBudget = in.RetrievalBudget
 
-	runResult, runErr := loop.Run(ctx, AgentRunInput{
-		Bearer:  bearer,
-		Model:   in.Model,
-		System:  in.System,
-		Mode:    tools.ExecutionCloud,
-		History: history,
-		OwnerID: in.OwnerID,
-		Emitter: be,
+	// v1 语义保留：MaxTurns 0 → 默认 8（AgentLoop 默认值）。显式设置时
+	// 触顶归一为 StopReason="max_turns"（RunV2 处理），走 message.done
+	// 而不是 block.error 收尾。
+	maxTurns := in.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = loop.MaxTurns
+	}
+
+	runResult, runErr := loop.RunV2(ctx, AgentRunInputV2{
+		// model-relay PassThrough：bearer（用户 JWT 或 StaticBearer 虚拟
+		// key）做 Authorization，relay 侧做渠道路由 + BYOK + 配额。
+		AnthropicAPIKey:   bearer,
+		AnthropicEndpoint: h.RelayURL,
+		UseRelayAuth:      true,
+		Model:             in.Model,
+		System:            in.System,
+		Mode:              tools.ExecutionCloud,
+		History:           history,
+		MaxTurns:          maxTurns,
+		OwnerID:           in.OwnerID,
+		Emitter:           be,
+		// AskUser 保持 nil：维护 agent 无表单应答通路（防 Decision
+		// channel 死锁），AskUserQuestion 不进 catalog。
 	})
 	if runErr != nil {
 		be.MessageError("agent_failed", runErr.Error())

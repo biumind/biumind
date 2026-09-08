@@ -48,7 +48,7 @@ func integrationEnv(t *testing.T) (apiKey, baseURL, model string) {
 }
 
 func newIntegrationLoop() *AgentLoop {
-	return NewAgentLoop(nil, tools.New())
+	return NewAgentLoop(tools.New())
 }
 
 //  1. 单 turn 文本：最基础。模型回一段 plain text，end_turn 收尾。
@@ -115,7 +115,7 @@ func TestIntegration_ToolRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loop := NewAgentLoop(nil, reg)
+	loop := NewAgentLoop(reg)
 	be := newTestEmitter()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -173,7 +173,7 @@ func TestIntegration_ToolErrorRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loop := NewAgentLoop(nil, reg)
+	loop := NewAgentLoop(reg)
 	be := newTestEmitter()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

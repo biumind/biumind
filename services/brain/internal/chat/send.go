@@ -26,8 +26,6 @@
 package chat
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -319,10 +317,10 @@ func (h *HTTPSender) streamAssistant(
 	// 5) Stream from model-relay. The hubCtx is intentionally detached from
 	// the request context so that a client disconnect doesn't kill
 	// the in-flight model-relay stream — we keep draining + persisting.
-	// Owner identity goes through AgentRunInput.OwnerID (AgentLoop.Run
-	// injects it via tools.WithUserID) so any tool the agent loop invokes
-	// can scope its data access (wiki.search uses this for owner_id,
-	// memory.recall same idea).
+	// Owner identity goes through AgentRunInputV2.OwnerID (RunV2 injects
+	// it via tools.WithUserID) so any tool the kernel invokes can scope
+	// its data access (wiki.search uses this for owner_id, memory.recall
+	// same idea).
 	hubCtx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancels[assistantMsg.ID] = cancel
@@ -339,11 +337,12 @@ func (h *HTTPSender) streamAssistant(
 		bearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	}
 
-	// 6) Drive the cloud agent loop. With zero registered tools the
-	// loop runs exactly one model-relay turn and behaves identically to the
-	// legacy text-only path. With tools, it round-trips
-	// LLM↔tool↔LLM until the model emits a non-tool stop reason.
-	loop := NewAgentLoop(h, h.Tools)
+	// 6) Drive the cloud agent kernel (RunV2 / biumindkit). With zero
+	// registered tools the kernel runs exactly one model-relay turn and
+	// behaves like a plain text-only stream. With tools, biumindkit
+	// round-trips LLM↔tool↔LLM until the model emits a non-tool stop
+	// reason (relay-side mapStopReason normalises provider vocabulary).
+	loop := NewAgentLoop(h.Tools)
 	// Q1: chat-mode tool whitelist (default-deny). HandleSend is always a
 	// chat-mode send, so the gate always applies here. See tools/chatmode.go.
 	loop.ChatToolAllowlist = tools.DefaultChatToolAllowlist
@@ -354,18 +353,25 @@ func (h *HTTPSender) streamAssistant(
 	// Sampling params: thread defaults, per-send overrides on top.
 	threadParams := parseThreadModelParams(thread.Metadata)
 	mp := mergedModelParams(req, threadParams)
-	runResult, runErr := loop.Run(hubCtx, AgentRunInput{
-		Bearer:        bearer,
-		Model:         model,
-		System:        system,
-		Mode:          mode,
-		History:       hubMessages,
-		MaxTokens:     mp.MaxTokens,
-		OwnerID:       userID,
-		Temperature:   mp.Temperature,
-		TopP:          mp.TopP,
-		StopSequences: mp.StopSequences,
-		Emitter:       be,
+	runResult, runErr := loop.RunV2(hubCtx, AgentRunInputV2{
+		// model-relay PassThrough：bearer（用户 JWT，或 PassThroughAuth=false
+		// 时的 StaticBearer 虚拟 key）做 Authorization，BYOK/配额由 relay
+		// 侧接住。biumindkit 打 relay 的 verbatim Anthropic SSE
+		// （X-Stream-Format: anthropic 由 relay engine 自动加）。
+		AnthropicAPIKey:   bearer,
+		AnthropicEndpoint: h.RelayURL,
+		UseRelayAuth:      true,
+		Model:             model,
+		System:            system,
+		Mode:              mode,
+		History:           hubMessages,
+		MaxTokens:         mp.MaxTokens,
+		MaxTurns:          loop.MaxTurns, // 默认 8（NewAgentLoop），触顶 → max_turns 正常终态
+		OwnerID:           userID,
+		Temperature:       mp.Temperature,
+		TopP:              mp.TopP,
+		StopSequences:     mp.StopSequences,
+		Emitter:           be,
 	})
 	if runErr != nil {
 		h.failV2(assistantMsg.ID, userID,
@@ -598,49 +604,16 @@ func (h *HTTPSender) HandleCancel(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// fail is retained for non-SSE callers that pass a custom emit func.
-// In-tree HandleSend uses failV2 directly.
-func (h *HTTPSender) fail(ctx context.Context, msgID, userID uuid.UUID,
-	reason string, emit func(string, any),
-) {
-	_ = ctx
-	_, _ = h.Store.UpdateMessage(context.Background(), UpdateMessageInput{
-		UserID:    userID,
-		MessageID: msgID,
-		Status:    pStr(StatusError),
-		ErrorMsg:  &reason,
-	})
-	emit("error", map[string]any{"message": reason})
-}
-
-// ─── model-relay SSE client ─────────────────────────────────────────────
+// ─── model-relay message types ────────────────────────────────────────
 //
-// Mirrors services/runtime/internal/relayclient — Brain Chat now needs
-// tool_call frames too once the agent loop (chat/agent.go) is wired.
-// Kept inline rather than imported because hubclient lives under the
-// runtime module's `internal/` and is intentionally not exported.
+// hubMessage is Brain's internal history shape, shared by the SSE send
+// path (buildHubMessages) and RunV2 (convertHistoryToPrior translates it
+// to biumindkit prior messages). The wire to model-relay is owned by
+// biumindkit's relay engine (verbatim Anthropic SSE); Brain no longer
+// speaks the unified-frame SSE dialect itself.
 
-type hubReq struct {
-	Model         string       `json:"model"`
-	System        string       `json:"system,omitempty"`
-	Messages      []hubMessage `json:"messages"`
-	Tools         []hubTool    `json:"tools,omitempty"`
-	Stream        bool         `json:"stream"`
-	MaxTokens     int          `json:"max_tokens,omitempty"`
-	Temperature   *float64     `json:"temperature,omitempty"`
-	TopP          *float64     `json:"top_p,omitempty"`
-	StopSequences []string     `json:"stop_sequences,omitempty"`
-}
-
-// hubTool is the tool definition forwarded to the model-relay → Provider.
-type hubTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-}
-
-// hubToolCall represents one assistant-emitted tool_use block, ready
-// to send back as part of an assistant turn in the next request.
+// hubToolCall represents one assistant-emitted tool_use block from
+// history, re-fed as part of an assistant turn (convertHistoryToPrior).
 type hubToolCall struct {
 	ID    string          `json:"id"`
 	Name  string          `json:"name"`
@@ -658,163 +631,6 @@ type hubMessage struct {
 	// ToolCallID set on role=tool messages to pair with a prior
 	// tool_use block.
 	ToolCallID string `json:"tool_call_id,omitempty"`
-}
-
-type hubFrameKind int
-
-const (
-	frameDelta hubFrameKind = iota
-	frameToolCallStart
-	frameToolCallArgs
-	frameToolCallEnd
-	frameThinking
-	frameStop
-	frameEnd
-	frameErr
-)
-
-type hubFrame struct {
-	Kind             hubFrameKind
-	Text             string
-	Stop             string
-	Err              error
-	PromptTokens     int
-	CompletionTokens int
-	// Tool-call frames:
-	ToolID    string
-	ToolName  string // KindToolCallStart only
-	ArgsDelta string // KindToolCallArgs partial JSON
-}
-
-func (h *HTTPSender) callHubStream(ctx context.Context, body hubReq, bearer string,
-) (<-chan hubFrame, error) {
-	body.Stream = true
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		h.RelayURL+"/v1/messages", bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-
-	resp, err := h.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		buf, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		resp.Body.Close()
-		return nil, fmt.Errorf("model-relay %d: %s", resp.StatusCode, string(buf))
-	}
-
-	out := make(chan hubFrame, 32)
-	go func() {
-		defer close(out)
-		defer resp.Body.Close()
-		// model-relay SSE protocol — same shape as runtime/hubclient: lines of
-		// "event: <name>" / "data: <json>" separated by blank lines.
-		// Events: delta / tool_call_start / tool_call_args /
-		// tool_call_end / stop / end / error.
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 64*1024), 1<<20)
-		var event, data string
-		for scanner.Scan() {
-			line := scanner.Text()
-			switch {
-			case strings.HasPrefix(line, "event: "):
-				event = strings.TrimPrefix(line, "event: ")
-			case strings.HasPrefix(line, "data: "):
-				data = strings.TrimPrefix(line, "data: ")
-			case line == "":
-				if event == "" {
-					continue
-				}
-				h.dispatchHubFrame(event, data, out)
-				event, data = "", ""
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			out <- hubFrame{Kind: frameErr, Err: err}
-		}
-	}()
-	return out, nil
-}
-
-func (h *HTTPSender) dispatchHubFrame(event, data string, out chan<- hubFrame) {
-	switch event {
-	case "delta":
-		var p struct {
-			Text string `json:"text"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{Kind: frameDelta, Text: p.Text}
-	case "tool_call_start":
-		var p struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{
-			Kind:     frameToolCallStart,
-			ToolID:   p.ID,
-			ToolName: p.Name,
-		}
-	case "tool_call_args":
-		var p struct {
-			ID    string `json:"id"`
-			Delta string `json:"delta"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{
-			Kind:      frameToolCallArgs,
-			ToolID:    p.ID,
-			ArgsDelta: p.Delta,
-		}
-	case "tool_call_end":
-		var p struct {
-			ID string `json:"id"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{Kind: frameToolCallEnd, ToolID: p.ID}
-	case "thinking":
-		var p struct {
-			Text string `json:"text"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{Kind: frameThinking, Text: p.Text}
-	case "stop":
-		var p struct {
-			Reason string `json:"reason"`
-			Usage  struct {
-				PromptTokens     int `json:"prompt_tokens"`
-				CompletionTokens int `json:"completion_tokens"`
-			} `json:"usage"`
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		f := hubFrame{Kind: frameStop, Stop: p.Reason}
-		if p.Usage.PromptTokens > 0 {
-			f.PromptTokens = p.Usage.PromptTokens
-			f.CompletionTokens = p.Usage.CompletionTokens
-		} else {
-			f.PromptTokens = p.PromptTokens
-			f.CompletionTokens = p.CompletionTokens
-		}
-		out <- f
-	case "end":
-		out <- hubFrame{Kind: frameEnd}
-	case "error":
-		var p struct {
-			Message string `json:"message"`
-		}
-		_ = json.Unmarshal([]byte(data), &p)
-		out <- hubFrame{Kind: frameErr, Err: errors.New(p.Message)}
-	}
 }
 
 // ─── Helpers ────────────────────────────────────────

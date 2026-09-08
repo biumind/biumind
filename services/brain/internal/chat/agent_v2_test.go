@@ -1,7 +1,7 @@
 // S4-3 RunV2 单测：用 httptest 假装 Anthropic upstream 跑端到端。
 //
-// 不复用 v1 的 hubScript（它喂 brain dialect）—— 这里直接喂 Anthropic
-// Messages SSE 给 biumindkit。关键覆盖：
+// 直接喂 Anthropic Messages SSE 给 biumindkit（生产上由 model-relay 的
+// verbatim anthropic 流供帧，X-Stream-Format: anthropic）。关键覆盖：
 //
 //	1. 单 turn text → emitter 收到 TextDelta + 正确 stop_reason
 //	2. 工具回路 → 第一 turn tool_use → adapter 跑 tool → 第二 turn 收尾文本
@@ -28,6 +28,12 @@ type anthropicScript struct {
 	scenes []string
 	calls  atomic.Int32
 	bodies []string
+	// auths 捕获每次请求的 Authorization header（PassThrough 契约断言用），
+	// 与 bodies 同序。
+	auths []string
+	// streamFormats 捕获 X-Stream-Format（biumindkit relay engine 应加
+	// anthropic），与 bodies 同序。
+	streamFormats []string
 }
 
 func (s *anthropicScript) handler() http.Handler {
@@ -40,6 +46,8 @@ func (s *anthropicScript) handler() http.Handler {
 		buf := make([]byte, r.ContentLength)
 		_, _ = r.Body.Read(buf)
 		s.bodies = append(s.bodies, string(buf))
+		s.auths = append(s.auths, r.Header.Get("Authorization"))
+		s.streamFormats = append(s.streamFormats, r.Header.Get("X-Stream-Format"))
 
 		w.Header().Set("content-type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -81,7 +89,7 @@ func newRunV2Rig(t *testing.T, scenes ...string) (
 	srv := httptest.NewServer(script.handler())
 	t.Cleanup(srv.Close)
 	reg := tools.New()
-	loop := NewAgentLoop(nil, reg) // RunV2 不走 Relay HTTPSender
+	loop := NewAgentLoop(reg)
 	return loop, script, reg, srv.URL
 }
 
@@ -272,7 +280,7 @@ func TestRunV2_ConvertHistoryToPrior(t *testing.T) {
 
 // 4) 错误路径：missing APIKey
 func TestRunV2_MissingAPIKey(t *testing.T) {
-	loop := NewAgentLoop(nil, tools.New())
+	loop := NewAgentLoop(tools.New())
 	_, err := loop.RunV2(context.Background(), AgentRunInputV2{
 		Model:   "claude-haiku-4-5",
 		History: []hubMessage{{Role: "user", Content: "x"}},
@@ -288,7 +296,7 @@ func TestRunV2_MissingAPIKey(t *testing.T) {
 
 // 5) 错误路径：history 最后一条不是 user
 func TestRunV2_LastMessageMustBeUser(t *testing.T) {
-	loop := NewAgentLoop(nil, tools.New())
+	loop := NewAgentLoop(tools.New())
 	_, err := loop.RunV2(context.Background(), AgentRunInputV2{
 		AnthropicAPIKey: "sk-fake",
 		Model:           "claude-haiku-4-5",

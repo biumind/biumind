@@ -36,12 +36,13 @@ import (
 	"github.com/biumind/biumind/services/brain/internal/tools"
 )
 
-// AgentRunInputV2 收集 RunV2 需要的输入。区别于 v1 的 AgentRunInput：
+// AgentRunInputV2 收集 RunV2 需要的输入：
 //
 //   - AnthropicAPIKey / AnthropicEndpoint：biumindkit 直连 LLM 的凭证
-//   - History 仍是 hubMessage 数组 —— 保持调用方代码兼容；内部翻译到
+//   - History 是 hubMessage 数组 —— 保持调用方代码兼容；内部翻译到
 //     biumindkit.Message
-//   - Emitter 跟 v1 共用 —— 这样 SSE 输出对客户端零差异
+//   - Emitter 接 BlockEmitter（SSE 路径）或 FrameEmitter（WS 路径）——
+//     同一份内核，SSE 输出对客户端零差异
 type AgentRunInputV2 struct {
 	// Anthropic 直连凭证。ApiKey 必填；Endpoint 空时走 api.anthropic.com 默认。
 	AnthropicAPIKey   string
@@ -59,6 +60,13 @@ type AgentRunInputV2 struct {
 	Temperature   *float64
 	TopP          *float64
 	StopSequences []string
+
+	// MaxTurns caps the tool-call round-trips (wired to biumindkit
+	// MaxToolTurns). 0 → biumindkit default (25). When explicitly set
+	// and the cap is hit, RunV2 reports StopReason="max_turns" as a
+	// graceful terminal state instead of an error — the same contract
+	// the retired v1 loop had (callers surface it via message.done).
+	MaxTurns int
 
 	// OwnerID 是本 run 归属的用户 —— 显式身份契约。RunV2 入口会把它注入
 	// ctx (tools.WithUserID) 供 owner-scoped 内建工具读取;调用方不再靠
@@ -177,15 +185,17 @@ func (a *AgentLoop) RunSingleTurn(ctx context.Context, in SingleTurnInput) (*Age
 	})
 }
 
-// RunV2 走 biumindkit 内核跑一轮多回合。返回的 result 跟 v1 形状一样
-// 让 send.go 的持久化路径不需要分叉。
+// RunV2 走 biumindkit 内核跑一轮多回合。返回的 result 形状让
+// send.go 的持久化路径与 wiki agent run 的收尾都不需要分叉。
 //
-// 跟 v1 Run 的差异：
-//   - 不调 a.Relay.callHubStream —— biumindkit 内部直连 Anthropic
-//   - 不在这层管 tool 调用循环 —— biumindkit 自己 loop 到 stop_reason!=tool_use
-//   - 没有 Run 里的 turns cap —— biumindkit 用 MaxToolTurns（默认 25）
-//
-// 调用方法：S4-5 router 在 mode=chat 且 BYOK Anthropic key 存在时调用。
+// 内核职责划分：
+//   - 不调 model-relay unified frame 客户端 —— biumindkit 经
+//     `X-Stream-Format: anthropic` 直连 relay 的 verbatim Anthropic SSE
+//   - 不在这层管 tool 调用循环 —— biumindkit 自己 loop 到
+//     stop_reason != tool_use（relay 侧 mapStopReason 负责把 OpenAI 系
+//     "tool_calls" 等词汇归一成 "tool_use"，见
+//     model-relay/internal/api/anthropic_stream.go）
+//   - turn 上限走 biumindkit MaxToolTurns（in.MaxTurns，0 → 默认 25）
 func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunResult, error) {
 	// 身份注入收敛到入口:owner-scoped 工具经 ctx 读 user id,调用方只传
 	// OwnerID 字段。Nil 时 WithUserID 为 no-op,此时 owner-scoped 工具
@@ -242,6 +252,7 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 		Model:               in.Model,
 		System:              in.System,
 		MaxTokens:           in.MaxTokens,
+		MaxToolTurns:        in.MaxTurns, // 0 → biumindkit 默认 25
 		ExtraTools:          bkTools,
 		PriorMessages:       prior,
 		PermissionPolicy:    biumindkit.PermissionAllow(), // chat 模式 cloud 工具全部 read-only，不询问
@@ -277,6 +288,16 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 	}
 
 	if err := pumpBiumindkitEvents(ctx, ag, prompt, imageBlocks, in.Emitter, result, toolBlockID, toolStart); err != nil {
+		// 显式设置了 MaxTurns 时，工具循环预算耗尽是**正常终态**而不是
+		// 错误：biumindkit engine 在 cap 处发 ErrorEvent
+		// ("tool turn budget N exhausted"，apps/cli/biu/internal/engine/
+		// turn.go)，这里归一成 StopReason="max_turns" 让调用方走
+		// message.done 收尾。MaxTurns=0（biumindkit 默认 25）时保持
+		// 原样的错误透传（RunSingleTurn/WS 路径语义不变）。
+		if in.MaxTurns > 0 && isToolTurnBudgetExhausted(err) {
+			result.StopReason = "max_turns"
+			return result, nil
+		}
 		return result, err
 	}
 
@@ -284,6 +305,19 @@ func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunRes
 		result.StopReason = "end_turn"
 	}
 	return result, nil
+}
+
+// isToolTurnBudgetExhausted 识别 biumindkit engine 的 MaxToolTurns 耗尽
+// 错误。biumindkit.Error 不带 typed source（engine ErrSrcInternal 在 SDK
+// 边界被丢弃），只能按消息契约匹配 —— 文案出自
+// apps/cli/biu/internal/engine/turn.go "tool turn budget %d exhausted"。
+func isToolTurnBudgetExhausted(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "tool turn budget") &&
+		strings.Contains(msg, "exhausted")
 }
 
 // pumpBiumindkitEvents 把 biumindkit Submit channel 翻译到 BlockEmitter。
