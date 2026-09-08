@@ -318,12 +318,12 @@ func (h *HTTPSender) streamAssistant(
 
 	// 5) Stream from model-relay. The hubCtx is intentionally detached from
 	// the request context so that a client disconnect doesn't kill
-	// the in-flight model-relay stream — we keep draining + persisting. We
-	// do tag it with the caller's user id so any tool the agent loop
-	// invokes can scope its data access (wiki.search uses this for
-	// owner_id, memory.recall same idea).
-	hubCtx, cancel := context.WithCancel(tools.WithUserID(
-		context.Background(), userID))
+	// the in-flight model-relay stream — we keep draining + persisting.
+	// Owner identity goes through AgentRunInput.OwnerID (AgentLoop.Run
+	// injects it via tools.WithUserID) so any tool the agent loop invokes
+	// can scope its data access (wiki.search uses this for owner_id,
+	// memory.recall same idea).
+	hubCtx, cancel := context.WithCancel(context.Background())
 	h.mu.Lock()
 	h.cancels[assistantMsg.ID] = cancel
 	h.mu.Unlock()
@@ -361,6 +361,7 @@ func (h *HTTPSender) streamAssistant(
 		Mode:          mode,
 		History:       hubMessages,
 		MaxTokens:     mp.MaxTokens,
+		OwnerID:       userID,
 		Temperature:   mp.Temperature,
 		TopP:          mp.TopP,
 		StopSequences: mp.StopSequences,

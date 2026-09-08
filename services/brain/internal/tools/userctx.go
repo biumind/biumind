@@ -11,12 +11,13 @@ import (
 type userIDKey struct{}
 
 // WithUserID returns a child context tagged with the caller's user id.
-// The chat HandleSend / tools proxy endpoint inject this before
-// dispatching to the agent loop or directly to Registry.Invoke.
+// Injected by the agent loop entries (AgentLoop.Run / RunV2, from the
+// explicit OwnerID input field) and by the tools proxy endpoint before
+// dispatching to Registry.Invoke.
 //
 // 设计: agent loop 不应该把 user 身份编进每个工具的 input —— 那让
 // 工具协议失去通用性,且暴露身份给 LLM。改用 context.Value 传输,
-// 工具按需读取。
+// 工具按需读取。调用方只传显式 OwnerID 字段,不直接往 ctx 塞身份。
 func WithUserID(ctx context.Context, id uuid.UUID) context.Context {
 	if id == uuid.Nil {
 		return ctx

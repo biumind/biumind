@@ -429,8 +429,11 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request, uid u
 // detachedCtx 把 r.Context() 的 values 拷出来但去掉 cancellation，让 chat
 // runner 跑完整 LLM turn，不被 HTTP handler 退出截断。
 func detachedCtx(parent context.Context) context.Context {
-	// 简单做法 —— 用 background 不带 values。chat runner 不需要 user id /
-	// trace 这层 brain 已经处理过；所以 values 丢掉无影响。
+	// 简单做法 —— 用 background 不带 values。注意这会把请求 ctx 上的
+	// values 全部丢掉（含 user 身份）：owner 身份不允许再依赖 ctx 隐式
+	// 传递，调用方（chat runner）必须把 user id 作为显式字段
+	// （chat.SingleTurnInput.OwnerID）重新交给下游，由 RunV2 入口注入
+	// （tools.WithUserID）。trace 等可观测性 values 同样丢，目前可接受。
 	_ = parent
 	return context.Background()
 }

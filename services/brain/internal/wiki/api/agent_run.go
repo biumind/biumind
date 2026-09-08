@@ -90,15 +90,16 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "agent_run_persist", err.Error())
 		return
 	}
-	// Tag the loop ctx with the caller's user id so write-tool Invokers can
-	// owner-scope (tools.UserIDFromContext), and with the run id so their
-	// pre-write page_revisions snapshots carry run_id (tools.RunIDFromContext,
-	// §1.2 P2 变更审计). Detached from the request ctx
-	// so a client disconnect doesn't kill the in-flight model-relay stream
-	// (same pattern as chat HandleSend). Cancellation therefore goes
+	// Owner identity goes through AgentLoopRunInput.OwnerID (AgentLoop.Run
+	// injects it via tools.WithUserID) so write-tool Invokers can
+	// owner-scope (tools.UserIDFromContext); the run id is tagged on the
+	// ctx so their pre-write page_revisions snapshots carry run_id
+	// (tools.RunIDFromContext, §1.2 P2 变更审计). Detached from the request
+	// ctx so a client disconnect doesn't kill the in-flight model-relay
+	// stream (same pattern as chat HandleSend). Cancellation therefore goes
 	// through the dedicated /agent/run/cancel endpoint, which looks up
 	// runID in AgentRuns and calls the cancel func stored below.
-	hubCtx, cancel := context.WithCancel(tools.WithRunID(tools.WithUserID(context.Background(), uid), runID))
+	hubCtx, cancel := context.WithCancel(tools.WithRunID(context.Background(), runID))
 	defer cancel()
 	s.AgentRuns.Store(runID, cancel)
 	defer s.AgentRuns.Delete(runID)
@@ -110,6 +111,7 @@ func (s *Server) handleWikiAgentRun(w http.ResponseWriter, r *http.Request) {
 		System:    system,
 		UserText:  req.Instruction,
 		Model:     req.Model,
+		OwnerID:   uid,
 		Allowlist: tools.WikiAgentToolAllowlist,
 		MaxTurns:  maxTurns,
 		// P2 #19: retrieval-class tools (websearch / wiki_search /

@@ -35,7 +35,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
-	"github.com/biumind/biumind/services/brain/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -218,12 +217,10 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 	defer cr.untrackInflight(sessionID)
 	ctx = subCtx
 
-	// owner-scoped 内建工具（wiki_search / memory_recall / wiki 写工具）
-	// 从 ctx 读 user id；router.detachedCtx 会丢弃请求 ctx values，
-	// 必须在这里用 payload.UserID 重新注入，否则模型一调工具就报
-	// missing user identity。Nil 时 WithUserID 为 no-op，安全。
-	ctx = tools.WithUserID(ctx, payload.UserID)
-
+	// owner-scoped 内建工具的身份不再在这层塞 ctx —— 改由
+	// SingleTurnInput.OwnerID 显式传递,RunV2 入口自行注入
+	// (tools.WithUserID)。router.detachedCtx 丢弃请求 ctx values 因此
+	// 无影响。
 	cr.Logger.Debug("chat runner: enter",
 		"session_id", sessionID, "user_id", payload.UserID,
 		"thread_id", payload.ThreadID, "model", payload.Model,
@@ -317,6 +314,10 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 		model = cr.defaultChatModel(ctx)
 	}
 
+	// owner 身份经 SingleTurnInput.OwnerID 显式传递 —— RunV2 入口注入
+	// ctx (tools.WithUserID) 供 owner-scoped 内建工具 (wiki_search /
+	// memory_recall / wiki 写工具) 读取。router.detachedCtx 丢弃请求
+	// ctx values 因此无影响;不要在 runner 这层再往 ctx 塞身份。
 	input := chatpkg.SingleTurnInput{
 		AnthropicAPIKey:   apiKey,
 		AnthropicEndpoint: endpoint,
@@ -324,6 +325,7 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 		Model:             model,
 		System:            payload.SystemPrompt,
 		Prompt:            payload.Prompt,
+		OwnerID:           payload.UserID,
 		History:           history,
 		Images:            images,
 		Emitter:           emitter,

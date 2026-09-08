@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/biumind/biumind/services/brain/internal/tools"
 )
@@ -75,6 +78,12 @@ type AgentRunInput struct {
 	Mode      tools.ExecutionMode
 	History   []hubMessage // user/assistant/tool history including current user msg
 	MaxTokens int
+	// OwnerID 是本 run 归属的用户 —— 显式身份契约。Run 入口会把它注入
+	// ctx (tools.WithUserID) 供 owner-scoped 内建工具 (wiki_search /
+	// memory_recall / wiki 写工具) 读取;调用方不再靠自己往 ctx 塞身份。
+	// uuid.Nil = 无身份场景 (CLI 本地等),注入为 no-op,owner-scoped 工具
+	// 会在调用时硬报错 (入口另有 WARN 日志提示)。
+	OwnerID uuid.UUID
 	// Sampling params — nil pointers leave the upstream provider's
 	// own default (chat-side UI tends to leave temperature/top_p
 	// unset for everyday convos and only override when needed).
@@ -98,6 +107,14 @@ type AgentRunResult struct {
 // BlockEmitter; this function does not touch the database — the
 // caller (HandleSend) owns persistence at the end.
 func (a *AgentLoop) Run(ctx context.Context, in AgentRunInput) (*AgentRunResult, error) {
+	// 身份注入收敛到入口:owner-scoped 工具经 ctx 读 user id,调用方只传
+	// OwnerID 字段。Nil 时 WithUserID 为 no-op,此时 owner-scoped 工具
+	// 会在调用时报错 —— WARN 提示,不硬报错 (CLI 本地等无身份场景合法)。
+	ctx = tools.WithUserID(ctx, in.OwnerID)
+	if tools.UserIDFromContext(ctx) == uuid.Nil {
+		slog.WarnContext(ctx, "agent loop: owner identity missing; owner-scoped tools will fail")
+	}
+
 	maxTurns := a.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 8

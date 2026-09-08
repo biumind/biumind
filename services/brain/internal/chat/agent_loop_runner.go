@@ -12,7 +12,8 @@ package chat
 //
 // The caller (wiki/api handleWikiAgentRun) owns:
 //   - auth + project ownership (ownsProject)
-//   - userID injection into ctx (tools.WithUserID — tool Invokers read it)
+//   - caller identity (AgentLoopRunInput.OwnerID — AgentLoop.Run injects it
+//     into ctx via tools.WithUserID; tool Invokers read it)
 //   - system prompt + instruction text + mode→budget mapping
 // and passes them here. This method owns the SSE + emitter + loop wiring.
 
@@ -40,6 +41,10 @@ type AgentLoopRunInput struct {
 	// 知识，补全缺失页，合并重复"). There is no multi-turn history — the
 	// agent loop's tool round-trips ARE the turns.
 	UserText string
+	// OwnerID 是本 run 归属的用户 —— 显式身份契约,透传进 AgentLoop.Run
+	// 由入口注入 ctx (tools.WithUserID) 供 owner-scoped 工具读取。
+	// uuid.Nil = 无身份场景,no-op。
+	OwnerID uuid.UUID
 	// Model is the model id (resolved by model-relay). Empty → caller
 	// should have filled it; we pass it through and let relay validate.
 	Model string
@@ -60,11 +65,12 @@ type AgentLoopRunInput struct {
 var ErrStreamingUnsupported = errors.New("chat: streaming unsupported (ResponseWriter is not a Flusher)")
 
 // RunAgentLoop drives a one-shot agent loop and streams ChunkType v2 SSE
-// events to w. ctx MUST already carry the caller's user id
-// (tools.WithUserID) so tool Invokers can owner-scope their writes; r is
-// used only to forward the bearer when PassThroughAuth is on. No thread or
-// message rows are touched — persistence is the caller's concern (for wiki,
-// there is none: the tool calls themselves emit page.* events).
+// events to w. in.OwnerID carries the caller's user id — AgentLoop.Run
+// injects it into ctx (tools.WithUserID) so tool Invokers can owner-scope
+// their writes; r is used only to forward the bearer when PassThroughAuth
+// is on. No thread or message rows are touched — persistence is the
+// caller's concern (for wiki, there is none: the tool calls themselves
+// emit page.* events).
 //
 // SSE is opened (200 + headers) unconditionally on entry, so on error the
 // caller MUST NOT writeErr afterwards — the failure is surfaced as a
@@ -142,6 +148,7 @@ func (h *HTTPSender) runAgentLoop(ctx context.Context, be *BlockEmitter,
 		System:  in.System,
 		Mode:    tools.ExecutionCloud,
 		History: history,
+		OwnerID: in.OwnerID,
 		Emitter: be,
 	})
 	if runErr != nil {

@@ -26,8 +26,11 @@ package chat
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/services/brain/internal/tools"
@@ -56,6 +59,12 @@ type AgentRunInputV2 struct {
 	Temperature   *float64
 	TopP          *float64
 	StopSequences []string
+
+	// OwnerID 是本 run 归属的用户 —— 显式身份契约。RunV2 入口会把它注入
+	// ctx (tools.WithUserID) 供 owner-scoped 内建工具读取;调用方不再靠
+	// 自己往 ctx 塞身份。uuid.Nil = 无身份场景,注入为 no-op (入口另有
+	// WARN 日志提示,owner-scoped 工具调用时硬报错)。
+	OwnerID uuid.UUID
 
 	// Images 是当前 turn 用户附带的图片(视觉模型才有效)。
 	// 跟 History 解耦:History 内嵌的图片走 PriorMessages 路径,Images 仅
@@ -102,6 +111,9 @@ type SingleTurnInput struct {
 	Model        string
 	System       string
 	Prompt       string // 当前 turn user prompt
+	// OwnerID 是本 turn 归属的用户 —— 显式身份契约,透传进 RunV2 由入口
+	// 注入 ctx (tools.WithUserID)。uuid.Nil = 无身份场景,no-op。
+	OwnerID uuid.UUID
 	// History 是当前 turn **之前**的对话历史(按时间升序,user/assistant 交替)。
 	// 空 = 单轮(向后兼容,老行为)。Runtime v3 R4：WS chat 多轮上下文由 Flutter
 	// 经 WorkPayload.History 带入(brain 不持久化 WS chat 消息,维持 Agent Plane
@@ -158,6 +170,7 @@ func (a *AgentLoop) RunSingleTurn(ctx context.Context, in SingleTurnInput) (*Age
 		System:            in.System,
 		Mode:              tools.ExecutionCloud,
 		History:           hist,
+		OwnerID:           in.OwnerID,
 		Images:            in.Images,
 		Emitter:           in.Emitter,
 		AskUser:           in.AskUser,
@@ -174,6 +187,14 @@ func (a *AgentLoop) RunSingleTurn(ctx context.Context, in SingleTurnInput) (*Age
 //
 // 调用方法：S4-5 router 在 mode=chat 且 BYOK Anthropic key 存在时调用。
 func (a *AgentLoop) RunV2(ctx context.Context, in AgentRunInputV2) (*AgentRunResult, error) {
+	// 身份注入收敛到入口:owner-scoped 工具经 ctx 读 user id,调用方只传
+	// OwnerID 字段。Nil 时 WithUserID 为 no-op,此时 owner-scoped 工具
+	// 会在调用时报错 —— WARN 提示,不硬报错 (CLI 本地等无身份场景合法)。
+	ctx = tools.WithUserID(ctx, in.OwnerID)
+	if tools.UserIDFromContext(ctx) == uuid.Nil {
+		slog.WarnContext(ctx, "agent loop: owner identity missing; owner-scoped tools will fail")
+	}
+
 	if in.AnthropicAPIKey == "" {
 		return nil, fmt.Errorf("agent_v2: AnthropicAPIKey required (BYOK or platform key)")
 	}
