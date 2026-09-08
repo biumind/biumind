@@ -17,10 +17,70 @@ func TestNewRequiresAPIKey(t *testing.T) {
 	}
 }
 
+func TestNewRequiresModel(t *testing.T) {
+	// Model 空 + 无 ResolveDefaultModel → 明确报错,不再硬编码兜底。
+	_, err := New(Options{
+		APIKey:              "sk-fake",
+		LoadProjectMemory:   NoMemory,
+		LoadProjectSettings: NoSettings,
+	})
+	if err == nil || !strings.Contains(err.Error(), "Model is required") {
+		t.Fatalf("missing Model should error; got %v", err)
+	}
+
+	// hook 解析失败 → 错误透传。
+	_, err = New(Options{
+		APIKey:              "sk-fake",
+		LoadProjectMemory:   NoMemory,
+		LoadProjectSettings: NoSettings,
+		ResolveDefaultModel: func(context.Context) (string, error) {
+			return "", context.DeadlineExceeded
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolve default model") {
+		t.Fatalf("hook failure should error; got %v", err)
+	}
+
+	// hook 返空 → 同样报错。
+	_, err = New(Options{
+		APIKey:              "sk-fake",
+		LoadProjectMemory:   NoMemory,
+		LoadProjectSettings: NoSettings,
+		ResolveDefaultModel: func(context.Context) (string, error) { return "", nil },
+	})
+	if err == nil || !strings.Contains(err.Error(), "Model is required") {
+		t.Fatalf("empty hook result should error; got %v", err)
+	}
+}
+
+func TestNewResolveDefaultModel(t *testing.T) {
+	called := 0
+	a, err := New(Options{
+		APIKey:              "sk-fake",
+		LoadProjectMemory:   NoMemory,
+		LoadProjectSettings: NoSettings,
+		ResolveDefaultModel: func(context.Context) (string, error) {
+			called++
+			return "resolved-model", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer a.Close()
+	if called != 1 {
+		t.Errorf("hook should be called exactly once; got %d", called)
+	}
+	if got := a.Cost().Model; got != "resolved-model" {
+		t.Errorf("model = %q, want resolved-model", got)
+	}
+}
+
 func TestNewBuildsAgentWithDefaults(t *testing.T) {
 	// Use a junk API key — we never actually hit the network in
 	// construction; the provider only fires on Submit.
 	a, err := New(Options{
+		Model:  "test",
 		APIKey: "sk-fake",
 		// Skip real disk reads — keep tests hermetic.
 		LoadProjectMemory:   NoMemory,
@@ -82,6 +142,7 @@ func TestNewFoldsAutoMemoryPrimerIntoSystem(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	a, err := New(Options{
+		Model:  "test",
 		APIKey: "sk-fake",
 		// LoadProjectMemory default = enabled; LoadProjectSettings off
 		// to keep the test hermetic from any user settings.json.
@@ -120,6 +181,7 @@ func TestNewIncludesExistingMemoryIndex(t *testing.T) {
 	}
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectSettings: NoSettings,
 	})
@@ -142,6 +204,7 @@ func TestNewSkipsMemoryWhenOptedOut(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectMemory:   NoMemory,
 		LoadProjectSettings: NoSettings,

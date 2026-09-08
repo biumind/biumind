@@ -18,6 +18,7 @@ func newTestServer(t *testing.T, auth string) *httptest.Server {
 		AuthToken: auth,
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				LoadProjectMemory:   biumindkit.NoMemory,
 				LoadProjectSettings: biumindkit.NoSettings,

@@ -57,6 +57,7 @@ func TestSDK_InterruptEmitsCleanDone(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
@@ -114,6 +115,7 @@ func TestSDK_InterruptIdempotent(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
@@ -166,6 +168,7 @@ func TestSDK_ParentCancelDoesNotMintInterrupted(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
@@ -225,6 +228,7 @@ func TestSDK_InterruptBeforeStreamStarts(t *testing.T) {
 	defer close(slowGate)
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,

@@ -49,6 +49,7 @@ func TestHeadlessEngineEmitsAGUIEvents(t *testing.T) {
 	defer srv.Close()
 
 	agent, err := biumindkit.New(biumindkit.Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   srv.URL,
 		LoadProjectMemory:   biumindkit.NoMemory,

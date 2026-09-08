@@ -46,6 +46,7 @@ func ExampleAgent_Run() {
 // or want to react to compact / cost events as they happen.
 func ExampleAgent_Submit() {
 	ag, _ := biumindkit.New(biumindkit.Options{
+		Model:  "test",
 		APIKey: "sk-ant-…",
 	})
 	defer ag.Close()
@@ -93,6 +94,7 @@ func ExampleNewTool() {
 	})
 
 	ag, err := biumindkit.New(biumindkit.Options{
+		Model:      "test",
 		APIKey:     "sk-ant-…",
 		ExtraTools: []biumindkit.Tool{echo},
 	})
@@ -109,6 +111,7 @@ func ExampleNewTool() {
 // custom function for queue/stdin-driven workflows.
 func ExamplePermissionAllow() {
 	ag, _ := biumindkit.New(biumindkit.Options{
+		Model:            "test",
 		APIKey:           "sk-ant-…",
 		PermissionPolicy: biumindkit.PermissionAllow(),
 		// Or pin a permission mode directly:
@@ -132,6 +135,7 @@ func ExamplePermissionPolicyFn_custom() {
 	}
 
 	ag, _ := biumindkit.New(biumindkit.Options{
+		Model:            "test",
 		APIKey:           "sk-ant-…",
 		PermissionPolicy: policy,
 	})

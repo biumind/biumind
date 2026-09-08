@@ -121,9 +121,16 @@ func newInitCmd(_ *rootFlags) *cobra.Command {
 			if modelFlag != "" {
 				cfg.Default.Model = modelFlag
 			} else if !nonInteractive {
-				cfg.Default.Model = promptString(
-					fmt.Sprintf("Default model [%s]: ", cfg.Default.Model),
-					cfg.Default.Model)
+				q := "Default model (e.g. the model code from your relay admin): "
+				if cfg.Default.Model != "" {
+					q = fmt.Sprintf("Default model [%s]: ", cfg.Default.Model)
+				}
+				cfg.Default.Model = promptString(q, cfg.Default.Model)
+			}
+			if cfg.Default.Model == "" {
+				fmt.Fprintln(os.Stderr,
+					"[biu] warning: no default model set — set [default].model in "+
+						clierr.DisplayPath(cfgPath)+" or pass --model on each run")
 			}
 
 			if err := writeConfig(cfgPath, cfg); err != nil {

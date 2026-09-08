@@ -182,7 +182,9 @@ func Defaults() *Config {
 		Default: DefaultSection{
 			Mode:     "cloud",
 			Provider: "anthropic",
-			Model:    "claude-sonnet-4-6",
+			// Model 故意留空 —— 平台默认聊天模型不再有硬编码兜底;用户
+			// 需在 [default].model 显式配置,或经 --model 指定,否则
+			// 启动时报明确错误引导配置。
 		},
 		Relay: HubSection{
 			Endpoint: "https://biumind.xxlab.tech",
@@ -257,7 +259,7 @@ func SessionsDir() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(home, ".biu", "sessions")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil

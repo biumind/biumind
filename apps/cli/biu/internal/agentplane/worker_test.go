@@ -197,6 +197,7 @@ data: {"type":"message_stop"}
 	}))
 	build := func(_ context.Context, _ WorkPayload, _ biumindkit.PermissionPolicyFn, _ biumindkit.AskUserFn) (*biumindkit.Agent, error) {
 		return biumindkit.New(biumindkit.Options{
+			Model:               "test",
 			APIKey:              "sk-fake",
 			AnthropicEndpoint:   upstream.URL,
 			LoadProjectMemory:   biumindkit.NoMemory,

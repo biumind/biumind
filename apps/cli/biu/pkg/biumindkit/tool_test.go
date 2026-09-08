@@ -57,6 +57,7 @@ func TestExtraToolsRegistered(t *testing.T) {
 		},
 	})
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectMemory:   NoMemory,
 		LoadProjectSettings: NoSettings,

@@ -441,6 +441,9 @@ services:
       AGENT_PLANE_ADMIN_USER_ID: ${AGENT_PLANE_ADMIN_USER_ID:-}
       AGENT_PLANE_ANTHROPIC_API_KEY: ${BIUMIND_ANTHROPIC_KEY:-}
       AGENT_PLANE_ANTHROPIC_ENDPOINT: ${BIUMIND_ANTHROPIC_BASE_URL:-}
+      # task mode 默认模型兜底链：relay default-chat > 本 env > relay preferred-chat > 报错
+      IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
+      RUNTIME_DEFAULT_CHAT_MODEL: ${RUNTIME_DEFAULT_CHAT_MODEL:-}
       # Skills-stdlib 启动时 upsert 到 runtime.skills（source='bundled'）
       SKILLS_STDLIB_DIR: /etc/biumind/skills-stdlib
     ports:

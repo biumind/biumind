@@ -54,6 +54,7 @@ func attachmentTestServer(t *testing.T) (*httptest.Server, string, string) {
 		AttachmentDir: tmp,
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				LoadProjectMemory:   biumindkit.NoMemory,
 				LoadProjectSettings: biumindkit.NoSettings,

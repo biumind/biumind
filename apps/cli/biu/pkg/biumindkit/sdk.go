@@ -112,8 +112,18 @@ type Options struct {
 	// the caller owns provider configuration entirely.
 	Provider engine.Provider
 
-	// Model selects the LLM. Default: claude-sonnet-4-6.
+	// Model selects the LLM. Required unless ResolveDefaultModel is
+	// supplied — there is no built-in model name.
 	Model string
+
+	// ResolveDefaultModel is consulted exactly once by New when Model
+	// is empty: the host application (CLI config, runtime service,
+	// brain chat runner) supplies its own default-model source. A nil
+	// hook, a hook error, or an empty result all fail New with a
+	// descriptive error — the session never silently falls back to a
+	// baked-in model. Called with context.Background() since New does
+	// not take a ctx.
+	ResolveDefaultModel func(ctx context.Context) (string, error)
 
 	// Cwd is the project root the agent considers its workspace.
 	// File-based tools resolve relative paths against it. Defaults to
@@ -536,7 +546,17 @@ func New(opt Options) (*Agent, error) {
 		return nil, errors.New("biumindkit: APIKey is required (or supply Options.Provider)")
 	}
 	if opt.Model == "" {
-		opt.Model = "claude-sonnet-4-6"
+		if opt.ResolveDefaultModel == nil {
+			return nil, errors.New("biumindkit: Model is required (no model specified and Options.ResolveDefaultModel is not set)")
+		}
+		m, err := opt.ResolveDefaultModel(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("biumindkit: resolve default model: %w", err)
+		}
+		if m == "" {
+			return nil, errors.New("biumindkit: Model is required (ResolveDefaultModel resolved to empty)")
+		}
+		opt.Model = m
 	}
 
 	var prov engine.Provider

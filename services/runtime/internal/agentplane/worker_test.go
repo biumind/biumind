@@ -161,6 +161,7 @@ func TestWorker_HandleWorkPublishesAndAcks(t *testing.T) {
 
 	builder := func(_ context.Context, _ WorkPayload) (*biumindkit.Agent, error) {
 		return biumindkit.New(biumindkit.Options{
+			Model:               "test",
 			APIKey:              "sk-fake",
 			AnthropicEndpoint:   upstream.URL,
 			LoadProjectMemory:   biumindkit.NoMemory,

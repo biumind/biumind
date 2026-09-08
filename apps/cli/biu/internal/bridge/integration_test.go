@@ -72,6 +72,7 @@ func TestIntegration_FullSessionLifecycle(t *testing.T) {
 		AttachmentDir: tmpDir,
 		AgentFactory: func(extras AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,

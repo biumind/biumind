@@ -161,6 +161,13 @@ func newRootCmd() *cobra.Command {
 				return err
 			}
 			model := firstNonEmpty(f.model, cfg.Default.Model)
+			if model == "" {
+				// 平台默认聊天模型不再有硬编码兜底 —— REPL / headless 的
+				// engine 路径不经 biumindkit,在这里统一提前报错。
+				return clierr.WithHint(
+					clierr.Newf("sdk", "no model specified and no default model configured"),
+					"set [default].model in ~/.biu/config.toml (run `biu init`), or pass --model <id>")
+			}
 			provider, mode, err := wiring.BuildProvider(cfg, f.wiringFlags())
 			if err != nil {
 				return err
@@ -180,10 +187,16 @@ func newRootCmd() *cobra.Command {
 			}
 
 			var sess *session.Writer
+			// Sessions are bucketed per launch directory — see
+			// session.ProjectDir. Computed once here so --continue /
+			// --rewind-files below resolve "latest" in the same bucket
+			// this run writes into.
+			launchCwd, _ := os.Getwd()
+			project := session.ProjectDir(launchCwd)
 			if !f.noLog {
 				dir, err := config.SessionsDir()
 				if err == nil {
-					sess, _ = session.Open(dir, "default")
+					sess, _ = session.Open(dir, project)
 					defer sess.Close()
 				}
 			}
@@ -220,11 +233,11 @@ func newRootCmd() *cobra.Command {
 				targetID := f.resume
 				if targetID == "" {
 					dir, _ := config.SessionsDir()
-					if s, ok := session.FindLatest(dir); ok {
+					if s, ok := session.FindLatestIn(dir, project); ok {
 						targetID = s.ID
 					} else {
 						return clierr.Newf("--rewind-files",
-							"no saved sessions to rewind into")
+							"no saved sessions in this project to rewind into")
 					}
 				}
 				home, err := os.UserHomeDir()
@@ -270,7 +283,10 @@ func newRootCmd() *cobra.Command {
 			// flag exists for biu agent users with muscle memory.
 			if eng != nil {
 				dir, _ := config.SessionsDir()
-				resolved, ok, err := resolveResumeID(dir, f.resume, f.cont, session.FindLatest)
+				findLatestHere := func(d string) (session.Summary, bool) {
+					return session.FindLatestIn(d, project)
+				}
+				resolved, ok, err := resolveResumeID(dir, f.resume, f.cont, findLatestHere)
 				if err != nil {
 					return err
 				}
@@ -389,7 +405,7 @@ func newRootCmd() *cobra.Command {
 	cmd.Flags().StringVar(&f.mode, "mode", "", "cloud | byo_endpoint | direct (overrides config)")
 	cmd.Flags().BoolVar(&f.noLog, "no-log", false, "disable JSONL session log")
 	cmd.Flags().StringVar(&f.resume, "resume", "", "session id to resume (replays its event log into the engine)")
-	cmd.Flags().BoolVar(&f.cont, "continue", false, "resume the most recent session (no id required); ignored when --resume is set")
+	cmd.Flags().BoolVar(&f.cont, "continue", false, "resume the most recent session in the current project directory (no id required); ignored when --resume is set")
 	cmd.Flags().BoolVar(&f.fork, "fork-session", false, "explicit fork from --resume; no-op flag — biu always replays into a fresh session id, the original is preserved")
 	cmd.Flags().StringVar(&f.rewindFiles, "rewind-files", "",
 		"restore filesystem to its state before the user message with this UUID, then exit. Requires --resume. (P20.57)")
@@ -438,9 +454,8 @@ func resolveResumeID(dir string, resumeFlag string, continueFlag bool, find func
 	s, ok := find(dir)
 	if !ok {
 		return "", false, clierr.WithHint(
-			clierr.Newf("--continue", "no saved sessions in %s",
-				clierr.DisplayPath(dir)),
-			"start a session by running biu without --continue first")
+			clierr.Newf("--continue", "no saved sessions in the current project"),
+			"start one by running biu without --continue, or pick a session from another project with --resume <id> (see `biu sessions list --all`)")
 	}
 	return s.ID, true, nil
 }
@@ -581,6 +596,20 @@ func withAskUser(fn biumindkit.AskUserFn) buildSDKAgentOption {
 	return func(o *buildSDKAgentOpts) { o.askUser = fn }
 }
 
+// defaultModelResolver 把 biumindkit 的默认模型钩子接到 CLI 配置体系:
+// 唯一来源是 [default].model;用户没配任何模型时返清晰错误引导去配置。
+// CLI 没有平台 internal token,不调 relay 的 /v1/internal/* 端点。
+func defaultModelResolver(cfg *config.Config) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) {
+		if cfg.Default.Model != "" {
+			return cfg.Default.Model, nil
+		}
+		return "", errors.New("no default model configured: " +
+			"set [default].model in ~/.biu/config.toml (or run `biu init`), " +
+			"or pass --model <id>")
+	}
+}
+
 func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOverride biumindkit.PermissionPolicyFn, opts ...buildSDKAgentOption) (*biumindkit.Agent, error) {
 	mode := firstNonEmpty(f.mode, cfg.Default.Mode, string(client.ModeCloud))
 	var o buildSDKAgentOpts
@@ -616,6 +645,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 		}
 		opts := biumindkit.Options{
 			Model:               model,
+			ResolveDefaultModel: defaultModelResolver(cfg),
 			System:              f.system,
 			Cwd:                 cwd,
 			PermissionPolicy:    policy,
@@ -652,6 +682,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 		if o.clientSide != nil {
 			csOpts := biumindkit.Options{
 				Model:               model,
+				ResolveDefaultModel: defaultModelResolver(cfg),
 				System:              f.system,
 				Cwd:                 cwd,
 				PermissionPolicy:    policy,
@@ -709,6 +740,7 @@ func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOve
 		return biumindkit.New(biumindkit.Options{
 			Provider:            eng,
 			Model:               model,
+			ResolveDefaultModel: defaultModelResolver(cfg),
 			System:              f.system,
 			Cwd:                 cwd,
 			PermissionPolicy:    policy,

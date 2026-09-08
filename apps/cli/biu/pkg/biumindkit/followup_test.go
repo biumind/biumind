@@ -55,6 +55,7 @@ data: {"type":"message_stop"}
 func TestSDK_FollowupF1(t *testing.T) {
 	// nil wrapper：brain S4 chat mode 的典型用法
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectMemory:   NoMemory,
 		LoadProjectSettings: NoSettings,
@@ -84,6 +85,7 @@ func TestSDK_FollowupF2(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
@@ -142,6 +144,7 @@ func TestSDK_FollowupF3(t *testing.T) {
 		{Role: "assistant", Content: []ContentBlock{{Type: ContentText, Text: "earlier answer"}}, StopReason: "end_turn"},
 	}
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectMemory:   NoMemory,
 		LoadProjectSettings: NoSettings,
@@ -186,6 +189,7 @@ data: {"type":"message_start","message":{"id":"m_1","model":"test"}}
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,

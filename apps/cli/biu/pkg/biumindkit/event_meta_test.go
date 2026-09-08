@@ -20,6 +20,7 @@ func TestSDK_EventsCarrySessionID(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,

@@ -60,10 +60,10 @@ type Config struct {
 	// service verifies RS256 tokens against it instead of the shared HS256
 	// secret. JWT_SECRET is still required as the dev/test fallback.
 	IdentityJWKSURL string `env:"IDENTITY_JWKS_URL" default:""`
-	// 三个 env 字段在 S11-4 后已不被 runtime 直接消费（biumindkit
-	// 走 brain agent_plane 间接调 LLM；publisher / realtime fanout 已删）。
-	// 字段保留是因为现有部署 env 已经带，删字段会让 bconfig 报 unknown env。
-	// 后续 deploy 配置整理后可彻底移除。
+	// RelayURL —— S11-4 后曾不被消费;现在 task mode 默认模型解析
+	// (agent.DefaultModelResolver) 重新用它打 /v1/internal/models/*。
+	// RelayToken / RealtimeURL 仍仅因现有部署 env 已带而保留,删字段会
+	// 让 bconfig 报 unknown env。后续 deploy 配置整理后可移除。
 	RelayURL    string `env:"MODEL_RELAY_URL" default:""`
 	RelayToken  string `env:"HUB_TOKEN" default:""`
 	RealtimeURL string `env:"REALTIME_INTERNAL_URL" default:""`
@@ -120,6 +120,14 @@ type Config struct {
 	// 接 work，方便灰度 / dev 部署不带 Anthropic key）。
 	AgentPlaneAnthropicAPIKey   string `env:"AGENT_PLANE_ANTHROPIC_API_KEY"  default:""`
 	AgentPlaneAnthropicEndpoint string `env:"AGENT_PLANE_ANTHROPIC_ENDPOINT" default:""`
+
+	// IdentityInternalToken —— 调 model-relay /v1/internal/models/* 解析
+	// 平台默认 chat model 用的服务间共享 bearer（与 identity / model-relay
+	// 同值）。空时 task mode 默认模型兜底链只剩 RUNTIME_DEFAULT_CHAT_MODEL。
+	IdentityInternalToken string `env:"IDENTITY_INTERNAL_TOKEN" default:""`
+	// RuntimeDefaultChatModel —— task mode work 未指定 model 时的 env
+	// 覆盖，排在 relay default-chat 之后、preferred-chat 自动优选之前。
+	RuntimeDefaultChatModel string `env:"RUNTIME_DEFAULT_CHAT_MODEL" default:""`
 }
 
 func main() {
@@ -330,15 +338,22 @@ func run() error {
 				// task mode WorkPayload 里只有 user_id 但没 BYOK token，
 				// 等 v2 brain 把 BYOK 透传过来再启用）。
 				baseTools := agent.DefaultRegistry()
+				// work.Model 空(任务未指定模型)时的兜底链: relay
+				// default-chat > RUNTIME_DEFAULT_CHAT_MODEL > relay
+				// preferred-chat > 明确报错(无硬编码兜底)。
+				modelResolver := agent.NewDefaultModelResolver(
+					cfg.RelayURL, cfg.IdentityInternalToken,
+					cfg.RuntimeDefaultChatModel, logger)
 				builder := func(ctx context.Context, work rtagentplane.WorkPayload) (*biumindkit.Agent, error) {
 					return agent.BuildBiumindkitAgent(ctx, logger, agent.BuildBiumindkitAgentInput{
-						AnthropicAPIKey:   cfg.AgentPlaneAnthropicAPIKey,
-						AnthropicEndpoint: cfg.AgentPlaneAnthropicEndpoint,
-						Model:             work.Model,
-						System:            work.SystemPrompt,
-						UserID:            work.UserID,
-						PermissionMode:    agent.PermSafe, // task mode 默认中等（允许 read + 受控写）
-						Tools:             baseTools,
+						AnthropicAPIKey:     cfg.AgentPlaneAnthropicAPIKey,
+						AnthropicEndpoint:   cfg.AgentPlaneAnthropicEndpoint,
+						Model:               work.Model,
+						ResolveDefaultModel: modelResolver.Resolve,
+						System:              work.SystemPrompt,
+						UserID:              work.UserID,
+						PermissionMode:      agent.PermSafe, // task mode 默认中等（允许 read + 受控写）
+						Tools:               baseTools,
 					})
 				}
 				worker := rtagentplane.NewWorker(registrar, builder, rtagentplane.WorkerConfig{}, logger)

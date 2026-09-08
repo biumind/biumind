@@ -68,6 +68,7 @@ data: {"type":"message_stop"}
 	srv, err := NewServer(Options{
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,
@@ -216,6 +217,7 @@ data: {"type":"message_stop"}
 	srv, err := NewServer(Options{
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,
@@ -356,6 +358,7 @@ func TestWS_Interrupt(t *testing.T) {
 	srv, err := NewServer(Options{
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,
@@ -469,6 +472,7 @@ data: {"type":"message_stop"}
 	srv, _ := NewServer(Options{
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,
@@ -562,6 +566,7 @@ func permissionTestSession(t *testing.T) (*httptest.Server, string, *sessionRec)
 	srv, err := NewServer(Options{
 		AgentFactory: func(extras AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				LoadProjectMemory:   biumindkit.NoMemory,
 				LoadProjectSettings: biumindkit.NoSettings,
@@ -753,6 +758,7 @@ func TestWS_PermissionNoClient(t *testing.T) {
 	srv, _ := NewServer(Options{
 		AgentFactory: func(extras AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				LoadProjectMemory:   biumindkit.NoMemory,
 				LoadProjectSettings: biumindkit.NoSettings,
@@ -791,6 +797,7 @@ func TestWS_UnsupportedControl(t *testing.T) {
 	srv, _ := NewServer(Options{
 		AgentFactory: func(_ AgentExtras) (*biumindkit.Agent, error) {
 			return biumindkit.New(biumindkit.Options{
+				Model:               "test",
 				APIKey:              "sk-fake",
 				AnthropicEndpoint:   upstream.URL,
 				LoadProjectMemory:   biumindkit.NoMemory,

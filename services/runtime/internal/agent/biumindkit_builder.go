@@ -39,6 +39,11 @@ type BuildBiumindkitAgentInput struct {
 	UserID         interface{} // uuid.UUID; interface{} 避开循环 import 风险
 	PermissionMode PermissionMode
 
+	// ResolveDefaultModel —— Model 为空时注入 biumindkit 的默认模型
+	// 解析钩子(见 default_model.go)。nil 时 biumindkit.New 对空 Model
+	// 直接报错,不再有硬编码兜底。
+	ResolveDefaultModel func(ctx context.Context) (string, error)
+
 	// 工具 / 资源依赖（跟 RunInput.Memory / Skills / Apps 同款）
 	Tools     *Registry
 	Memory    MemoryClient
@@ -149,6 +154,7 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		APIKey:              in.AnthropicAPIKey,
 		AnthropicEndpoint:   in.AnthropicEndpoint,
 		Model:               in.Model,
+		ResolveDefaultModel: in.ResolveDefaultModel,
 		System:              systemPrompt,
 		MaxTokens:           in.MaxTokens,
 		MaxToolTurns:        in.MaxToolTurns,

@@ -76,6 +76,7 @@ data: {"type":"message_stop"}
 // returns nil/empty, matching the "no data" contract.
 func TestSDK_CostByTool_EmptyOnFreshAgent(t *testing.T) {
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		LoadProjectMemory:   NoMemory,
 		LoadProjectSettings: NoSettings,
@@ -100,6 +101,7 @@ func TestSDK_CostByTool_PopulatesAfterRun(t *testing.T) {
 	defer upstream.Close()
 
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
@@ -147,6 +149,7 @@ func TestSDK_CostByTool_IsCopy(t *testing.T) {
 	upstream := fakeAnthropicWithToolUse(t)
 	defer upstream.Close()
 	a, err := New(Options{
+		Model:               "test",
 		APIKey:              "sk-fake",
 		AnthropicEndpoint:   upstream.URL,
 		LoadProjectMemory:   NoMemory,
