@@ -171,7 +171,11 @@ func (a *AgentLoop) Run(ctx context.Context, in AgentRunInput) (*AgentRunResult,
 		history = append(history, assistant)
 
 		// Done when the model didn't call any tool.
-		if len(calls) == 0 || stop != "tool_use" {
+		// 判据只看解析出的 tool_call 帧（权威信号），不看 stop reason：
+		// 各 provider 词汇不同（anthropic="tool_use"，openai 系="tool_calls"，
+		// model-relay unified 路径原样透传 finish_reason）——按 stop 判定
+		// 会让 OpenAI 渠道第一轮就退出、工具一个都不执行。
+		if len(calls) == 0 {
 			return result, nil
 		}
 

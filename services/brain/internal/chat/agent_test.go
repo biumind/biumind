@@ -183,6 +183,53 @@ func TestAgentLoopToolRoundTrip(t *testing.T) {
 	}
 }
 
+// 2b) OpenAI 词汇回归：stop reason "tool_calls"（model-relay unified 路径
+// 对 OpenAI 协议渠道原样透传 finish_reason）必须继续工具循环——曾经按
+// stop != "tool_use" 判定导致第一轮就退出、工具一个不执行。
+func TestAgentLoopToolRoundTripOpenAIVocab(t *testing.T) {
+	scene1 := sseScene(
+		[2]string{"delta", `{"text":"Let me check…"}`},
+		[2]string{"tool_call_start", `{"id":"t1","name":"echo"}`},
+		[2]string{"tool_call_args", `{"id":"t1","delta":"{\"msg\":\"ping\"}"}`},
+		[2]string{"tool_call_end", `{"id":"t1"}`},
+		[2]string{"stop", `{"reason":"tool_calls"}`},
+		[2]string{"end", `{}`},
+	)
+	scene2 := sseScene(
+		[2]string{"delta", `{"text":"Done."}`},
+		[2]string{"stop", `{"reason":"end_turn"}`},
+		[2]string{"end", `{}`},
+	)
+	loop, script, reg := newAgentTestRig(t, scene1, scene2)
+	reg.MustRegister(tools.Tool{
+		Descriptor: tools.Descriptor{Name: "echo", Runtime: tools.RuntimeCloud},
+		Invoke: func(_ context.Context, in json.RawMessage) (any, error) {
+			return map[string]any{"echoed": string(in)}, nil
+		},
+	})
+	be := newTestEmitter()
+
+	res, err := loop.Run(context.Background(), AgentRunInput{
+		Model:   "test-model",
+		Mode:    tools.ExecutionCloud,
+		History: []hubMessage{{Role: "user", Content: "do it"}},
+		Emitter: be,
+	})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := script.calls.Load(); got != 2 {
+		t.Errorf("expected 2 model-relay calls (tool round-trip), got %d", got)
+	}
+	body2 := script.bodies[1]
+	if !strings.Contains(body2, `"tool_call_id":"t1"`) {
+		t.Errorf("second request missing tool_call_id: %s", body2)
+	}
+	if res.StopReason != "end_turn" {
+		t.Errorf("final stop_reason: got %q", res.StopReason)
+	}
+}
+
 // 3) Tool error feeds back to the model. Loop keeps going.
 func TestAgentLoopToolErrorIsFedBack(t *testing.T) {
 	scene1 := sseScene(

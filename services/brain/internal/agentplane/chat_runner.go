@@ -35,6 +35,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	"github.com/biumind/biumind/packages/go-sdk/biu/metrics"
 	chatpkg "github.com/biumind/biumind/services/brain/internal/chat"
+	"github.com/biumind/biumind/services/brain/internal/tools"
 	"github.com/google/uuid"
 )
 
@@ -216,6 +217,12 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 	cr.trackInflight(sessionID, cancel)
 	defer cr.untrackInflight(sessionID)
 	ctx = subCtx
+
+	// owner-scoped 内建工具（wiki_search / memory_recall / wiki 写工具）
+	// 从 ctx 读 user id；router.detachedCtx 会丢弃请求 ctx values，
+	// 必须在这里用 payload.UserID 重新注入，否则模型一调工具就报
+	// missing user identity。Nil 时 WithUserID 为 no-op，安全。
+	ctx = tools.WithUserID(ctx, payload.UserID)
 
 	cr.Logger.Debug("chat runner: enter",
 		"session_id", sessionID, "user_id", payload.UserID,
