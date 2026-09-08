@@ -62,7 +62,7 @@ func (m model) startEngineStream(prompt string) (tea.Model, tea.Cmd) {
 		// Defensive — caller should have routed to legacy.
 		return m, nil
 	}
-	m.pending.Reset()
+	m.pend().Reset()
 	m.state = stateSending
 	m.toolRows = nil
 	m.refreshBody()
@@ -104,7 +104,7 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 		m.refreshBody()
 
 	case *engine.StreamTokenEvent:
-		m.pending.WriteString(e.Text)
+		m.pend().WriteString(e.Text)
 		m.state = stateStreaming
 		m.refreshBody()
 
@@ -121,8 +121,8 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 	case *engine.AssistantMessageEvent:
 		// Persist the final assistant text into history so the user
 		// can scroll back past streaming flicker.
-		text := strings.TrimRight(m.pending.String(), "\n")
-		m.pending.Reset()
+		text := strings.TrimRight(m.pendingString(), "\n")
+		m.pend().Reset()
 		if text != "" {
 			m.history = append(m.history,
 				client.Message{Role: "assistant", Content: text})

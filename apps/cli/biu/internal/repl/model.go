@@ -142,8 +142,11 @@ type model struct {
 	// Streaming state
 	state        runState
 	streamCancel context.CancelFunc
-	pending      strings.Builder // accumulates the in-flight assistant message
-	lastErr      error
+	// pending accumulates the in-flight assistant message. It is a
+	// pointer because bubbletea copies the whole model on every Update —
+	// a value strings.Builder panics once written to and then copied.
+	pending *strings.Builder
+	lastErr error
 
 	// Engine path: per-call decoration shown above the assistant text
 	toolRows             []toolRow
@@ -285,6 +288,23 @@ func (m model) welcome() string {
 
 // ─── Update ────────────────────────────────────────────
 
+// pend lazily initialises and returns the in-flight text buffer.
+// Laziness keeps zero-value model{} literals in tests usable.
+func (m *model) pend() *strings.Builder {
+	if m.pending == nil {
+		m.pending = new(strings.Builder)
+	}
+	return m.pending
+}
+
+// pendingString is the nil-safe read side of pend.
+func (m model) pendingString() string {
+	if m.pending == nil {
+		return ""
+	}
+	return m.pending.String()
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -307,7 +327,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitPipeCmd
 
 	case deltaMsg:
-		m.pending.WriteString(msg.text)
+		m.pend().WriteString(msg.text)
 		m.state = stateStreaming
 		m.refreshBody()
 		// Re-arm: keep pulling the next event off the pipe.
@@ -321,12 +341,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.history) > 0 && m.history[len(m.history)-1].Role == "user" {
 			m.history = m.history[:len(m.history)-1]
 		}
-		m.pending.Reset()
+		m.pend().Reset()
 		return m, nil
 
 	case streamDoneMsg:
-		final := m.pending.String()
-		m.pending.Reset()
+		final := m.pendingString()
+		m.pend().Reset()
 		if final != "" {
 			m.history = append(m.history,
 				client.Message{Role: "assistant", Content: final})
@@ -470,7 +490,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.streamCancel()
 			}
 			m.state = stateIdle
-			m.pending.Reset()
+			m.pend().Reset()
 			m.refreshBody()
 			return m, nil
 		}
@@ -1231,7 +1251,7 @@ func (m model) startStream(prompt string) (tea.Model, tea.Cmd) {
 	// before we get here so both legacy + engine paths share the same
 	// optimistic-append behaviour.
 	_ = prompt
-	m.pending.Reset()
+	m.pend().Reset()
 	m.state = stateSending
 	m.refreshBody()
 
@@ -1359,10 +1379,10 @@ func (m *model) refreshBody() {
 	// In-flight assistant
 	if m.state == stateSending || m.state == stateStreaming {
 		b.WriteString(renderAssistantPrefix())
-		if m.pending.Len() == 0 {
+		if text := m.pendingString(); text == "" {
 			b.WriteString(m.spinner.View() + " thinking…")
 		} else {
-			b.WriteString(m.renderMarkdown(m.pending.String()))
+			b.WriteString(m.renderMarkdown(text))
 		}
 		b.WriteString("\n")
 	}
