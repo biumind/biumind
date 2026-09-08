@@ -208,8 +208,8 @@ func hookifyUserPrompt(ctx context.Context, payload []byte) (hooks.Decision, err
 // JSON for any string field that contains every significant token of
 // a rule; on match, blocks with that rule as the reason.
 //
-// Payload shape: at minimum `{ "tool_name": "Bash", "input": {...} }`.
-// We walk every string value in `input` recursively. Other payload
+// Payload shape: at minimum `{ "tool_name": "Bash", "tool_input": {...} }`.
+// We walk every string value in `tool_input` recursively. Other payload
 // fields are ignored.
 func hookifyPreTool(ctx context.Context, payload []byte) (hooks.Decision, error) {
 	cwd, _ := os.Getwd()
@@ -218,7 +218,7 @@ func hookifyPreTool(ctx context.Context, payload []byte) (hooks.Decision, error)
 		return hooks.Decision{}, nil
 	}
 	var msg struct {
-		Input map[string]any `json:"input"`
+		Input map[string]any `json:"tool_input"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		// Bad payload shape isn't our problem — pass through.

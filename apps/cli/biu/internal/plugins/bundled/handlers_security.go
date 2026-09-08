@@ -62,7 +62,7 @@ var secretKVPatternRE = regexp.MustCompile(
 func securityGuardPreTool(ctx context.Context, payload []byte) (hooks.Decision, error) {
 	var msg struct {
 		ToolName string         `json:"tool_name"`
-		Input    map[string]any `json:"input"`
+		Input    map[string]any `json:"tool_input"`
 	}
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		return hooks.Decision{}, nil

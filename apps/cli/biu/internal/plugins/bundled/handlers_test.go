@@ -86,8 +86,8 @@ func TestHookify_preToolBlocksMatchedRule(t *testing.T) {
 	t.Chdir(cwd)
 
 	payload, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash",
-		"input":     map[string]any{"command": "bun install --frozen-lockfile"},
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "bun install --frozen-lockfile"},
 	})
 	dec, err := hookifyPreTool(context.Background(), payload)
 	if err != nil {
@@ -106,8 +106,8 @@ func TestHookify_preToolPassesUnmatched(t *testing.T) {
 	t.Chdir(cwd)
 
 	payload, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash",
-		"input":     map[string]any{"command": "pnpm install"},
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "pnpm install"},
 	})
 	dec, err := hookifyPreTool(context.Background(), payload)
 	if err != nil {
@@ -121,8 +121,8 @@ func TestHookify_preToolPassesUnmatched(t *testing.T) {
 func TestHookify_preToolNoOpWithoutRules(t *testing.T) {
 	t.Chdir(t.TempDir())
 	payload, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash",
-		"input":     map[string]any{"command": "anything"},
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": "anything"},
 	})
 	dec, _ := hookifyPreTool(context.Background(), payload)
 	if dec.Block || dec.Reason != "" {
@@ -224,8 +224,8 @@ func TestSecurityGuard_blocksCredentialPaths(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
 			payload, _ := json.Marshal(map[string]any{
-				"tool_name": "Edit",
-				"input":     map[string]any{"file_path": tc.path, "new_string": "x"},
+				"tool_name":  "Edit",
+				"tool_input": map[string]any{"file_path": tc.path, "new_string": "x"},
 			})
 			dec, _ := securityGuardPreTool(context.Background(), payload)
 			if dec.Block != tc.want {
@@ -238,7 +238,7 @@ func TestSecurityGuard_blocksCredentialPaths(t *testing.T) {
 func TestSecurityGuard_blocksHardcodedSecret(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Write",
-		"input": map[string]any{
+		"tool_input": map[string]any{
 			"file_path": "config.go",
 			"content":   `const token = "ghp_abcdefghijklmnop1234567890"`,
 		},
@@ -252,7 +252,7 @@ func TestSecurityGuard_blocksHardcodedSecret(t *testing.T) {
 func TestSecurityGuard_doesNotBlockShortPlaceholders(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Write",
-		"input": map[string]any{
+		"tool_input": map[string]any{
 			"file_path": "config.go",
 			"content":   `const token = "x"`, // too short to be real
 		},
@@ -268,8 +268,8 @@ func TestSecurityGuard_passesNonMatchingTools(t *testing.T) {
 	// edit-shaped tools do.
 	for _, tool := range []string{"Bash", "Read", "Grep", "Glob"} {
 		payload, _ := json.Marshal(map[string]any{
-			"tool_name": tool,
-			"input":     map[string]any{"file_path": "/Users/me/.ssh/id_rsa"},
+			"tool_name":  tool,
+			"tool_input": map[string]any{"file_path": "/Users/me/.ssh/id_rsa"},
 		})
 		dec, _ := securityGuardPreTool(context.Background(), payload)
 		if dec.Block {
@@ -281,8 +281,8 @@ func TestSecurityGuard_passesNonMatchingTools(t *testing.T) {
 func TestSecurityGuard_pathSegmentNotSubstring(t *testing.T) {
 	// Regression: ".sshown/x" should NOT match ".ssh".
 	payload, _ := json.Marshal(map[string]any{
-		"tool_name": "Edit",
-		"input":     map[string]any{"file_path": "/tmp/.sshown/x.go"},
+		"tool_name":  "Edit",
+		"tool_input": map[string]any{"file_path": "/tmp/.sshown/x.go"},
 	})
 	dec, _ := securityGuardPreTool(context.Background(), payload)
 	if dec.Block {
