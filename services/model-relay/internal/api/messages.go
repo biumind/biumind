@@ -343,6 +343,11 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		thinkFrames  int
 		toolFrames   int
 	)
+	// 跟踪未 close 的 tool call —— stop 帧的 reason 发出前过 mapStopReason
+	// 归一化（OpenAI `tool_calls` → Anthropic `tool_use` 等），需要知道
+	// stream 结束时是否还有 tool 在飞（上游 finish_reason 报错/没报时兜底
+	// tool_use）。与 anthropic_stream.go 的 toolBlocks 同款语义。
+	openToolCalls := map[string]struct{}{}
 	for f := range frames {
 		if firstChunkAt.IsZero() && (f.Type == provider.FrameDelta ||
 			f.Type == provider.FrameThinking ||
@@ -368,6 +373,7 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeSSE(w, flusher, "thinking", map[string]any{"text": f.Delta})
 		case provider.FrameToolCallStart:
 			toolFrames++
+			openToolCalls[f.ToolCall.ID] = struct{}{}
 			writeSSE(w, flusher, "tool_call_start", map[string]any{
 				"id": f.ToolCall.ID, "name": f.ToolCall.Name,
 			})
@@ -376,13 +382,19 @@ func (h *MessagesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"id": f.ToolCall.ID, "delta": f.ToolCall.ArgsDelta,
 			})
 		case provider.FrameToolCallEnd:
+			delete(openToolCalls, f.ToolCall.ID)
 			writeSSE(w, flusher, "tool_call_end", map[string]any{"id": f.ToolCall.ID})
 		case provider.FrameUsage:
 			if f.Usage != nil {
 				lastUsage = *f.Usage
 			}
 		case provider.FrameStop:
-			writeSSE(w, flusher, "stop", map[string]any{"reason": f.Stop})
+			// 归一化 provider finish_reason 词汇表（OpenAI `tool_calls`
+			// vs Anthropic `tool_use` 等）—— 下游消费者只认 Anthropic
+			// 词汇表，与 anthropic_stream.go 同一套映射。
+			writeSSE(w, flusher, "stop", map[string]any{
+				"reason": mapStopReason(f.Stop, len(openToolCalls) > 0),
+			})
 		case provider.FrameError:
 			if h.Logger != nil {
 				h.Logger.DebugContext(r.Context(), "messages: stream error",

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -244,5 +245,61 @@ func TestMessages_NoResolveOutputKeepsCode(t *testing.T) {
 	if gotModel != "my-byok-model" {
 		t.Errorf("upstream got model %q, want %q (unchanged code)",
 			gotModel, "my-byok-model")
+	}
+}
+
+// ─── 回归: unified 路径 stop reason 归一化 ───────────────
+//
+// 复现并锁定生产 bug: unified frame SSE 路径曾把 provider finish_reason
+// 原样透传进 stop 帧 —— OpenAI 渠道吐 `tool_calls`, 下游消费者 (brain
+// chat) 只认 Anthropic 词汇表 `tool_use`。修复后 stop 帧发出前过
+// mapStopReason (与 anthropic_stream.go 同一套映射)。
+func TestMessages_StreamStopReasonNormalized(t *testing.T) {
+	cases := []struct{ name, finishReason, want string }{
+		{"openai_tool_calls", "tool_calls", "tool_use"},
+		{"anthropic_tool_use", "tool_use", "tool_use"},
+		{"openai_stop", "stop", "end_turn"},
+		{"openai_length", "length", "max_tokens"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprintf(w, "data: {\"id\":\"x\",\"choices\":[{\"index\":0,"+
+						"\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}\n\n")
+					fmt.Fprintf(w, "data: {\"id\":\"x\",\"choices\":[{\"index\":0,"+
+						"\"delta\":{},\"finish_reason\":%q}]}\n\n", tc.finishReason)
+					fmt.Fprintf(w, "data: [DONE]\n\n")
+				}))
+			defer upstream.Close()
+
+			reg := provider.NewRegistry()
+			reg.Register(openai.New())
+
+			h := &MessagesHandler{
+				Registry:   reg,
+				HTTPClient: http.DefaultClient,
+				CredsResolver: func(r *http.Request, modelName string) (string, *provider.Credentials, *http.Request, error) {
+					return "openai", &provider.Credentials{APIKey: "k", BaseURL: upstream.URL}, r, nil
+				},
+			}
+
+			reqBody := `{"model":"m","stream":true,"messages":[{"role":"user",` +
+				`"content":"hi"}],"max_tokens":16}`
+			r := httptest.NewRequest(http.MethodPost, "/v1/messages",
+				strings.NewReader(reqBody))
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+			}
+			wantFrame := "event: stop\ndata: {\"reason\":\"" + tc.want + "\"}"
+			if !strings.Contains(w.Body.String(), wantFrame) {
+				t.Errorf("stop frame: want %q in body, got:\n%s",
+					wantFrame, w.Body.String())
+			}
+		})
 	}
 }
