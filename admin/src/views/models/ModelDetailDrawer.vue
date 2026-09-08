@@ -63,6 +63,8 @@ const editModel = ref({
   status: 'disabled' as EntityStatus,
   sort_order: 0,
   manual_override: false,
+  // 平台默认聊天模型 (migration 00002) — 仅 mode=chat 可设, 全局最多一个.
+  is_default_chat: false,
   routing_strategy: 'weighted' as 'weighted' | 'lowest_latency' | 'least_busy' | 'lowest_tpm_rpm' | 'cost_aware',
   // mode 是 schema CHECK 8 选 1 (chat / embedding / image_generation / ...).
   // 后端 modelRequest.Mode JSON field 接收, 空字符串时仓库层会兜底为 chat.
@@ -135,6 +137,15 @@ watch(
   },
 )
 
+// 后端只允许 mode=chat 的模型设默认 (否则 400) — 编辑时把 mode 改离 chat
+// 就同步清掉开关, 避免带着 true 提交被拒.
+watch(
+  () => editModel.value.mode,
+  (m) => {
+    if (m !== 'chat') editModel.value.is_default_chat = false
+  },
+)
+
 async function load() {
   if (!props.modelId) return
   loading.value = true
@@ -159,6 +170,7 @@ async function load() {
       status: detail.model.status,
       sort_order: detail.model.sort_order,
       manual_override: detail.model.manual_override,
+      is_default_chat: detail.model.is_default_chat,
       routing_strategy: detail.model.routing_strategy ?? 'weighted',
       mode: (detail.model.mode || 'chat') as ModelMode,
     })
@@ -431,6 +443,9 @@ const STATUS_LABEL: Record<string, string> = {
         <el-tag v-if="model?.manual_override" size="small" effect="plain" type="warning" title="manual_override=true">
           人工锁定
         </el-tag>
+        <el-tag v-if="model?.is_default_chat" size="small" effect="plain" type="success" title="is_default_chat=true">
+          默认聊天模型
+        </el-tag>
       </div>
     </template>
 
@@ -537,6 +552,18 @@ const STATUS_LABEL: Record<string, string> = {
           <el-form-item label="人工锁定">
             <el-switch v-model="editModel.manual_override" />
             <span class="form-hint">开启后下次"同步上游"会跳过此模型，保护手工修改</span>
+          </el-form-item>
+          <el-form-item label="默认聊天模型">
+            <el-switch
+              v-model="editModel.is_default_chat"
+              :disabled="editModel.mode !== 'chat'"
+            />
+            <span v-if="editModel.mode === 'chat'" class="form-hint">
+              全局最多一个默认；开启后将自动替换当前的默认聊天模型
+            </span>
+            <span v-else class="form-hint">
+              仅对话 (chat) 模态的模型可设为默认
+            </span>
           </el-form-item>
         </el-form>
 

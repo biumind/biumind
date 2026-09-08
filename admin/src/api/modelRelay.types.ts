@@ -125,10 +125,15 @@ export interface Model {
   upstream_ref?: UpstreamRef | null
   manual_override: boolean
   routing_strategy: RoutingStrategy
+  // 平台默认聊天模型 (migration 00002): 全局最多一个 true, 仅 mode=chat
+  // 可设; 后端设置时同事务清掉其他模型的 flag.
+  is_default_chat: boolean
   // P4 段 2 多模态扩展 (admin Vue 段 4 重构后才会真正消费这些字段)
   mode: ModelMode
   pricing_strategy: PricingStrategy
   dispatch_mode: DispatchMode
+  // v0.3 全模态网关: 主渠道全部失败时按数组顺序尝试的备用 model code.
+  fallback_models?: string[]
   created_at: string
   updated_at: string
 }
@@ -145,6 +150,9 @@ export interface ModelInput {
   sort_order?: number
   routing_strategy?: RoutingStrategy
   manual_override?: boolean
+  // 设为平台默认聊天模型; 仅 mode=chat 允许 (否则后端 400), 设置后自动
+  // 替换原默认模型.
+  is_default_chat?: boolean
   // v0.3 全模态网关字段 — 后端 registry.ModelInput 一直支持, 之前 admin
   // 没暴露入参. M2.5 加「手动添加模型」时显式选 mode.
   mode?: ModelMode

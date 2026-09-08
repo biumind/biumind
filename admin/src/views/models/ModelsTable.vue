@@ -402,6 +402,14 @@ onMounted(load)
               <el-tag v-if="props.mode === 'all'" size="small" effect="plain" class="mode-tag">
                 {{ MODE_LABEL[row.mode] ?? row.mode }}
               </el-tag>
+              <el-tag
+                v-if="row.is_default_chat"
+                size="small"
+                type="success"
+                effect="plain"
+                class="mode-tag"
+                title="平台默认聊天模型（全局最多一个）"
+              >默认</el-tag>
             </div>
           </div>
         </template>

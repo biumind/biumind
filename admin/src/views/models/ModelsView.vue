@@ -101,6 +101,7 @@ const form = reactive<ModelInput>({
   max_output: 0,
   min_plan: 'free',
   status: 'active',
+  is_default_chat: false,
 })
 
 function openCreate() {
@@ -114,6 +115,7 @@ function openCreate() {
   form.max_output = 0
   form.min_plan = 'free'
   form.status = 'active'
+  form.is_default_chat = false
   createDialog.value = true
 }
 
@@ -124,7 +126,11 @@ async function onSubmitCreate() {
   }
   creating.value = true
   try {
-    const created = await api.createModel({ ...form, manual_override: true })
+    // is_default_chat 仅 mode=chat 有意义 — 用户可能先在 chat 下开了开关
+    // 再切走 mode (开关被 v-if 隐藏但状态还在), 这里兜底只给 chat 带上.
+    const body: ModelInput = { ...form, manual_override: true }
+    if (body.mode !== 'chat') body.is_default_chat = false
+    const created = await api.createModel(body)
     ElMessage.success(`已创建: ${created.code}`)
     createDialog.value = false
     tableRef.value?.load?.()
@@ -239,6 +245,10 @@ async function onSubmitCreate() {
         </el-form-item>
         <el-form-item v-if="form.mode === 'chat'" label="最大输出">
           <el-input-number v-model="form.max_output" :min="0" :step="1024" />
+        </el-form-item>
+        <el-form-item v-if="form.mode === 'chat'" label="默认聊天模型">
+          <el-switch v-model="form.is_default_chat" />
+          <div class="form-hint">全局最多一个默认；设置后将自动替换当前的默认聊天模型</div>
         </el-form-item>
       </el-form>
       <template #footer>
