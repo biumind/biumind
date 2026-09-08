@@ -9,7 +9,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/session"
 )
+
+// bucketDir returns the per-project session bucket MaybeRun scans for
+// this test process's cwd.
+func bucketDir(t *testing.T, sessDir string) string {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(sessDir, session.ProjectDir(cwd))
+}
 
 // fakeRunner counts invocations + records the last prompt.
 type fakeRunner struct {
@@ -130,15 +143,50 @@ func TestMaybeRun_sessionGateBlocks(t *testing.T) {
 	}
 }
 
+// Regression: the gate must scan the per-project bucket, not the
+// sessions root. Sessions sitting at the root (or in another
+// project's bucket) don't count.
+func TestMaybeRun_sessionGateIgnoresRootFiles(t *testing.T) {
+	dir := t.TempDir()
+	memDir := filepath.Join(dir, "memory")
+	sessDir := filepath.Join(dir, "sessions")
+	_ = os.MkdirAll(memDir, 0o755)
+	_ = os.MkdirAll(sessDir, 0o755)
+	// Files directly at the root — the shape the pre-fix gate scanned.
+	for _, n := range []string{"a.jsonl", "b.jsonl", "c.jsonl"} {
+		_ = os.WriteFile(filepath.Join(sessDir, n), []byte("{}\n"), 0o644)
+	}
+
+	runner := &fakeRunner{}
+	c := New(Config{
+		Enabled:     true,
+		MinHours:    1,
+		MinSessions: 3,
+		MemoryDir:   memDir,
+		SessionsDir: sessDir,
+	}, runner)
+
+	ran, _ := c.MaybeRun(context.Background())
+	if ran {
+		t.Error("root-level files are not a project bucket; gate should block")
+	}
+	if runner.Calls() != 0 {
+		t.Error("runner should not fire")
+	}
+}
+
 func TestMaybeRun_allGatesPass(t *testing.T) {
 	dir := t.TempDir()
 	memDir := filepath.Join(dir, "memory")
 	sessDir := filepath.Join(dir, "sessions")
 	_ = os.MkdirAll(memDir, 0o755)
 	_ = os.MkdirAll(sessDir, 0o755)
-	// 3 session jsonl files with recent mtime.
+	// 3 session jsonl files with recent mtime, in the per-project
+	// bucket the gate scans.
+	bucket := bucketDir(t, sessDir)
+	_ = os.MkdirAll(bucket, 0o755)
 	for _, n := range []string{"a.jsonl", "b.jsonl", "c.jsonl"} {
-		_ = os.WriteFile(filepath.Join(sessDir, n), []byte("{}\n"), 0o644)
+		_ = os.WriteFile(filepath.Join(bucket, n), []byte("{}\n"), 0o644)
 	}
 	// No prior lock = lastConsolidatedAt = zero, so time gate
 	// auto-passes and session gate sees all 3 files.
@@ -173,7 +221,9 @@ func TestMaybeRun_runnerErrorPropagates(t *testing.T) {
 	sessDir := filepath.Join(dir, "sessions")
 	_ = os.MkdirAll(memDir, 0o755)
 	_ = os.MkdirAll(sessDir, 0o755)
-	_ = os.WriteFile(filepath.Join(sessDir, "a.jsonl"), []byte(""), 0o644)
+	bucket := bucketDir(t, sessDir)
+	_ = os.MkdirAll(bucket, 0o755)
+	_ = os.WriteFile(filepath.Join(bucket, "a.jsonl"), []byte(""), 0o644)
 
 	runner := &fakeRunner{err: errors.New("boom")}
 	c := New(Config{
@@ -201,7 +251,9 @@ func TestMaybeRun_lockMtimeUpdatedAfterSuccess(t *testing.T) {
 	sessDir := filepath.Join(dir, "sessions")
 	_ = os.MkdirAll(memDir, 0o755)
 	_ = os.MkdirAll(sessDir, 0o755)
-	_ = os.WriteFile(filepath.Join(sessDir, "x.jsonl"), []byte(""), 0o644)
+	bucket := bucketDir(t, sessDir)
+	_ = os.MkdirAll(bucket, 0o755)
+	_ = os.WriteFile(filepath.Join(bucket, "x.jsonl"), []byte(""), 0o644)
 
 	runner := &fakeRunner{}
 	c := New(Config{

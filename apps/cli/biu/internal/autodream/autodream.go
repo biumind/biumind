@@ -35,6 +35,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/session"
 )
 
 // Default trigger thresholds — biu uses a slightly tighter cadence
@@ -63,8 +65,9 @@ type Config struct {
 	// Default: ~/.biumind/memory.
 	MemoryDir string
 
-	// SessionsDir is where biu writes session jsonl files. Used
-	// for the session-gate count. Default: ~/.biu/sessions.
+	// SessionsDir is the root of the per-project session buckets
+	// (~/.biu/sessions). The session gate scans the bucket for the
+	// current launch directory: SessionsDir/<session.ProjectDir(cwd)>.
 	SessionsDir string
 }
 
@@ -155,8 +158,16 @@ func (c *Coordinator) MaybeRun(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	// Session gate.
-	touched, err := listSessionsTouchedSince(c.cfg.SessionsDir, lastAt)
+	// Session gate — scans the current project's bucket
+	// (SessionsDir/<ProjectDir(cwd)>), which is where biu writes
+	// transcripts. It's a skip-gate, so undercounting sessions from
+	// other projects or worktrees is safe.
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false, fmt.Errorf("getwd: %w", err)
+	}
+	transcriptsDir := filepath.Join(c.cfg.SessionsDir, session.ProjectDir(cwd))
+	touched, err := listSessionsTouchedSince(transcriptsDir, lastAt)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, fmt.Errorf("scan sessions: %w", err)
 	}
@@ -176,7 +187,7 @@ func (c *Coordinator) MaybeRun(ctx context.Context) (bool, error) {
 	defer released()
 
 	// All gates passed → run.
-	prompt := BuildConsolidationPrompt(c.cfg.MemoryDir, c.cfg.SessionsDir, touched)
+	prompt := BuildConsolidationPrompt(c.cfg.MemoryDir, transcriptsDir, touched)
 	if err := c.runner.Run(ctx, prompt); err != nil {
 		return false, fmt.Errorf("runner: %w", err)
 	}
@@ -205,10 +216,11 @@ func readLastConsolidatedAt(memDir string) (time.Time, error) {
 }
 
 // listSessionsTouchedSince returns the names of session jsonl files
-// modified after `since`. We use ReadDir + per-file stat; on a
-// laptop with thousands of sessions this is still sub-ms.
-func listSessionsTouchedSince(sessionsDir string, since time.Time) ([]string, error) {
-	entries, err := os.ReadDir(sessionsDir)
+// in dir modified after `since`. dir is a single project bucket (the
+// files sit flat inside it); the caller resolves which bucket. ReadDir
+// + per-file stat is sub-ms even with thousands of sessions.
+func listSessionsTouchedSince(dir string, since time.Time) ([]string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
