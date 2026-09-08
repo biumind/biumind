@@ -386,8 +386,10 @@ const pageDesc = '有人通过 BiuMind 分享了一篇笔记给你。';
   }
 </style>
 
-<style>
-  /* 渲染后的 markdown 排版（无 typography 插件，手写最小样式 + 暗色适配） */
+<style is:global>
+  /* 渲染后的 markdown 排版（无 typography 插件，手写最小样式 + 暗色适配）。
+     必须 is:global：正文是 marked/DOMPurify 运行时 innerHTML 注入的，
+     作用域样式的 data-astro-cid 属性限定会全部落空 */
   .share-markdown {
     font-size: 15px;
     line-height: 1.75;
