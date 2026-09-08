@@ -10,12 +10,15 @@ package internalapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/biumind/biumind/services/model-relay/internal/registry"
 )
@@ -130,5 +133,115 @@ func TestDefaultChatModelCacheNotWired(t *testing.T) {
 	status, _ := getDefaultChat(t, srv, true)
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("nil cache: status = %d, want 503", status)
+	}
+}
+
+// GET /v1/internal/models/preferred-chat — auto-picks the best usable
+// chat model (mode=chat + status=active, sort_order ASC / code ASC).
+// The dev DB is shared, so expectations are computed via SQL rather
+// than pinned to the rows this test inserts.
+func TestPreferredChatModelEndpoint(t *testing.T) {
+	pool := openDB(t)
+	store := registry.NewStore(pool)
+	ctx := context.Background()
+
+	// Excluded rows: a disabled chat model and an active non-chat model,
+	// both with a sort_order low enough to win if the filter were wrong.
+	suffix := time.Now().UnixNano()
+	disabled, err := store.Models.Insert(ctx, registry.ModelInput{
+		Code: fmt.Sprintf("m_pref_dis_%d", suffix), DisplayName: "Pref Disabled",
+		MinPlan: registry.PlanFree, Status: registry.StatusDisabled,
+		Mode: registry.ModeChat, SortOrder: -1_000_000,
+	})
+	if err != nil {
+		t.Fatalf("insert disabled: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", disabled.ID) //nolint:errcheck
+
+	nonChat, err := store.Models.Insert(ctx, registry.ModelInput{
+		Code: fmt.Sprintf("m_pref_img_%d", suffix), DisplayName: "Pref Image",
+		MinPlan: registry.PlanFree, Status: registry.StatusActive,
+		Mode: registry.ModeImageGeneration, SortOrder: -1_000_001,
+	})
+	if err != nil {
+		t.Fatalf("insert non-chat: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", nonChat.ID) //nolint:errcheck
+
+	// Expected winner straight from the table — same rule the cache
+	// applies in memory.
+	var want string
+	err = pool.QueryRow(ctx, `SELECT code FROM model_relay.models
+		WHERE mode='chat' AND status='active'
+		ORDER BY sort_order ASC, code ASC LIMIT 1`).Scan(&want)
+	noUsable := err != nil // sql.ErrNoRows → 404 case
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("expected query: %v", err)
+	}
+
+	get := func(auth bool) (int, []byte) {
+		t.Helper()
+		mux := http.NewServeMux()
+		srv := freshCacheServer(store)
+		srv.MountModels(mux)
+		ts := httptest.NewServer(mux)
+		defer ts.Close()
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/internal/models/preferred-chat", nil)
+		if auth {
+			req.Header.Set("Authorization", "Bearer "+testToken)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, body
+	}
+
+	// 401 — same bearer middleware as default-chat.
+	if status, _ := get(false); status != http.StatusUnauthorized {
+		t.Fatalf("no token: status = %d, want 401", status)
+	}
+
+	status, body := get(true)
+	if noUsable {
+		if status != http.StatusNotFound {
+			t.Fatalf("no usable chat model: status = %d, body = %s, want 404", status, body)
+		}
+		return
+	}
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	var out struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v body=%s", err, body)
+	}
+	if out.Code != want {
+		t.Fatalf("code = %q, want %q (excluded rows must not win)", out.Code, want)
+	}
+	if out.Code == disabled.Code || out.Code == nonChat.Code {
+		t.Fatalf("excluded model picked: %q", out.Code)
+	}
+}
+
+func TestPreferredChatModelCacheNotWired(t *testing.T) {
+	srv := &Server{Token: testToken, Cache: nil}
+	mux := http.NewServeMux()
+	srv.MountModels(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/internal/models/preferred-chat", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("nil cache: status = %d, want 503", resp.StatusCode)
 	}
 }

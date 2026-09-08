@@ -17,6 +17,8 @@ import (
 
 // fakeDefaultChatRelay 按 internal 端点契约应答;calls 计数用于断言缓存
 // 命中时不再打 relay。auth 校验:bearer 不对 → 401,顺带锁住鉴权契约。
+// default-chat 与 preferred-chat 两个端点共用 token,状态 / 返回值各自
+// 独立(pref* 字段管 preferred-chat)。
 type fakeDefaultChatRelay struct {
 	srv   *httptest.Server
 	calls atomic.Int32
@@ -24,14 +26,23 @@ type fakeDefaultChatRelay struct {
 	token  string
 	status int
 	code   string
+
+	prefStatus int
+	prefCode   string
 }
 
 func newFakeDefaultChatRelay(t *testing.T, token string, status int, code string) *fakeDefaultChatRelay {
 	t.Helper()
-	f := &fakeDefaultChatRelay{token: token, status: status, code: code}
+	f := &fakeDefaultChatRelay{token: token, status: status, code: code,
+		prefStatus: http.StatusNotFound}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
-		if r.URL.Path != "/v1/internal/models/default-chat" {
+		wantStatus, wantCode := f.status, f.code
+		switch r.URL.Path {
+		case "/v1/internal/models/default-chat":
+		case "/v1/internal/models/preferred-chat":
+			wantStatus, wantCode = f.prefStatus, f.prefCode
+		default:
 			http.Error(w, "bad path", http.StatusNotFound)
 			return
 		}
@@ -39,12 +50,12 @@ func newFakeDefaultChatRelay(t *testing.T, token string, status int, code string
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if f.status != http.StatusOK {
-			http.Error(w, "nope", f.status)
+		if wantStatus != http.StatusOK {
+			http.Error(w, "nope", wantStatus)
 			return
 		}
 		w.Header().Set("content-type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"code": f.code})
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": wantCode})
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -163,32 +174,74 @@ func TestDefaultModelResolver_Disabled(t *testing.T) {
 		if got := r.DefaultChatModel(context.Background()); got != "" {
 			t.Errorf("disabled resolver should yield empty; got %q", got)
 		}
+		if got := r.PreferredChatModel(context.Background()); got != "" {
+			t.Errorf("disabled resolver should yield empty; got %q", got)
+		}
 	}
 }
 
-// ChatRunner.defaultChatModel 兜底链:relay 命中 > env 覆盖 > 硬兜底。
+// preferred-chat 端点:200 → code 且 TTL 内命中缓存;与 default-chat
+// 的缓存槽互不影响(一端 404 不污染另一端)。
+func TestDefaultModelResolver_PreferredChat(t *testing.T) {
+	f := newFakeDefaultChatRelay(t, "internal-token", http.StatusNotFound, "")
+	f.prefStatus, f.prefCode = http.StatusOK, "pref-1"
+	r := testResolver(f.srv.URL)
+
+	if got := r.PreferredChatModel(context.Background()); got != "pref-1" {
+		t.Fatalf("got %q", got)
+	}
+	if got := r.PreferredChatModel(context.Background()); got != "pref-1" {
+		t.Fatalf("cached call got %q", got)
+	}
+	if got := r.DefaultChatModel(context.Background()); got != "" {
+		t.Fatalf("default-chat should stay empty; got %q", got)
+	}
+	if n := f.calls.Load(); n != 2 {
+		t.Errorf("expect 2 relay calls (1 pref + 1 default); got %d", n)
+	}
+}
+
+// ChatRunner.defaultChatModel 兜底链:relay default-chat > env 覆盖 >
+// relay preferred-chat > 明确报错(不再有硬编码模型名兜底)。
 func TestChatRunner_DefaultChatModelChain(t *testing.T) {
 	f := newFakeDefaultChatRelay(t, "internal-token", http.StatusOK, "relay-default")
 	r := testResolver(f.srv.URL)
 
-	// relay 命中 → relay 值赢过 env。
+	// relay default 命中 → relay 值赢过 env。
 	cr := &ChatRunner{DefaultModel: "env-override", DefaultModels: r, Logger: nopLogger()}
-	if got := cr.defaultChatModel(context.Background()); got != "relay-default" {
-		t.Errorf("relay default should win; got %q", got)
+	got, err := cr.defaultChatModel(context.Background())
+	if err != nil || got != "relay-default" {
+		t.Errorf("relay default should win; got %q err=%v", got, err)
 	}
 
-	// relay 未配(404)→ 落 env。
+	// default-chat 未配(404) → 落 env。
 	f.status = http.StatusNotFound
-	f.calls.Store(0)
 	r2 := testResolver(f.srv.URL)
 	cr = &ChatRunner{DefaultModel: "env-override", DefaultModels: r2, Logger: nopLogger()}
-	if got := cr.defaultChatModel(context.Background()); got != "env-override" {
-		t.Errorf("env override expected; got %q", got)
+	got, err = cr.defaultChatModel(context.Background())
+	if err != nil || got != "env-override" {
+		t.Errorf("env override expected; got %q err=%v", got, err)
 	}
 
-	// resolver nil + env 空 → 硬兜底。
-	cr = &ChatRunner{Logger: nopLogger()}
-	if got := cr.defaultChatModel(context.Background()); got != "claude-sonnet-4-6" {
-		t.Errorf("hardcoded fallback expected; got %q", got)
+	// default-chat 404 + env 空 + preferred-chat 命中 → 落自动优选。
+	f.prefStatus, f.prefCode = http.StatusOK, "relay-preferred"
+	r3 := testResolver(f.srv.URL)
+	cr = &ChatRunner{DefaultModels: r3, Logger: nopLogger()}
+	got, err = cr.defaultChatModel(context.Background())
+	if err != nil || got != "relay-preferred" {
+		t.Errorf("preferred-chat expected; got %q err=%v", got, err)
+	}
+
+	// 全部落空 → 明确 error,不再硬编码兜底。
+	f.prefStatus = http.StatusNotFound
+	r4 := testResolver(f.srv.URL)
+	for _, c := range []*ChatRunner{
+		{DefaultModels: r4, Logger: nopLogger()}, // resolver 全 404
+		{Logger: nopLogger()},                     // resolver nil + env 空
+	} {
+		got, err := c.defaultChatModel(context.Background())
+		if err == nil || got != "" {
+			t.Errorf("expected errNoChatModelAvailable; got %q err=%v", got, err)
+		}
 	}
 }

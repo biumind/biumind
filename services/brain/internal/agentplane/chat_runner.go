@@ -26,6 +26,7 @@ package agentplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -56,8 +57,8 @@ type ChatRunner struct {
 	RelayURL string
 
 	// DefaultModel 是 AGENT_PLANE_DEFAULT_CHAT_MODEL 的 env 覆盖值,在
-	// 默认模型兜底链里排第二(见 defaultChatModel)。空 → 落到硬兜底
-	// "claude-sonnet-4-6"。
+	// 默认模型兜底链里排第二(见 defaultChatModel)。空 → 落到 relay
+	// preferred-chat 自动优选;全部落空则 session 明确报错,无硬编码兜底。
 	DefaultModel string
 
 	// DefaultModels 从 relay 解析 admin 配置的默认 chat model
@@ -95,8 +96,9 @@ type ChatRunner struct {
 // (missing_bearer),见 runSessionImpl。
 //
 // 默认模型兜底链(defaultChatModel):relay default-chat (DefaultModels)
-// > defaultModel (AGENT_PLANE_DEFAULT_CHAT_MODEL env 覆盖) >
-// claude-sonnet-4-6 硬兜底。defaultModels 可空(单测 / dev)。
+// > defaultModel (AGENT_PLANE_DEFAULT_CHAT_MODEL env 覆盖) > relay
+// preferred-chat 自动优选 > 明确报错(无硬编码兜底)。defaultModels 可空
+// (单测 / dev)。
 func NewChatRunner(
 	q *Queue,
 	store *Store,
@@ -136,17 +138,31 @@ func (cr *ChatRunner) resolveCreds(userBearer string) (apiKey, endpoint string, 
 	return userBearer, cr.RelayURL, true, true
 }
 
+// errNoChatModelAvailable 是兜底链全部落空时的明确失败 —— 不允许再
+// 用硬编码模型名兜底。经 publishErrorAndFinalize 传到客户端。
+var errNoChatModelAvailable = errors.New(
+	"no chat model available: platform default chat model not configured")
+
 // defaultChatModel 解析 client 没传 thread.model(显示 "BiuMind 默认")
 // 时的 fallback model。兜底链:relay default-chat (admin 在 models 表
-// 标 is_default_chat) > DefaultModel (env 覆盖) > claude-sonnet-4-6。
-// relay 不可达 / 未配时 DefaultModels 返 "",自然落到下一级。
-func (cr *ChatRunner) defaultChatModel(ctx context.Context) string {
+// 标 is_default_chat) > DefaultModel (env 覆盖) > relay preferred-chat
+// (relay 自动优选可用 chat 模型) > 明确报错。relay 不可达 / 未配时
+// DefaultModels 返 "",自然落到下一级。
+func (cr *ChatRunner) defaultChatModel(ctx context.Context) (string, error) {
 	if cr.DefaultModels != nil {
 		if m := cr.DefaultModels.DefaultChatModel(ctx); m != "" {
-			return m
+			return m, nil
 		}
 	}
-	return firstNonEmptyChatStr(cr.DefaultModel, "claude-sonnet-4-6")
+	if cr.DefaultModel != "" {
+		return cr.DefaultModel, nil
+	}
+	if cr.DefaultModels != nil {
+		if m := cr.DefaultModels.PreferredChatModel(ctx); m != "" {
+			return m, nil
+		}
+	}
+	return "", errNoChatModelAvailable
 }
 
 // InterruptSession 触发某 sessionID 的 chat-mode session 立即停。
@@ -308,10 +324,16 @@ func (cr *ChatRunner) runSessionImpl(ctx context.Context, sess *Session, payload
 	}
 
 	// Model 兜底链:client 传的 thread.model > relay default-chat >
-	// AGENT_PLANE_DEFAULT_CHAT_MODEL env > claude-sonnet-4-6。
+	// AGENT_PLANE_DEFAULT_CHAT_MODEL env > relay preferred-chat >
+	// 明确报错 (session finalize failed, 客户端 WS 收 error 帧)。
 	model := payload.Model
 	if model == "" {
-		model = cr.defaultChatModel(ctx)
+		var err error
+		model, err = cr.defaultChatModel(ctx)
+		if err != nil {
+			cr.publishErrorAndFinalize(ctx, sess, "no_default_model", err.Error())
+			return
+		}
 	}
 
 	// owner 身份经 SingleTurnInput.OwnerID 显式传递 —— RunV2 入口注入
@@ -434,14 +456,4 @@ func (cr *ChatRunner) finalizeFailed(ctx context.Context, sess *Session, msg str
 		cr.Logger.Warn("chat runner: finalize-failed write failed",
 			"session_id", sess.SessionID, "err", err)
 	}
-}
-
-// firstNonEmptyChatStr 简化 model fallback 取值。
-func firstNonEmptyChatStr(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

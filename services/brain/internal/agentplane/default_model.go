@@ -10,9 +10,14 @@
 //	Authorization: Bearer <IDENTITY_INTERNAL_TOKEN>
 //	200 → {"code":"<model code>"}    404 → 未配默认模型
 //
+//	GET /v1/internal/models/preferred-chat
+//	200 → {"code":"<model code>"}    404 → 无任何可用 chat 模型
+//	(relay 侧自动优选: mode=chat + active, sort_order ASC / code ASC)
+//
 // 进程内缓存:命中缓存 60s TTL;失败(404 / 5xx / 网络)负缓存 10s ——
-// relay 短暂不可用时每个 turn 都重试,但不打爆 relay。启动时 main.go
-// 异步 Warm 预热,不阻塞 boot。并发安全(多 chat session 同时 resolve)。
+// relay 短暂不可用时每个 turn 都重试,但不打爆 relay。两个端点各自
+// 独立缓存槽。启动时 main.go 异步 Warm 预热,不阻塞 boot。并发安全
+// (多 chat session 同时 resolve)。
 
 package agentplane
 
@@ -47,7 +52,12 @@ type DefaultModelResolver struct {
 	cached   string
 	cacheExp time.Time
 	negExp   time.Time
-	now      func() time.Time // 单测注入;生产 time.Now
+	// preferred-chat 端点的独立缓存槽 —— 与 default-chat 分开,避免一端
+	// 404 负缓存把另一端也压住。
+	prefCached   string
+	prefCacheExp time.Time
+	prefNegExp   time.Time
+	now          func() time.Time // 单测注入;生产 time.Now
 }
 
 // NewDefaultModelResolver 构造 resolver。logger 可空。
@@ -70,21 +80,38 @@ func NewDefaultModelResolver(relayURL, internalToken string, logger *slog.Logger
 // chat turn 不付 relay 往返。失败静默 —— 下个 turn 会重试。
 func (r *DefaultModelResolver) Warm(ctx context.Context) {
 	_ = r.DefaultChatModel(ctx)
+	_ = r.PreferredChatModel(ctx)
 }
 
 // DefaultChatModel 返回 relay 配的默认 chat model code;未配 / relay
 // 不可达 / resolver 未启用时返 ""。
 func (r *DefaultModelResolver) DefaultChatModel(ctx context.Context) string {
+	return r.resolve(ctx, "/v1/internal/models/default-chat",
+		&r.cached, &r.cacheExp, &r.negExp)
+}
+
+// PreferredChatModel 返回 relay 自动优选的可用 chat model code
+// (mode=chat + active,sort_order / code 排序) —— 兜底链里排在
+// is_default_chat 与 env 覆盖之后。未配 / 不可达时返 ""。
+func (r *DefaultModelResolver) PreferredChatModel(ctx context.Context) string {
+	return r.resolve(ctx, "/v1/internal/models/preferred-chat",
+		&r.prefCached, &r.prefCacheExp, &r.prefNegExp)
+}
+
+// resolve 是 DefaultChatModel / PreferredChatModel 的共享实现:
+// TTL 正缓存 + 负缓存退避,缓存槽由调用方指定(指针指向对应字段)。
+func (r *DefaultModelResolver) resolve(ctx context.Context, path string,
+	cached *string, cacheExp, negExp *time.Time) string {
 	if r.relayURL == "" || r.token == "" {
 		return ""
 	}
 	r.mu.Lock()
-	if r.cached != "" && r.now().Before(r.cacheExp) {
-		m := r.cached
+	if *cached != "" && r.now().Before(*cacheExp) {
+		m := *cached
 		r.mu.Unlock()
 		return m
 	}
-	if r.now().Before(r.negExp) {
+	if r.now().Before(*negExp) {
 		r.mu.Unlock()
 		return ""
 	}
@@ -92,26 +119,26 @@ func (r *DefaultModelResolver) DefaultChatModel(ctx context.Context) string {
 
 	// 并发下允许多个 goroutine 同时 fetch( last write wins ) —— 比
 	// singleflight 简单,负缓存兜底保证不会持续打爆 relay。
-	m, err := r.fetch(ctx)
+	m, err := r.fetch(ctx, path)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err == nil && m != "" {
-		r.cached = m
-		r.cacheExp = r.now().Add(r.cacheTTL)
-		r.negExp = time.Time{}
+		*cached = m
+		*cacheExp = r.now().Add(r.cacheTTL)
+		*negExp = time.Time{}
 		return m
 	}
 	// 负缓存:404(未配默认模型) 与 5xx / 网络错误同待遇。
-	r.negExp = r.now().Add(r.negativeTTL)
+	*negExp = r.now().Add(r.negativeTTL)
 	return ""
 }
 
 // fetch 打一次 relay internal 端点。404 返 ("", nil) —— admin 未配
-// 默认模型是合法状态,由调用方负缓存。
-func (r *DefaultModelResolver) fetch(ctx context.Context) (string, error) {
+// 默认模型 / 无可用 chat 模型是合法状态,由调用方负缓存。
+func (r *DefaultModelResolver) fetch(ctx context.Context, path string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		r.relayURL+"/v1/internal/models/default-chat", nil)
+		r.relayURL+path, nil)
 	if err != nil {
 		return "", err
 	}
@@ -127,8 +154,8 @@ func (r *DefaultModelResolver) fetch(ctx context.Context) (string, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		r.logger.Warn("default model resolver: unexpected status",
-			"status", resp.StatusCode)
-		return "", fmt.Errorf("relay default-chat status %d", resp.StatusCode)
+			"path", path, "status", resp.StatusCode)
+		return "", fmt.Errorf("relay %s status %d", path, resp.StatusCode)
 	}
 	var body struct {
 		Code string `json:"code"`

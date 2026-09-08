@@ -200,8 +200,9 @@ type Config struct {
 	// AgentPlaneDefaultChatModel — client 没传 thread.model(显示
 	// "BiuMind 默认")时 chat-mode runner 的 env 覆盖。兜底链:
 	// relay default-chat (models.is_default_chat) > 本 env >
-	// claude-sonnet-4-6 硬兜底。运维用它强制切到 model-relay 上
-	// active 的 model id,避免 admin 关掉默认模型后 chat 全废。
+	// relay preferred-chat 自动优选 > 明确报错(无硬编码兜底)。
+	// 运维用它强制切到 model-relay 上 active 的 model id,避免
+	// admin 关掉默认模型后 chat 全废。
 	AgentPlaneDefaultChatModel string `env:"AGENT_PLANE_DEFAULT_CHAT_MODEL" default:""`
 	// Stale window for cleanup of orphan streaming messages (server
 	// crash mid-stream). Default 5 min.
@@ -1342,8 +1343,8 @@ func run() error {
 		chatLoop.RetrievalBudget = 4
 		// 默认模型真相源在 relay (models.is_default_chat) —— resolver 已在
 		// sender 构建处创建并异步预热（RelayURL 为空时为 nil, defaultChatModel
-		// 自然落到 env 覆盖 > 内置兜底链）；relay 不可达时按负缓存退避逐
-		// turn 重试。
+		// 落到 env 覆盖 > preferred-chat 自动优选 > 明确报错的兜底链）；
+		// relay 不可达时按负缓存退避逐 turn 重试。
 		chatRunner := agentplanepkg.NewChatRunner(
 			agentPlaneQueue, agentPlaneStore, chatLoop,
 			cfg.AgentPlaneDefaultChatModel,

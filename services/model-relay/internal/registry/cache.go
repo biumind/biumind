@@ -209,6 +209,38 @@ func (c *Cache) DefaultChatModel(ctx context.Context) (*Model, error) {
 	return nil, fmt.Errorf("cache.default_chat_model: %w", ErrNotFound)
 }
 
+// PreferredChatModel returns the best available chat model for callers
+// that have no admin-designated default: mode=chat and status=active,
+// lowest sort_order wins, code ASC breaks ties (same ordering the
+// list/visible queries use). ErrNotFound when no chat model is usable.
+// "可用" here mirrors DefaultChatModel — model row status only; channel
+// health is a routing-time concern (Strategy.Pick) and intentionally not
+// consulted. manual_override is a sync-upstream write-lock, not an
+// availability signal, so it plays no role here either.
+// Reuses the models sub-cache — same NOTIFY invalidation as
+// DefaultChatModel, no restart needed after admin edits.
+func (c *Cache) PreferredChatModel(ctx context.Context) (*Model, error) {
+	if err := c.ensureModels(ctx); err != nil {
+		return nil, err
+	}
+	c.mu.RLock()
+	var best *Model
+	for _, m := range c.models {
+		if m.Mode != ModeChat || m.Status != StatusActive {
+			continue
+		}
+		if best == nil || m.SortOrder < best.SortOrder ||
+			(m.SortOrder == best.SortOrder && m.Code < best.Code) {
+			best = m
+		}
+	}
+	c.mu.RUnlock()
+	if best == nil {
+		return nil, fmt.Errorf("cache.preferred_chat_model: %w", ErrNotFound)
+	}
+	return best, nil
+}
+
 // ChannelsForModel returns the active channel set for a model, already
 // sorted (priority DESC, weight DESC). Strategy.Pick consumes this
 // directly. Empty slice when no active channels — caller decides whether

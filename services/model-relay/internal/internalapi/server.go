@@ -56,9 +56,9 @@ type Server struct {
 	Messages       *api.MessagesHandler
 	Transcriptions *api.TranscriptionsHandler
 
-	// Cache — 默认 chat 模型查询 (Phase B): brain ChatRunner 经
-	// /v1/internal/models/default-chat 拉 admin 指定的默认模型。
-	// nil 时该端点返 503。
+	// Cache — 默认 / 优选 chat 模型查询 (Phase B): brain ChatRunner 与
+	// runtime worker 经 /v1/internal/models/{default-chat,preferred-chat}
+	// 拉平台默认模型。nil 时这些端点返 503。
 	Cache *registry.Cache
 }
 
@@ -101,11 +101,16 @@ func (s *Server) MountTranscribe(mux *http.ServeMux) {
 }
 
 // MountModels registers the internal model-metadata routes. Depends on
-// Cache (constructed in startAdminStack). brain ChatRunner 用 (Phase B)。
+// Cache (constructed in startAdminStack). brain ChatRunner / runtime
+// worker 用 (Phase B)。
 func (s *Server) MountModels(mux *http.ServeMux) {
 	mux.HandleFunc(
 		"GET /v1/internal/models/default-chat",
 		s.requireToken(s.handleDefaultChatModel),
+	)
+	mux.HandleFunc(
+		"GET /v1/internal/models/preferred-chat",
+		s.requireToken(s.handlePreferredChatModel),
 	)
 }
 

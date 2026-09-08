@@ -578,7 +578,7 @@ func run() error {
 	internalGenSrv.MountChat(mux)
 	slog.Default().Info("model-relay /v1/internal/chat mounted (爆款解析 LLM 拆解)")
 	internalGenSrv.MountModels(mux)
-	slog.Default().Info("model-relay /v1/internal/models/default-chat mounted (Phase B brain 默认 chat 模型)")
+	slog.Default().Info("model-relay /v1/internal/models/{default-chat,preferred-chat} mounted (Phase B 平台默认 chat 模型)")
 
 	// v0.3 M6: POST /v1/audio/transcriptions (OpenAI 兼容 ASR).
 	// model.mode=='audio_transcription', adaptor 实现 TranscribeAdaptor
