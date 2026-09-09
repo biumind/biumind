@@ -32,5 +32,12 @@ if ! printf '%s\n' "$changed_files" | grep -qE '\.go$|(^|/)go\.(mod|sum|work)$';
   exit 0
 fi
 
-echo "pre-push: 检测到 Go 代码改动，运行全量 go test -race（--no-verify 可跳过）"
-go test -race ./apps/cli/biu/... ./services/... ./packages/go-sdk/...
+echo "pre-push: 检测到 Go 代码改动，逐模块运行 go test -race（--no-verify 可跳过）"
+# 每个模块是独立 go.mod，根目录没有模块，必须像 CI matrix 一样
+# 进每个模块目录跑，不能从根目录用 ./services/... 模式匹配。
+status=0
+while read -r mod; do
+  echo "── $mod"
+  (cd "$mod" && go test -race -count=1 ./...) || status=1
+done < <(grep -E '^\s+\./' go.work | sed 's/^[[:space:]]*//')
+exit $status
