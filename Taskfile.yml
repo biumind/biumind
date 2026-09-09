@@ -16,6 +16,19 @@ tasks:
     cmds:
       - tools/scripts/bootstrap.sh
 
+  hooks:install:
+    desc: 安装 git hooks（pre-commit 自动 gofmt）
+    cmds:
+      - git config core.hooksPath tools/scripts
+
+  fmt:go:
+    desc: gofmt 格式化所有 Go 模块（对齐 CI go-fmt job）
+    cmds:
+      - |
+        while read -r mod; do
+          gofmt -w "$mod"
+        done < <(grep -E '^\s+\./' go.work | sed 's/^[[:space:]]*//')
+
   # ─── Proto ────────────────────────────────────────
   proto:lint:
     desc: lint proto 文件

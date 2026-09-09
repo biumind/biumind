@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# pre-commit: gofmt 已暂存的 Go 文件，对齐 CI 的 go-fmt job（gofmt -l 全模块）。
+# 安装：task hooks:install（即 git config core.hooksPath tools/scripts）
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+staged_go=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+[ -z "$staged_go" ] && exit 0
+
+unformatted=$(echo "$staged_go" | xargs gofmt -l)
+[ -z "$unformatted" ] && exit 0
+
+echo "pre-commit: gofmt 修复以下文件并重新暂存:"
+echo "$unformatted"
+echo "$unformatted" | xargs gofmt -w
+echo "$unformatted" | xargs git add
