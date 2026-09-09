@@ -146,6 +146,8 @@ jobs:
       # Os 首字母大写, amd64 → x86_64。平台枚举对齐 schema/release/v1。
       # asset url 走 CNAME 域名 (vars.RELEASES_DOWNLOAD_BASE, 同 client
       # manifest job; 大文件不经 nginx)。
+      # ⚠️ run block 内所有行缩进必须 ≥ 块缩进 (10 格): 2026-09-09 发版栽在
+      # 2 格缩进的 JSON 续行把 block scalar 截断, workflow 解析失败。
       - name: Assemble biu.json
         env:
           VERSION: ${{ steps.ver.outputs.version }}
@@ -164,10 +166,10 @@ jobs:
             test -f "$f" || { echo "::error::missing $f"; exit 1; }
             SIZE=$(stat -c%s "$f")
             SHA=$(sha256sum "$f" | awk '{print $1}')
-            rows="${rows}${rows:+,}
-  {\"platform\":\"$1\",\"url\":\"${DOWNLOAD_BASE}/${f}\",\"filename\":\"${f}\",\"size\":${SIZE},\"sha256\":\"${SHA}\",\"signed\":false,\"arch\":\"$2\"}"
+            row="{\"platform\":\"$1\",\"url\":\"${DOWNLOAD_BASE}/${f}\",\"filename\":\"${f}\",\"size\":${SIZE},\"sha256\":\"${SHA}\",\"signed\":false,\"arch\":\"$2\"}"
+            rows="${rows}${rows:+,}$row"
           done
-          printf '{\n  "version": "%s",\n  "releasedAt": "%s",\n  "channel": "stable",\n  "assets": [%s\n  ]\n}\n' \
+          printf '{"version":"%s","releasedAt":"%s","channel":"stable","assets":[%s]}\n' \
             "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rows" > biu.json
           echo "--- biu.json ---"
           cat biu.json
