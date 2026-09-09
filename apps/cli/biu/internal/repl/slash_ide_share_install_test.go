@@ -2,6 +2,7 @@ package repl
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,6 +86,14 @@ func TestSlashInstall_withInjectedInfo(t *testing.T) {
 }
 
 func TestSlashInstall_detectInstallMethod(t *testing.T) {
+	home := func(t *testing.T) string {
+		t.Helper()
+		h, err := os.UserHomeDir()
+		if err != nil {
+			t.Skipf("no home dir: %v", err)
+		}
+		return h
+	}
 	cases := []struct {
 		exe        string
 		wantMethod string
@@ -94,6 +103,7 @@ func TestSlashInstall_detectInstallMethod(t *testing.T) {
 		{"/Users/me/go/bin/biu", "go install"},
 		{"/snap/biu/x1/biu", "snap"},
 		{"/usr/local/bin/biu", "manual install"},
+		{filepath.Join(home(t), ".local/bin", "biu"), "client-managed"},
 		{"", ""},
 		{"(unknown)", ""},
 		{"/opt/random/biu", ""},

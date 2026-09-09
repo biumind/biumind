@@ -165,15 +165,20 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           APP_RES="$GITHUB_WORKSPACE/apps/client/build/macos/Build/Products/Release/biumind.app/Contents/Resources"
           # sidecar: macos-14 runner = arm64,与 build_dmg.sh 行为一致。
+          # 版本注入 <clientver>+clientmanaged: biu version 不再误报 0.1.0-dev,
+          # 且 biu 自身的更新检查见 build metadata 即跳过 —— 该安装平面由
+          # 桌面客户端 biu_daemon_manager 负责,CLI 不越权自更新。
           mkdir -p "$APP_RES"
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
-            go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+            go build -C apps/cli/biu -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION}+clientmanaged" \
             -o "$APP_RES/biu" ./cmd/biu
           # 独立裸二进制 (CGO_ENABLED=0 交叉编译无依赖)
           for target in "darwin arm64 macos-arm64" "darwin amd64 macos-x64" "linux amd64 linux-x64" "linux arm64 linux-arm64"; do
             set -- $target
             CGO_ENABLED=0 GOOS=$1 GOARCH=$2 \
-              go build -C apps/cli/biu -trimpath -ldflags='-s -w' \
+              go build -C apps/cli/biu -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION}+clientmanaged" \
               -o "$GITHUB_WORKSPACE/apps/client/biumind-${VERSION}-biu-$3" ./cmd/biu
           done
           ls -la "$GITHUB_WORKSPACE/apps/client/biumind-${VERSION}"-biu-*

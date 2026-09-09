@@ -102,6 +102,15 @@ func detectInstallMethod(exe string) (method, updateHint string) {
 		strings.HasSuffix(exe, "/biu") && strings.Contains(exe, "GOPATH"):
 		return "go install",
 			"go install github.com/biumind/biumind/apps/cli/biu/cmd/biu@latest"
+	case isUnderLocalBin(exe):
+		// ~/.local/bin is where the desktop client installs its biu
+		// daemon (biu_daemon_manager) — that install plane is managed
+		// by the client. Dev builds land there too via
+		// `task cli:install`, but those report a dev version and are
+		// skipped by update checks anyway.
+		return "client-managed (~/.local/bin)",
+			"installed by the BiuMind desktop client (it auto-updates biu); " +
+				"for a dev build re-run `task cli:install`"
 	case strings.HasPrefix(exe, "/usr/local/bin/"):
 		return "manual install (/usr/local/bin)",
 			"download the latest release from " +
@@ -112,4 +121,14 @@ func detectInstallMethod(exe string) (method, updateHint string) {
 			"sudo snap refresh biu"
 	}
 	return "", ""
+}
+
+// isUnderLocalBin reports whether exe lives in the user's
+// ~/.local/bin (the desktop client's biu install location).
+func isUnderLocalBin(exe string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	return strings.HasPrefix(exe, filepath.Join(home, ".local/bin")+string(os.PathSeparator))
 }
