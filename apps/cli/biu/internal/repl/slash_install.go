@@ -1,8 +1,9 @@
 // /install slash — biu install diagnostics + update guidance.
 //
-// biu doesn't ship a self-updater (binary updates flow through
-// `go install` / brew / apt), so the slash repurposes the name as a
-// diagnostic surface:
+// biu upgrades via /upgrade run: delegated to brew / go install /
+// snap when the install method owns the binary, or self-update
+// (internal/selfupdate: download → SHA-256 verify → atomic swap) for
+// manual installs. This slash is the diagnostic surface:
 //
 //   - Where the running binary lives + how it got there
 //   - Build version / commit / date (from the version_cmd vars)

@@ -28,7 +28,7 @@ var slashCmds = []SlashCmd{
 	{Name: "/pr", Args: "[--dry-run|--no-push|--draft|--base <br>|--title <t>]", Description: "push branch + LLM-draft PR title/body + open via gh"},
 	{Name: "/issue", Args: "[<n>|comment <n> \"x\"|close <n>]", Description: "list / view / comment / close GitHub issues via gh"},
 	{Name: "/pr-comments", Args: "[<n>]", Description: "show PR review comments (current branch when omitted)"},
-	{Name: "/upgrade", Args: "[run|check]", Description: "upgrade biu via brew/go-install/snap based on detected install method"},
+	{Name: "/upgrade", Args: "[run|check|check skip]", Description: "upgrade biu: self-update for manual installs, brew/go-install/snap delegation otherwise"},
 	{Name: "/tag", Args: "[<name> [-m \"msg\"|--auto [--from <prev>]]]", Description: "list / create git tags; --auto drafts a changelog via LLM"},
 	{Name: "/env", Args: "[<filter>]", Description: "show biu-relevant env vars (KEY/TOKEN/SECRET auto-redacted)"},
 	{Name: "/feedback", Args: "[\"summary\"|--print]", Description: "open a prefilled GitHub issue with biu version + session diagnostics"},

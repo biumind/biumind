@@ -109,6 +109,12 @@ type Options struct {
 	// after the next /reload (the engine cache is invalidated by the
 	// same reload path).
 	Skills *skills.Registry
+
+	// UpdateManifestURL is the OSS manifest fallback for the update
+	// check (<endpoint>/downloads/biu.json). Empty → GitHub-only.
+	// Derived from the model-relay endpoint (single-origin addressing)
+	// by the cmd wiring; see updatecheck.ManifestURLForEndpoint.
+	UpdateManifestURL string
 }
 
 type runState int
@@ -202,6 +208,10 @@ type model struct {
 	// disables /<skill-name> dispatch + drops skill rows from the
 	// slash dropdown.
 	skills *skills.Registry
+
+	// OSS manifest fallback URL for update checks
+	// (Options.UpdateManifestURL).
+	updateManifestURL string
 }
 
 // ─── tea.Msg types ─────────────────────────────────────
@@ -269,13 +279,15 @@ func New(opt Options) tea.Model {
 		mcp:         opt.MCP,
 		trust:       opt.Trust,
 		skills:      opt.Skills,
+
+		updateManifestURL: opt.UpdateManifestURL,
 	}
 	m.viewport.SetContent(m.welcome())
 	return m
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.spinner.Tick)
+	return tea.Batch(textarea.Blink, m.spinner.Tick, m.checkUpdateCmd)
 }
 
 func (m model) welcome() string {
@@ -320,6 +332,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
 		}
+		return m, nil
+
+	case updateCheckMsg:
+		// Startup update notice (see update_check.go). Late arrival is
+		// fine — the note lands whenever the throttled background
+		// check completes.
+		m.handleUpdateCheck(msg)
+		return m, nil
+
+	case upgradeCheckResultMsg:
+		m.handleUpgradeCheckResult(msg)
+		return m, nil
+
+	case upgradeRunResultMsg:
+		m.appendSystemNote(msg.text)
 		return m, nil
 
 	case launchOkMsg:
@@ -1163,6 +1190,23 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.appendSystemNote(m.handlePRComments(parts))
 		return m, nil
 	case "/upgrade":
+		// `check` goes through the async path — the 3s network budget
+		// must not block the Update loop. `check skip [version]`
+		// silences a version (state-only, no network).
+		if len(parts) >= 2 && strings.EqualFold(parts[1], "check") {
+			if len(parts) >= 3 && strings.EqualFold(parts[2], "skip") {
+				m.appendSystemNote(m.handleUpgradeCheckSkip(parts[3:]))
+				return m, nil
+			}
+			m.appendSystemNote("/upgrade check: contacting update source…")
+			return m, m.upgradeCheckCmd
+		}
+		// `run` likewise: brew/go-install can take minutes, and the
+		// self-update download even longer.
+		if len(parts) >= 2 && strings.EqualFold(parts[1], "run") {
+			m.appendSystemNote("/upgrade run: working… (this can take a minute)")
+			return m, m.upgradeRunCmd
+		}
 		m.appendSystemNote(m.handleUpgrade(parts))
 		return m, nil
 	case "/tag":

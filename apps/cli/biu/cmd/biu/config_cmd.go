@@ -21,12 +21,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	cfgschema "github.com/biumind/biumind/apps/cli/biu/internal/config/schema"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
 	"github.com/biumind/biumind/apps/cli/biu/internal/telemetry"
+	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +38,7 @@ func newConfigCmd(f *rootFlags) *cobra.Command {
 		Short: "Inspect, validate, and emit JSON schemas for biu config files",
 	}
 	c.AddCommand(newConfigShowCmd(f), newConfigValidateCmd(f), newConfigSchemaCmd(),
-		newConfigTelemetryCmd())
+		newConfigTelemetryCmd(), newConfigUpdateCheckCmd())
 	return c
 }
 
@@ -116,7 +118,75 @@ Environment overrides:
 	return c
 }
 
-// or() lives in main.go (same package).
+// newConfigUpdateCheckCmd manages the startup update-check toggle.
+//
+//	biu config update-check status — print current state + last check
+//	biu config update-check off      — disable startup checks
+//	biu config update-check on       — re-enable
+func newConfigUpdateCheckCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "update-check",
+		Short: "Manage the startup update check (default: on)",
+		Long: `Manage the startup update check.
+
+biu checks GitHub for a newer CLI release when the interactive REPL
+starts (at most once per 24h, in the background, never blocking
+startup). Only the interactive REPL checks — headless, serve, and
+one-shot subcommands never hit the network for this. Dev and
+desktop-client-managed builds are always skipped.
+
+Environment override:
+  BIU_UPDATE_CHECK=0   hard-off regardless of saved config`,
+	}
+
+	c.AddCommand(&cobra.Command{
+		Use:   "status",
+		Short: "Print current update-check state",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			st, err := updatecheck.LoadState("")
+			if err != nil {
+				return clierr.Wrapf("config update-check status", err, "load")
+			}
+			path, _ := updatecheck.StatePath()
+			fmt.Printf("enabled     : %v\n", st.Enabled == nil || *st.Enabled)
+			if st.LastCheckedAt.IsZero() {
+				fmt.Printf("last checked: (never)\n")
+			} else {
+				fmt.Printf("last checked: %s\n", st.LastCheckedAt.Local().Format(time.RFC3339))
+			}
+			fmt.Printf("latest known: %s\n", or(st.LatestVersion, "(unknown)"))
+			fmt.Printf("skipped     : %s\n", or(st.SkippedVersion, "(none)"))
+			fmt.Printf("state file  : %s\n", clierr.DisplayPath(path))
+			return nil
+		},
+	})
+
+	c.AddCommand(&cobra.Command{
+		Use:   "off",
+		Short: "Disable the startup update check",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := updatecheck.Disable(); err != nil {
+				return clierr.Wrapf("config update-check off", err, "save")
+			}
+			fmt.Fprintln(os.Stderr, "[biu] update check disabled")
+			return nil
+		},
+	})
+
+	c.AddCommand(&cobra.Command{
+		Use:   "on",
+		Short: "Enable the startup update check",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := updatecheck.Enable(); err != nil {
+				return clierr.Wrapf("config update-check on", err, "save")
+			}
+			fmt.Fprintln(os.Stderr, "[biu] update check enabled")
+			return nil
+		},
+	})
+
+	return c
+}
 
 func newConfigShowCmd(f *rootFlags) *cobra.Command {
 	var showSettings bool

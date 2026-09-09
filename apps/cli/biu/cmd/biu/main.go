@@ -42,6 +42,7 @@ import (
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
 	"github.com/biumind/biumind/apps/cli/biu/internal/telemetry"
+	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	"github.com/biumind/biumind/apps/cli/biu/internal/worktree"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/exechost"
@@ -390,6 +391,11 @@ func newRootCmd() *cobra.Command {
 				MCP:         mcpReg,
 				Trust:       trustStore,
 				Skills:      skillReg,
+
+				// OSS manifest fallback for the startup update check,
+				// derived from the relay endpoint (single-origin).
+				UpdateManifestURL: updatecheck.ManifestURLForEndpoint(
+					firstNonEmpty(f.relayURL, os.Getenv("BIUMIND_MODEL_RELAY_URL"), cfg.Relay.Endpoint)),
 			})
 		},
 	}

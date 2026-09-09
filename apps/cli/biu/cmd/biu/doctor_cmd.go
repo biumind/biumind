@@ -22,6 +22,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"github.com/biumind/biumind/apps/cli/biu/internal/secretstore"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
+	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	"github.com/spf13/cobra"
 )
 
@@ -201,6 +202,26 @@ func newDoctorCmd(f *rootFlags) *cobra.Command {
 				report.warn("auth token source", "none — run `biu auth login` to sign in via browser")
 			} else {
 				report.ok("auth token source", tokenSource)
+			}
+
+			// ── Update check ────────────────────────
+			// State-only read (no network in doctor): toggle, last
+			// check, cached latest. warn when the cached latest is
+			// newer than the running binary.
+			if updatecheck.ShouldSkipVersion(version) {
+				report.ok("update check", "skipped for dev / client-managed builds")
+			} else if !updatecheck.Enabled() {
+				report.ok("update check", "off (biu config update-check on to enable)")
+			} else if st, err := updatecheck.LoadState(""); err != nil {
+				report.warn("update check", "state unreadable: "+err.Error())
+			} else if st.LatestVersion == "" {
+				report.ok("update check", "on, not checked yet")
+			} else if updatecheck.CompareVersions(st.LatestVersion, version) > 0 {
+				report.warn("update check",
+					fmt.Sprintf("biu %s available (running %s) — /upgrade run to update",
+						st.LatestVersion, version))
+			} else {
+				report.ok("update check", "on, up to date ("+version+")")
 			}
 
 			// ── Agent-plane secrets backend (R6.4) ──
