@@ -56,9 +56,10 @@ type Embedder interface {
 type OpenAIConfig struct {
 	BaseURL string // default https://api.openai.com/v1
 	APIKey  string // required
-	Model   string // default text-embedding-3-small (1536 dims)
-	Dims    int    // default 1536; must match the stored column
-	HTTP    *http.Client
+	Model   string // required — no built-in default; the caller resolves it
+	// (env override → model-relay preferred ?mode=embedding)
+	Dims int // default 1536; must match the stored column
+	HTTP *http.Client
 }
 
 type openAIEmbedder struct {
@@ -72,13 +73,13 @@ func NewOpenAI(cfg OpenAIConfig) (Embedder, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("embed: OpenAIConfig.APIKey required")
 	}
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("embed: OpenAIConfig.Model required (no built-in default)")
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1"
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	if cfg.Model == "" {
-		cfg.Model = "text-embedding-3-small"
-	}
 	if cfg.Dims == 0 {
 		cfg.Dims = 1536
 	}

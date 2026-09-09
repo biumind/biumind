@@ -7,8 +7,8 @@
 //   1. 拉上周 7d 数据: starred 个数 / read 个数 / wiki 沉淀个数 / ai_topics
 //      聚类 (取 top 3)
 //   2. 拉 5 篇最重要的 entries (按 ai_importance desc + starred=true 加权)
-//   3. LLM (sonnet 4.6 fallback glm-5.1) 用 system prompt 写 "上周回顾"
-//      markdown
+//   3. LLM (启动期解析: RSS_DIGEST_MODEL env > relay preferred
+//      ?mode=chat) 用 system prompt 写 "上周回顾" markdown
 //   4. brain.Wiki POST 到 "信息流/周报/<iso_week>" 页面
 //   5. INSERT weekly_runs (success / 失败都记, 失败带 error)
 

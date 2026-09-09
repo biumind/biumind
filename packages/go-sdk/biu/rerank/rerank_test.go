@@ -72,12 +72,15 @@ func TestCohere_NewRequiresAPIKey(t *testing.T) {
 }
 
 func TestCohere_Defaults(t *testing.T) {
-	r, err := NewCohere(CohereConfig{APIKey: "k"})
+	if _, err := NewCohere(CohereConfig{APIKey: "k"}); err == nil {
+		t.Fatal("NewCohere with empty Model should error (no built-in default)")
+	}
+	r, err := NewCohere(CohereConfig{APIKey: "k", Model: "test-reranker"})
 	if err != nil {
 		t.Fatalf("NewCohere: %v", err)
 	}
-	if r.Model() != "BAAI/bge-reranker-v2-m3" {
-		t.Errorf("default model = %q, want BAAI/bge-reranker-v2-m3", r.Model())
+	if r.Model() != "test-reranker" {
+		t.Errorf("model = %q, want test-reranker", r.Model())
 	}
 	cr := r.(*cohereReranker)
 	if cr.cfg.BaseURL != "https://api.cohere.ai/v1" {

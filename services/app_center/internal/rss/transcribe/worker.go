@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	// paraformer-v2 is dashscope's async ASR (cheapest + strongest Chinese);
-	// the JSON path in model-relay routes to its AsyncTranscribeAdaptor.
-	// Overridable via RSS_TRANSCRIBE_MODEL.
+	// ASR 模型在启动期解析 (RSS_TRANSCRIBE_MODEL env > relay preferred
+	// ?mode=audio_transcription); dashscope 异步 ASR 走 model-relay 的
+	// JSON path → AsyncTranscribeAdaptor。
 	// model-relay blocks (submit+poll) up to ~10min per episode; give the
 	// HTTP client headroom beyond that.
 	defaultTimeout     = 12 * time.Minute

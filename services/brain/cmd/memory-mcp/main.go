@@ -65,10 +65,14 @@ type Config struct {
 	// Optional embedder — same env shape as the brain service so
 	// users can copy-paste config. Default "" keeps recall lexical-only
 	// AND drops wiki.search to BM25-only.
+	// EMBED_MODEL 无默认值 —— 本二进制直连用户自配的 OpenAI 兼容端点
+	// (EMBED_BASE_URL/EMBED_API_KEY), 不经过平台 model-relay, 模型名由
+	// 端点供给侧决定, 平台无法替用户优选; EMBED_PROVIDER=openai 时必填,
+	// 空则启动明确报错。
 	EmbedProvider string `env:"EMBED_PROVIDER" default:""`
 	EmbedAPIKey   string `env:"EMBED_API_KEY" default:""`
 	EmbedBaseURL  string `env:"EMBED_BASE_URL" default:""`
-	EmbedModel    string `env:"EMBED_MODEL" default:"text-embedding-3-small"`
+	EmbedModel    string `env:"EMBED_MODEL" default:""`
 	EmbedDims     int    `env:"EMBED_DIMS" default:"1024"`
 
 	// Optional NATS — required only for wiki.ingest. Empty keeps the
@@ -167,6 +171,10 @@ func buildEmbedder(cfg Config) (embed.Embedder, error) {
 	case "stub":
 		return embed.NewStub(cfg.EmbedDims), nil
 	case "openai":
+		if cfg.EmbedModel == "" {
+			return nil, fmt.Errorf("EMBED_MODEL is required when EMBED_PROVIDER=openai " +
+				"(set it to the embedding model your EMBED_BASE_URL serves)")
+		}
 		return embed.NewOpenAI(embed.OpenAIConfig{
 			BaseURL: cfg.EmbedBaseURL, APIKey: cfg.EmbedAPIKey,
 			Model: cfg.EmbedModel, Dims: cfg.EmbedDims,

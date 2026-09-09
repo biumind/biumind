@@ -101,7 +101,7 @@ func TestOpenAI_HappyPath(t *testing.T) {
 		}
 		var req openAIRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.Model != "text-embedding-3-small" {
+		if req.Model != "test-embed" {
 			t.Errorf("model: %s", req.Model)
 		}
 		// Return a fixed-length vector matching requested dims.
@@ -118,7 +118,7 @@ func TestOpenAI_HappyPath(t *testing.T) {
 	defer srv.Close()
 
 	e, err := NewOpenAI(OpenAIConfig{
-		BaseURL: srv.URL, APIKey: "test-key", Dims: 8,
+		BaseURL: srv.URL, APIKey: "test-key", Model: "test-embed", Dims: 8,
 	})
 	if err != nil {
 		t.Fatalf("constructor: %v", err)
@@ -130,7 +130,7 @@ func TestOpenAI_HappyPath(t *testing.T) {
 	if len(v) != 8 {
 		t.Errorf("dim: %d", len(v))
 	}
-	if e.Model() != "text-embedding-3-small" {
+	if e.Model() != "test-embed" {
 		t.Errorf("model: %s", e.Model())
 	}
 }
@@ -145,7 +145,7 @@ func TestOpenAI_PropagatesProviderError(t *testing.T) {
 	defer srv.Close()
 
 	e, _ := NewOpenAI(OpenAIConfig{
-		BaseURL: srv.URL, APIKey: "x", Dims: 4,
+		BaseURL: srv.URL, APIKey: "x", Model: "test-embed", Dims: 4,
 	})
 	_, err := e.Embed(context.Background(), "x")
 	if err == nil {
@@ -167,7 +167,7 @@ func TestOpenAI_RejectsDimMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "x", Dims: 8})
+	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "x", Model: "test-embed", Dims: 8})
 	_, err := e.Embed(context.Background(), "x")
 	if err == nil {
 		t.Fatal("expected dim mismatch error")
@@ -227,7 +227,7 @@ func TestOpenAI_EmbedBatchHappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e, err := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Dims: 4})
+	e, err := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Model: "test-embed", Dims: 4})
 	if err != nil {
 		t.Fatalf("constructor: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestOpenAI_EmbedBatchRejectsCountMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Dims: 4})
+	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Model: "test-embed", Dims: 4})
 	_, err := e.EmbedBatch(context.Background(), []string{"a", "b"})
 	if err == nil {
 		t.Fatal("expected count-mismatch error")
@@ -265,7 +265,7 @@ func TestOpenAI_EmbedBatchRejectsCountMismatch(t *testing.T) {
 }
 
 func TestOpenAI_EmbedBatchEmpty(t *testing.T) {
-	e, _ := NewOpenAI(OpenAIConfig{BaseURL: "http://127.0.0.1:1", APIKey: "k", Dims: 4})
+	e, _ := NewOpenAI(OpenAIConfig{BaseURL: "http://127.0.0.1:1", APIKey: "k", Model: "test-embed", Dims: 4})
 	vecs, err := e.EmbedBatch(context.Background(), nil)
 	if err != nil || vecs != nil {
 		t.Errorf("empty batch = (%v, %v), want (nil, nil) — no HTTP call", vecs, err)
@@ -291,7 +291,7 @@ func TestOpenAI_SingleEmbedStillWorks(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Dims: 4})
+	e, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "k", Model: "test-embed", Dims: 4})
 	v, err := e.Embed(context.Background(), "hello")
 	if err != nil {
 		t.Fatalf("Embed: %v", err)

@@ -14,7 +14,7 @@
 // Backfill cadence: same 5min ticker as digest, runs after digest so
 // new entries get takeaway+topics first then embedding for radar.
 //
-// Vector dim is fixed at 1024 (bge-m3). If admin swaps the embedding
+// Vector dim is fixed at 1024. If admin swaps the embedding
 // model to a different dimension, schema migration must precede.
 
 package embed
@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	defaultMaxInput    = 4000 // bge-m3 max ~ 8192 tokens; cap at chars
+	defaultMaxInput    = 4000 // embedding model input window; cap at chars
 	defaultConcurrency = 2
 	defaultQueueSize   = 256
 	defaultTimeout     = 20 * time.Second

@@ -145,8 +145,9 @@ type Config struct {
 	//              for dev / tests / air-gapped environments.
 	//   "openai" — OpenAI-compatible /embeddings. Default egress is
 	//              model-relay /v1/internal/embeddings (platform pool,
-	//              bge-m3); set EMBED_BASE_URL to bypass only when you
-	//              know why (breaks I6 central-egress).
+	//              模型由 preferred?mode=embedding 优选); set
+	//              EMBED_BASE_URL to bypass only when you know why
+	//              (breaks I6 central-egress).
 	//   ""       — disables the worker; recall stays lexical-only.
 	EmbedProvider string `env:"EMBED_PROVIDER"      default:""`
 	EmbedAPIKey   string `env:"EMBED_API_KEY"       default:""`
@@ -162,14 +163,16 @@ type Config struct {
 	// ─── Cross-encoder reranker (search P1-2) ─────────────────────
 	// RERANK_PROVIDER unset → no rerank; the fused list keeps RRF order.
 	//   "cohere" — Cohere-shape /rerank. Default egress is model-relay
-	//              /v1/internal/rerank (platform pool, bge-reranker-v2-m3);
-	//              set RERANK_BASE_URL to bypass (breaks I6 central-egress).
+	//              /v1/internal/rerank (platform pool); set
+	//              RERANK_BASE_URL to bypass (breaks I6 central-egress).
 	//   "stub"   — deterministic token-overlap (tests/dev, no network).
 	//   ""       — disables rerank.
+	// RERANK_MODEL 是显式运维覆盖, 默认空 = relay preferred
+	// (?mode=rerank) 自动优选; 都落空 → rerank 禁用 (WARN, 不阻塞启动)。
 	RerankProvider string `env:"RERANK_PROVIDER" default:""`
 	RerankAPIKey   string `env:"RERANK_API_KEY"   default:""`
 	RerankBaseURL  string `env:"RERANK_BASE_URL"  default:""`
-	RerankModel    string `env:"RERANK_MODEL"     default:"BAAI/bge-reranker-v2-m3"`
+	RerankModel    string `env:"RERANK_MODEL"     default:""`
 
 	// ─── Wiki chunk embedding worker ─────────────────────────────
 	// Drives the third RRF retrieval path (vector). Shares the embedder
@@ -617,7 +620,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("brain: build embedder: %w", err)
 	}
-	reranker, err := buildReranker(cfg)
+	reranker, err := buildReranker(ctx, cfg, chatDefaultModels)
 	if err != nil {
 		return fmt.Errorf("brain: build reranker: %w", err)
 	}
@@ -1585,8 +1588,10 @@ func buildEmbedder(ctx context.Context, cfg Config, models *agentplanepkg.Defaul
 
 // buildReranker constructs the configured cross-encoder reranker.
 // Returns nil (no error) when RERANK_PROVIDER is empty so callers can
-// treat rerank as opt-in.
-func buildReranker(cfg Config) (rerank.Reranker, error) {
+// treat rerank as opt-in. provider=cohere 时模型解析链: RERANK_MODEL
+// env > relay preferred (?mode=rerank) > nil (WARN 降级, 检索保持 RRF
+// 顺序) — 无硬编码默认模型名。RERANK_BASE_URL 显式直连时 env 必填。
+func buildReranker(ctx context.Context, cfg Config, models *agentplanepkg.DefaultModelResolver) (rerank.Reranker, error) {
 	switch cfg.RerankProvider {
 	case "":
 		return nil, nil
@@ -1607,10 +1612,19 @@ func buildReranker(cfg Config) (rerank.Reranker, error) {
 		if key == "" {
 			key = cfg.ModelRelayInternalToken
 		}
+		model := cfg.RerankModel
+		if model == "" && models != nil {
+			model = models.PreferredModel(ctx, "rerank", "")
+		}
+		if model == "" {
+			slog.Default().Warn("reranker disabled: no rerank model resolved",
+				"hint", "set RERANK_MODEL or provision an active rerank model in the model-relay admin")
+			return nil, nil
+		}
 		return rerank.NewCohere(rerank.CohereConfig{
 			BaseURL: base,
 			APIKey:  key,
-			Model:   cfg.RerankModel,
+			Model:   model,
 		})
 	default:
 		return nil, fmt.Errorf("unknown RERANK_PROVIDER %q (use stub | cohere | empty)",

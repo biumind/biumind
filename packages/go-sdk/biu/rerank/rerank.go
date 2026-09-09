@@ -56,8 +56,9 @@ type Reranker interface {
 type CohereConfig struct {
 	BaseURL string // default https://api.cohere.ai/v1 ; POST {BaseURL}/rerank
 	APIKey  string // required
-	Model   string // default BAAI/bge-reranker-v2-m3
-	HTTP    *http.Client
+	Model   string // required — no built-in default; the caller resolves it
+	// (env override → model-relay preferred ?mode=rerank)
+	HTTP *http.Client
 }
 
 type cohereReranker struct {
@@ -71,13 +72,13 @@ func NewCohere(cfg CohereConfig) (Reranker, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("rerank: CohereConfig.APIKey required")
 	}
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("rerank: CohereConfig.Model required (no built-in default)")
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.cohere.ai/v1"
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	if cfg.Model == "" {
-		cfg.Model = "BAAI/bge-reranker-v2-m3"
-	}
 	if cfg.HTTP == nil {
 		cfg.HTTP = &http.Client{Timeout: 30 * time.Second}
 	}
