@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# pre-push: 仅当推送的提交改动涉及 Go 代码时，跑全量 go test（对齐 task test:go）。
+# 安装：task hooks:install（即 git config core.hooksPath tools/scripts）
+# 跳过：git push --no-verify
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+zero=0000000000000000000000000000000000000000
+changed_files=""
+
+# stdin 每行: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # 删除分支：本地 sha 全零，无需测试
+  [ "$local_sha" = "$zero" ] && continue
+
+  if [ "$remote_sha" = "$zero" ]; then
+    # 新分支：与 origin/main 的 merge-base 对比；拿不到就保守起见不缩小范围
+    base=$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "")
+    if [ -n "$base" ]; then
+      files=$(git diff --name-only "$base" "$local_sha")
+    else
+      files=$(git diff-tree --no-commit-id --name-only -r "$local_sha")
+    fi
+  else
+    files=$(git diff --name-only "$remote_sha" "$local_sha")
+  fi
+  changed_files=$(printf '%s\n%s\n' "$changed_files" "$files")
+done
+
+if ! printf '%s\n' "$changed_files" | grep -qE '\.go$|(^|/)go\.(mod|sum|work)$'; then
+  exit 0
+fi
+
+echo "pre-push: 检测到 Go 代码改动，运行全量 go test -race（--no-verify 可跳过）"
+go test -race ./apps/cli/biu/... ./services/... ./packages/go-sdk/...
