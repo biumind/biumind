@@ -22,6 +22,8 @@ def _cfg() -> Config:
     return Config.from_env({
         "BIUMIND_NATS_URL": "nats://test",
         "BIUMIND_ENV": "test",
+        # 显式 env 模型 —— 这些用例钉管线形状, 不依赖解析链。
+        "BIUMIND_WIKI_LLM_MODEL": "test.model",
         # 本文件钉的是 P1-8 单阶段管线形状；P2 #17 两阶段形状由
         # test_two_stage.py 覆盖（默认开）。显式关掉避免这批用例
         # 被 stage-1 网络调用绊倒。

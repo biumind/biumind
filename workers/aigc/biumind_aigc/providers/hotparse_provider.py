@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any, Optional
 
 import httpx
@@ -35,6 +36,11 @@ logger = logging.getLogger("biumind.aigc.hotparse")
 
 TRANSCRIBE_PATH = "/v1/internal/transcribe"
 CHAT_PATH = "/v1/internal/chat"
+PREFERRED_CHAT_PATH = "/v1/internal/models/preferred-chat"
+
+# preferred-chat 进程内正缓存 TTL —— 对齐 brain / wiki-llm 的 60s;
+# 解析失败不缓存(下次任务重试), 也不设负缓存打爆保护(hotparse 任务低频)。
+_PREF_CACHE_TTL_S = 60.0
 
 
 class HotparseProvider(Executor):
@@ -51,6 +57,8 @@ class HotparseProvider(Executor):
         self._owns_client = client is None
         self._task: Optional[asyncio.Task] = None
         self._progress = 0
+        self._pref_model = ""
+        self._pref_exp = 0.0
 
     @property
     def code(self) -> str:
@@ -174,7 +182,11 @@ class HotparseProvider(Executor):
         return text
 
     async def _analyze(self, task: SubmitTask, transcript: str) -> dict[str, Any]:
+        # 模型链: task.params.llm_model > AIGC_HOTPARSE_LLM_MODEL env >
+        # relay preferred-chat 自动优选 > ProviderError(带配置提示)。
         model = (task.params or {}).get("llm_model") or self._cfg.hotparse_llm_model
+        if not model:
+            model = await self._preferred_chat_model()
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -204,6 +216,35 @@ class HotparseProvider(Executor):
             raise ProviderError("chat returned empty content")
         # parse_result 抛 ValueError → _run 转 HOTPARSE_PARSE
         return _prompt.parse_result(text)
+
+    async def _preferred_chat_model(self) -> str:
+        """relay preferred-chat 自动优选可用 chat 模型, 60s 进程内正缓存。
+        解析不出 → ProviderError(任务 failed, 带配置提示)。"""
+        now = time.monotonic()
+        if self._pref_model and now < self._pref_exp:
+            return self._pref_model
+        headers = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        try:
+            resp = await self._client.get(self._base + PREFERRED_CHAT_PATH,
+                                          headers=headers)
+        except httpx.HTTPError as e:
+            raise ProviderError(f"preferred-chat http: {e}") from e
+        code = ""
+        if resp.status_code == 200:
+            try:
+                code = str(resp.json().get("code") or "")
+            except ValueError:
+                code = ""
+        if not code:
+            raise ProviderError(
+                "no chat model available: set AIGC_HOTPARSE_LLM_MODEL or "
+                "configure an active chat model in the model-relay admin "
+                f"(preferred-chat status {resp.status_code})")
+        self._pref_model = code
+        self._pref_exp = now + _PREF_CACHE_TTL_S
+        return code
 
 
 def _extract_anthropic_text(data: dict[str, Any]) -> str:

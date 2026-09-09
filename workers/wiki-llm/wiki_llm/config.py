@@ -26,10 +26,12 @@ hotparse worker)::
                               BIUMIND_IDENTITY_URL empty disables that
                               layer), then the admin-designated default
                               chat model from relay
-                              GET /v1/internal/models/default-chat
-                              (see default_model.py), falling back to
-                              BUILTIN_FALLBACK_MODEL when the endpoint is
-                              unreachable / unconfigured
+                              GET /v1/internal/models/default-chat, then
+                              relay's auto-picked best usable chat model
+                              GET /v1/internal/models/preferred-chat
+                              (see default_model.py); if every tier misses
+                              the task fails with a clear error — there is
+                              no built-in hardcoded model anymore
     BIUMIND_IDENTITY_URL      e.g. http://identity:7004; empty (default)
                               disables the per-owner preference layer
 
@@ -47,16 +49,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-
-
-# 兜底链最后一级:env 未覆盖且 relay default-chat 端点拉不到时用的
-# 内置硬编码默认。取值与 brain ChatRunner 的硬兜底保持一致
-# (services/brain/internal/agentplane/chat_runner.go:141
-# "claude-sonnet-4-6" —— 注意在 chat_runner.go 而非 default_model.go,
-# 后者只是 resolver 不含硬编码值)。这只是"relay 不可用"时的尽力而为值;
-# 正常态模型来自 relay default-chat(admin 在 models 表标
-# is_default_chat),端点失败不报错、落兜底(与 brain 一致)。
-BUILTIN_FALLBACK_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass(frozen=True)

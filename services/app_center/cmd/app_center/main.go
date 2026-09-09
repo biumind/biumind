@@ -107,6 +107,14 @@ type Config struct {
 	// action gracefully.
 	ModelRelayURL string `env:"MODEL_RELAY_URL" default:""`
 
+	// IdentityInternalToken — 服务间共享 bearer, 用于接线时查 relay
+	// /v1/internal/models/preferred-chat 解析 radar advisor 的默认模型。
+	IdentityInternalToken string `env:"IDENTITY_INTERNAL_TOKEN" default:""`
+	// RadarLLMModel — radar LLM advisor 的显式模型覆盖。默认空 =
+	// 启动时经 relay preferred-chat 自动优选; 都落空则不接 advisor
+	// (rules_from_nl / rephrase 返明确错误, 服务照常启动)。
+	RadarLLMModel string `env:"RADAR_LLM_MODEL" default:""`
+
 	// AuthzURL — base URL of the central Authz service. M11.2 org-scope
 	// reads/writes consult it (rss:org_read / rss:org_write). Empty ⇒
 	// AlwaysAllow stub + startup WARN (dev only; org writes ungated).
@@ -269,10 +277,29 @@ func run() error {
 		}
 
 		if cfg.ModelRelayURL != "" {
-			rssAppRef.WithLLM(&radar.LLMSDKAdapter{
-				Client: radar.NewLLMClient(cfg.ModelRelayURL),
-			})
-			logger.Info("rss app: LLM advisor wired", "model_relay", cfg.ModelRelayURL)
+			// 模型解析链: RADAR_LLM_MODEL env 显式覆盖 > relay
+			// preferred-chat 自动优选 > 不接 advisor (功能级降级,
+			// 不阻塞启动)。无硬编码默认模型名。
+			radarModel := cfg.RadarLLMModel
+			if radarModel == "" {
+				m, err := radar.ResolvePreferredChatModel(
+					ctx, cfg.ModelRelayURL, cfg.IdentityInternalToken)
+				if err != nil {
+					logger.Warn("rss app: preferred-chat lookup failed",
+						"err", err)
+				}
+				radarModel = m
+			}
+			if radarModel != "" {
+				rssAppRef.WithLLM(&radar.LLMSDKAdapter{
+					Client: radar.NewLLMClient(cfg.ModelRelayURL, radarModel),
+				})
+				logger.Info("rss app: LLM advisor wired",
+					"model_relay", cfg.ModelRelayURL, "model", radarModel)
+			} else {
+				logger.Warn("rss app: LLM advisor disabled (no model resolved; " +
+					"set RADAR_LLM_MODEL or configure an active chat model in the relay admin)")
+			}
 		}
 
 		// M11.2: org-scope authorizer. Real Authz when AUTHZ_URL is set;

@@ -320,3 +320,99 @@ func TestStringPrefix(t *testing.T) {
 		t.Fatal("prefix match failed")
 	}
 }
+
+// RunCredential 空 testModel 时的解析链: 已接线 channel 的 upstream_model
+// 优先(in-process registry 直查), 未接线 → not_configured, 不再有
+// 协议级硬编码默认模型。
+func TestProbeRunCredential_UsesWiredChannelModel(t *testing.T) {
+	pool := openDB(t)
+	store := registry.NewStore(pool)
+	ctx := context.Background()
+
+	var gotModel string
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotModel = body.Model
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "cmpl-test", "object": "chat.completion",
+			"choices": []map[string]any{{
+				"index":         0,
+				"message":       map[string]any{"role": "assistant", "content": "ok"},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+		})
+	}))
+	defer stub.Close()
+
+	kek := make([]byte, 32)
+	_, _ = rand.Read(kek)
+	env, _ := keys.NewEnvelope(kek)
+	vault := registry.NewCredentialVault(store.Credentials, env)
+
+	prov, err := store.Providers.Insert(ctx, registry.ProviderInput{
+		Code: fmt.Sprintf("p_probe_%d", time.Now().UnixNano()),
+		Name: "Stub", Protocol: registry.ProtocolOpenAICompat,
+	})
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.providers WHERE id=$1", prov.ID) //nolint:errcheck
+
+	cred, err := vault.Save(ctx, registry.SaveInput{
+		ProviderID: prov.ID, Label: "L", Plaintext: "sk-x", BaseURL: stub.URL,
+	})
+	if err != nil {
+		t.Fatalf("cred: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.credentials WHERE id=$1", cred.ID) //nolint:errcheck
+
+	mdl, err := store.Models.Insert(ctx, registry.ModelInput{
+		Code:        fmt.Sprintf("m_probe_%d", time.Now().UnixNano()),
+		DisplayName: "M", MinPlan: registry.PlanFree, Status: registry.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", mdl.ID) //nolint:errcheck
+
+	ch, err := store.Channels.Insert(ctx, registry.ChannelInput{
+		ModelID: mdl.ID, CredentialID: cred.ID,
+		UpstreamModel: "upstream-model-xyz",
+		Priority:      100, Weight: 1, Status: registry.StatusActive,
+	})
+	if err != nil {
+		t.Fatalf("channel: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.channels WHERE id=$1", ch.ID) //nolint:errcheck
+
+	adaptors := provider.NewRegistry()
+	adaptors.Register(openai.New())
+	p := New(Config{Store: store, Vault: vault, Adaptors: adaptors, Timeout: time.Second})
+
+	res := p.RunCredential(ctx, cred.ID, "")
+	if !res.OK {
+		t.Fatalf("expected ok, got %+v", res)
+	}
+	if gotModel != "upstream-model-xyz" {
+		t.Fatalf("probe should use the wired channel's upstream_model; got %q", gotModel)
+	}
+
+	// 未接线任何 channel 的 credential → not_configured。
+	cred2, err := vault.Save(ctx, registry.SaveInput{
+		ProviderID: prov.ID, Label: "L2", Plaintext: "sk-x", BaseURL: stub.URL,
+	})
+	if err != nil {
+		t.Fatalf("cred2: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.credentials WHERE id=$1", cred2.ID) //nolint:errcheck
+
+	res = p.RunCredential(ctx, cred2.ID, "")
+	if res.OK || res.ErrorCode != CodeNotConfigured {
+		t.Fatalf("expected not_configured, got %+v", res)
+	}
+}

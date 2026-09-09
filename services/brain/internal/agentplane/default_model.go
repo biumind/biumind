@@ -14,6 +14,9 @@
 //	200 → {"code":"<model code>"}    404 → 无任何可用 chat 模型
 //	(relay 侧自动优选: mode=chat + active, sort_order ASC / code ASC)
 //
+//	GET /v1/internal/models/preferred?mode=<m>&capability=vision
+//	泛化形态(辅助功能用 —— vision-caption 等需要 capability 过滤)
+//
 // 进程内缓存:命中缓存 60s TTL;失败(404 / 5xx / 网络)负缓存 10s ——
 // relay 短暂不可用时每个 turn 都重试,但不打爆 relay。两个端点各自
 // 独立缓存槽。启动时 main.go 异步 Warm 预热,不阻塞 boot。并发安全
@@ -27,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -52,12 +56,18 @@ type DefaultModelResolver struct {
 	cached   string
 	cacheExp time.Time
 	negExp   time.Time
-	// preferred-chat 端点的独立缓存槽 —— 与 default-chat 分开,避免一端
-	// 404 负缓存把另一端也压住。
-	prefCached   string
-	prefCacheExp time.Time
-	prefNegExp   time.Time
-	now          func() time.Time // 单测注入;生产 time.Now
+	// preferred 端点的缓存槽按 (mode|capability) 分键 —— 与 default-chat
+	// 分开,避免一端 404 负缓存把另一端也压住;chat 与 chat+vision 互不
+	// 污染。
+	prefSlots map[string]*modelCacheSlot
+	now       func() time.Time // 单测注入;生产 time.Now
+}
+
+// modelCacheSlot 是单个 (mode, capability) 组合的正/负缓存槽。
+type modelCacheSlot struct {
+	cached   string
+	cacheExp time.Time
+	negExp   time.Time
 }
 
 // NewDefaultModelResolver 构造 resolver。logger 可空。
@@ -72,6 +82,7 @@ func NewDefaultModelResolver(relayURL, internalToken string, logger *slog.Logger
 		logger:      logger,
 		cacheTTL:    defaultModelCacheTTL,
 		negativeTTL: defaultModelNegativeTTL,
+		prefSlots:   map[string]*modelCacheSlot{},
 		now:         time.Now,
 	}
 }
@@ -94,8 +105,25 @@ func (r *DefaultModelResolver) DefaultChatModel(ctx context.Context) string {
 // (mode=chat + active,sort_order / code 排序) —— 兜底链里排在
 // is_default_chat 与 env 覆盖之后。未配 / 不可达时返 ""。
 func (r *DefaultModelResolver) PreferredChatModel(ctx context.Context) string {
-	return r.resolve(ctx, "/v1/internal/models/preferred-chat",
-		&r.prefCached, &r.prefCacheExp, &r.prefNegExp)
+	return r.PreferredModel(ctx, "chat", "")
+}
+
+// PreferredModel 是泛化形态: mode 必填, capability 目前支持 "vision"
+// (brain vision-caption worker 用)。未配 / 不可达 / 无匹配时返 ""。
+func (r *DefaultModelResolver) PreferredModel(ctx context.Context, mode, capability string) string {
+	path := "/v1/internal/models/preferred?mode=" + url.QueryEscape(mode)
+	if capability != "" {
+		path += "&capability=" + url.QueryEscape(capability)
+	}
+	key := mode + "|" + capability
+	r.mu.Lock()
+	slot := r.prefSlots[key]
+	if slot == nil {
+		slot = &modelCacheSlot{}
+		r.prefSlots[key] = slot
+	}
+	r.mu.Unlock()
+	return r.resolve(ctx, path, &slot.cached, &slot.cacheExp, &slot.negExp)
 }
 
 // resolve 是 DefaultChatModel / PreferredChatModel 的共享实现:

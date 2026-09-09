@@ -112,6 +112,10 @@ func (s *Server) MountModels(mux *http.ServeMux) {
 		"GET /v1/internal/models/preferred-chat",
 		s.requireToken(s.handlePreferredChatModel),
 	)
+	mux.HandleFunc(
+		"GET /v1/internal/models/preferred",
+		s.requireToken(s.handlePreferredModel),
+	)
 }
 
 // requireToken is the bearer-check middleware. Same pattern as

@@ -15,7 +15,7 @@ relay default-chat endpoint in ``runner._resolve_model``:
      preference layer skipped and reruns the full stage1+stage2 once
      (stage-2 idempotency key gains a ``:fallback`` suffix so the relay
      Hold dedup doesn't swallow the retry). Non-preference sources
-     (env/default/builtin) never rerun.
+     (env/default/preferred) never rerun.
 
 HTTP is mocked with ``httpx.MockTransport``; the resolver clock is
 injected so TTL tests don't sleep.

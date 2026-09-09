@@ -34,6 +34,9 @@ def _cfg(**over) -> Config:
         "AIGC_MODEL_RELAY_URL": RELAY,
         "IDENTITY_INTERNAL_TOKEN": "tok",
         "BIUMIND_AIGC_TIMEOUT_S": "30",
+        # 显式 env 模型 —— 本文件多数用例钉管线形状, 不依赖 preferred-chat
+        # 解析(该路径由 test_preferred_chat_model_* 单独覆盖)。
+        "AIGC_HOTPARSE_LLM_MODEL": "test.llm-model",
     }
     env.update(over)
     return Config.from_env(env)
@@ -229,3 +232,28 @@ async def test_transcribe_error_maps_failed(monkeypatch) -> None:
         await asyncio.sleep(0.01)
     assert out is not None and out.status == "failed"
     assert out.error_code == "HOTPARSE_ERROR"
+
+
+# ─── LLM 模型解析链 (preferred-chat 级) ─────────────
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_preferred_chat_model_resolved_and_cached() -> None:
+    route = respx.get(RELAY + "/v1/internal/models/preferred-chat").mock(
+        return_value=httpx.Response(200, json={"code": "relay.preferred"}))
+    p = HotparseProvider(_cfg(AIGC_HOTPARSE_LLM_MODEL=""),
+                         client=httpx.AsyncClient())
+    assert await p._preferred_chat_model() == "relay.preferred"
+    assert await p._preferred_chat_model() == "relay.preferred"
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_preferred_chat_model_404_fails_with_hint() -> None:
+    respx.get(RELAY + "/v1/internal/models/preferred-chat").mock(
+        return_value=httpx.Response(404, text="no usable chat model"))
+    p = HotparseProvider(_cfg(AIGC_HOTPARSE_LLM_MODEL=""),
+                         client=httpx.AsyncClient())
+    with pytest.raises(ProviderError, match="AIGC_HOTPARSE_LLM_MODEL"):
+        await p._preferred_chat_model()

@@ -245,3 +245,82 @@ func TestPreferredChatModelCacheNotWired(t *testing.T) {
 		t.Fatalf("nil cache: status = %d, want 503", resp.StatusCode)
 	}
 }
+
+// GET /v1/internal/models/preferred — 泛化优选端点: mode 必填(400),
+// capability=vision 过滤掉无视觉能力的 chat 模型。期望值用 SQL 直算
+// (共享 dev 库)。
+func TestPreferredModelEndpoint(t *testing.T) {
+	pool := openDB(t)
+	store := registry.NewStore(pool)
+	ctx := context.Background()
+
+	// 一个无视觉能力、sort_order 极低的 chat 模型 —— capability=vision
+	// 查询必须跳过它。
+	suffix := time.Now().UnixNano()
+	blind, err := store.Models.Insert(ctx, registry.ModelInput{
+		Code: fmt.Sprintf("m_pref_novision_%d", suffix), DisplayName: "No Vision",
+		MinPlan: registry.PlanFree, Status: registry.StatusActive,
+		Mode: registry.ModeChat, SortOrder: -1_000_002,
+	})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	defer pool.Exec(ctx, "DELETE FROM model_relay.models WHERE id=$1", blind.ID) //nolint:errcheck
+
+	mux := http.NewServeMux()
+	freshCacheServer(store).MountModels(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	get := func(path string) (int, []byte) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, body
+	}
+
+	// 400 — mode 必填。
+	if status, _ := get("/v1/internal/models/preferred"); status != http.StatusBadRequest {
+		t.Fatalf("no mode: status = %d, want 400", status)
+	}
+
+	// capability=vision — 结果必须是 active chat 且 capabilities.vision=true
+	// 里 sort_order 最小者;刚插入的无视觉模型不能赢。
+	var want string
+	err = pool.QueryRow(ctx, `SELECT code FROM model_relay.models
+		WHERE mode='chat' AND status='active'
+		  AND COALESCE(capabilities->>'vision','false')='true'
+		ORDER BY sort_order ASC, code ASC LIMIT 1`).Scan(&want)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// 库里没有视觉模型 → 404 也是合法答案。
+		if status, _ := get("/v1/internal/models/preferred?mode=chat&capability=vision"); status != http.StatusNotFound {
+			t.Fatalf("no vision model: want 404")
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("expected query: %v", err)
+	}
+	status, body := get("/v1/internal/models/preferred?mode=chat&capability=vision")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	var out struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v body=%s", err, body)
+	}
+	if out.Code != want {
+		t.Fatalf("code = %q, want %q", out.Code, want)
+	}
+	if out.Code == blind.Code {
+		t.Fatalf("non-vision model picked: %q", out.Code)
+	}
+}

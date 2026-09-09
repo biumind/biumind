@@ -35,15 +35,16 @@ import (
 // strings so admin UI / cron logic can branch without parsing the
 // human-readable Error message. Stable values — used in metrics labels.
 const (
-	CodeOK           = ""
-	CodeTimeout      = "timeout"
-	CodeUnauthorized = "unauthorized" // 401 / 403
-	CodeRateLimited  = "rate_limited" // 429
-	CodeServer       = "server_error" // 5xx
-	CodeNetwork      = "network"      // TCP / TLS / DNS
-	CodeDecrypt      = "decrypt"      // envelope unwrap failed
-	CodeUnsupported  = "unsupported"  // no adaptor registered for provider
-	CodeBadResponse  = "bad_response" // 2xx but body unparseable
+	CodeOK            = ""
+	CodeTimeout       = "timeout"
+	CodeUnauthorized  = "unauthorized"   // 401 / 403
+	CodeRateLimited   = "rate_limited"   // 429
+	CodeServer        = "server_error"   // 5xx
+	CodeNetwork       = "network"        // TCP / TLS / DNS
+	CodeDecrypt       = "decrypt"        // envelope unwrap failed
+	CodeUnsupported   = "unsupported"    // no adaptor registered for provider
+	CodeNotConfigured = "not_configured" // no test model resolvable for probe
+	CodeBadResponse   = "bad_response"   // 2xx but body unparseable
 )
 
 // ProbeResult is the outcome of a single hello probe.
@@ -73,8 +74,9 @@ type Config struct {
 	Timeout time.Duration
 
 	// DefaultTestModel is used by RunCredential when the caller doesn't
-	// pass an explicit model (admin "test credential" path). Per-protocol
-	// fallback: openai_compat → "gpt-4o-mini", anthropic → "claude-haiku".
+	// pass an explicit model (admin "test credential" path). Per-adaptor
+	// ops override; empty → the probe looks up a channel already wired
+	// to the credential, and fails not_configured when neither exists.
 	DefaultTestModel map[provider.Adaptor]string
 
 	Logger *slog.Logger
@@ -135,8 +137,11 @@ func (p *Probe) RunChannel(ctx context.Context, channelID uuid.UUID) *ProbeResul
 
 // RunCredential probes a credential WITHOUT a specific channel. Used
 // by admin "test credential" — the credential may not yet be wired to
-// any channel. testModel can be empty: the probe falls back to a per-
-// protocol default. Caller may pass a base URL override (rare).
+// any channel. Model resolution order when testModel is empty:
+// Config.DefaultTestModel (ops-configured per-adaptor override) → an
+// active channel already wired to this credential (its upstream_model,
+// i.e. a model this provider provably serves) → not_configured error.
+// No hardcoded per-protocol model names.
 func (p *Probe) RunCredential(ctx context.Context, credentialID uuid.UUID, testModel string) *ProbeResult {
 	plaintext, cred, err := p.cfg.Vault.RevealForProbe(ctx, credentialID)
 	if err != nil {
@@ -169,7 +174,14 @@ func (p *Probe) RunCredential(ctx context.Context, credentialID uuid.UUID, testM
 	}
 	model := testModel
 	if model == "" {
-		model = p.defaultTestModelFor(adaptor)
+		model = p.defaultTestModelFor(ctx, adaptor, credentialID)
+	}
+	if model == "" {
+		return &ProbeResult{
+			OK: false, ErrorCode: CodeNotConfigured,
+			Error: "no test model: pass test_model, configure a per-adaptor " +
+				"default test model, or wire this credential to a channel first",
+		}
 	}
 	return p.runHTTP(ctx, adaptor, plaintext, cred.BaseURL, cred.HeaderOverride, model, model)
 }
@@ -1085,18 +1097,24 @@ func (p *Probe) lookupModalityAdaptor(prov *registry.Provider) (provider.BaseAda
 	return nil, false
 }
 
-func (p *Probe) defaultTestModelFor(a provider.Adaptor) string {
+// defaultTestModelFor 解析 credential 探针的测试模型:显式配置
+// (DefaultTestModel) > 该 credential 已接线的 active channel 的
+// upstream_model(in-process 直查 registry,不走 internal HTTP 端点
+// 绕圈)。两者都没有 → ""。channel 优先于拍脑袋的协议默认 —— 它证明
+// 该 provider 真的供这个模型。
+func (p *Probe) defaultTestModelFor(ctx context.Context, a provider.Adaptor, credentialID uuid.UUID) string {
 	if m, ok := p.cfg.DefaultTestModel[a]; ok {
 		return m
 	}
-	switch a.Name() {
-	case "anthropic":
-		return "claude-haiku-4-5"
-	case "openai", "openai_compat":
-		return "gpt-4o-mini"
-	default:
-		return "test-model"
+	chans, err := p.cfg.Store.Channels.List(ctx, registry.ChannelFilter{
+		CredentialID: credentialID,
+		Status:       registry.StatusActive,
+	})
+	if err != nil || len(chans) == 0 {
+		return ""
 	}
+	// List 已按 priority DESC / weight DESC 排序 — 第一个就是最优通道。
+	return chans[0].UpstreamModel
 }
 
 func classifyStatus(code int) string {

@@ -38,9 +38,10 @@ func newFakeDefaultChatRelay(t *testing.T, token string, status int, code string
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
 		wantStatus, wantCode := f.status, f.code
-		switch r.URL.Path {
-		case "/v1/internal/models/default-chat":
-		case "/v1/internal/models/preferred-chat":
+		switch {
+		case r.URL.Path == "/v1/internal/models/default-chat":
+		case r.URL.Path == "/v1/internal/models/preferred-chat",
+			r.URL.Path == "/v1/internal/models/preferred":
 			wantStatus, wantCode = f.prefStatus, f.prefCode
 		default:
 			http.Error(w, "bad path", http.StatusNotFound)
@@ -237,11 +238,30 @@ func TestChatRunner_DefaultChatModelChain(t *testing.T) {
 	r4 := testResolver(f.srv.URL)
 	for _, c := range []*ChatRunner{
 		{DefaultModels: r4, Logger: nopLogger()}, // resolver 全 404
-		{Logger: nopLogger()},                     // resolver nil + env 空
+		{Logger: nopLogger()},                    // resolver nil + env 空
 	} {
 		got, err := c.defaultChatModel(context.Background())
 		if err == nil || got != "" {
 			t.Errorf("expected errNoChatModelAvailable; got %q err=%v", got, err)
 		}
+	}
+}
+
+// PreferredModel 泛化形态: mode / capability 正确编进 query。
+func TestDefaultModelResolver_PreferredModelQuery(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"code": "vis-1"})
+	}))
+	defer srv.Close()
+	r := NewDefaultModelResolver(srv.URL, "internal-token",
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if got := r.PreferredModel(context.Background(), "chat", "vision"); got != "vis-1" {
+		t.Fatalf("got %q", got)
+	}
+	if gotPath != "/v1/internal/models/preferred" || gotQuery != "mode=chat&capability=vision" {
+		t.Fatalf("path=%q query=%q", gotPath, gotQuery)
 	}
 }

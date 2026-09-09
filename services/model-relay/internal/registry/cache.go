@@ -210,24 +210,40 @@ func (c *Cache) DefaultChatModel(ctx context.Context) (*Model, error) {
 }
 
 // PreferredChatModel returns the best available chat model for callers
-// that have no admin-designated default: mode=chat and status=active,
-// lowest sort_order wins, code ASC breaks ties (same ordering the
-// list/visible queries use). ErrNotFound when no chat model is usable.
+// that have no admin-designated default — PreferredModel with mode=chat
+// and no capability requirement.
+func (c *Cache) PreferredChatModel(ctx context.Context) (*Model, error) {
+	return c.PreferredModel(ctx, ModeChat, "")
+}
+
+// PreferredModel returns the best available model of the given mode:
+// status=active, lowest sort_order wins, code ASC breaks ties (same
+// ordering the list/visible queries use). capability optionally names
+// a Capabilities flag that must be true — currently only "vision" is
+// recognised (the vision-caption worker needs it); unknown values
+// match nothing, so callers fail loud instead of silently ignoring a
+// typo. ErrNotFound when nothing qualifies.
+//
 // "可用" here mirrors DefaultChatModel — model row status only; channel
 // health is a routing-time concern (Strategy.Pick) and intentionally not
 // consulted. manual_override is a sync-upstream write-lock, not an
 // availability signal, so it plays no role here either.
 // Reuses the models sub-cache — same NOTIFY invalidation as
 // DefaultChatModel, no restart needed after admin edits.
-func (c *Cache) PreferredChatModel(ctx context.Context) (*Model, error) {
+func (c *Cache) PreferredModel(ctx context.Context, mode, capability string) (*Model, error) {
 	if err := c.ensureModels(ctx); err != nil {
 		return nil, err
 	}
 	c.mu.RLock()
 	var best *Model
 	for _, m := range c.models {
-		if m.Mode != ModeChat || m.Status != StatusActive {
+		if m.Mode != mode || m.Status != StatusActive {
 			continue
+		}
+		if capability != "" {
+			if capability != "vision" || !m.Capabilities.Vision {
+				continue
+			}
 		}
 		if best == nil || m.SortOrder < best.SortOrder ||
 			(m.SortOrder == best.SortOrder && m.Code < best.Code) {
@@ -236,7 +252,8 @@ func (c *Cache) PreferredChatModel(ctx context.Context) (*Model, error) {
 	}
 	c.mu.RUnlock()
 	if best == nil {
-		return nil, fmt.Errorf("cache.preferred_chat_model: %w", ErrNotFound)
+		return nil, fmt.Errorf("cache.preferred_model mode=%s cap=%s: %w",
+			mode, capability, ErrNotFound)
 	}
 	return best, nil
 }

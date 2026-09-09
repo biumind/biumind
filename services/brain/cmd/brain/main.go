@@ -251,10 +251,11 @@ type Config struct {
 
 	// LLM 二次过滤. true 时 worker 在 cosine 候选基础上再调 model-relay 让模型判
 	// duplicate vs related, 拦掉假阳性. 需要 MODEL_RELAY_URL 已配 (本来就要给
-	// chat 用) — 缺则降级到无过滤. DEDUP_LLM_MODEL 默认 haiku 是 cost/
-	// speed 折中, ops 可改 sonnet 提质量.
+	// chat 用). DEDUP_LLM_MODEL 是显式运维覆盖 —— 默认空 = 启动时经 relay
+	// preferred 端点自动优选可用 chat 模型; 都落空则过滤器不建,
+	// worker 降级纯规则 (不阻塞启动)。
 	DedupLLMFilter bool   `env:"DEDUP_LLM_FILTER" default:"true"`
-	DedupLLMModel  string `env:"DEDUP_LLM_MODEL"  default:"claude-haiku-4-5-20251001"`
+	DedupLLMModel  string `env:"DEDUP_LLM_MODEL"  default:""`
 
 	// ─── Wiki lint worker ────────────────────────────────────────
 	// Periodic rules-based audit (untitled / empty / stub / dead
@@ -285,35 +286,40 @@ type Config struct {
 	// Polls pages where enriched_at < updated_at and asks the model
 	// for a list of {term, target} substitutions; deterministic
 	// applier inserts brackets. 0 disables. Default OFF — costs an
-	// LLM call per page edit.
+	// LLM call per page edit. ENRICH_LLM_MODEL 是显式运维覆盖, 默认空
+	// = relay preferred 自动优选; 落空则 worker 不起 (log WARN)。
 	EnrichIntervalSec int    `env:"ENRICH_INTERVAL_SEC"   default:"0"`
 	EnrichBatch       int    `env:"ENRICH_BATCH"          default:"8"`
-	EnrichModel       string `env:"ENRICH_LLM_MODEL"      default:"claude-haiku-4-5-20251001"`
+	EnrichModel       string `env:"ENRICH_LLM_MODEL"      default:""`
 
 	// ─── Wiki vision-caption worker ─────────────────────────────
 	// Captions image refs `![](url)` whose alt is empty/placeholder
 	// using a vision LLM. URL-keyed cache dedupes across pages.
 	// 0 disables. Default OFF — vision calls are slow + expensive.
+	// VISION_LLM_MODEL 显式覆盖; 默认空 = relay preferred 优选带
+	// capabilities.vision 的 chat 模型; 无视觉模型则 worker 不起。
 	VisionIntervalSec int    `env:"VISION_INTERVAL_SEC"  default:"0"`
 	VisionBatch       int    `env:"VISION_BATCH"         default:"8"`
-	VisionModel       string `env:"VISION_LLM_MODEL"     default:"claude-sonnet-4-6"`
+	VisionModel       string `env:"VISION_LLM_MODEL"     default:""`
 	VisionMaxImageMB  int    `env:"VISION_MAX_IMAGE_MB"  default:"5"`
 
 	// ─── Deep Research ──────────────────────────────────────────
 	// On-demand pipeline: topic → web search → LLM synthesis →
-	// new wiki page. Always available when SearxNG + model-relay are up.
-	// Knob is the synthesis model — defaults to sonnet (research
-	// quality matters more than cost here vs enrich/wikilinks).
-	ResearchModel string `env:"RESEARCH_LLM_MODEL" default:"claude-sonnet-4-6"`
+	// new wiki page. Available when SearxNG + model-relay are up and a
+	// model resolves. RESEARCH_LLM_MODEL 是显式运维覆盖 —— 默认空 =
+	// relay preferred 自动优选; 落空 → 端点 503 research_disabled。
+	ResearchModel string `env:"RESEARCH_LLM_MODEL" default:""`
 
 	// ─── Semantic Lint ────────────────────────────────────────────
 	// On-demand LLM 语义审查（POST /v1/wiki/projects/{pid}/lint/semantic）：
 	// 全项目页摘要一次调用，判 contradiction/stale/missing-page/suggestion，
 	// 写 review_items kind=lint（payload.rule_family=semantic）。
-	// sonnet —— 跨页矛盾判定需中等推理，haiku 精度不够。
-	SemanticModel string `env:"SEMANTIC_LLM_MODEL" default:"claude-sonnet-4-6"`
-	// SelectionModel powers inline selection edit/ask (S3 P1-6).
-	SelectionModel string `env:"SELECTION_LLM_MODEL" default:"claude-sonnet-4-6"`
+	// SEMANTIC_LLM_MODEL 显式覆盖, 默认空 = relay preferred 自动优选;
+	// 落空 → 该入口 503 (runner 不注入)。
+	SemanticModel string `env:"SEMANTIC_LLM_MODEL" default:""`
+	// SelectionModel powers inline selection edit/ask (S3 P1-6). 同上:
+	// 显式覆盖, 默认空 = relay preferred; 落空 → 503。
+	SelectionModel string `env:"SELECTION_LLM_MODEL" default:""`
 
 	// ─── Wiki ingest reaper ─────────────────────────────────────────
 	// 回收卡死的 ingest 任务（publish 失败的 pending / worker 死亡的
@@ -718,6 +724,29 @@ func run() error {
 		logger.Info("chat send disabled (MODEL_RELAY_URL unset);" +
 			" clients use direct mode + PATCH for persistence")
 	}
+
+	// resolveFeatureModel 是辅助功能(dedup 过滤 / enrich / vision /
+	// research / semantic / selection)的模型解析链: 功能级 env 显式
+	// 覆盖 > relay preferred 端点自动优选 (capability 可选, vision
+	// 功能传 "vision") > "" (调用方功能级降级: worker 不起 / 端点
+	// 503, 不阻塞 brain 启动)。无硬编码默认模型名。
+	// resolver 为 nil (MODEL_RELAY_URL 未配) 时恒返 ""。
+	resolveFeatureModel := func(envVal, capability, feature string) string {
+		if envVal != "" {
+			return envVal
+		}
+		if chatDefaultModels == nil {
+			return ""
+		}
+		m := chatDefaultModels.PreferredModel(ctx, "chat", capability)
+		if m == "" {
+			logger.Warn("feature model unresolved; feature degraded",
+				"feature", feature,
+				"hint", "set the feature *_LLM_MODEL env or configure "+
+					"an active chat model in the relay admin")
+		}
+		return m
+	}
 	// S3 P0-1 — wire the same model-relay sender into wiki/api so the
 	// autonomous-maintenance agent loop (POST /v1/wiki/projects/{pid}/agent/run)
 	// can reach model-relay. Shares the tool registry (sender.WithTools above),
@@ -1002,31 +1031,34 @@ func run() error {
 	sourcesSrv.Reviews = reviewsStore
 
 	// Deep Research — always-mounted endpoint. Orchestrator only
-	// runs when SearxNG + model-relay LLM are both configured; without
-	// that the handler returns 503 'research_disabled'.
+	// runs when SearxNG + model-relay LLM are both configured and a
+	// model resolves (env override or relay preferred); without that
+	// the handler returns 503 'research_disabled'.
 	researchStore := wikiresearch.New(pool)
 	var researchOrch *wikiresearch.Orchestrator
-	if sxClient != nil && cfg.RelayURL != "" && cfg.JWTSecret != "" {
+	researchModel := resolveFeatureModel(cfg.ResearchModel, "", "research")
+	if sxClient != nil && cfg.RelayURL != "" && cfg.JWTSecret != "" && researchModel != "" {
 		signer := bauth.NewSigner(
 			cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 5*time.Minute,
 		)
 		// Reuse the enrich model-relay LLM caller — same shape (system + user
 		// → text). Different model is the only knob.
 		caller := wikienrich.NewRelayLLMCaller(
-			cfg.RelayURL, cfg.ResearchModel, signer, logger,
+			cfg.RelayURL, researchModel, signer, logger,
 		)
 		researchOrch = wikiresearch.NewOrchestrator(
 			pool, researchStore, st, sxClient, caller,
 			wikiresearch.Config{Logger: logger},
 		).WithReviews(reviewsStore)
 		logger.Info("deep research enabled",
-			"model", cfg.ResearchModel,
+			"model", researchModel,
 			"searx", cfg.SearxNGURL)
 	} else {
 		logger.Info("deep research disabled",
 			"searx_set", sxClient != nil,
 			"hub_set", cfg.RelayURL != "",
-			"jwt_set", cfg.JWTSecret != "")
+			"jwt_set", cfg.JWTSecret != "",
+			"model_resolved", researchModel != "")
 	}
 	researchSrv := wikiresearch.NewServer(
 		researchStore, st, researchOrch, verifier, logger,
@@ -1076,11 +1108,14 @@ func run() error {
 			cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience,
 			5*time.Minute,
 		)
-		sharedLLMFilter = wikireviews.NewHubLLMFilter(
-			cfg.RelayURL, cfg.DedupLLMModel, signer, logger,
-		)
-		logger.Info("shared llm precision filter built",
-			"model", cfg.DedupLLMModel)
+		if m := resolveFeatureModel(cfg.DedupLLMModel, "", "dedup-llm-filter"); m != "" {
+			sharedLLMFilter = wikireviews.NewHubLLMFilter(
+				cfg.RelayURL, m, signer, logger,
+			)
+			logger.Info("shared llm precision filter built", "model", m)
+		} else {
+			logger.Warn("llm precision filter unavailable (no model resolved); workers run rule-only")
+		}
 
 		// Semantic lint runner 搬入 reviews 包（wiki/lint 收敛 B-10 后），
 		// 经 reviewsSrv.SetSemantic 注入；/reviews/scan family=semantic 触发。
@@ -1088,23 +1123,27 @@ func run() error {
 		// 同一实例也注入 wiki apiSrv：agent run 成功后服务端自动触发扫描
 		// （S3 P1，不再依赖客户端 deep 跑完后调 /reviews/scan）。runner 的
 		// per-project inflight 防重入，两个入口并发安全。
-		semanticCaller := wikireviews.NewRelaySemanticCaller(
-			cfg.RelayURL, cfg.SemanticModel, signer, logger,
-		)
-		semanticRunner := wikireviews.NewSemanticRunner(
-			pool, reviewsStore, semanticCaller, logger,
-		)
-		reviewsSrv.SetSemantic(semanticRunner)
-		apiSrv = apiSrv.WithSemantic(semanticRunner)
-		logger.Info("semantic lint enabled", "model", cfg.SemanticModel)
+		if m := resolveFeatureModel(cfg.SemanticModel, "", "semantic-lint"); m != "" {
+			semanticCaller := wikireviews.NewRelaySemanticCaller(
+				cfg.RelayURL, m, signer, logger,
+			)
+			semanticRunner := wikireviews.NewSemanticRunner(
+				pool, reviewsStore, semanticCaller, logger,
+			)
+			reviewsSrv.SetSemantic(semanticRunner)
+			apiSrv = apiSrv.WithSemantic(semanticRunner)
+			logger.Info("semantic lint enabled", "model", m)
+		}
 
 		// S3 P1-6 inline selection edit/ask — same RelayLLMCaller shape as
 		// deep research (main.go:827). handleSelectionEdit returns 503 if nil.
-		selectionCaller := wikienrich.NewRelayLLMCaller(
-			cfg.RelayURL, cfg.SelectionModel, signer, logger,
-		)
-		apiSrv = apiSrv.WithSelection(selectionCaller)
-		logger.Info("selection edit enabled", "model", cfg.SelectionModel)
+		if m := resolveFeatureModel(cfg.SelectionModel, "", "selection-edit"); m != "" {
+			selectionCaller := wikienrich.NewRelayLLMCaller(
+				cfg.RelayURL, m, signer, logger,
+			)
+			apiSrv = apiSrv.WithSelection(selectionCaller)
+			logger.Info("selection edit enabled", "model", m)
+		}
 	} else {
 		logger.Info("llm precision filter unavailable (MODEL_RELAY_URL or JWT_SECRET unset); workers run rule-only; semantic lint disabled")
 	}
@@ -1211,26 +1250,32 @@ func run() error {
 	}
 
 	// Periodic enrich worker — LLM-driven [[wikilink]] insertion. Runs
-	// only when both the interval is positive AND a model-relay-backed LLM
-	// caller is configured (MODEL_RELAY_URL + JWT_SECRET). Disabled by default
+	// only when the interval is positive AND a model-relay-backed LLM
+	// caller is configured (MODEL_RELAY_URL + JWT_SECRET) AND a model
+	// resolves (env override or relay preferred). Disabled by default
 	// because it costs one LLM call per page edit.
 	if cfg.EnrichIntervalSec > 0 && cfg.RelayURL != "" && cfg.JWTSecret != "" {
-		signer := bauth.NewSigner(
-			cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 5*time.Minute,
-		)
-		caller := wikienrich.NewRelayLLMCaller(
-			cfg.RelayURL, cfg.EnrichModel, signer, logger,
-		)
-		ew := wikienrich.New(pool, st, caller, wikienrich.Config{
-			Interval:  time.Duration(cfg.EnrichIntervalSec) * time.Second,
-			BatchSize: cfg.EnrichBatch,
-			Logger:    logger,
-		})
-		go ew.Run(ctx)
-		logger.Info("enrich worker enabled",
-			"interval_s", cfg.EnrichIntervalSec,
-			"batch", cfg.EnrichBatch,
-			"model", cfg.EnrichModel)
+		enrichModel := resolveFeatureModel(cfg.EnrichModel, "", "enrich")
+		if enrichModel == "" {
+			logger.Warn("enrich worker disabled (no model resolved)")
+		} else {
+			signer := bauth.NewSigner(
+				cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 5*time.Minute,
+			)
+			caller := wikienrich.NewRelayLLMCaller(
+				cfg.RelayURL, enrichModel, signer, logger,
+			)
+			ew := wikienrich.New(pool, st, caller, wikienrich.Config{
+				Interval:  time.Duration(cfg.EnrichIntervalSec) * time.Second,
+				BatchSize: cfg.EnrichBatch,
+				Logger:    logger,
+			})
+			go ew.Run(ctx)
+			logger.Info("enrich worker enabled",
+				"interval_s", cfg.EnrichIntervalSec,
+				"batch", cfg.EnrichBatch,
+				"model", enrichModel)
+		}
 	} else {
 		logger.Info("enrich worker disabled",
 			"interval_s", cfg.EnrichIntervalSec,
@@ -1238,27 +1283,33 @@ func run() error {
 			"jwt_set", cfg.JWTSecret != "")
 	}
 
-	// Periodic vision-caption worker — same gating shape as enrich.
-	// Costs more per call than text — keep batch small.
+	// Periodic vision-caption worker — same gating shape as enrich, plus
+	// the resolved model must carry capabilities.vision (relay preferred
+	// ?capability=vision). Costs more per call than text — keep batch small.
 	if cfg.VisionIntervalSec > 0 && cfg.RelayURL != "" && cfg.JWTSecret != "" {
-		signer := bauth.NewSigner(
-			cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 5*time.Minute,
-		)
-		caller := wikivision.NewRelayVisionCaller(
-			cfg.RelayURL, cfg.VisionModel, signer, logger,
-		)
-		vw := wikivision.New(pool, st, caller, wikivision.Config{
-			Interval:   time.Duration(cfg.VisionIntervalSec) * time.Second,
-			BatchSize:  cfg.VisionBatch,
-			MaxImageMB: cfg.VisionMaxImageMB,
-			Logger:     logger,
-		})
-		go vw.Run(ctx)
-		logger.Info("vision caption worker enabled",
-			"interval_s", cfg.VisionIntervalSec,
-			"batch", cfg.VisionBatch,
-			"model", cfg.VisionModel,
-			"max_image_mb", cfg.VisionMaxImageMB)
+		visionModel := resolveFeatureModel(cfg.VisionModel, "vision", "vision-caption")
+		if visionModel == "" {
+			logger.Warn("vision caption worker disabled (no vision-capable model resolved)")
+		} else {
+			signer := bauth.NewSigner(
+				cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 5*time.Minute,
+			)
+			caller := wikivision.NewRelayVisionCaller(
+				cfg.RelayURL, visionModel, signer, logger,
+			)
+			vw := wikivision.New(pool, st, caller, wikivision.Config{
+				Interval:   time.Duration(cfg.VisionIntervalSec) * time.Second,
+				BatchSize:  cfg.VisionBatch,
+				MaxImageMB: cfg.VisionMaxImageMB,
+				Logger:     logger,
+			})
+			go vw.Run(ctx)
+			logger.Info("vision caption worker enabled",
+				"interval_s", cfg.VisionIntervalSec,
+				"batch", cfg.VisionBatch,
+				"model", visionModel,
+				"max_image_mb", cfg.VisionMaxImageMB)
+		}
 	} else {
 		logger.Info("vision caption worker disabled",
 			"interval_s", cfg.VisionIntervalSec)

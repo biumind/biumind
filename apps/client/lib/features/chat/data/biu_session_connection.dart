@@ -371,8 +371,10 @@ class BiuSessionConnection {
 
     // 2. POST /v1/agent/sessions —— "biumind-default" 是 client 模型选择器
     //    里"BiuMind 官方"的占位 id，不是 brain 那边能识别的真模型名。空给
-    //    brain，让 ChatRunner fallback 到 claude-sonnet-4-6（chat_runner.go
-    //    第 121 行）。
+    //    brain，由 ChatRunner 按链解析：relay default-chat（admin 在
+    //    models 表标 is_default_chat）> AGENT_PLANE_DEFAULT_CHAT_MODEL
+    //    env > relay preferred-chat 自动优选；全落空则 session 明确
+    //    failed（error 帧），不再有硬编码模型兜底。
     final realModel = _stripPlaceholderModel(model ?? thread.model);
     // 图片附件透传给 brain — 仅 chat 模式 vision 模型生效。base64 编码 +
     // mime_type 跟 brain ChatImageInput / SingleTurnInput 字段对齐。
@@ -1341,8 +1343,8 @@ class BiuSessionConnection {
 
 /// 把 client 占位 model id（'biumind-default' = 让 brain 自己选官方模型）
 /// 转成 brain 接受的形式。chat_page_v2 / new_thread_dialog 的 picker 用
-/// `biumind-default` 表示"官方默认"；brain ChatRunner 收到空 model 时
-/// fallback 到 claude-sonnet-4-6。
+/// `biumind-default` 表示"官方默认"；brain ChatRunner 收到空 model 时按
+/// relay default-chat > env > relay preferred-chat 链解析，落空明确报错。
 String? _stripPlaceholderModel(String? m) {
   if (m == null || m.isEmpty || m == 'biumind-default') return null;
   return m;

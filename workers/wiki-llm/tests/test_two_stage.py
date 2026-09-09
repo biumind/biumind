@@ -29,6 +29,8 @@ def _cfg_two_stage() -> Config:
     return Config.from_env({
         "BIUMIND_NATS_URL": "nats://test",
         "BIUMIND_ENV": "test",
+        # 显式 env 模型 —— 这些用例钉管线形状, 不依赖解析链。
+        "BIUMIND_WIKI_LLM_MODEL": "test.model",
         # 默认即开，但显式写出以钉住"默认开"的契约。
         "BIUMIND_WIKI_LLM_TWO_STAGE": "1",
     })
@@ -38,6 +40,8 @@ def _cfg_single_stage() -> Config:
     return Config.from_env({
         "BIUMIND_NATS_URL": "nats://test",
         "BIUMIND_ENV": "test",
+        # 显式 env 模型 —— 这些用例钉管线形状, 不依赖解析链。
+        "BIUMIND_WIKI_LLM_MODEL": "test.model",
         "BIUMIND_WIKI_LLM_TWO_STAGE": "0",
     })
 

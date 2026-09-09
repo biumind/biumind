@@ -1,18 +1,20 @@
-// models.go — GET /v1/internal/models/{default-chat,preferred-chat}.
+// models.go — GET /v1/internal/models/{default-chat,preferred-chat,preferred}.
 //
 // brain's ChatRunner used to hardcode a fallback model code; now the
 // platform default chat model is an admin-managed flag
 // (models.is_default_chat, migration 00002) and brain pulls it here at
 // resolve time. preferred-chat is the next rung of that fallback chain:
 // when no admin default exists it auto-picks the best usable chat model
-// (registry.Cache.PreferredChatModel). Same bearer middleware as
-// /v1/internal/chat.
+// (registry.Cache.PreferredChatModel). preferred is the generalized
+// form for non-chat / capability-gated consumers (brain's vision-caption
+// worker passes ?mode=chat&capability=vision). Same bearer middleware
+// as /v1/internal/chat.
 //
 // Response:
 //
 //	200 {"code": "<models.code>"}
-//	404 plain-text error when no default is set / no usable chat model
-//	    exists (a deactivated model counts as absent).
+//	404 plain-text error when no default is set / nothing usable exists
+//	    (a deactivated model counts as absent).
 //	503 when the registry cache is not wired.
 //
 // The lookup rides the registry Cache (LISTEN/NOTIFY + TTL), so flag
@@ -65,6 +67,34 @@ func (s *Server) handlePreferredChatModel(w http.ResponseWriter, r *http.Request
 			return
 		}
 		http.Error(w, "preferred chat lookup failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": m.Code})
+}
+
+// handlePreferredModel is the generalized preferred lookup:
+// ?mode=<models.mode> (required) & ?capability=vision (optional).
+// Defaults are deliberately absent — every caller must state its
+// modality so a chat-tuned pick never leaks into an embedding/vision
+// feature by accident.
+func (s *Server) handlePreferredModel(w http.ResponseWriter, r *http.Request) {
+	if s.Cache == nil {
+		http.Error(w, "registry cache not wired", http.StatusServiceUnavailable)
+		return
+	}
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		http.Error(w, "mode query param required", http.StatusBadRequest)
+		return
+	}
+	m, err := s.Cache.PreferredModel(r.Context(), mode, r.URL.Query().Get("capability"))
+	if err != nil {
+		if errors.Is(err, registry.ErrNotFound) {
+			http.Error(w, "no usable model", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "preferred lookup failed", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

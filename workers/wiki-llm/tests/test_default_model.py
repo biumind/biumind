@@ -1,6 +1,6 @@
 """Default chat model resolution tests (B3).
 
-Covers the relay/builtin tiers of the priority chain pinned by
+Covers the relay tiers of the priority chain pinned by
 ``runner._resolve_model``:
 
   1. ``BIUMIND_WIKI_LLM_MODEL`` env explicit override — wins, endpoint
@@ -8,9 +8,11 @@ Covers the relay/builtin tiers of the priority chain pinned by
   2. relay ``GET /v1/internal/models/default-chat`` — admin-designated
      default, process-cached (60s positive / 10s negative TTL, aligned
      with brain's ``agentplane.DefaultModelResolver``);
-  3. endpoint failure (404 / 5xx / network / disabled resolver) —
-     falls back to the built-in default, never raises (aligned with
-     brain ChatRunner: relay down must not kill the pipeline).
+  3. relay ``GET /v1/internal/models/preferred-chat`` — relay-side
+     auto-pick of the best usable chat model;
+  4. every tier missed (404 / 5xx / network / disabled resolver) —
+     ``ModelResolutionError``; there is no built-in hardcoded fallback
+     anymore.
 
 The per-owner preference tier inserted between 1 and 2 (B2, identity
 internal endpoint) is covered in test_preference_model.py.
@@ -26,10 +28,11 @@ import uuid
 from typing import List, Tuple
 
 import httpx
+import pytest
 
-from wiki_llm.config import BUILTIN_FALLBACK_MODEL, Config
+from wiki_llm.config import Config
 from wiki_llm.default_model import DefaultModelResolver
-from wiki_llm.runner import _resolve_model, handle_message
+from wiki_llm.runner import ModelResolutionError, _resolve_model, handle_message
 
 
 def _cfg(**env) -> Config:
@@ -150,6 +153,25 @@ async def test_resolver_disabled_without_url_or_token():
         "http://relay", "", transport=transport).default_chat_model() == ""
 
 
+async def test_resolver_preferred_chat_model_own_cache_slot():
+    # preferred-chat 与 default-chat 缓存槽独立: default 404 不污染
+    # preferred 的 200 命中。
+    def _handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/v1/internal/models/default-chat":
+            return httpx.Response(404, text="no default chat model")
+        if req.url.path == "/v1/internal/models/preferred-chat":
+            return httpx.Response(200, json={"code": "pref-1"})
+        raise AssertionError(f"unexpected path {req.url.path}")
+
+    requests: List[httpx.Request] = []
+    transport = _mock_transport(_handler, requests)
+    r = DefaultModelResolver("http://relay", "tok", transport=transport)
+    assert await r.preferred_chat_model() == "pref-1"
+    assert await r.preferred_chat_model() == "pref-1"  # cached
+    assert await r.default_chat_model() == ""
+    assert len(requests) == 2
+
+
 # ── runner 兜底链三态 ──────────────────────────────────────────
 
 
@@ -180,7 +202,28 @@ async def test_resolve_model_pulls_from_endpoint():
                                                    "default")
 
 
-async def test_resolve_model_endpoint_failure_falls_back_to_builtin():
+async def test_resolve_model_endpoint_failure_uses_preferred_tier():
+    # default-chat 500 → preferred-chat 命中。
+    def _handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path == "/v1/internal/models/default-chat":
+            return httpx.Response(500, text="boom")
+        if req.url.path == "/v1/internal/models/preferred-chat":
+            return httpx.Response(200, json={"code": "relay.preferred-model"})
+        raise AssertionError(f"unexpected path {req.url.path}")
+
+    transport = _mock_transport(_handler, [])
+    cfg = _cfg(
+        BIUMIND_HUB_URL="http://relay:7001",
+        BIUMIND_RELAY_INTERNAL_TOKEN="tok",
+    )
+    resolver = DefaultModelResolver(
+        cfg.hub_url, cfg.relay_internal_token, transport=transport,
+    )
+    assert await _resolve_model(cfg, resolver) == ("relay.preferred-model",
+                                                   "preferred")
+
+
+async def test_resolve_model_all_tiers_miss_raises():
     transport = _mock_transport(
         lambda req: httpx.Response(500, text="boom"), [],
     )
@@ -191,14 +234,15 @@ async def test_resolve_model_endpoint_failure_falls_back_to_builtin():
     resolver = DefaultModelResolver(
         cfg.hub_url, cfg.relay_internal_token, transport=transport,
     )
-    assert await _resolve_model(cfg, resolver) == (BUILTIN_FALLBACK_MODEL,
-                                                   "builtin")
+    with pytest.raises(ModelResolutionError, match="no chat model available"):
+        await _resolve_model(cfg, resolver)
 
 
-async def test_resolve_model_no_resolver_falls_back_to_builtin():
-    # hub_url 空 → 现场构造的 resolver 禁用 → 落内置兜底,不报错。
+async def test_resolve_model_no_resolver_raises():
+    # hub_url 空 → 现场构造的 resolver 禁用 → 链全空 → 明确报错。
     cfg = _cfg()
-    assert await _resolve_model(cfg, None) == (BUILTIN_FALLBACK_MODEL, "builtin")
+    with pytest.raises(ModelResolutionError):
+        await _resolve_model(cfg, None)
 
 
 # ── handle_message 端到端:解析出的模型进 LLMConfig ────────────

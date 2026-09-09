@@ -3,6 +3,7 @@ package radar
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,7 +98,7 @@ func TestLLMClient_FromNL_EndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewLLMClient(srv.URL)
+	c := NewLLMClient(srv.URL, "test-model")
 	r, err := c.FromNL(context.Background(), "test-tok", "凡是 OpenAI 发布新模型的事都通知我")
 	if err != nil {
 		t.Fatal(err)
@@ -108,10 +109,17 @@ func TestLLMClient_FromNL_EndToEnd(t *testing.T) {
 }
 
 func TestLLMClient_FromNL_BlankBaseURL(t *testing.T) {
-	c := NewLLMClient("")
+	c := NewLLMClient("", "test-model")
 	_, err := c.FromNL(context.Background(), "tok", "x")
 	if err != ErrLLMUnavailable {
 		t.Errorf("expected ErrLLMUnavailable, got %v", err)
+	}
+}
+
+func TestLLMClient_FromNL_NoModel(t *testing.T) {
+	c := NewLLMClient("http://relay:7001", "")
+	if _, err := c.FromNL(context.Background(), "tok", "x"); !errors.Is(err, ErrNoLLMModel) {
+		t.Errorf("expected ErrNoLLMModel, got %v", err)
 	}
 }
 
@@ -121,8 +129,36 @@ func TestLLMClient_FromNL_HTTP500(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"upstream broke"}`))
 	}))
 	defer srv.Close()
-	_, err := NewLLMClient(srv.URL).FromNL(context.Background(), "t", "x")
+	_, err := NewLLMClient(srv.URL, "test-model").FromNL(context.Background(), "t", "x")
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 error, got %v", err)
+	}
+}
+
+// ResolvePreferredChatModel: 200 → code; 404 / 不可达 / 未配 → "" 降级;
+// bearer 契约锁住。
+func TestResolvePreferredChatModel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/internal/models/preferred-chat" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("auth: %q", r.Header.Get("Authorization"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": "relay.preferred"})
+	}))
+	defer srv.Close()
+
+	got, err := ResolvePreferredChatModel(context.Background(), srv.URL, "tok")
+	if err != nil || got != "relay.preferred" {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+
+	// 未配 url / token → "" 且不打 HTTP。
+	if got, _ := ResolvePreferredChatModel(context.Background(), "", "tok"); got != "" {
+		t.Errorf("empty baseURL should yield empty; got %q", got)
+	}
+	if got, _ := ResolvePreferredChatModel(context.Background(), srv.URL, ""); got != "" {
+		t.Errorf("empty token should yield empty; got %q", got)
 	}
 }

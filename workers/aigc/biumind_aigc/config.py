@@ -48,6 +48,9 @@ class Config:
 
     # 爆款解析 (hotparse): STT + LLM 拆解所用的 model-relay model_code。
     # 经 /v1/internal/transcribe + /v1/internal/chat 调用。task.params 可覆盖。
+    # llm_model 链: task.params.llm_model > AIGC_HOTPARSE_LLM_MODEL env >
+    # relay /v1/internal/models/preferred-chat 自动优选 > 任务明确报错
+    # (无内置硬编码兜底)。
     hotparse_stt_model: str
     hotparse_llm_model: str
 
@@ -98,7 +101,7 @@ class Config:
             model_relay_url=e.get("AIGC_MODEL_RELAY_URL") or e.get("MODEL_RELAY_URL") or "",
             model_relay_internal_token=e.get("IDENTITY_INTERNAL_TOKEN", ""),
             hotparse_stt_model=e.get("AIGC_HOTPARSE_STT_MODEL", "whisper-1"),
-            hotparse_llm_model=e.get("AIGC_HOTPARSE_LLM_MODEL", "claude-opus-4-8"),
+            hotparse_llm_model=e.get("AIGC_HOTPARSE_LLM_MODEL", ""),
             s3_endpoint=e.get("AIGC_S3_ENDPOINT", ""),
             s3_access_key=e.get("AIGC_S3_ACCESS_KEY", ""),
             s3_secret_key=e.get("AIGC_S3_SECRET_KEY", ""),

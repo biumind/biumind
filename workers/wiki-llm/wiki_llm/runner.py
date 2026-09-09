@@ -51,7 +51,7 @@ from .brain import (
     fetch_source,
 )
 from .cancellation import CancelRegistry, parse_cancel_task_id
-from .config import BUILTIN_FALLBACK_MODEL, Config
+from .config import Config
 from .default_model import DefaultModelResolver
 from .domain.frontmatter import parse_frontmatter
 from .domain.ingest_parse import FileBlock, parse_file_blocks
@@ -207,11 +207,19 @@ async def handle_message(
     # 任务 owner 的个人偏好一级):
     # BIUMIND_WIKI_LLM_MODEL env 显式覆盖 > owner 偏好(identity 内部
     # 端点) > relay default-chat 端点(admin 在 models 表标
-    # is_default_chat) > 内置硬编码兜底。任一端点不可达 / 未配不报错,
-    # 落下一级(与 brain 一致)。
-    model, model_source = await _resolve_model(
-        cfg, model_resolver, req.owner_id, preference_resolver,
-    )
+    # is_default_chat) > relay preferred-chat 自动优选 > 明确报错。
+    # 前四级任一空继续往下;全落空 = 任务 failed(不再硬编码兜底)。
+    try:
+        model, model_source = await _resolve_model(
+            cfg, model_resolver, req.owner_id, preference_resolver,
+        )
+    except ModelResolutionError as e:
+        logger.warning("wiki_llm: task=%s model resolution failed: %s",
+                       req.task_id, e)
+        await _emit(publish, cfg, Update(
+            task_id=req.task_id, kind=KIND_FAILED, error=str(e),
+        ))
+        return req
 
     error = await _run_attempt(
         req=req, source_text=source_text, cfg=cfg, publish=publish,
@@ -222,14 +230,21 @@ async def handle_message(
 
     # 弱模型质量兜底：模型来自 owner 偏好且任务失败时,自动用「去掉
     # 偏好层的链」重解析出模型重跑一次;仍失败才发 failed。非偏好来源
-    # (env/default/builtin)失败不重跑 —— 那些是运维 / 平台显式选择,
+    # (env/default/preferred)失败不重跑 —— 那些是运维 / 平台显式选择,
     # 重跑只是浪费配额。重跑时 stage-2 的 idempotency_key 换成
     # task_id + ":fallback",防 relay Hold 去重吃掉重试。
     if error is not None and model_source == "preference":
-        fallback_model, fallback_source = await _resolve_model(
-            cfg, model_resolver, req.owner_id, preference_resolver,
-            skip_preference=True,
-        )
+        try:
+            fallback_model, fallback_source = await _resolve_model(
+                cfg, model_resolver, req.owner_id, preference_resolver,
+                skip_preference=True,
+            )
+        except ModelResolutionError as e:
+            error = f"{error} (fallback retry aborted: {e})"
+            await _emit(publish, cfg, Update(
+                task_id=req.task_id, kind=KIND_FAILED, error=error,
+            ))
+            return req
         logger.warning(
             "wiki_llm: task=%s preference model %s failed (%s); "
             "retrying once with %s (source=%s, preference layer skipped)",
@@ -535,6 +550,11 @@ async def _emit(publish: Publisher, cfg: Config, update: Update) -> None:
     await publish(cfg.update_subject, body)
 
 
+class ModelResolutionError(RuntimeError):
+    """兜底链全部落空 —— 没有任何可用 chat 模型。任务以此标记 failed
+    (带配置提示), 不再落内置硬编码模型。"""
+
+
 async def _resolve_model(
     cfg: Config,
     model_resolver: Optional[DefaultModelResolver],
@@ -556,9 +576,10 @@ async def _resolve_model(
       3. relay ``GET /v1/internal/models/default-chat`` —— admin 在
          models 表标 is_default_chat 的平台默认,进程内缓存
          (60s 命中 / 10s 负缓存,见 default_model.py);source="default";
-      4. ``BUILTIN_FALLBACK_MODEL`` 硬编码兜底 —— 端点不可达 / 未配 /
-         resolver 禁用时落这里,不报错(与 brain 一致:relay 挂了 chat
-         不该全废);source="builtin"。
+      4. relay ``GET /v1/internal/models/preferred-chat`` —— relay 侧
+         自动优选最优可用 chat 模型;source="preferred";
+      5. 全部落空 → 抛 ``ModelResolutionError``(带配置提示) —— 任务
+         明确失败,不再有内置硬编码模型兜底。
 
     ``skip_preference=True`` 跳过第 2 级 —— 弱模型质量兜底重跑时
     用(handle_message:preference 来源的模型跑失败后,用去掉偏好层
@@ -583,10 +604,17 @@ async def _resolve_model(
     m = await resolver.default_chat_model()
     if m:
         return m, "default"
-    logger.warning("wiki_llm: relay default-chat unavailable; "
-                   "falling back to built-in default %s",
-                   BUILTIN_FALLBACK_MODEL)
-    return BUILTIN_FALLBACK_MODEL, "builtin"
+    m = await resolver.preferred_chat_model()
+    if m:
+        logger.info("wiki_llm: relay default-chat unset; using "
+                    "preferred chat model %s", m)
+        return m, "preferred"
+    raise ModelResolutionError(
+        "no chat model available: platform default chat model not "
+        "configured and no usable chat model found — set "
+        "BIUMIND_WIKI_LLM_MODEL or configure an active chat model "
+        "in the model-relay admin"
+    )
 
 
 def _default_streamer(

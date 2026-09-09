@@ -23,7 +23,6 @@ import (
 )
 
 const (
-	llmModel        = "claude-haiku-4-5"
 	llmMaxTokens    = 600
 	llmTimeout      = 25 * time.Second
 	llmSystemPrompt = `你是 BiuMind 雷达的关键词规则助手。
@@ -56,16 +55,58 @@ JSON 字段：
 
 var ErrLLMUnavailable = errors.New("radar: llm relay not configured")
 
+// ErrNoLLMModel — FromNL / Rephrase 在 Model 为空时返这个。模型不再
+// 有包级硬编码默认: 由 main 在接线时解析 (RADAR_LLM_MODEL env >
+// relay /v1/internal/models/preferred-chat), 解析不出就不接 advisor。
+var ErrNoLLMModel = errors.New("radar: no llm model configured")
+
 type LLMClient struct {
 	BaseURL string
-	HTTP    *http.Client
+	// Model 是发给 relay 的 model code, 接线时显式注入。
+	Model string
+	HTTP  *http.Client
 }
 
-func NewLLMClient(baseURL string) *LLMClient {
+func NewLLMClient(baseURL, model string) *LLMClient {
 	return &LLMClient{
 		BaseURL: baseURL,
+		Model:   model,
 		HTTP:    &http.Client{Timeout: llmTimeout},
 	}
+}
+
+// ResolvePreferredChatModel 查 relay 自动优选的可用 chat 模型
+// (GET /v1/internal/models/preferred-chat, Bearer = 服务间共享
+// IDENTITY_INTERNAL_TOKEN)。404 / 不可达 → ("", nil), 由调用方决定
+// 降级; 其它错误返回 error。供 main 接线时用。
+func ResolvePreferredChatModel(ctx context.Context, baseURL, internalToken string) (string, error) {
+	if baseURL == "" || internalToken == "" {
+		return "", nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		baseURL+"/v1/internal/models/preferred-chat", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+internalToken)
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return "", nil // relay 暂不可达 → 降级, 不阻塞启动
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("radar: preferred-chat status %d", resp.StatusCode)
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	return body.Code, nil
 }
 
 // LLMRule mirrors what the prompt asks the model to emit. Caller
@@ -91,12 +132,15 @@ func (c *LLMClient) FromNL(ctx context.Context, token, text string) (*LLMRule, e
 	if c == nil || c.BaseURL == "" {
 		return nil, ErrLLMUnavailable
 	}
+	if c.Model == "" {
+		return nil, ErrNoLLMModel
+	}
 	if strings.TrimSpace(text) == "" {
 		return nil, errors.New("radar: empty nl text")
 	}
 
 	body := map[string]any{
-		"model":      llmModel,
+		"model":      c.Model,
 		"max_tokens": llmMaxTokens,
 		"system":     llmSystemPrompt,
 		"messages": []map[string]any{
@@ -236,6 +280,9 @@ func (c *LLMClient) Rephrase(ctx context.Context, token, title, personaPrompt, b
 	if c == nil || c.BaseURL == "" {
 		return "", ErrLLMUnavailable
 	}
+	if c.Model == "" {
+		return "", ErrNoLLMModel
+	}
 	if strings.TrimSpace(personaPrompt) == "" || strings.TrimSpace(body) == "" {
 		return "", errors.New("radar: empty rephrase input")
 	}
@@ -244,7 +291,7 @@ func (c *LLMClient) Rephrase(ctx context.Context, token, title, personaPrompt, b
 		personaPrompt + " 直接输出, 不要前后解释, 不要 Markdown 列表。"
 
 	bodyJSON, _ := json.Marshal(map[string]any{
-		"model":      llmModel,
+		"model":      c.Model,
 		"max_tokens": 350,
 		"system":     system,
 		"messages": []map[string]any{
