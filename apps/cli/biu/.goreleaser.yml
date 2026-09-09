@@ -23,8 +23,11 @@ version: 2
 
 project_name: biu
 
-# Ignore the rolling `nightly` tag (created by release-client-nightly)
-# so GoReleaser doesn't treat it as the changelog/previous boundary.
+# Ignore the rolling nightly tags (created by release-client-nightly)
+# so GoReleaser doesn't treat them as the changelog/previous boundary.
+# ⚠️ git.ignore_tags is Pro-only — OSS goreleaser silently ignores it,
+# which is why snapshot.version_template below must not depend on the
+# current tag being semver (client-nightly.* broke it for weeks).
 git:
   ignore_tags:
     - nightly
@@ -83,8 +86,14 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Constant snapshot version. MUST NOT template off .Version: on branch
+# pushes the auto-detected current tag can be non-semver
+# (client-nightly.108 etc.), and `{{ incpatch .Version }}` then fails
+# with "invalid semantic version" — this red-walled the snapshot
+# workflow since 2026-08-21. The snapshot version is never consumed
+# downstream (the workflow only checks 4 tar.gz + checksums exist).
 snapshot:
-  version_template: "{{ incpatch .Version }}-snapshot"
+  version_template: "0.0.0-snapshot"
 
 changelog:
   sort: asc
