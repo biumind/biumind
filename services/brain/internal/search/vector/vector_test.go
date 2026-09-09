@@ -7,9 +7,9 @@ import (
 
 func TestOverFetchLimit(t *testing.T) {
 	cases := []struct{ in, want int }{
-		{1, 30},   // floor kicks in
-		{10, 30},  // 10×3 = 30, exactly at floor
-		{20, 60},  // ×3 above floor
+		{1, 30},  // floor kicks in
+		{10, 30}, // 10×3 = 30, exactly at floor
+		{20, 60}, // ×3 above floor
 		{100, 300},
 		{0, 30},
 	}
