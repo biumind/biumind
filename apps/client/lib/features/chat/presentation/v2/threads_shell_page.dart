@@ -31,6 +31,7 @@ import '../../../../core/ui/popup_position.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../application/chat_controller.dart';
 import '../../application/draft_history_controller.dart';
+import '../../application/effective_default_model.dart';
 import '../../domain/greeting.dart';
 import '../../application/pending_scroll_provider.dart';
 import '../../application/selection_mode_controller.dart';
@@ -102,14 +103,19 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
 
   /// Hero 起点卡点击 → 直接建一个 chat thread + 选中。prompt 已经被 Hero
   /// inject 到 composerInjectProvider；ComposerV2 listen 后会塞进输入框。
+  /// 模型走生效默认模型解析（用户配的仍在目录则用，未配置/已下线 → null =
+  /// BiuMind 默认），与 createDefaultThread 一致。
   Future<void> _newThreadWithPrompt(String prompt) async {
     final repo = ref.read(chatControllerDepsProvider).repo;
     final id = _uuid.v4();
     try {
+      final eff = await resolveEffectiveDefaultModel(ref.read);
       await repo.createThread(
         id: id,
         mode: ThreadMode.chat,
         title: prompt.length > 30 ? '${prompt.substring(0, 30)}…' : prompt,
+        model: eff.code,
+        providerId: eff.providerId,
         projectId: widget.projectId,
       );
       if (mounted) setState(() => _selectedId = id);

@@ -22,6 +22,7 @@ import '../../../../data/providers_providers.dart' show providersListProvider;
 import '../../../../l10n/app_localizations.dart';
 import '../../application/chat_controller.dart';
 import '../../application/chat_preferences.dart';
+import '../../application/effective_default_model.dart';
 import '../../application/new_thread_memory.dart';
 import '../../domain/chat_models.dart';
 import '../../domain/thread_title.dart';
@@ -39,21 +40,22 @@ Future<String?> showNewThreadDialog(BuildContext ctx, {String? projectId}) {
 /// 直接按用户默认偏好新建会话(不弹 NewThreadDialog)。"+"/「新建空白对话」/
 /// `/new` 都走这里——一键建会话,无需任何选择。返回新 thread id;失败返 null。
 ///
-/// 默认:mode = prefs.defaultMode(出厂 = agent/智能)、model = prefs.defaultModel
-/// (空 = BiuMind 官方默认)、runtimeEnvMode 按 mode 推导(chat=none / agent=local /
-/// task=cloud)。agent 模式自动绑定首台在线设备(biu_daemon/biu_cli);无在线设备时
-/// env 留空照常建会话(createThread 仅本地 Drift 插入、不碰 brain,设备只在发消息时
-/// 才需要),用户可后续在 composer 模式切换里绑定。需要标题/系统提示/指定 worker/
-/// Task 池等高级配置时仍可调 [showNewThreadDialog]。
+/// 默认:mode = prefs.defaultMode(出厂 = agent/智能)、model = 生效默认模型
+/// (resolveEffectiveDefaultModel：用户配的默认模型仍在可用目录中则用之,
+/// 未配置/已下线 → null = BiuMind 官方默认)、runtimeEnvMode 按 mode 推导
+/// (chat=none / agent=local / task=cloud)。agent 模式自动绑定首台在线设备
+/// (biu_daemon/biu_cli);无在线设备时 env 留空照常建会话(createThread 仅本地
+/// Drift 插入、不碰 brain,设备只在发消息时才需要),用户可后续在 composer
+/// 模式切换里绑定。需要标题/系统提示/指定 worker/Task 池等高级配置时仍可
+/// 调 [showNewThreadDialog]。
 Future<String?> createDefaultThread(WidgetRef ref, {String? projectId}) async {
   final prefs = ref.read(chatPreferencesProvider);
   final repo = ref.read(chatControllerDepsProvider).repo;
   final id = const Uuid().v4();
   final mode = prefs.defaultMode;
-  final model = (prefs.defaultModel != null && prefs.defaultModel!.isNotEmpty)
-      ? prefs.defaultModel
-      : null;
-  final providerId = model == null ? null : prefs.defaultProviderId;
+  final eff = await resolveEffectiveDefaultModel(ref.read);
+  final model = eff.code;
+  final providerId = eff.providerId;
   final runtimeEnvMode = switch (mode) {
     ThreadMode.chat => 'none',
     ThreadMode.agent => 'local',
@@ -126,12 +128,18 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
   @override
   void initState() {
     super.initState();
-    // 应用全局偏好：默认 mode + 默认模型（chat 模式下）。
+    // 应用全局偏好：默认 mode + 生效默认模型（chat 模式下）。同步版解析：
+    // 目录未加载时信任 prefs；已下线则保持 'biumind-default' 占位（避免下拉
+    // 显示回退但状态变量仍存失效 code 被提交的问题）。
     final prefs = ref.read(chatPreferencesProvider);
     _mode = prefs.defaultMode;
-    if (prefs.defaultModel != null && prefs.defaultModel!.isNotEmpty) {
-      _chatModel = prefs.defaultModel!;
-      _chatProviderId = prefs.defaultProviderId;
+    final eff = resolveDefaultModel(
+      prefs,
+      ref.read(availableChatModelsProvider).valueOrNull,
+    );
+    if (eff.code != null) {
+      _chatModel = eff.code!;
+      _chatProviderId = eff.providerId;
     }
     // (诊断阶段) 暂不在 initState 主动 invalidate — 先看 _AgentModePanel
     // 的 ref.watch 能不能正常拉数据。如果第一次 watch 就卡 loading 说明

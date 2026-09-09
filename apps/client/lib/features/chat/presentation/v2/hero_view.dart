@@ -801,9 +801,27 @@ class _RecentModelsShelf extends ConsumerWidget {
                   active: m.code == defaultModel,
                   onTap: () async {
                     final messenger = ScaffoldMessenger.of(context);
+                    // recentModels 数据源只有 code（messages 表无 provider_id
+                    // 列）——设默认时从目录反查 providerId 补全路由消歧，
+                    // 同 code 多 provider 时 official 优先；目录不可用维持原行为。
+                    String? providerId;
+                    final catalog =
+                        ref.read(availableChatModelsProvider).valueOrNull;
+                    if (catalog != null) {
+                      AvailableChatModel? match;
+                      for (final c in catalog) {
+                        if (c.code != m.code) continue;
+                        match ??= c;
+                        if (c.isOfficial) {
+                          match = c;
+                          break;
+                        }
+                      }
+                      providerId = match?.providerId;
+                    }
                     await ref
                         .read(chatPreferencesProvider.notifier)
-                        .setDefaultModel(m.code);
+                        .setDefaultModel(m.code, providerId: providerId);
                     messenger.showSnackBar(SnackBar(
                       content: Text(
                         l.chatV2HeroSetDefaultModel(m.code),
