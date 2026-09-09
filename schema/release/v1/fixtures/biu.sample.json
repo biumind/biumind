@@ -1,0 +1,46 @@
+{
+  "$schema": "https://biumind.dev/release/v1/manifest.json",
+  "version": "0.99.0",
+  "releasedAt": "2026-09-09T00:00:00Z",
+  "channel": "stable",
+  "notes": "biu CLI 假清单 (dev MinIO 联调用; 版本故意 0.99.0 便于肉眼区分)",
+  "notesEn": "fake biu CLI manifest for dev MinIO wiring tests",
+  "assets": [
+    {
+      "platform": "biu-macos-arm64",
+      "url": "https://releases.biumind.example.com/biu_0.99.0_Darwin_arm64.tar.gz",
+      "filename": "biu_0.99.0_Darwin_arm64.tar.gz",
+      "size": 10485760,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "signed": false,
+      "arch": "arm64"
+    },
+    {
+      "platform": "biu-macos-x64",
+      "url": "https://releases.biumind.example.com/biu_0.99.0_Darwin_x86_64.tar.gz",
+      "filename": "biu_0.99.0_Darwin_x86_64.tar.gz",
+      "size": 10485760,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "signed": false,
+      "arch": "x64"
+    },
+    {
+      "platform": "biu-linux-x64",
+      "url": "https://releases.biumind.example.com/biu_0.99.0_Linux_x86_64.tar.gz",
+      "filename": "biu_0.99.0_Linux_x86_64.tar.gz",
+      "size": 10485760,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "signed": false,
+      "arch": "x64"
+    },
+    {
+      "platform": "biu-linux-arm64",
+      "url": "https://releases.biumind.example.com/biu_0.99.0_Linux_arm64.tar.gz",
+      "filename": "biu_0.99.0_Linux_arm64.tar.gz",
+      "size": 10485760,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "signed": false,
+      "arch": "arm64"
+    }
+  ]
+}

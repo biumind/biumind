@@ -150,6 +150,15 @@ tasks:
           docker.io/minio/mc:latest \
           -c 'mc alias set local http://minio:9000 biumind biumind_minio_dev >/dev/null && mc cp /data/r.json local/releases/releases.json && echo "uploaded releases.json (version 0.1.0, 6 assets) → curl http://localhost:8088/downloads/releases.json"'
 
+  release:dev-biu-manifest:
+    desc: 上传假 biu.json 到本地 MinIO releases bucket (biu CLI 更新检查联调用)
+    cmds:
+      - |
+        PODMAN=$$(command -v podman || command -v docker)
+        "$$PODMAN" run --rm --network biumind_biu-net -v "$$PWD/schema/release/v1/fixtures/biu.sample.json:/data/b.json:ro" --entrypoint /bin/sh \
+          docker.io/minio/mc:latest \
+          -c 'mc alias set local http://minio:9000 biumind biumind_minio_dev >/dev/null && mc cp /data/b.json local/releases/biu.json && echo "uploaded biu.json (version 0.99.0) → curl http://localhost:8088/downloads/biu.json"'
+
   # ─── Per-service shortcuts ────────────────────────
   model-relay:run:
     desc: 本地跑 model-relay

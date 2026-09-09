@@ -14,6 +14,12 @@
 # Manual dispatch is also supported for re-runs without re-tagging:
 #   GitHub → Actions → Release biu CLI → Run workflow → enter version.
 #
+# After GoReleaser: manifest job builds biu.json (schema/release/v1,
+# biu-* assets only) and mirror-oss mirrors the tar.gz + checksums +
+# biu.json to Aliyun OSS — the data source for biu's update check at
+# <origin>/downloads/biu.json (GitHub API remains the primary source;
+# OSS is the China-reachable fallback, see internal/updatecheck).
+#
 # Optional repository secrets:
 #   HOMEBREW_TAP_GITHUB_TOKEN   — fine-grained PAT scoped to
 #                                 biumind/homebrew-tap with
@@ -98,3 +104,155 @@ jobs:
       - name: Show artefacts
         if: always()
         run: ls -la dist/
+
+  # ── biu.json 清单 (CLI 更新检测的 OSS 通道数据源) ──────────────
+  # 下载 GoReleaser 传到 GH Release 的 tar.gz + checksums.txt, 生成
+  # biu.json (schema/release/v1, 只含 biu-* assets), 传回 GH Release。
+  # biu 的双源更新检查: GitHub API (清单 job 之前的兜底) +
+  # <origin>/downloads/biu.json (nginx → OSS, 国内可达)。
+  manifest:
+    name: biu.json
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release artefacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          mkdir -p artefacts && cd artefacts
+          # --repo 显式给: 本 job 无 checkout, gh 靠 git 发现仓库会 fatal。
+          gh release download "${{ steps.ver.outputs.tag }}" --repo "$GITHUB_REPOSITORY" \
+            -p "biu_*.tar.gz" -p "checksums.txt"
+          ls -la
+          # GoReleaser 出 4 平台 tar.gz (darwin/linux × amd64/arm64)
+          test "$(ls biu_*.tar.gz 2>/dev/null | wc -l)" -eq 4 \
+            || { echo "::error::expected 4 biu_*.tar.gz on the release"; exit 1; }
+
+      # GoReleaser name_template: biu_<version>_<Os>_<arch>.tar.gz,
+      # Os 首字母大写, amd64 → x86_64。平台枚举对齐 schema/release/v1。
+      # asset url 走 CNAME 域名 (vars.RELEASES_DOWNLOAD_BASE, 同 client
+      # manifest job; 大文件不经 nginx)。
+      - name: Assemble biu.json
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          DOWNLOAD_BASE: ${{ vars.RELEASES_DOWNLOAD_BASE }}
+        run: |
+          set -eu
+          cd artefacts
+          # (platform arch goreleaser-name)
+          rows=""
+          for spec in "biu-macos-arm64 arm64 Darwin_arm64" \
+                      "biu-macos-x64 x64 Darwin_x86_64" \
+                      "biu-linux-x64 x64 Linux_x86_64" \
+                      "biu-linux-arm64 arm64 Linux_arm64"; do
+            set -- $spec
+            f="biu_${VERSION}_$3.tar.gz"
+            test -f "$f" || { echo "::error::missing $f"; exit 1; }
+            SIZE=$(stat -c%s "$f")
+            SHA=$(sha256sum "$f" | awk '{print $1}')
+            rows="${rows}${rows:+,}
+  {\"platform\":\"$1\",\"url\":\"${DOWNLOAD_BASE}/${f}\",\"filename\":\"${f}\",\"size\":${SIZE},\"sha256\":\"${SHA}\",\"signed\":false,\"arch\":\"$2\"}"
+          done
+          printf '{\n  "version": "%s",\n  "releasedAt": "%s",\n  "channel": "stable",\n  "assets": [%s\n  ]\n}\n' \
+            "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rows" > biu.json
+          echo "--- biu.json ---"
+          cat biu.json
+
+      - name: Validate biu.json structure
+        run: |
+          cd artefacts
+          jq -e '.version and .releasedAt and .channel=="stable" and (.assets | length == 4)' biu.json
+          jq -e '.assets[] | has("platform") and has("url") and has("filename") and has("size") and has("sha256") and has("signed")' biu.json
+          echo "✓ biu.json structure OK"
+
+      - name: Upload biu.json to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: artefacts/biu.json
+          name: biu ${{ steps.ver.outputs.version }}
+          tag_name: ${{ steps.ver.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 镜像 biu CLI 产物 + biu.json 到阿里云 OSS ─────────────────
+  # 与 release-client.yml 的 mirror-oss 同模式 (mc 经 docker,
+  # presence-gated)。布局:
+  #   <bucket>/biu_<ver>_*.tar.gz + checksums.txt  根 (新版覆盖)
+  #   <bucket>/<version>/…                          版本归档
+  #   <bucket>/biu.json                             根 (nginx /downloads/biu.json 直取)
+  # 未配 OSS 凭证 → skip 不 fail (与 client 一致, opt-in)。
+  mirror-oss:
+    name: Mirror to OSS
+    if: always() && needs.manifest.result == 'success'
+    needs: manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HAVE_OSS_KEY: ${{ secrets.OSS_ACCESS_KEY_SECRET != '' }}
+
+    steps:
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release artefacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          mkdir -p artefacts && cd artefacts
+          gh release download "${{ steps.ver.outputs.tag }}" --repo "$GITHUB_REPOSITORY" \
+            -p "biu_*.tar.gz" -p "checksums.txt" -p "biu.json"
+          ls -la
+          test -f biu.json || { echo "::error::biu.json not on release — manifest job failed?"; exit 1; }
+
+      - name: Upload to Aliyun OSS
+        if: vars.OSS_BUCKET != '' && env.HAVE_OSS_KEY == 'true'
+        env:
+          OSS_ENDPOINT: ${{ vars.OSS_ENDPOINT }}
+          OSS_AK: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_SK: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -eu
+          docker run --rm \
+            -v "$PWD/artefacts:/artefacts:ro" \
+            -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
+            -e BUCKET="$OSS_BUCKET" -e VER="$VERSION" \
+            --entrypoint /bin/sh \
+            docker.io/minio/mc:latest -c '
+              set -eu
+              mc alias set oss "$EP" "$AK" "$SK"
+              cd /artefacts
+              # tar.gz + checksums 放根 (稳定 url) + 版本目录 (归档)
+              for f in biu_*.tar.gz checksums.txt; do
+                [ -f "$f" ] || continue
+                mc cp "$f" "oss/$BUCKET/"
+                mc cp "$f" "oss/$BUCKET/$VER/"
+              done
+              # biu.json 放根 (nginx RELEASES_UPSTREAM/biu.json 直取)
+              mc cp biu.json "oss/$BUCKET/biu.json"
+              echo "✓ biu artefacts + biu.json → oss/$BUCKET/ (+ $VER/ archive)"
+            '

@@ -18,6 +18,11 @@
 # 每次 nightly 构建上传到 <bucket>/nightly/index.json)。客户端在 设置→关于 开启
 # "获取开发版"时才拉; 不开则永不请求, 不影响普通用户。
 #
+# biu.json 是 biu CLI 更新检查的清单 (release-biu.yml 的 manifest/mirror-oss job
+# 在 v* tag 时上传到 <bucket>/biu.json)。biu 双源检查: GitHub API 优先,
+# 失败/超时降级 <origin>/downloads/biu.json (国内可达)。只反代此几 KB 小文件,
+# tar.gz 大文件走 biu.json 里的 OSS 直链 url。
+#
 # RELEASES_UPSTREAM 值:
 #   - 不含 bucket path (dev MinIO) → http://minio:9000/releases (bucket=releases 在 path)
 #   - CNAME 自定义域名 → https://releases.your-biumind.example.com (prod, https 分支)
@@ -62,6 +67,19 @@ location = /downloads/nightly/index.json {
     proxy_buffering off;
     proxy_read_timeout 30s;
 }
+# biu.json ← OSS (biu CLI 更新检查清单, v* tag 时上传)。CLI 双源检查的降级源。
+location = /downloads/biu.json {
+    include /tmp/biumind-resolver.conf;
+    proxy_ssl_server_name on;
+    proxy_ssl_protocols TLSv1.2 TLSv1.3;
+    proxy_pass ${RU}/biu.json;
+    proxy_set_header Host \$proxy_host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_buffering off;
+    proxy_read_timeout 30s;
+}
 EOF
     ;;
   *)
@@ -89,8 +107,19 @@ location = /downloads/nightly/index.json {
     proxy_buffering off;
     proxy_read_timeout 30s;
 }
+# biu.json ← 本地 MinIO (biu CLI 更新检查清单)。
+location = /downloads/biu.json {
+    set \$upstream "${RU}";
+    proxy_pass \$upstream/biu.json;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_buffering off;
+    proxy_read_timeout 30s;
+}
 EOF
     ;;
 esac
 
-echo "06-releases-upstream.sh: releases.json + nightly/index.json source -> ${RU}"
+echo "06-releases-upstream.sh: releases.json + nightly/index.json + biu.json source -> ${RU}"
