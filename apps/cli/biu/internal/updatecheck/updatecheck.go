@@ -298,13 +298,18 @@ type ossManifest struct {
 }
 
 // ossPlatform is this runtime's platform key in the manifest enum
-// (biu-macos-arm64, biu-linux-x64, …).
+// (biu-macos-arm64, biu-macos-x64, biu-linux-x64, biu-linux-arm64 —
+// schema/release/v1 uses "macos", not Go's "darwin").
 func ossPlatform() string {
-	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "x64"
+	osName := runtime.GOOS
+	if osName == "darwin" {
+		osName = "macos"
 	}
-	return "biu-" + runtime.GOOS + "-" + arch
+	arch := "x64"
+	if runtime.GOARCH == "arm64" {
+		arch = "arm64"
+	}
+	return "biu-" + osName + "-" + arch
 }
 
 // ManifestURLForEndpoint derives the OSS manifest URL from the user's

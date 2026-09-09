@@ -260,7 +260,10 @@ func TestCheckWithFallbackBothDown(t *testing.T) {
 }
 
 func TestManifestURLForEndpoint(t *testing.T) {
-	cases := []struct{ endpoint, want string }{
+	cases := []struct {
+		endpoint string
+		want     string
+	}{
 		{"https://biumind.xxlab.tech", "https://biumind.xxlab.tech/downloads/biu.json"},
 		{"https://biumind.xxlab.tech/", "https://biumind.xxlab.tech/downloads/biu.json"},
 		{"http://localhost:8088", "http://localhost:8088/downloads/biu.json"},
@@ -270,6 +273,18 @@ func TestManifestURLForEndpoint(t *testing.T) {
 		if got := ManifestURLForEndpoint(tc.endpoint); got != tc.want {
 			t.Errorf("ManifestURLForEndpoint(%q) = %q, want %q", tc.endpoint, got, tc.want)
 		}
+	}
+}
+
+func TestOSSPlatformMatchesSchemaEnum(t *testing.T) {
+	// schema/release/v1 manifest.json platform enum (biu-* entries).
+	valid := map[string]bool{
+		"biu-macos-arm64": true, "biu-macos-x64": true,
+		"biu-linux-x64": true, "biu-linux-arm64": true,
+	}
+	got := ossPlatform()
+	if !valid[got] {
+		t.Errorf("ossPlatform() = %q, must be one of the schema/release/v1 biu-* enum values (darwin→macos mapping missing?)", got)
 	}
 }
 
