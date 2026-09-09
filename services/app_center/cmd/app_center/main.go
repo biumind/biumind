@@ -40,6 +40,7 @@ import (
 	"github.com/biumind/biumind/services/app_center/internal/radar"
 	"github.com/biumind/biumind/services/app_center/internal/radar/actions"
 	"github.com/biumind/biumind/services/app_center/internal/rankings"
+	"github.com/biumind/biumind/services/app_center/internal/relaymodel"
 	"github.com/biumind/biumind/services/app_center/internal/repoanalyze"
 	rssbriefing "github.com/biumind/biumind/services/app_center/internal/rss/briefing"
 	rsscopilot "github.com/biumind/biumind/services/app_center/internal/rss/copilot"
@@ -135,18 +136,21 @@ type Config struct {
 	// 兼容默认 listen 端口.
 	SelfBaseURL string `env:"APP_CENTER_BASE_URL" default:"http://localhost:7011"`
 
-	// RSSDigestModel — model code in model-relay catalog. Empty falls
-	// back to digest.defaultModel ("glm-5.1") which is what dev compose
-	// has active. Set in prod once Anthropic Haiku is provisioned.
+	// RSSDigestModel — model code in model-relay catalog (chat mode, used
+	// by digest / copilot / weekly). Explicit ops override; empty = boot-time
+	// resolution via relay preferred (?mode=chat); unresolved → per-task
+	// failure with a clear reason.
 	RSSDigestModel string `env:"RSS_DIGEST_MODEL" default:""`
 
-	// RSSEmbedModel — model code for /v1/embeddings. Empty defaults to
-	// "bge-m3" (1024d). Schema 00014 locks dim to 1024; switching to
+	// RSSEmbedModel — model code for /v1/embeddings. Same chain: env →
+	// relay preferred (?mode=embedding) → per-task skip+retry.
+	// Schema 00014 locks dim to 1024; switching to
 	// a different-dim model requires a follow-up migration.
 	RSSEmbedModel string `env:"RSS_EMBED_MODEL" default:""`
 
 	// RSSTranscribeModel — model code for /v1/audio/transcriptions (M13.5
-	// podcast). Empty defaults to "paraformer-v2" (dashscope async ASR).
+	// podcast). Same chain: env → relay preferred (?mode=audio_transcription)
+	// → per-entry error.
 	// Must be an audio_transcription-mode model in the model-relay catalog;
 	// if unprovisioned, transcription degrades to a per-entry ai_error.
 	RSSTranscribeModel string `env:"RSS_TRANSCRIBE_MODEL" default:""`
@@ -620,10 +624,16 @@ func run() error {
 	// Digest worker — AI 摘要 + 重要度 / topics 给 entries 卡片用 (M1).
 	// 启动 8 worker pool 后, 每 30s 跑一次 backfill 扫 unprocessed entries
 	// 入队 (50 条上限, 一次 tick 最多消化 50 条新条目, 留余地给批处理).
+	//
+	// RSS 各 worker 的模型解析链(与 brain/runtime 同契约, 无硬编码默认):
+	// 功能级 env (RSS_*_MODEL) > relay preferred?mode=<模态> > ""(worker
+	// 内任务级明确失败 / 功能不接)。chat / embedding / audio_transcription
+	// / audio_speech 四模态各查一次, relaymodel.Resolver 进程内缓存 60s。
+	modelResolver := relaymodel.New(cfg.ModelRelayURL, cfg.IdentityInternalToken, logger)
 	if pool != nil && cfg.ModelRelayURL != "" {
 		dw := digest.New(pool, cfg.ModelRelayURL)
 		dw.Logger = logger
-		dw.Model = cfg.RSSDigestModel
+		dw.Model = modelResolver.EnvOr(ctx, cfg.RSSDigestModel, "chat")
 		// Bearer for model-relay calls. Backfill jobs ship without a
 		// caller context, so we mint a per-user token derived from
 		// the feed's scope_id (real user_id) — the call then bills
@@ -671,7 +681,7 @@ func run() error {
 	if pool != nil && cfg.ModelRelayURL != "" {
 		ew := rssembed.New(pool, cfg.ModelRelayURL)
 		ew.Logger = logger
-		ew.Model = cfg.RSSEmbedModel
+		ew.Model = modelResolver.EnvOr(ctx, cfg.RSSEmbedModel, "embedding")
 		signer := bauth.NewSigner(cfg.JWTSecret, cfg.JWTIssuer, cfg.JWTAudience, 24*time.Hour)
 		ew.SignFor = func(userID string) (string, error) {
 			return signer.Sign(&bauth.Claims{UserID: userID, Plan: "team"})
@@ -700,7 +710,7 @@ func run() error {
 			}
 		}()
 		logger.Info("rss embed worker started", "model_relay", cfg.ModelRelayURL,
-			"model", cfg.RSSEmbedModel)
+			"model", ew.Model)
 
 		// 注入 rule embedding hook — rss app 在 rule create/update 时
 		// 调它算 query embedding. 用 rssAppRef (concrete *rss.App) 因为
@@ -718,9 +728,14 @@ func run() error {
 			synth := rssbriefing.New(pool, cfg.ModelRelayURL)
 			synth.Logger = logger
 			synth.SignFor = ew.SignFor
-			rssAppRef.WithBriefingSynth(&briefingSDKAdapter{s: synth})
-			logger.Info("rss briefing synth wired",
-				"model", synth.Model, "voice", synth.Voice)
+			synth.Model = modelResolver.Mode(ctx, "audio_speech")
+			if synth.Model == "" {
+				logger.Warn("rss briefing synth disabled (no audio_speech model resolved)")
+			} else {
+				rssAppRef.WithBriefingSynth(&briefingSDKAdapter{s: synth})
+				logger.Info("rss briefing synth wired",
+					"model", synth.Model, "voice", synth.Voice)
+			}
 		}
 
 		// M13.5: podcast transcribe worker. Scans audio-enclosure entries
@@ -730,9 +745,7 @@ func run() error {
 		tw := rsstranscribe.New(pool, cfg.ModelRelayURL)
 		tw.Logger = logger
 		tw.SignFor = ew.SignFor
-		if cfg.RSSTranscribeModel != "" {
-			tw.Model = cfg.RSSTranscribeModel
-		}
+		tw.Model = modelResolver.EnvOr(ctx, cfg.RSSTranscribeModel, "audio_transcription")
 		tw.Start(ctx)
 		go func() {
 			tick := time.NewTicker(5 * time.Minute)
@@ -765,7 +778,7 @@ func run() error {
 			builder := &copilotBuilderAdapter{pool: pool}
 			asker := &copilotAskerImpl{
 				modelRelayURL: cfg.ModelRelayURL,
-				model:         orFallback(cfg.RSSDigestModel, "glm-5.1"),
+				model:         modelResolver.EnvOr(ctx, cfg.RSSDigestModel, "chat"),
 				signFor:       ew.SignFor,
 				http:          &http.Client{Timeout: 60 * time.Second},
 				logger:        logger,
@@ -779,7 +792,7 @@ func run() error {
 		// brain URL 为空时跳过 wiki 写入但仍在 weekly_runs 留 row.
 		weekly := rssweekly.New(pool, cfg.BrainURL, cfg.ModelRelayURL)
 		weekly.Logger = logger
-		weekly.Model = orFallback(cfg.RSSDigestModel, "glm-5.1")
+		weekly.Model = modelResolver.EnvOr(ctx, cfg.RSSDigestModel, "chat")
 		weekly.SignFor = ew.SignFor
 		weekly.Start(ctx)
 
@@ -1149,13 +1162,6 @@ func truncate200(s string) string {
 		return s
 	}
 	return s[:200] + "…"
-}
-
-func orFallback(s, fallback string) string {
-	if s != "" {
-		return s
-	}
-	return fallback
 }
 
 // briefingSDKAdapter — 把 briefing.Synthesizer 包成 rss.BriefingSynth.

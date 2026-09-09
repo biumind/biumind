@@ -32,7 +32,6 @@ const (
 	// paraformer-v2 is dashscope's async ASR (cheapest + strongest Chinese);
 	// the JSON path in model-relay routes to its AsyncTranscribeAdaptor.
 	// Overridable via RSS_TRANSCRIBE_MODEL.
-	defaultModel = "paraformer-v2"
 	// model-relay blocks (submit+poll) up to ~10min per episode; give the
 	// HTTP client headroom beyond that.
 	defaultTimeout     = 12 * time.Minute
@@ -58,8 +57,9 @@ type Worker struct {
 	// the owning user (same pattern as digest/embed/briefing).
 	SignFor func(userID string) (string, error)
 
-	// Model — model-relay catalog code (audio_transcription mode). Defaults
-	// to defaultModel; set from RSS_TRANSCRIBE_MODEL.
+	// Model — model-relay catalog code (audio_transcription mode). No
+	// built-in default: main.go resolves it via RSS_TRANSCRIBE_MODEL env →
+	// relay preferred (?mode=audio_transcription). Empty → per-entry error.
 	Model string
 
 	// DailyCapSec — per-user daily audio seconds cap. 0 → defaultDailyCapSec.
@@ -83,7 +83,6 @@ func New(pool *pgxpool.Pool, modelRelayURL string) *Worker {
 		ModelRelayURL: modelRelayURL,
 		Logger:        slog.Default(),
 		Concurrency:   defaultConcurrency,
-		Model:         defaultModel,
 		DailyCapSec:   defaultDailyCapSec,
 		HTTP:          &http.Client{Timeout: defaultTimeout},
 		Queue:         make(chan Job, defaultQueueSize),
@@ -102,7 +101,7 @@ func (w *Worker) Start(ctx context.Context) {
 	if conc <= 0 {
 		conc = defaultConcurrency
 	}
-	w.Logger.Info("transcribe: workers starting", "concurrency", conc, "model", w.model())
+	w.Logger.Info("transcribe: workers starting", "concurrency", conc, "model", w.Model)
 	for i := 0; i < conc; i++ {
 		w.wg.Add(1)
 		go w.run(ctx, i)
@@ -185,7 +184,11 @@ func (w *Worker) callOnce(ctx context.Context, j Job) (string, int, []byte, erro
 		return "", 0, nil, fmt.Errorf("transcribe: no bearer token for user %q", j.OwnerUserID)
 	}
 
-	body, _ := json.Marshal(transcribeReq{Model: w.model(), AudioURL: j.AudioURL})
+	if w.Model == "" {
+		return "", 0, nil, fmt.Errorf("transcribe: no ASR model configured " +
+			"(set RSS_TRANSCRIBE_MODEL or provision an active audio_transcription model in the model-relay admin)")
+	}
+	body, _ := json.Marshal(transcribeReq{Model: w.Model, AudioURL: j.AudioURL})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		w.ModelRelayURL+"/v1/audio/transcriptions", bytes.NewReader(body))
 	if err != nil {
@@ -324,13 +327,6 @@ func (w *Worker) record(userID string, sec int) {
 
 func (w *Worker) key(userID string) string {
 	return userID + "|" + nowUTCDate()
-}
-
-func (w *Worker) model() string {
-	if w.Model != "" {
-		return w.Model
-	}
-	return defaultModel
 }
 
 func nowUTCDate() string {

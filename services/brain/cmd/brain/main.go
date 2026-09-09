@@ -148,10 +148,13 @@ type Config struct {
 	//              bge-m3); set EMBED_BASE_URL to bypass only when you
 	//              know why (breaks I6 central-egress).
 	//   ""       — disables the worker; recall stays lexical-only.
-	EmbedProvider    string `env:"EMBED_PROVIDER"      default:""`
-	EmbedAPIKey      string `env:"EMBED_API_KEY"       default:""`
-	EmbedBaseURL     string `env:"EMBED_BASE_URL"      default:""`
-	EmbedModel       string `env:"EMBED_MODEL"         default:"bge-m3"`
+	EmbedProvider string `env:"EMBED_PROVIDER"      default:""`
+	EmbedAPIKey   string `env:"EMBED_API_KEY"       default:""`
+	EmbedBaseURL  string `env:"EMBED_BASE_URL"      default:""`
+	// EmbedModel — 显式运维覆盖。默认空 = relay preferred
+	// (?mode=embedding) 自动优选; 都落空 → embedder 禁用 (降级,
+	// 语义检索退回 lexical/BM25), 不阻塞启动。无硬编码默认。
+	EmbedModel       string `env:"EMBED_MODEL"         default:""`
 	EmbedDims        int    `env:"EMBED_DIMS"          default:"1024"`
 	EmbedWorkerEvery int    `env:"EMBED_WORKER_EVERY_SEC" default:"5"`
 	EmbedWorkerBatch int    `env:"EMBED_WORKER_BATCH"  default:"32"`
@@ -599,7 +602,18 @@ func run() error {
 	// lexical) recall ranking AND the wiki vector retrieval path.
 	// EMBED_PROVIDER unset → both fall back: memory recall is lexical
 	// only, search drops to BM25 + web fusion.
-	embedder, err := buildEmbedder(cfg)
+	//
+	// Default model resolver, shared by the agentplane chat runner
+	// (S4-5), MCP wiki.chat (P2 #22) and auxiliary-feature model
+	// resolution (embedder / vision / research / semantic / selection /
+	// dedup-filter via resolveFeatureModel below). nil when
+	// MODEL_RELAY_URL is unset; consumers treat nil/empty as "no default".
+	var chatDefaultModels *agentplanepkg.DefaultModelResolver
+	if cfg.RelayURL != "" {
+		chatDefaultModels = agentplanepkg.NewDefaultModelResolver(
+			cfg.RelayURL, cfg.IdentityInternalToken, logger)
+	}
+	embedder, err := buildEmbedder(ctx, cfg, chatDefaultModels)
 	if err != nil {
 		return fmt.Errorf("brain: build embedder: %w", err)
 	}
@@ -696,12 +710,9 @@ func run() error {
 	// S3 P0-1: sender hoisted out of the if-block so wiki/api can reuse it
 	// for the agent loop (apiSrv.WithRelay below). nil when MODEL_RELAY_URL
 	// is unset — the wiki agent handler degrades to 503 in that case.
+	// chatDefaultModels 已在 embedder 构建前创建(上方); 这里只做预热 +
+	// MCP 注入。
 	var sender *chatpkg.HTTPSender
-	// Default chat model resolver, shared by the agentplane chat runner
-	// (S4-5) and MCP wiki.chat (P2 #22) — relay is the SoT for "BiuMind
-	// 默认" (models.is_default_chat). nil when MODEL_RELAY_URL is unset;
-	// both consumers treat a nil/empty resolution as "no default".
-	var chatDefaultModels *agentplanepkg.DefaultModelResolver
 	if cfg.RelayURL != "" {
 		// Chat send via model-relay. BYOK no longer flows through Brain:
 		// model-relay resolves the user's key itself by querying identity
@@ -715,8 +726,6 @@ func run() error {
 		// (RunAgentLoopBuffered), so external AI clients can ask the
 		// project knowledge base with identical auth/billing semantics
 		// as the SSE agent run. Resolver warm is async, boot unaffected.
-		chatDefaultModels = agentplanepkg.NewDefaultModelResolver(
-			cfg.RelayURL, cfg.IdentityInternalToken, logger)
 		go chatDefaultModels.Warm(ctx)
 		memoryMCP = memoryMCP.WithAgent(sender, chatDefaultModels)
 		logger.Info("chat send via model-relay enabled", "hub_url", cfg.RelayURL)
@@ -1528,8 +1537,11 @@ func run() error {
 
 // buildEmbedder constructs the configured embedder. Returns nil
 // (no error) when EMBED_PROVIDER is empty so callers can treat the
-// worker as opt-in.
-func buildEmbedder(cfg Config) (embed.Embedder, error) {
+// worker as opt-in. provider=openai 走 relay 内部车道时模型解析链:
+// EMBED_MODEL env > relay preferred (?mode=embedding) > 禁用 (nil,
+// WARN) — 无硬编码默认模型名。EMBED_BASE_URL 显式直连时 EMBED_MODEL
+// 必填, 空则同样禁用。
+func buildEmbedder(ctx context.Context, cfg Config, models *agentplanepkg.DefaultModelResolver) (embed.Embedder, error) {
 	switch cfg.EmbedProvider {
 	case "":
 		return nil, nil
@@ -1541,20 +1553,28 @@ func buildEmbedder(cfg Config) (embed.Embedder, error) {
 		// I6: default egress through model-relay's internal embeddings
 		// endpoint so background indexing never bypasses the central
 		// LLM gateway or egresses straight to api.openai.com. The relay
-		// resolves the platform embedding pool (bge-m3); brain
-		// authenticates with the shared internal token, not a user JWT
-		// and not an OpenAI API key. Explicit EMBED_BASE_URL still wins
-		// (operator override).
+		// resolves the platform embedding pool; brain authenticates with
+		// the shared internal token, not a user JWT and not an OpenAI
+		// API key. Explicit EMBED_BASE_URL still wins (operator override).
 		if base == "" && cfg.RelayURL != "" {
 			base = strings.TrimRight(cfg.RelayURL, "/") + "/v1/internal"
 		}
 		if key == "" {
 			key = cfg.ModelRelayInternalToken
 		}
+		model := cfg.EmbedModel
+		if model == "" && models != nil {
+			model = models.PreferredModel(ctx, "embedding", "")
+		}
+		if model == "" {
+			slog.Default().Warn("embedder disabled: no embedding model resolved",
+				"hint", "set EMBED_MODEL or provision an active embedding model in the model-relay admin")
+			return nil, nil
+		}
 		return embed.NewOpenAI(embed.OpenAIConfig{
 			BaseURL: base,
 			APIKey:  key,
-			Model:   cfg.EmbedModel,
+			Model:   model,
 			Dims:    cfg.EmbedDims,
 		})
 	default:

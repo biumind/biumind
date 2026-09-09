@@ -36,9 +36,9 @@ logger = logging.getLogger("biumind.aigc.hotparse")
 
 TRANSCRIBE_PATH = "/v1/internal/transcribe"
 CHAT_PATH = "/v1/internal/chat"
-PREFERRED_CHAT_PATH = "/v1/internal/models/preferred-chat"
+PREFERRED_PATH = "/v1/internal/models/preferred"
 
-# preferred-chat 进程内正缓存 TTL —— 对齐 brain / wiki-llm 的 60s;
+# preferred 端点进程内正缓存 TTL —— 对齐 brain / wiki-llm 的 60s;
 # 解析失败不缓存(下次任务重试), 也不设负缓存打爆保护(hotparse 任务低频)。
 _PREF_CACHE_TTL_S = 60.0
 
@@ -57,8 +57,8 @@ class HotparseProvider(Executor):
         self._owns_client = client is None
         self._task: Optional[asyncio.Task] = None
         self._progress = 0
-        self._pref_model = ""
-        self._pref_exp = 0.0
+        # preferred 端点每 mode 的正缓存槽: mode → (code, 过期时刻)
+        self._pref_slots: dict[str, tuple[str, float]] = {}
 
     @property
     def code(self) -> str:
@@ -156,7 +156,13 @@ class HotparseProvider(Executor):
                     pass
 
     async def _transcribe(self, task: SubmitTask, audio_path: str) -> str:
+        # 模型链: task.params.stt_model > AIGC_HOTPARSE_STT_MODEL env >
+        # relay preferred (?mode=audio_transcription) 自动优选 >
+        # ProviderError(任务 failed, 带配置提示)。
         model = (task.params or {}).get("stt_model") or self._cfg.hotparse_stt_model
+        if not model:
+            model = await self._preferred_model("audio_transcription",
+                                                "AIGC_HOTPARSE_STT_MODEL")
         headers = {"X-Internal-User-Id": task.user_id, "X-Request-Id": task.task_id}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -183,10 +189,10 @@ class HotparseProvider(Executor):
 
     async def _analyze(self, task: SubmitTask, transcript: str) -> dict[str, Any]:
         # 模型链: task.params.llm_model > AIGC_HOTPARSE_LLM_MODEL env >
-        # relay preferred-chat 自动优选 > ProviderError(带配置提示)。
+        # relay preferred (?mode=chat) 自动优选 > ProviderError(带配置提示)。
         model = (task.params or {}).get("llm_model") or self._cfg.hotparse_llm_model
         if not model:
-            model = await self._preferred_chat_model()
+            model = await self._preferred_model("chat", "AIGC_HOTPARSE_LLM_MODEL")
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -217,20 +223,22 @@ class HotparseProvider(Executor):
         # parse_result 抛 ValueError → _run 转 HOTPARSE_PARSE
         return _prompt.parse_result(text)
 
-    async def _preferred_chat_model(self) -> str:
-        """relay preferred-chat 自动优选可用 chat 模型, 60s 进程内正缓存。
-        解析不出 → ProviderError(任务 failed, 带配置提示)。"""
+    async def _preferred_model(self, mode: str, env_name: str) -> str:
+        """relay preferred 端点按模态自动优选可用模型, 60s 进程内正缓存
+        (每 mode 独立槽位)。解析不出 → ProviderError(任务 failed,
+        带配置提示)。"""
         now = time.monotonic()
-        if self._pref_model and now < self._pref_exp:
-            return self._pref_model
+        slot = self._pref_slots.get(mode)
+        if slot and slot[0] and now < slot[1]:
+            return slot[0]
         headers = {}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         try:
-            resp = await self._client.get(self._base + PREFERRED_CHAT_PATH,
-                                          headers=headers)
+            resp = await self._client.get(
+                f"{self._base}{PREFERRED_PATH}?mode={mode}", headers=headers)
         except httpx.HTTPError as e:
-            raise ProviderError(f"preferred-chat http: {e}") from e
+            raise ProviderError(f"preferred model http: {e}") from e
         code = ""
         if resp.status_code == 200:
             try:
@@ -239,11 +247,10 @@ class HotparseProvider(Executor):
                 code = ""
         if not code:
             raise ProviderError(
-                "no chat model available: set AIGC_HOTPARSE_LLM_MODEL or "
-                "configure an active chat model in the model-relay admin "
-                f"(preferred-chat status {resp.status_code})")
-        self._pref_model = code
-        self._pref_exp = now + _PREF_CACHE_TTL_S
+                f"no {mode} model available: set {env_name} or configure "
+                "an active model of this mode in the model-relay admin "
+                f"(preferred status {resp.status_code})")
+        self._pref_slots[mode] = (code, now + _PREF_CACHE_TTL_S)
         return code
 
 

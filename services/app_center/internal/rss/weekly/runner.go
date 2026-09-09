@@ -31,7 +31,6 @@ import (
 
 const (
 	defaultTickInterval = 5 * time.Minute
-	defaultModel        = "glm-5.1" // sonnet 4.6 上线后切
 	maxTopEntries       = 5
 	scanWindow          = 7 * 24 * time.Hour
 )
@@ -54,7 +53,6 @@ func New(pool *pgxpool.Pool, brainURL, modelRelayURL string) *Runner {
 		Pool:          pool,
 		BrainURL:      strings.TrimRight(brainURL, "/"),
 		ModelRelayURL: strings.TrimRight(modelRelayURL, "/"),
-		Model:         defaultModel,
 		Logger:        slog.Default(),
 		HTTP:          &http.Client{Timeout: 60 * time.Second},
 	}
@@ -346,6 +344,10 @@ func (r *Runner) callLLM(ctx context.Context, userID, systemPrompt, question str
 	token, err := r.SignFor(userID)
 	if err != nil {
 		return "", fmt.Errorf("weekly: sign: %w", err)
+	}
+	if r.Model == "" {
+		return "", errors.New("weekly: no chat model configured " +
+			"(set RSS_DIGEST_MODEL or provision an active chat model in the model-relay admin)")
 	}
 	body, _ := json.Marshal(map[string]any{
 		"model":      r.Model,

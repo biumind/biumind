@@ -38,11 +38,6 @@ import (
 )
 
 const (
-	// Default model — overridable via Worker.Model after construction
-	// (main.go reads RSS_DIGEST_MODEL env). The dev model-relay catalog
-	// only exposes glm-5.1 active by default; set RSS_DIGEST_MODEL to
-	// switch in prod once Anthropic Haiku is provisioned.
-	defaultModel       = "glm-5.1"
 	defaultMaxTokens   = 400
 	defaultMaxContent  = 4000 // input chars cap (≈ 4k tokens for zh)
 	defaultTimeout     = 25 * time.Second
@@ -77,9 +72,10 @@ type Worker struct {
 	// credentials in the model-relay catalog).
 	SignFor func(userID string) (string, error)
 
-	// Model — model-relay catalog code. Defaults to defaultModel when
-	// empty. Set this from main.go via RSS_DIGEST_MODEL env so ops
-	// can swap models without a rebuild.
+	// Model — model-relay catalog code (chat mode). No built-in default:
+	// main.go resolves it via RSS_DIGEST_MODEL env → relay preferred
+	// (?mode=chat). Empty → digestEntry fails the entry with ai_error
+	// (dead-letter, no silent model substitution).
 	Model string
 
 	HTTP    *http.Client
@@ -122,7 +118,7 @@ func (w *Worker) Start(ctx context.Context) {
 	if conc <= 0 {
 		conc = defaultConcurrency
 	}
-	w.Logger.Info("digest: workers starting", "concurrency", conc, "model", defaultModel)
+	w.Logger.Info("digest: workers starting", "concurrency", conc, "model", w.Model)
 	for i := 0; i < conc; i++ {
 		w.wg.Add(1)
 		go w.run(ctx, i)
@@ -216,7 +212,11 @@ func (w *Worker) callOnce(ctx context.Context, j Job) (*digestResult, error) {
 
 	model := w.Model
 	if model == "" {
-		model = defaultModel
+		// 无硬编码兜底: 启动期解析 (RSS_DIGEST_MODEL env > relay
+		// preferred?mode=chat) 落空 —— 明确失败进 ai_error, 不静默选型。
+		return nil, fmt.Errorf("%w: digest: no chat model configured "+
+			"(set RSS_DIGEST_MODEL or provision an active chat model in the model-relay admin)",
+			errPermFail)
 	}
 	body := map[string]any{
 		"model":      model,

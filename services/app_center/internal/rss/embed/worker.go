@@ -39,7 +39,6 @@ import (
 )
 
 const (
-	defaultModel       = "bge-m3"
 	defaultMaxInput    = 4000 // bge-m3 max ~ 8192 tokens; cap at chars
 	defaultConcurrency = 2
 	defaultQueueSize   = 256
@@ -136,7 +135,13 @@ func (w *Worker) process(ctx context.Context, j Job) {
 	token := w.resolveToken(j.OwnerUserID)
 	model := w.Model
 	if model == "" {
-		model = defaultModel
+		// 无硬编码兜底: 启动期解析 (RSS_EMBED_MODEL env > relay
+		// preferred?mode=embedding) 落空 —— 记日志跳过, 下一轮 backfill
+		// 重试 (与"失败不持久化"的现有语义一致)。
+		w.Logger.Warn("embed: no embedding model resolved; skipping",
+			"entry", j.EntryID,
+			"hint", "set RSS_EMBED_MODEL or provision an active embedding model in the model-relay admin")
+		return
 	}
 
 	start := time.Now()
@@ -319,7 +324,8 @@ func (w *Worker) EmbedQuery(ctx context.Context, text string) ([]float32, string
 	}
 	model := w.Model
 	if model == "" {
-		model = defaultModel
+		return nil, "", errors.New("embed: no embedding model configured " +
+			"(set RSS_EMBED_MODEL or provision an active embedding model in the model-relay admin)")
 	}
 	// Rule embed prefers system token (dev) — caller-context propagation
 	// would need the action handler to thread bearer through, M9 polish.

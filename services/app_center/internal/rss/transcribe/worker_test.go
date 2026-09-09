@@ -105,6 +105,7 @@ func TestCallOnceUpstreamError(t *testing.T) {
 	defer srv.Close()
 	w := &Worker{
 		ModelRelayURL: srv.URL,
+		Model:         "paraformer-v2",
 		HTTP:          &http.Client{Timeout: 5 * time.Second},
 		SignFor:       func(uid string) (string, error) { return "t", nil },
 	}

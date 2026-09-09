@@ -44,7 +44,6 @@ import (
 )
 
 const (
-	defaultModel   = "cosyvoice-v3-plus"
 	defaultVoice   = "longanyang"
 	defaultFormat  = "mp3"
 	defaultTTL     = 24 * time.Hour
@@ -85,7 +84,6 @@ func New(pool *pgxpool.Pool, modelRelayURL string) *Synthesizer {
 		ModelRelayURL: strings.TrimRight(modelRelayURL, "/"),
 		HTTP:          &http.Client{Timeout: defaultTimeout},
 		Logger:        slog.Default(),
-		Model:         defaultModel,
 		Voice:         defaultVoice,
 		Format:        defaultFormat,
 	}
@@ -117,6 +115,10 @@ func (s *Synthesizer) SynthForUser(
 	}
 	if s.ModelRelayURL == "" {
 		return nil, errors.New("briefing: model-relay url not set")
+	}
+	if s.Model == "" {
+		return nil, errors.New("briefing: no TTS model configured " +
+			"(provision an active audio_speech model in the model-relay admin)")
 	}
 	if scriptText == "" {
 		return nil, errors.New("briefing: empty script")

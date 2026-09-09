@@ -477,7 +477,8 @@ services:
       # radar LLM advisor 模型解析: RADAR_LLM_MODEL 显式覆盖 > relay preferred-chat 优选 > 不接 advisor
       IDENTITY_INTERNAL_TOKEN: ${IDENTITY_INTERNAL_TOKEN:-biumind-dev-internal-token-change-me}
       RADAR_LLM_MODEL: ${RADAR_LLM_MODEL:-}
-      # RSS AI worker chat 模型 — 指向 active channel 的 deepseek/claude，换模型只改这里
+      # RSS AI worker chat 模型 — 显式运维覆盖（digest/copilot/weekly 共用）；
+      # 删除此行 = 启动时经 relay /v1/internal/models/preferred?mode=chat 自动优选
       RSS_DIGEST_MODEL: anthropic.claude-opus-4-8
       BRAIN_URL: http://brain:7003
       TASKS_STORE_PATH: /var/lib/biumind/app_center/tasks.json
