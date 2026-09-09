@@ -171,16 +171,22 @@ func TestCircuitBreakerTrips(t *testing.T) {
 	// MaxConsecutiveErrors, IsHealthy returns false.
 	//
 	// Wait for the readLoop to observe stdout EOF (i.e. the server
-	// process fully exited) before hammering it. Without this, a slow-
-	// to-die server on a loaded CI runner keeps the first ListTools
-	// blocked until the shared 5s ctx expires — and ctx cancellation
-	// deliberately does NOT count toward the circuit breaker, so the
-	// breaker never trips and the test flakes. After EOF every call
-	// deterministically fails with a stdin EPIPE write error, which
-	// does count.
-	<-c.readLoopDone
+	// process fully exited) before hammering it — bounded so a wedged
+	// server can't hang the test to the go test timeout.
+	select {
+	case <-c.readLoopDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not exit within 10s")
+	}
+	// Fresh ctx for the hammer loop: the handshake ctx above may be
+	// near expiry on a loaded CI runner, and ctx-canceled calls
+	// deliberately do NOT count toward the circuit breaker — the
+	// breaker would never trip and the test flakes. Post-EOF writes
+	// fail deterministically with stdin EPIPE, which does count.
+	hctx, hcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer hcancel()
 	for i := 0; i < MaxConsecutiveErrors; i++ {
-		_, _ = c.ListTools(ctx)
+		_, _ = c.ListTools(hctx)
 	}
 	if c.IsHealthy() {
 		t.Errorf("circuit breaker should have tripped after %d errors",
