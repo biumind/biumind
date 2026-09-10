@@ -70,7 +70,7 @@ var slashCmds = []SlashCmd{
 	{Name: "/cost", Args: "[--by-tool]", Description: "show running token + $ usage; --by-tool lists per-tool calls/elapsed/bytes/errors"},
 	{Name: "/telemetry", Args: "[tail [N]|export <path>|enable <endpoint>|disable]", Description: "show telemetry status; tail / export the events log"},
 	{Name: "/workflow", Args: "[<name> [args]|show <name>]", Description: "list / preview / dispatch user-defined multi-step workflows"},
-	{Name: "/model", Args: "<id>", Description: "switch model for this session"},
+	{Name: "/model", Args: "[<id>|platform]", Description: "switch model — bare form lists the platform catalog; `platform` follows the platform default"},
 	{Name: "/output-style", Args: "<name>", Description: "switch output style (concise / explanatory / …)"},
 	{Name: "/mode", Args: "<mode>", Description: "switch permission mode (default / acceptEdits / plan / bypass)"},
 	{Name: "/reload", Description: "force-reload settings.json (permissions; hooks need restart)"},

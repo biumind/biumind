@@ -36,6 +36,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
 	"github.com/biumind/biumind/apps/cli/biu/internal/mcp"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
+	"github.com/biumind/biumind/apps/cli/biu/internal/modelcatalog"
 	"github.com/biumind/biumind/apps/cli/biu/internal/output"
 	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plans"
@@ -115,6 +116,16 @@ type Options struct {
 	// Derived from the model-relay endpoint (single-origin addressing)
 	// by the cmd wiring; see updatecheck.ManifestURLForEndpoint.
 	UpdateManifestURL string
+
+	// RewireAfterLogin rebuilds the chat provider + resolves the model
+	// after a successful /login inside the REPL (零配置懒引导). nil →
+	// /login can't rewire; the user restarts biu instead.
+	RewireAfterLogin func() (client.Provider, string, error)
+
+	// ListModels fetches the user-visible model catalog (/v1/me/models
+	// with token) for the /model picker. nil → /model falls back to
+	// manual `usage: /model <id>` text.
+	ListModels func(ctx context.Context) ([]modelcatalog.Model, error)
 }
 
 type runState int
@@ -212,6 +223,14 @@ type model struct {
 	// OSS manifest fallback URL for update checks
 	// (Options.UpdateManifestURL).
 	updateManifestURL string
+
+	// 零配置懒引导（kimi/CC 式）：/login 成功后在 REPL 内重建
+	// provider + 解析模型，免重启。nil → /login 后提示重启。
+	rewireAfterLogin func() (client.Provider, string, error)
+
+	// /model 目录数据源（带 token 的 /v1/me/models 拉取）。nil →
+	// /model 只收 `/model <id>` 手动形式。
+	listModels func(ctx context.Context) ([]modelcatalog.Model, error)
 }
 
 // ─── tea.Msg types ─────────────────────────────────────
@@ -220,6 +239,19 @@ type model struct {
 type deltaMsg struct{ text string }
 type streamErrMsg struct{ err error }
 type streamDoneMsg struct{}
+
+// 零配置懒引导：/login 成功后的 provider/model 重建结果。
+type rewiredMsg struct {
+	provider client.Provider
+	model    string
+	err      error
+}
+
+// /model 目录拉取结果（ListModels 注入的数据源）。
+type modelListMsg struct {
+	models []modelcatalog.Model
+	err    error
+}
 
 // One-shot for the spinner tick (forwarded by spinner.Tick)
 // (handled inline)
@@ -281,6 +313,8 @@ func New(opt Options) tea.Model {
 		skills:      opt.Skills,
 
 		updateManifestURL: opt.UpdateManifestURL,
+		rewireAfterLogin:  opt.RewireAfterLogin,
+		listModels:        opt.ListModels,
 	}
 	m.viewport.SetContent(m.welcome())
 	return m
@@ -295,7 +329,28 @@ func (m model) welcome() string {
 		Render("BiuMind Code")
 	hint := lipgloss.NewStyle().Foreground(colorMuted).
 		Render("type your prompt; / to see commands; Ctrl-C cancels; Ctrl-D exits")
-	return hi + "\n" + hint + "\n"
+	out := hi + "\n" + hint + "\n"
+	// 零配置懒引导：未登录 / 未配模型时欢迎屏直接给下一步指引，
+	// 不让用户发了第一条消息才发现不能用（kimi 的 Welcome 面板同款）。
+	if note := m.notReadyHint(); note != "" {
+		out += lipgloss.NewStyle().Foreground(colorMuted).Render(strings.TrimSpace(note)) + "\n"
+	}
+	return out
+}
+
+// notReadyHint 报告"还不能发消息"的原因与指引；空串 = 就绪。
+// 引擎路径就绪条件 = engine 非 nil；legacy 路径 = provider + model。
+func (m model) notReadyHint() string {
+	if m.engine != nil {
+		return ""
+	}
+	if m.provider == nil {
+		return "Not signed in — run /login to sign in, then send your prompt again."
+	}
+	if m.modelID == "" {
+		return "No model configured — run /model to pick one (or restart with --model <id>)."
+	}
+	return ""
 }
 
 // ─── Update ────────────────────────────────────────────
@@ -347,6 +402,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case upgradeRunResultMsg:
 		m.appendSystemNote(msg.text)
+		return m, nil
+
+	case rewiredMsg:
+		m.handleRewired(msg)
+		return m, nil
+
+	case modelListMsg:
+		m.handleModelList(msg)
 		return m, nil
 
 	case launchOkMsg:
@@ -540,6 +603,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.slashOpen = false
 			return m.runSlash(raw)
 		}
+		// 零配置懒引导门：未登录 / 未配模型时不当场发请求，先给
+		// 可执行指引（kimi 式 "LLM not set, send /login"）。
+		if hint := m.notReadyHint(); hint != "" {
+			m.textarea.Reset()
+			m.slashOpen = false
+			m.appendSystemNote(hint)
+			return m, nil
+		}
 		// Send to LLM.
 		m.textarea.Reset()
 		m.slashOpen = false
@@ -662,13 +733,10 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		}()
 		return m, nil
 	case "/model":
-		if len(parts) >= 2 {
-			m.modelID = parts[1]
-			m.appendSystemNote("model switched: " + m.modelID)
-		} else {
-			m.appendSystemNote("usage: /model <model-id>")
-		}
-		return m, nil
+		// Bare form pulls the platform catalog (numbered picker);
+		// `/model <code>` switches + persists; `/model platform`
+		// clears the local preference. See slash_model.go.
+		return m.handleModel(parts)
 	case "/mode":
 		if len(parts) < 2 {
 			m.appendSystemNote("usage: /mode <default|acceptEdits|plan|bypassPermissions>")
@@ -1075,9 +1143,11 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		m.appendSystemNote(m.handleExport(parts))
 		return m, nil
 	case "/login":
-		// Show OAuth token state (not signed in / signed in + expiry).
-		m.appendSystemNote(m.handleLogin(parts))
-		return m, nil
+		// Show OAuth token state (not signed in / signed in + expiry);
+		// signed-out interactive runs the browser flow + rewire.
+		note, cmd := m.handleLogin(parts)
+		m.appendSystemNote(note)
+		return m, cmd
 	case "/logout":
 		// Delete locally-stored OAuth tokens.
 		m.appendSystemNote(m.handleLogout(parts))

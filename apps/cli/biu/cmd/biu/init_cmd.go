@@ -121,16 +121,22 @@ func newInitCmd(_ *rootFlags) *cobra.Command {
 			if modelFlag != "" {
 				cfg.Default.Model = modelFlag
 			} else if !nonInteractive {
-				q := "Default model (e.g. the model code from your relay admin): "
-				if cfg.Default.Model != "" {
-					q = fmt.Sprintf("Default model [%s]: ", cfg.Default.Model)
+				switch client.Mode(mode) {
+				case client.ModeDirect:
+					cfg.Default.Model = promptString("Default model [claude-sonnet-4-6]: ", "claude-sonnet-4-6")
+				default:
+					// cloud / byo：优先平台目录 —— is_default_chat 标记
+					// 直接采用；无标记则编号列表手选（见 onboarding.go）。
+					// 拉不到目录回落手填。
+					cfg.Default.Model = resolveModelWithCatalog(cmd.Context(), cfg)
+					if cfg.Default.Model == "" {
+						cfg.Default.Model = promptString("Default model (blank = follow the platform default): ", "")
+					}
 				}
-				cfg.Default.Model = promptString(q, cfg.Default.Model)
 			}
 			if cfg.Default.Model == "" {
 				fmt.Fprintln(os.Stderr,
-					"[biu] warning: no default model set — set [default].model in "+
-						clierr.DisplayPath(cfgPath)+" or pass --model on each run")
+					"[biu] note: no default model set — biu follows the platform default chat model automatically (pick one anytime with /model).")
 			}
 
 			if err := writeConfig(cfgPath, cfg); err != nil {

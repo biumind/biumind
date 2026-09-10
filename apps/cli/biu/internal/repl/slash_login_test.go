@@ -9,7 +9,7 @@ import (
 // run `biu auth login`.
 func TestSlashLogin_notSignedIn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	got := model{}.handleLogin([]string{"/login"})
+	got, _ := model{}.handleLogin([]string{"/login"})
 	for _, want := range []string{"not signed in", "biu auth login"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in output: %s", want, got)
@@ -34,6 +34,6 @@ func TestSlashLogin_neverPanics(t *testing.T) {
 			t.Errorf("/login panicked: %v", r)
 		}
 	}()
-	_ = model{}.handleLogin([]string{"/login"})
+	_, _ = model{}.handleLogin([]string{"/login"})
 	_ = model{}.handleLogout([]string{"/logout"})
 }

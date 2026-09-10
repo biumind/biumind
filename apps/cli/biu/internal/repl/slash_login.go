@@ -22,21 +22,24 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"golang.org/x/term"
 )
 
 // handleLogin surfaces the active OAuth token state; 未登录时直接发起
-// 浏览器登录。
-func (m model) handleLogin(parts []string) string {
+// 浏览器登录。返回 (note, cmd) —— cmd 非 nil 时是登录成功后的 rewire
+// 命令（零配置懒引导：REPL 内重建 provider + 解析模型，免重启）。
+func (m model) handleLogin(parts []string) (string, tea.Cmd) {
 	store, err := oauth.Open("")
 	if err != nil {
-		return "/login: " + err.Error()
+		return "/login: " + err.Error(), nil
 	}
 	tokens, err := store.Load()
 	if err != nil {
-		return fmt.Sprintf("/login: load tokens: %v", err)
+		return fmt.Sprintf("/login: load tokens: %v", err), nil
 	}
 
 	if tokens.AccessToken == "" {
@@ -44,22 +47,29 @@ func (m model) handleLogin(parts []string) string {
 		// 阻塞 5min 等回调没有意义，给引导文案即可（也保持
 		// slash_login_test 的非交互语义）。
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return "/login: not signed in.\n\n" + loginGuidance()
+			return "/login: not signed in.\n\n" + loginGuidance(), nil
 		}
 		oc, cerr := replOAuthConfig()
 		if cerr != nil {
 			return "/login: not signed in.\n\n" +
 				"Cannot derive OAuth endpoints: " + cerr.Error() + "\n\n" +
-				loginGuidance()
+				loginGuidance(), nil
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if lerr := oauth.BrowserLogin(ctx, oc, store, os.Stderr); lerr != nil {
 			return fmt.Sprintf("/login: browser login failed: %v\n\n", lerr) +
-				loginGuidance()
+				loginGuidance(), nil
+		}
+		// 零配置懒引导：启动时因未登录降级（provider nil）的 REPL 在
+		// 这里原地接回 —— 重建 provider + live 解析默认模型，用户不
+		// 用重启。已就绪的 REPL 不需要 rewire。
+		if m.provider == nil && m.engine == nil && m.rewireAfterLogin != nil {
+			return "/login: signed in — credentials stored in " + store.Path() + ".\n" +
+				"Wiring the provider…", m.rewireCmd()
 		}
 		return "/login: signed in — credentials stored in " + store.Path() + ".\n" +
-			"Tokens are picked up on the next API call (or after restart)."
+			"Tokens are picked up on the next API call (or after restart).", nil
 	}
 
 	var b strings.Builder
@@ -91,7 +101,17 @@ func (m model) handleLogin(parts []string) string {
 		b.WriteString("\n  ! no refresh token — when access expires you'll need to /logout " +
 			"+ biu auth login again.")
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// rewireCmd 登录成功后在后台重建 provider + 解析模型，结果经
+// rewiredMsg 回到 Update（零配置懒引导的免重启接回路径）。
+func (m model) rewireCmd() tea.Cmd {
+	fn := m.rewireAfterLogin
+	return func() tea.Msg {
+		p, model, err := fn()
+		return rewiredMsg{provider: p, model: model, err: err}
+	}
 }
 
 // handleLogout 吊销上游 refresh_token（尽力而为）后删本地凭证。

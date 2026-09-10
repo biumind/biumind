@@ -29,19 +29,25 @@ import (
 
 	"github.com/biumind/biumind/apps/cli/biu/cmd/biu/wiring"
 	"github.com/biumind/biumind/apps/cli/biu/internal/agentplane"
+	"github.com/biumind/biumind/apps/cli/biu/internal/bgtask"
 	"github.com/biumind/biumind/apps/cli/biu/internal/client"
 	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
+	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
 	"github.com/biumind/biumind/apps/cli/biu/internal/headless"
+	"github.com/biumind/biumind/apps/cli/biu/internal/mcp"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
+	"github.com/biumind/biumind/apps/cli/biu/internal/modelcatalog"
 	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
 	"github.com/biumind/biumind/apps/cli/biu/internal/output"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plugins"
 	"github.com/biumind/biumind/apps/cli/biu/internal/repl"
 	"github.com/biumind/biumind/apps/cli/biu/internal/session"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
+	"github.com/biumind/biumind/apps/cli/biu/internal/skills"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
 	"github.com/biumind/biumind/apps/cli/biu/internal/telemetry"
+	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
 	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	"github.com/biumind/biumind/apps/cli/biu/internal/worktree"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
@@ -157,23 +163,66 @@ func newRootCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer cancel()
 
+			interactive := !f.headless && !f.jsonOut
+
 			cfg, _, err := config.Load(f.cfgPath)
 			if err != nil {
 				return err
 			}
-			model := firstNonEmpty(f.model, cfg.Default.Model)
-			if model == "" {
-				// 平台默认聊天模型不再有硬编码兜底 —— REPL / headless 的
-				// engine 路径不经 biumindkit,在这里统一提前报错。
-				return clierr.WithHint(
-					clierr.Newf("sdk", "no model specified and no default model configured"),
-					"set [default].model in ~/.biu/config.toml (run `biu init`), or pass --model <id>")
+
+			// CC 式首启 Onboarding：config 文件不存在时先走一次引导
+			//（mode 确认 → 浏览器登录 → 写 config），可拒绝 —— 拒绝后
+			// 进入未登录 REPL 懒引导。见 onboarding.go。
+			if interactive {
+				if runFirstLaunchOnboarding(cmd.Context()) {
+					cfg, _, err = config.Load(f.cfgPath)
+					if err != nil {
+						return err
+					}
+				}
 			}
+
+			model := firstNonEmpty(f.model, cfg.Default.Model)
+			platformDefault := false
+			if model == "" {
+				if !interactive {
+					// headless 保持 fail-fast（kimi/CC 同款）：管道里没
+					// 有交互兜底的余地，报错并给出可执行指引。
+					return clierr.WithHint(
+						clierr.Newf("sdk", "no model specified and no default model configured"),
+						"set [default].model in ~/.biu/config.toml (run `biu init`), or pass --model <id>")
+				}
+				// 零配置/未配模型：live 解析平台默认（is_default_chat 标
+				// 记，不落 config —— admin 换默认自动跟随，与 Flutter
+				// chat 的 systemDefault 同语义）。未登录/网络失败/未设
+				// 默认 → 留空，REPL 首条消息时再引导（/login、/model）。
+				model = resolvePlatformDefaultModel(cmd.Context(), cfg, &f)
+				platformDefault = model != ""
+			}
+
 			provider, mode, err := wiring.BuildProvider(cfg, f.wiringFlags())
 			if err != nil {
-				return err
+				if !interactive {
+					return err
+				}
+				// 交互式不因未登录挡启动（kimi 式懒引导）：降级进 REPL，
+				// 首条消息时提示 /login，登录后自动接回（见 repl 的
+				// rewiredMsg 流程）。
+				fmt.Fprintf(os.Stderr, "[biu] %v\n", err)
+				fmt.Fprintln(os.Stderr, "[biu] starting signed-out — run /login inside the REPL to sign in")
+				provider = nil
 			}
-			fmt.Fprintf(os.Stderr, "[biu] mode=%s provider=%s model=%s\n", mode, provider.Name(), model)
+
+			if provider != nil {
+				label := model
+				switch {
+				case platformDefault:
+					label += "  (platform default)"
+				case model == "":
+					label = "(unset — run /model)"
+				}
+				fmt.Fprintf(os.Stderr, "[biu] mode=%s provider=%s model=%s\n", mode, provider.Name(), label)
+			}
 
 			if f.headless || f.jsonOut {
 				// Engine path is preferred when it's available — the
@@ -204,7 +253,16 @@ func newRootCmd() *cobra.Command {
 
 			// Engine path is opt-in for now: only direct-anthropic users
 			// get the agent loop until model-relay gains tool forwarding.
-			eng, bgStore, mcpReg, trustStore, skillReg := wiring.BuildEngine(cfg, f.wiringFlags(), model)
+			// model 为空（未登录/无平台默认）时也跳过 —— REPL 的 notReady
+			// 门会在首条消息时统一引导，不把空 model 传进 engine。
+			var eng *engine.QueryEngine
+			var bgStore *bgtask.Store
+			var mcpReg *mcp.Registry
+			var trustStore *trust.Store
+			var skillReg *skills.Registry
+			if model != "" {
+				eng, bgStore, mcpReg, trustStore, skillReg = wiring.BuildEngine(cfg, f.wiringFlags(), model)
+			}
 
 			// Wire file-snapshot capture (P20.57) once both the engine
 			// and the session writer exist. SnapshotStore is keyed by
@@ -391,6 +449,32 @@ func newRootCmd() *cobra.Command {
 				MCP:         mcpReg,
 				Trust:       trustStore,
 				Skills:      skillReg,
+
+				// 零配置懒引导（kimi/CC 式）：/login 成功后在 REPL 内
+				// 重建 provider + live 解析默认模型（用户偏好 > 平台默
+				// 认），免重启。main 侧闭包拿得到 cfg/flags，REPL 只认
+				// 函数签名。
+				RewireAfterLogin: func() (client.Provider, string, error) {
+					p, _, err := wiring.BuildProvider(cfg, f.wiringFlags())
+					if err != nil {
+						return nil, "", err
+					}
+					return p, firstNonEmpty(f.model, cfg.Default.Model,
+						resolvePlatformDefaultModel(ctx, cfg, &f)), nil
+				},
+				// /model 目录数据源（带 token 的 /v1/me/models 拉取）。
+				ListModels: func(ctx context.Context) ([]modelcatalog.Model, error) {
+					relayURL := firstNonEmpty(f.relayURL, os.Getenv("BIUMIND_MODEL_RELAY_URL"), cfg.Relay.Endpoint)
+					if relayURL == "" {
+						return nil, clierr.Newf("config", "model-relay endpoint not set")
+					}
+					tp := wiring.TokenProviderFor(cfg, f.wiringFlags(), relayURL)
+					token, err := tp.Token(ctx)
+					if err != nil {
+						return nil, err
+					}
+					return modelcatalog.List(ctx, relayURL, token)
+				},
 
 				// OSS manifest fallback for the startup update check,
 				// derived from the relay endpoint (single-origin).
@@ -614,6 +698,32 @@ func defaultModelResolver(cfg *config.Config) func(context.Context) (string, err
 			"set [default].model in ~/.biu/config.toml (or run `biu init`), " +
 			"or pass --model <id>")
 	}
+}
+
+// resolvePlatformDefaultModel live 解析平台默认聊天模型（用户级
+// /v1/me/models 的 is_default_chat 标记）。用于零配置/未配模型的
+// 交互式启动：结果不落 config（admin 换默认自动跟随，与 Flutter chat
+// 的 systemDefault 同语义）。任何一步失败（未登录/网络/无标记）返回
+// 空串，由 REPL 懒引导接管 —— 不在这里报错。
+func resolvePlatformDefaultModel(ctx context.Context, cfg *config.Config, f *rootFlags) string {
+	relayURL := firstNonEmpty(f.relayURL, os.Getenv("BIUMIND_MODEL_RELAY_URL"), cfg.Relay.Endpoint)
+	if relayURL == "" {
+		return ""
+	}
+	tp := wiring.TokenProviderFor(cfg, f.wiringFlags(), relayURL)
+	token, err := tp.Token(ctx)
+	if err != nil {
+		return ""
+	}
+	models, err := modelcatalog.List(ctx, relayURL, token)
+	if err != nil {
+		return ""
+	}
+	code, err := modelcatalog.DefaultChat(models)
+	if err != nil {
+		return ""
+	}
+	return code
 }
 
 func buildSDKAgent(cfg *config.Config, f *rootFlags, model string, permPolicyOverride biumindkit.PermissionPolicyFn, opts ...buildSDKAgentOption) (*biumindkit.Agent, error) {
