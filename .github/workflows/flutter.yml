@@ -30,7 +30,7 @@ jobs:
         working-directory: apps/client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
