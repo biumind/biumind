@@ -1,0 +1,77 @@
+# BiuMind 在线文档 —— MkDocs Material
+# 源: docs/（纯 markdown + 相对链接，GitHub 可直接浏览）
+# 构建: mkdocs build → site/（gitignore 已忽略仓库根 /site/）
+# 发布: web/site/Dockerfile docs-builder stage 烤进 site 镜像，nginx /docs serve
+# 本地预览: task docs:serve
+#
+# 语法约定（保证 GitHub 与文档站双端渲染一致）:
+#   - 提示块用 GitHub Alerts（> [!NOTE] / > [!TIP] / > [!WARNING]），Material 原生支持
+#   - 不用 !!! admonition、不用 === "Tab"（GitHub 下不渲染）
+#   - 站内链接一律相对路径
+
+site_name: BiuMind 文档
+site_description: BiuMind 一体化 AI 工作平台文档 —— 知识中枢、编码工作台、创作、云端工位、消息接入、应用中心
+site_url: https://biumind.ai/docs/
+repo_url: https://github.com/biumind/biumind
+repo_name: biumind/biumind
+edit_uri: edit/main/docs/
+copyright: BiuMind Community License
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: 切换到浅色模式
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+      # 保留 CJK 的 slugify —— GitHub 锚点保留中文且小写（#快速上手、#mcp-服务器），
+      # mkdocs 默认 slugify 会剥成 _1/_2 导致站内锚点全断。
+      # pymdownx.slugs.slugify 是工厂函数；python/object/apply 映射节点用 kwds 键传参。
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+
+nav:
+  - 首页: index.md
+  - 入门:
+      - 什么是 BiuMind: getting-started/index.md
+      - 快速开始: getting-started/quickstart.md
+      - 下载与安装: getting-started/download.md
+  - CLI (biu):
+      - 上手: cli/getting-started.md
+      - 使用指南: cli/usage.md
+      - 命令参考: cli/commands.md
+      - 权限与 Hooks: cli/permissions.md
+      - BIUMIND.md 记忆: cli/biumind-md.md
+      - 沙箱: cli/sandbox.md
+  - 自托管:
+      - 部署指南: self-hosting/index.md
+      - 本地开发栈 (compose): self-hosting/compose.md
+      - 环境变量参考: self-hosting/env-vars.md
