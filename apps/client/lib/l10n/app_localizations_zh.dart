@@ -2025,6 +2025,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2ModelPickerNoMatch => '没有匹配的模型';
 
   @override
+  String get chatV2ModelPickerDefaultBadge => '默认';
+
+  @override
   String get chatV2ReasoningStreaming => '思考中…';
 
   @override

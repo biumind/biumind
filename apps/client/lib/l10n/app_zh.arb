@@ -649,6 +649,7 @@
   "chatV2ModelPickerEmpty": "无可用模型",
   "chatV2ModelPickerEmptyAction": "前往 AI 服务商",
   "chatV2ModelPickerNoMatch": "没有匹配的模型",
+  "chatV2ModelPickerDefaultBadge": "默认",
   "chatV2ReasoningStreaming": "思考中…",
   "chatV2ReasoningClosed": "推理过程",
   "chatV2ReasoningExpand": "展开",

@@ -29,6 +29,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../settings/presentation/settings_page.dart'
     show SettingsTab, activeSettingsTabProvider;
 import '../../data/chat_model_groups.dart';
+import 'model_default_badge.dart';
 
 /// picker 选中结果 —— 同时给 modelCode + providerSlug, 调用方据此 set
 /// thread.model + thread.providerId。
@@ -134,15 +135,15 @@ class _ModelPickerDialogState extends ConsumerState<_ModelPickerDialog> {
                     ),
                   )
                 : (groupsAsync.valueOrNull ?? const []).isEmpty
-                    ? _EmptyState(onTap: () => _goApiKeys(context))
-                    : _GroupList(
-                        groups: groupsAsync.valueOrNull ?? const [],
-                        query: _query,
-                        currentModel: widget.currentModel,
-                        currentProviderId: widget.currentProviderId,
-                        onPick: (r) => Navigator.of(context).pop(r),
-                        onSettings: (g) => _goSettings(context, g),
-                      ),
+                ? _EmptyState(onTap: () => _goApiKeys(context))
+                : _GroupList(
+                    groups: groupsAsync.valueOrNull ?? const [],
+                    query: _query,
+                    currentModel: widget.currentModel,
+                    currentProviderId: widget.currentProviderId,
+                    onPick: (r) => Navigator.of(context).pop(r),
+                    onSettings: (g) => _goSettings(context, g),
+                  ),
           ),
         ],
       ),
@@ -291,7 +292,9 @@ class _GroupList extends StatelessWidget {
                   modelCode: m.code,
                   contextWindow: m.contextWindow,
                   priceLabel: m.priceLabel,
-                  selected: currentModel == m.code &&
+                  isDefault: m.isDefault,
+                  selected:
+                      currentModel == m.code &&
                       currentProviderId == g.providerId,
                   onTap: () => onPick(
                     ModelPickerResult(
@@ -314,6 +317,7 @@ class _ModelRow extends StatelessWidget {
     required this.modelCode,
     required this.contextWindow,
     required this.priceLabel,
+    required this.isDefault,
     required this.selected,
     required this.onTap,
   });
@@ -321,6 +325,8 @@ class _ModelRow extends StatelessWidget {
   final String modelCode;
   final int? contextWindow;
   final String? priceLabel; // P6: official markup 后实际计费价 chip
+  // 平台默认 chat 模型 (is_default_chat) — 行内"默认"徽标。
+  final bool isDefault;
   final bool selected;
   final VoidCallback onTap;
 
@@ -344,7 +350,7 @@ class _ModelRow extends StatelessWidget {
                   : const SizedBox.shrink(),
             ),
             const SizedBox(width: 6),
-            Expanded(
+            Flexible(
               child: Text(
                 label,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -353,6 +359,10 @@ class _ModelRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (isDefault) ...[
+              const SizedBox(width: 6),
+              const ModelDefaultBadge(),
+            ],
             if (priceLabel != null) ...[
               const SizedBox(width: 8),
               Text(

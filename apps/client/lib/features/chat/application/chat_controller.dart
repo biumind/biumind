@@ -117,6 +117,7 @@ class ChatControllerDeps {
   final AgentPlaneClient agentPlane;
   final ChatClient chatClient;
   final String brainBaseUrl;
+
   /// 测试注入的 transport factory；生产留 null。
   final BiuTransport Function(Uri)? transportConnector;
 
@@ -153,7 +154,8 @@ final chatControllerDepsProvider = Provider<ChatControllerDeps>((ref) {
   final brainWsBase = brainUri.replace(scheme: wsScheme).toString();
   final brainHttpBase = brainUri.toString();
   // 末尾去掉 / 让上层拼路径不重斜杠。
-  String stripSlash(String s) => s.endsWith('/') ? s.substring(0, s.length - 1) : s;
+  String stripSlash(String s) =>
+      s.endsWith('/') ? s.substring(0, s.length - 1) : s;
   return ChatControllerDeps(
     repo: ChatRepo(db, scope: scope),
     agentPlane: AgentPlaneClient(
@@ -215,12 +217,9 @@ class ChatThreadOps {
       if (e is IdentityApiError && e.status == 404) {
         // direct 会话服务端无此行 —— 静默。
       } else {
-        await _enqueue(
-          ChatRepo.outboxOpArchiveThread,
-          threadId,
-          const {'archived': true},
-          '$e',
-        );
+        await _enqueue(ChatRepo.outboxOpArchiveThread, threadId, const {
+          'archived': true,
+        }, '$e');
       }
     }
     await _deps.repo.archiveThread(threadId);
@@ -234,12 +233,9 @@ class ChatThreadOps {
       if (e is IdentityApiError && e.status == 404) {
         // direct 会话服务端无此行 —— 静默。
       } else {
-        await _enqueue(
-          ChatRepo.outboxOpRenameThread,
-          threadId,
-          {'title': title},
-          '$e',
-        );
+        await _enqueue(ChatRepo.outboxOpRenameThread, threadId, {
+          'title': title,
+        }, '$e');
       }
     }
     await _deps.repo.renameThread(threadId, title);
@@ -254,8 +250,11 @@ class ChatThreadOps {
     String error,
   ) async {
     try {
-      await _deps.repo
-          .enqueueOutbox(op: op, threadId: threadId, payload: payload);
+      await _deps.repo.enqueueOutbox(
+        op: op,
+        threadId: threadId,
+        payload: payload,
+      );
       unawaited(_outboxFlusher?.kick());
       debugPrint('[chat] $op 上行失败已入队重试: $error');
     } catch (e) {
@@ -325,17 +324,25 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// [fromMessageId]：regenerate 原子重滚锚点（P2）。置位 = 本轮是对既有
   /// user 消息的重滚：本地不再写 user 行（pivot 已存在），brain 复用
   /// pivot + 服务端截断。仅由 _resendFromUser 使用。
-  Future<void> sendMessage(String text, {String? userMessageId, String? assistantMessageId, List<AttachmentInput> attachments = const [], String? fromMessageId}) async {
+  Future<void> sendMessage(
+    String text, {
+    String? userMessageId,
+    String? assistantMessageId,
+    List<AttachmentInput> attachments = const [],
+    String? fromMessageId,
+  }) async {
     final hasText = text.trim().isNotEmpty;
     final hasAttachments = attachments.isNotEmpty;
     if (!hasText && !hasAttachments) return;
     final deps = ref.read(chatControllerDepsProvider);
     final thread = await deps.repo.getThread(arg);
     if (thread == null) {
-      state = AsyncValue.data(state.value!.copyWith(
-        lastError: 'thread not found',
-        lastErrorAction: ChatErrorAction.none,
-      ));
+      state = AsyncValue.data(
+        state.value!.copyWith(
+          lastError: 'thread not found',
+          lastErrorAction: ChatErrorAction.none,
+        ),
+      );
       return;
     }
     final umId = userMessageId ?? _uuid.v4();
@@ -347,10 +354,12 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       try {
         await c.sendUserMessage(text, userMessageId: umId);
       } catch (e) {
-        state = AsyncValue.data(state.value!.copyWith(
-          lastError: e.toString(),
-          lastErrorAction: ChatErrorAction.none,
-        ));
+        state = AsyncValue.data(
+          state.value!.copyWith(
+            lastError: e.toString(),
+            lastErrorAction: ChatErrorAction.none,
+          ),
+        );
       }
       return;
     }
@@ -364,21 +373,29 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       if (title.isNotEmpty) {
         try {
           await deps.repo.renameThread(thread.id, title);
-        } catch (_) {/* 失败不阻塞发送 —— 标题不是关键路径 */}
+        } catch (_) {
+          /* 失败不阻塞发送 —— 标题不是关键路径 */
+        }
       }
     }
 
-    state = AsyncValue.data((state.value ?? const ChatState()).copyWith(
-      isStreaming: true,
-      activeAssistantMessageId: amId,
-      clearError: true,
-    ));
+    state = AsyncValue.data(
+      (state.value ?? const ChatState()).copyWith(
+        isStreaming: true,
+        activeAssistantMessageId: amId,
+        clearError: true,
+      ),
+    );
     try {
       // B2: client-side BYOK 分流 —— 本地有匹配 key → 走本机 daemon agent 模式
       // （完整 tool loop），不再 DirectSessionController 纯对话。key 经 loopback
       // 推 daemon 内存，不经 brain。
       final useModel = thread.model ?? '';
-      final target = await _resolveDirectTarget(deps, thread.providerId, useModel);
+      final target = await _resolveDirectTarget(
+        deps,
+        thread.providerId,
+        useModel,
+      );
       if (target != null) {
         await _runClientSideViaDaemon(
           deps: deps,
@@ -406,18 +423,23 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       _bindEvents(conn.events);
       ref.onDispose(_disposeConnection);
     } catch (e) {
-      state = AsyncValue.data(state.value!.copyWith(
-        isStreaming: false,
-        lastError: _humanizeOpenError(e),
-        lastErrorAction: ChatErrorAction.none,
-        clearActiveMessage: true,
-      ));
+      state = AsyncValue.data(
+        state.value!.copyWith(
+          isStreaming: false,
+          lastError: _humanizeOpenError(e),
+          lastErrorAction: ChatErrorAction.none,
+          clearActiveMessage: true,
+        ),
+      );
     }
   }
 
   /// P5: 解析 client-side 直连目标. identity 列表加载失败或无匹配 → null (走 cloud).
   Future<ClientSideTarget?> _resolveDirectTarget(
-      ChatControllerDeps deps, String? providerId, String model) async {
+    ChatControllerDeps deps,
+    String? providerId,
+    String model,
+  ) async {
     if (model.isEmpty) return null;
     try {
       final keys = await ref.read(apiKeysListProvider.future);
@@ -442,20 +464,29 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     required List<AttachmentInput> attachments,
     String? fromMessageId,
   }) async {
-    final daemonEnvId = ref.read(biuDaemonStateProvider).valueOrNull?.daemonEnvId;
+    final daemonEnvId = ref
+        .read(biuDaemonStateProvider)
+        .valueOrNull
+        ?.daemonEnvId;
     if (daemonEnvId == null || daemonEnvId.isEmpty) {
-      state = AsyncValue.data(state.value!.copyWith(
-        isStreaming: false,
-        lastError: '本机 daemon 未启动，client-side BYOK 需要 daemon 运行 tool loop（请确认桌面端 daemon 已就绪）',
-        lastErrorAction: ChatErrorAction.none,
-        clearActiveMessage: true,
-      ));
+      state = AsyncValue.data(
+        state.value!.copyWith(
+          isStreaming: false,
+          lastError:
+              '本机 daemon 未启动，client-side BYOK 需要 daemon 运行 tool loop（请确认桌面端 daemon 已就绪）',
+          lastErrorAction: ChatErrorAction.none,
+          clearActiveMessage: true,
+        ),
+      );
       return;
     }
     // client-side = 要 tool loop = agent 模式 + 本机 daemon env_id（定向投 work
     // 到本机；daemon 命中时调 identity 取 key 本机直连）。
     await deps.repo.setThreadMode(
-        thread.id, ThreadMode.agent, environmentId: daemonEnvId);
+      thread.id,
+      ThreadMode.agent,
+      environmentId: daemonEnvId,
+    );
     final fresh = await deps.repo.getThread(thread.id) ?? thread;
     try {
       final conn = await _openWithSelfHeal(
@@ -476,12 +507,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       ref.onDispose(_disposeConnection);
     } catch (e) {
       if (!state.hasError) {
-        state = AsyncValue.data(state.value!.copyWith(
-          isStreaming: false,
-          lastError: '本机直连上游失败: $e（需桌面 daemon 运行 + 可达上游）',
-          lastErrorAction: ChatErrorAction.none,
-          clearActiveMessage: true,
-        ));
+        state = AsyncValue.data(
+          state.value!.copyWith(
+            isStreaming: false,
+            lastError: '本机直连上游失败: $e（需桌面 daemon 运行 + 可达上游）',
+            lastErrorAction: ChatErrorAction.none,
+            clearActiveMessage: true,
+          ),
+        );
       }
     }
   }
@@ -612,7 +645,8 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
   /// 故用正则提取 error.code —— 这是后端稳定契约字段,比匹配自由文本
   /// (status=disabled)健壮。识别不到就原样兜底、无动作。
   static ({String message, ChatErrorAction action}) _classifyStreamError(
-      String raw) {
+    String raw,
+  ) {
     final m = RegExp(r'"code"\s*:\s*"([a-z_]+)"').firstMatch(raw);
     switch (m?.group(1)) {
       case 'model_disabled':
@@ -636,10 +670,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           action: ChatErrorAction.upgradePlan,
         );
       case 'model_credential_unavailable':
-        return (
-          message: '模型凭据不可用,请联系管理员检查渠道配置。',
-          action: ChatErrorAction.none,
-        );
+        return (message: '模型凭据不可用,请联系管理员检查渠道配置。', action: ChatErrorAction.none);
       case 'channel_quota_exhausted':
         return (
           message: '请求过于频繁(渠道额度暂时耗尽),请稍后再试。',
@@ -737,12 +768,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       if (b is TextBlock) {
         if (!textInserted) {
           // 复用首个 TextBlock 的 id/index，落库 replaceBlocks 走 upsert
-          rebuilt.add(TextBlock(
-            id: b.id,
-            index: b.index,
-            state: BlockState.closed,
-            text: newText,
-          ));
+          rebuilt.add(
+            TextBlock(
+              id: b.id,
+              index: b.index,
+              state: BlockState.closed,
+              text: newText,
+            ),
+          );
           textInserted = true;
         }
         // 其余 TextBlock 并入首个（assembledText 已拼接）
@@ -829,12 +862,15 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
     if (prompt.isEmpty && attachments.isEmpty) return;
     final deps = ref.read(chatControllerDepsProvider);
     final toDelete = messages.sublist(messages.indexOf(pivot) + 1);
-    await deps.repo
-        .deleteMessages(toDelete.map((m) => m.id).toList(growable: false));
-    await sendMessage(prompt,
-        userMessageId: pivot.id,
-        attachments: attachments,
-        fromMessageId: pivot.id);
+    await deps.repo.deleteMessages(
+      toDelete.map((m) => m.id).toList(growable: false),
+    );
+    await sendMessage(
+      prompt,
+      userMessageId: pivot.id,
+      attachments: attachments,
+      fromMessageId: pivot.id,
+    );
   }
 
   // ─── Internal ──────────────────────────────────────────────
@@ -845,12 +881,14 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       final cur = state.value ?? const ChatState();
       switch (event) {
         case SessionStarted(:final assistantMessageId):
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: true,
-            isCancelling: false,
-            activeAssistantMessageId: assistantMessageId,
-            clearError: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(
+              isStreaming: true,
+              isCancelling: false,
+              activeAssistantMessageId: assistantMessageId,
+              clearError: true,
+            ),
+          );
         case BlockUpdated():
           // block 变化由 messagesProvider 驱动 UI；这里 controller state
           // 不变（流式中保持 isStreaming=true）
@@ -861,42 +899,50 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // 保留,让用户看到当前正在停的那条 message。
           state = AsyncValue.data(cur.copyWith(isCancelling: true));
         case MessageCompleted():
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: false,
-            isCancelling: false,
-            clearActiveMessage: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(
+              isStreaming: false,
+              isCancelling: false,
+              clearActiveMessage: true,
+            ),
+          );
           // LLM 调用结束 — 让侧边栏 + 会员中心刷新余额. 之前 5 分钟缓存
           // 不主动失效, UI 看不到扣费变化, 用户误以为没扣.
           ref.invalidate(creditsBalanceProvider);
         case MessageCancelled():
           // 用户按 stop -> brain 走完 clean-stop -> 客户端落地。区分于
           // MessageFailed:不写 lastError,不弹错误 toast。
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: false,
-            isCancelling: false,
-            clearActiveMessage: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(
+              isStreaming: false,
+              isCancelling: false,
+              clearActiveMessage: true,
+            ),
+          );
           // 取消也可能产生部分扣费 (Settle 部分 actual_amount), 同样刷新.
           ref.invalidate(creditsBalanceProvider);
         case MessageFailed(:final error):
           final cls = _classifyStreamError(error);
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: false,
-            isCancelling: false,
-            lastError: cls.message,
-            lastErrorAction: cls.action,
-            clearActiveMessage: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(
+              isStreaming: false,
+              isCancelling: false,
+              lastError: cls.message,
+              lastErrorAction: cls.action,
+              clearActiveMessage: true,
+            ),
+          );
           // 失败路径 model-relay 端走 release_on_failure (退还 hold),
           // 余额理论上不变但还是刷新一下兜底, 避免 stale 5min 缓存.
           ref.invalidate(creditsBalanceProvider);
         case SessionClosed():
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: false,
-            isCancelling: false,
-            clearActiveMessage: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(
+              isStreaming: false,
+              isCancelling: false,
+              clearActiveMessage: true,
+            ),
+          );
         case PermissionRequested():
           // 仅 manual / whitelist 模式才会到这里(auto 模式 BiuSessionConnection
           // 自己已应答)。投递到 pendingApprovalsProvider 让 UI 弹 ApprovalCard。
@@ -912,9 +958,13 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // (表单早已沉淀) → 不再弹可答卡。provider add() 内部另有
           // request_id 去重 + settled 集合兜住同进程内重复。
           final msgs = ref.read(messagesProvider(arg)).valueOrNull;
-          final alreadySettled = msgs != null &&
-              msgs.any((m) => m.blocks
-                  .any((b) => b is FormBlock && b.requestId == event.requestId));
+          final alreadySettled =
+              msgs != null &&
+              msgs.any(
+                (m) => m.blocks.any(
+                  (b) => b is FormBlock && b.requestId == event.requestId,
+                ),
+              );
           if (!alreadySettled) {
             ref.read(pendingElicitationsProvider.notifier).add(arg, event);
           }
@@ -929,17 +979,15 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
           // pendingElicitationsProvider 驱动,不看 isStreaming)—— 作答走
           // 迟到路径(连接层发 elicitation 回包后 POST resume)。
           // 保留 activeAssistantMessageId:resumed 后同一条 message 继续流。
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: false,
-            isCancelling: false,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(isStreaming: false, isCancelling: false),
+          );
         case SessionResumedEvent():
           // brain 接受 resume(重跑+答案注入) —— 恢复 streaming 指示,
           // 后续流式帧由连接层继续挂到 active message 上。
-          state = AsyncValue.data(cur.copyWith(
-            isStreaming: true,
-            clearError: true,
-          ));
+          state = AsyncValue.data(
+            cur.copyWith(isStreaming: true, clearError: true),
+          );
       }
     });
   }
@@ -956,13 +1004,15 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
 /// chatControllerProvider —— 主入口。每个 threadId 独立实例。
 final chatControllerProvider =
     AsyncNotifierProviderFamily<ChatController, ChatState, String>(
-  ChatController.new,
-);
+      ChatController.new,
+    );
 
 /// messagesProvider —— UI watch 这个看消息列表 + blocks。跟 ChatController
 /// 解耦，避免双源。
-final messagesProvider =
-    StreamProviderFamily<List<Message>, String>((ref, threadId) {
+final messagesProvider = StreamProviderFamily<List<Message>, String>((
+  ref,
+  threadId,
+) {
   final deps = ref.watch(chatControllerDepsProvider);
   return deps.repo.watchMessages(threadId);
 });
@@ -981,30 +1031,33 @@ final threadsProvider = StreamProvider<List<Thread>>((ref) {
 
 /// projectThreadsProvider —— 按 projectId 过滤的 thread 列表。Wiki 项目
 /// 内嵌 chat 面板用。传 '' 等价于 null（兼容路由参数）。
-final projectThreadsProvider =
-    StreamProviderFamily<List<Thread>, String>((ref, projectId) {
+final projectThreadsProvider = StreamProviderFamily<List<Thread>, String>((
+  ref,
+  projectId,
+) {
   final deps = ref.watch(chatControllerDepsProvider);
-  return deps.repo.watchThreads(projectId: projectId.isEmpty ? null : projectId);
+  return deps.repo.watchThreads(
+    projectId: projectId.isEmpty ? null : projectId,
+  );
 });
 
 /// threadStatsProvider —— Hero 副标题用，watch 全部 thread + completed
 /// message 数。autoDispose 让 Hero 关掉就释放；threadsProvider 任一更新
 /// 时这个会被 invalidated（依赖同一 db）—— 实际上 watch 的是不同 stream，
 /// 这里用 FutureProvider 一次性 read 即可（Hero 一次性渲染，不需要实时）。
-final threadStatsProvider = FutureProvider.autoDispose<({int threadCount, int messageCount})>((ref) {
-  final deps = ref.watch(chatControllerDepsProvider);
-  return deps.repo.threadStats();
-});
+final threadStatsProvider =
+    FutureProvider.autoDispose<({int threadCount, int messageCount})>((ref) {
+      final deps = ref.watch(chatControllerDepsProvider);
+      return deps.repo.threadStats();
+    });
 
 /// 最近 N 天活跃统计 —— Hero 周报 chip 用。family 接 days 参数让 Hero
 /// 在 7 / 30 之间切换。autoDispose 让退出 Hero 释放。
-final recentStatsProvider =
-    FutureProvider.autoDispose.family<({int messages, int activeThreads, int days}), int>(
-  (ref, days) {
-    final deps = ref.watch(chatControllerDepsProvider);
-    return deps.repo.recentStats(days: days);
-  },
-);
+final recentStatsProvider = FutureProvider.autoDispose
+    .family<({int messages, int activeThreads, int days}), int>((ref, days) {
+      final deps = ref.watch(chatControllerDepsProvider);
+      return deps.repo.recentStats(days: days);
+    });
 
 /// 连续活跃天数 streak —— Hero 副标题 chip 用。autoDispose。
 final dailyStreakProvider = FutureProvider.autoDispose<int>((ref) {
@@ -1014,12 +1067,10 @@ final dailyStreakProvider = FutureProvider.autoDispose<int>((ref) {
 
 /// 最近用过的模型（distinct + ORDER BY 最后使用时间）。Hero 模型货架用。
 final recentModelsProvider =
-    FutureProvider.autoDispose<List<({String code, DateTime lastUsed})>>(
-  (ref) {
-    final deps = ref.watch(chatControllerDepsProvider);
-    return deps.repo.recentModels(limit: 5);
-  },
-);
+    FutureProvider.autoDispose<List<({String code, DateTime lastUsed})>>((ref) {
+      final deps = ref.watch(chatControllerDepsProvider);
+      return deps.repo.recentModels(limit: 5);
+    });
 
 /// agentEnvironmentsProvider —— NewThreadDialog / Composer ModeChip 拉
 /// 当前用户的 daemon 列表（含 online/offline 状态）。
@@ -1032,7 +1083,9 @@ final agentEnvironmentsProvider = FutureProvider.autoDispose((ref) async {
   final log = Logger('biumind.agentplane.envs');
   log.info('agentEnvironmentsProvider: build entry');
   final deps = ref.watch(chatControllerDepsProvider);
-  log.info('agentEnvironmentsProvider: deps resolved, calling listEnvironments');
+  log.info(
+    'agentEnvironmentsProvider: deps resolved, calling listEnvironments',
+  );
 
   // brain 在开发循环里 (make build-images + docker compose up -d) 经常
   // 被 graceful-recreate; 重启窗口里 in-flight 请求会拿到
@@ -1045,23 +1098,33 @@ final agentEnvironmentsProvider = FutureProvider.autoDispose((ref) async {
   for (int attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       final list = await deps.agentPlane.listEnvironments();
-      log.info('agentEnvironmentsProvider: got ${list.length} envs (attempt $attempt)');
+      log.info(
+        'agentEnvironmentsProvider: got ${list.length} envs (attempt $attempt)',
+      );
       return list;
     } catch (e, s) {
       lastErr = e;
       lastStack = s;
       if (attempt == maxAttempts || !_isTransientNetworkError(e)) {
-        log.warning('agentEnvironmentsProvider: list failed (attempt $attempt/$maxAttempts, fatal)', e, s);
+        log.warning(
+          'agentEnvironmentsProvider: list failed (attempt $attempt/$maxAttempts, fatal)',
+          e,
+          s,
+        );
         rethrow;
       }
       final backoffMs = 300 * (1 << (attempt - 1)); // 300ms, 600ms
-      log.info('agentEnvironmentsProvider: transient error attempt $attempt/$maxAttempts, retry in ${backoffMs}ms — $e');
+      log.info(
+        'agentEnvironmentsProvider: transient error attempt $attempt/$maxAttempts, retry in ${backoffMs}ms — $e',
+      );
       await Future<void>.delayed(Duration(milliseconds: backoffMs));
     }
   }
   // 不该到这里 (上面 rethrow 兜底);防御性。
-  Error.throwWithStackTrace(lastErr ?? StateError('unreachable'),
-      lastStack ?? StackTrace.current);
+  Error.throwWithStackTrace(
+    lastErr ?? StateError('unreachable'),
+    lastStack ?? StackTrace.current,
+  );
 });
 
 /// 判断是不是一次性网络抖动 — 仅这些情况才 retry。其他错(401 / 5xx
@@ -1103,6 +1166,8 @@ class AvailableChatModel {
   final bool isOfficial;
   // P5: client-side BYOK (本机直连). 驱动 routeKey source 去重.
   final bool isClientSide;
+  // 平台默认 chat 模型 (official 组, is_default_chat) — 下拉显示"默认"标。
+  final bool isDefault;
   const AvailableChatModel({
     required this.code,
     required this.displayName,
@@ -1110,6 +1175,7 @@ class AvailableChatModel {
     required this.providerDisplayName,
     required this.isOfficial,
     this.isClientSide = false,
+    this.isDefault = false,
   });
 
   /// dropdown 唯一值 —— 同 code 可能在多个 provider 下,单用 code 会让
@@ -1123,8 +1189,9 @@ class AvailableChatModel {
       isOfficial ? displayName : '$displayName · $providerDisplayName';
 }
 
-final availableChatModelsProvider =
-    FutureProvider<List<AvailableChatModel>>((ref) async {
+final availableChatModelsProvider = FutureProvider<List<AvailableChatModel>>((
+  ref,
+) async {
   // P3: chat 模型来自 chatModelGroupsProvider (official brain + identity
   // BYOK, 按用户持 key 过滤), 不再直接拍平 brain providersListProvider。
   final groups = await ref.watch(chatModelGroupsProvider.future);
@@ -1138,6 +1205,7 @@ final availableChatModelsProvider =
           providerDisplayName: g.displayName,
           isOfficial: g.isOfficial,
           isClientSide: g.isClientSide,
+          isDefault: g.isOfficial && m.isDefault,
         ),
   ];
 });
@@ -1145,19 +1213,22 @@ final availableChatModelsProvider =
 /// availableTtsModelsProvider —— 消息「朗读」设置用的扁平 **TTS** 模型列表。
 /// P6: official TTS 直读 model-relay (mode=='audio_speech') + BYOK 从 brain
 /// per-user (custom tts 上游)。空列表 = 无 TTS 模型, UI 据此提示去渠道加。
-final availableTtsModelsProvider =
-    FutureProvider<List<AvailableChatModel>>((ref) async {
+final availableTtsModelsProvider = FutureProvider<List<AvailableChatModel>>((
+  ref,
+) async {
   final out = <AvailableChatModel>[];
   // official TTS — model-relay global catalog.
   final relay = await ref.watch(relayCatalogListProvider.future);
   for (final m in relay.where((m) => m.mode == 'audio_speech')) {
-    out.add(AvailableChatModel(
-      code: m.code,
-      displayName: m.displayName.isEmpty ? m.code : m.displayName,
-      providerId: 'biumind-official',
-      providerDisplayName: 'BiuMind Cloud',
-      isOfficial: true,
-    ));
+    out.add(
+      AvailableChatModel(
+        code: m.code,
+        displayName: m.displayName.isEmpty ? m.code : m.displayName,
+        providerId: 'biumind-official',
+        providerDisplayName: 'BiuMind Cloud',
+        isOfficial: true,
+      ),
+    );
   }
   // BYOK TTS — brain per-user (custom tts 上游 refresh).
   out.addAll(await _flattenModelsByType(ref, 'tts'));
@@ -1166,20 +1237,25 @@ final availableTtsModelsProvider =
 
 /// 把所有 enabled provider 下指定 type 的 enabled 模型拍平成用户面列表。
 Future<List<AvailableChatModel>> _flattenModelsByType(
-    Ref ref, String type) async {
+  Ref ref,
+  String type,
+) async {
   final providers = await ref.watch(providersListProvider.future);
   final out = <AvailableChatModel>[];
   for (final p in providers.where((p) => p.enabled)) {
     final models = await ref.watch(modelsListProvider(p.id).future);
     for (final m in models.where((m) => m.enabled && m.type == type)) {
-      out.add(AvailableChatModel(
-        code: m.modelId,
-        displayName: m.displayName.isEmpty ? m.modelId : m.displayName,
-        providerId: p.providerId,
-        providerDisplayName:
-            p.displayName.isEmpty ? p.providerId : p.displayName,
-        isOfficial: p.isOfficial,
-      ));
+      out.add(
+        AvailableChatModel(
+          code: m.modelId,
+          displayName: m.displayName.isEmpty ? m.modelId : m.displayName,
+          providerId: p.providerId,
+          providerDisplayName: p.displayName.isEmpty
+              ? p.providerId
+              : p.displayName,
+          isOfficial: p.isOfficial,
+        ),
+      );
     }
   }
   return out;
@@ -1216,8 +1292,9 @@ class PendingApprovalsController extends Notifier<PendingApprovalsState> {
   void resolve(String threadId, String requestId) {
     final list = state.byThread[threadId];
     if (list == null) return;
-    final filtered =
-        list.where((r) => r.requestId != requestId).toList(growable: false);
+    final filtered = list
+        .where((r) => r.requestId != requestId)
+        .toList(growable: false);
     final next = Map<String, List<PermissionRequested>>.from(state.byThread);
     if (filtered.isEmpty) {
       next.remove(threadId);
@@ -1238,8 +1315,8 @@ class PendingApprovalsController extends Notifier<PendingApprovalsState> {
 
 final pendingApprovalsProvider =
     NotifierProvider<PendingApprovalsController, PendingApprovalsState>(
-  PendingApprovalsController.new,
-);
+      PendingApprovalsController.new,
+    );
 
 // ── agent 提问表单（elicitation）队列 ──────────────────────
 
@@ -1325,8 +1402,9 @@ class PendingElicitationsController extends Notifier<PendingElicitationsState> {
     _settled.add(requestId);
     final list = state.byThread[threadId];
     if (list == null) return;
-    final filtered =
-        list.where((i) => i.request.requestId != requestId).toList();
+    final filtered = list
+        .where((i) => i.request.requestId != requestId)
+        .toList();
     final next = Map<String, List<ElicitationItem>>.from(state.byThread);
     if (filtered.isEmpty) {
       next.remove(threadId);
@@ -1347,8 +1425,8 @@ class PendingElicitationsController extends Notifier<PendingElicitationsState> {
 
 final pendingElicitationsProvider =
     NotifierProvider<PendingElicitationsController, PendingElicitationsState>(
-  PendingElicitationsController.new,
-);
+      PendingElicitationsController.new,
+    );
 
 // ── helpers ─────────────────────────────────────────────────
 

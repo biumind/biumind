@@ -21,10 +21,10 @@ class RelayPricing {
     required this.outputPerMTok,
   });
   factory RelayPricing.fromJson(Map<String, dynamic> j) => RelayPricing(
-        currency: j['currency'] as String? ?? 'USD',
-        inputPerMTok: (j['input_per_mtok'] as num?)?.toDouble() ?? 0,
-        outputPerMTok: (j['output_per_mtok'] as num?)?.toDouble() ?? 0,
-      );
+    currency: j['currency'] as String? ?? 'USD',
+    inputPerMTok: (j['input_per_mtok'] as num?)?.toDouble() ?? 0,
+    outputPerMTok: (j['output_per_mtok'] as num?)?.toDouble() ?? 0,
+  );
 }
 
 class RelayCatalogModel {
@@ -36,6 +36,9 @@ class RelayCatalogModel {
   final String? minPlan; // pro / team; null = free (所有人可用)
   final int? maxOutput;
   final RelayPricing? pricing;
+  // admin 设置的平台默认 chat 模型标记 (全局唯一)。picker 显示"默认"标;
+  // 未设默认时服务端省略该字段 → false。
+  final bool isDefaultChat;
   const RelayCatalogModel({
     required this.code,
     required this.displayName,
@@ -45,6 +48,7 @@ class RelayCatalogModel {
     this.minPlan,
     this.maxOutput,
     this.pricing,
+    this.isDefaultChat = false,
   });
   factory RelayCatalogModel.fromJson(Map<String, dynamic> j) {
     final mp = j['min_plan'] as String?;
@@ -57,7 +61,10 @@ class RelayCatalogModel {
       mode: j['mode'] as String? ?? 'chat',
       minPlan: (mp == null || mp.isEmpty) ? null : mp,
       maxOutput: (j['max_output'] as num?)?.toInt(),
-      pricing: pj == null ? null : RelayPricing.fromJson(pj.cast<String, dynamic>()),
+      pricing: pj == null
+          ? null
+          : RelayPricing.fromJson(pj.cast<String, dynamic>()),
+      isDefaultChat: j['is_default_chat'] as bool? ?? false,
     );
   }
 
@@ -80,8 +87,11 @@ class RelayCatalogClient {
 
   /// GET /v1/me/models?status=active — 全平台 official catalog (global)。
   Future<List<RelayCatalogModel>> list({String status = 'active'}) async {
-    final raw = await _request('GET', '/v1/me/models',
-        queryParams: {'status': status});
+    final raw = await _request(
+      'GET',
+      '/v1/me/models',
+      queryParams: {'status': status},
+    );
     return (raw['items'] as List? ?? const [])
         .cast<Map<String, dynamic>>()
         .map(RelayCatalogModel.fromJson)

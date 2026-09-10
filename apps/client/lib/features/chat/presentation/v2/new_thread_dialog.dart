@@ -26,6 +26,7 @@ import '../../application/effective_default_model.dart';
 import '../../application/new_thread_memory.dart';
 import '../../domain/chat_models.dart';
 import '../../domain/thread_title.dart';
+import 'model_default_badge.dart';
 
 /// helper —— 在 [ctx] 上弹 NewThreadDialog；用户取消返 null。
 /// 创建成功返新 thread 的 id。[projectId] 非 null 时新建的 thread 自动
@@ -69,12 +70,16 @@ Future<String?> createDefaultThread(WidgetRef ref, {String? projectId}) async {
     try {
       final envs = await ref.read(agentEnvironmentsProvider.future);
       final online = envs
-          .where((e) =>
-              e.isOnline &&
-              (e.workerKind == 'biu_daemon' || e.workerKind == 'biu_cli'))
+          .where(
+            (e) =>
+                e.isOnline &&
+                (e.workerKind == 'biu_daemon' || e.workerKind == 'biu_cli'),
+          )
           .toList();
       if (online.isNotEmpty) envId = online.first.environmentId;
-    } catch (_) {/* 拉设备失败照常建会话,env 留空 */}
+    } catch (_) {
+      /* 拉设备失败照常建会话,env 留空 */
+    }
   }
   try {
     await repo.createThread(
@@ -169,10 +174,10 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
   /// （cloud）；agent 由 _RuntimeEnvSelector 在 local↔cloud 间选（_agentRuntimeEnv，
   /// 默认 local）。cloud 后端（R5）就绪前选择器里 cloud 置灰,故此值实际恒 local。
   String _runtimeEnvForMode() => switch (_mode) {
-        ThreadMode.chat => 'none',
-        ThreadMode.agent => _agentRuntimeEnv,
-        ThreadMode.task => 'cloud',
-      };
+    ThreadMode.chat => 'none',
+    ThreadMode.agent => _agentRuntimeEnv,
+    ThreadMode.task => 'cloud',
+  };
 
   /// 用 systemPrompt 推荐一个标题；空时返空。已经手动输入 title 不抢。
   String _suggestedTitle() {
@@ -217,7 +222,7 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
       final repo = ref.read(chatControllerDepsProvider).repo;
       final id = _uuid.v4();
       // 标题为空 + systemPrompt 有内容时自动用 _suggestedTitle 兜底，避免
-       // sidebar 一长串"新对话"。
+      // sidebar 一长串"新对话"。
       final effectiveTitle = _titleCtrl.text.trim().isEmpty
           ? titleFromPrompt(_systemPromptCtrl.text)
           : _titleCtrl.text.trim();
@@ -228,8 +233,8 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
         environmentId: _mode == ThreadMode.agent ? _agentEnvId : null,
         poolTag: _mode == ThreadMode.task
             ? (_poolTagCtrl.text.trim().isEmpty
-                ? null
-                : _poolTagCtrl.text.trim())
+                  ? null
+                  : _poolTagCtrl.text.trim())
             : null,
         // 三种模式都可指定 model（agent / task brain ChatRunner 也用同一个
         // 字段路由）。biumind-default 留空让 brain fallback。providerId 与
@@ -245,10 +250,12 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
       );
       // 记忆字段：systemPrompt + poolTag —— 下次打开 dialog 自动预填。
       // unawaited，不阻塞 pop。
-      NewThreadMemoryStore.save(NewThreadMemory(
-        systemPrompt: _systemPromptCtrl.text.trim(),
-        poolTag: _poolTagCtrl.text.trim(),
-      ));
+      NewThreadMemoryStore.save(
+        NewThreadMemory(
+          systemPrompt: _systemPromptCtrl.text.trim(),
+          poolTag: _poolTagCtrl.text.trim(),
+        ),
+      );
       if (mounted) Navigator.of(context).pop(id);
     } catch (e) {
       if (mounted) {
@@ -276,7 +283,9 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
                   Text(
                     l.chatV2NewDialogTitle,
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w600),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
@@ -317,7 +326,9 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   TextButton(
-                    onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+                    onPressed: _submitting
+                        ? null
+                        : () => Navigator.of(context).pop(),
                     child: Text(l.chatV2DialogCancel),
                   ),
                   const SizedBox(width: 8),
@@ -325,7 +336,8 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
                     onPressed: _canSubmit ? _submit : null,
                     child: _submitting
                         ? const SizedBox(
-                            width: 14, height: 14,
+                            width: 14,
+                            height: 14,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : Text(l.chatV2NewDialogCreate),
@@ -355,31 +367,30 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
           const SizedBox(height: 12),
           switch (_mode) {
             ThreadMode.chat => _ChatModePanel(
-                selectedModel: _chatModel,
-                selectedProviderId: _chatProviderId,
-                onModelChanged: _onModelChanged,
-                systemPromptCtrl: _systemPromptCtrl,
-              ),
+              selectedModel: _chatModel,
+              selectedProviderId: _chatProviderId,
+              onModelChanged: _onModelChanged,
+              systemPromptCtrl: _systemPromptCtrl,
+            ),
             ThreadMode.agent => _AgentModePanel(
-                selectedEnvId: _agentEnvId,
-                onEnvChanged: (id) => setState(() => _agentEnvId = id),
-                selectedModel: _chatModel,
-                selectedProviderId: _chatProviderId,
-                onModelChanged: _onModelChanged,
-                systemPromptCtrl: _systemPromptCtrl,
-                selectedBackend: _agentBackend,
-                onBackendChanged: (b) => setState(() => _agentBackend = b),
-                selectedRuntimeEnv: _agentRuntimeEnv,
-                onRuntimeEnvChanged: (v) =>
-                    setState(() => _agentRuntimeEnv = v),
-              ),
+              selectedEnvId: _agentEnvId,
+              onEnvChanged: (id) => setState(() => _agentEnvId = id),
+              selectedModel: _chatModel,
+              selectedProviderId: _chatProviderId,
+              onModelChanged: _onModelChanged,
+              systemPromptCtrl: _systemPromptCtrl,
+              selectedBackend: _agentBackend,
+              onBackendChanged: (b) => setState(() => _agentBackend = b),
+              selectedRuntimeEnv: _agentRuntimeEnv,
+              onRuntimeEnvChanged: (v) => setState(() => _agentRuntimeEnv = v),
+            ),
             ThreadMode.task => _TaskModePanel(
-                poolTagCtrl: _poolTagCtrl,
-                selectedModel: _chatModel,
-                selectedProviderId: _chatProviderId,
-                onModelChanged: _onModelChanged,
-                systemPromptCtrl: _systemPromptCtrl,
-              ),
+              poolTagCtrl: _poolTagCtrl,
+              selectedModel: _chatModel,
+              selectedProviderId: _chatProviderId,
+              onModelChanged: _onModelChanged,
+              systemPromptCtrl: _systemPromptCtrl,
+            ),
           },
         ],
       ),
@@ -398,18 +409,18 @@ class _ModeSelector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (final m in ThreadMode.values)
-          _ModeTile(
-            mode: m,
-            selected: m == current,
-            onTap: () => onChanged(m),
-          ),
+          _ModeTile(mode: m, selected: m == current, onTap: () => onChanged(m)),
       ],
     );
   }
 }
 
 class _ModeTile extends StatelessWidget {
-  const _ModeTile({required this.mode, required this.selected, required this.onTap});
+  const _ModeTile({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
   final ThreadMode mode;
   final bool selected;
   final VoidCallback onTap;
@@ -420,20 +431,20 @@ class _ModeTile extends StatelessWidget {
     final l = AppLocalizations.of(context)!;
     final (icon, label, hint) = switch (mode) {
       ThreadMode.chat => (
-          Icons.chat_bubble_outline,
-          l.chatV2NewDialogModeChat,
-          l.chatV2NewDialogModeChatHint
-        ),
+        Icons.chat_bubble_outline,
+        l.chatV2NewDialogModeChat,
+        l.chatV2NewDialogModeChatHint,
+      ),
       ThreadMode.agent => (
-          Icons.auto_awesome,
-          l.chatV2NewDialogModeAgent,
-          l.chatV2NewDialogModeAgentHint
-        ),
+        Icons.auto_awesome,
+        l.chatV2NewDialogModeAgent,
+        l.chatV2NewDialogModeAgentHint,
+      ),
       ThreadMode.task => (
-          Icons.bolt_outlined,
-          l.chatV2NewDialogModeTask,
-          l.chatV2NewDialogModeTaskHint
-        ),
+        Icons.bolt_outlined,
+        l.chatV2NewDialogModeTask,
+        l.chatV2NewDialogModeTaskHint,
+      ),
     };
     return InkWell(
       onTap: onTap,
@@ -445,7 +456,9 @@ class _ModeTile extends StatelessWidget {
           color: selected ? theme.colorScheme.primaryContainer : null,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
           ),
         ),
         child: Column(
@@ -455,7 +468,10 @@ class _ModeTile extends StatelessWidget {
               children: [
                 Icon(icon, size: 14),
                 const SizedBox(width: 6),
-                Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text(
+                  label,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ],
             ),
             const SizedBox(height: 2),
@@ -550,7 +566,17 @@ class _ModelAndSystemFields extends ConsumerWidget {
                 for (final m in models)
                   DropdownMenuItem(
                     value: m.routeKey,
-                    child: Text(m.label, overflow: TextOverflow.ellipsis),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(m.label, overflow: TextOverflow.ellipsis),
+                        ),
+                        if (m.isDefault) ...[
+                          const SizedBox(width: 6),
+                          const ModelDefaultBadge(),
+                        ],
+                      ],
+                    ),
                   ),
                 if (models.isEmpty)
                   DropdownMenuItem(
@@ -654,13 +680,19 @@ class _BackendSelector extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(icon, size: 16,
-                    color: on ? cs.primary : cs.onSurfaceVariant),
+                Icon(
+                  icon,
+                  size: 16,
+                  color: on ? cs.primary : cs.onSurfaceVariant,
+                ),
                 const SizedBox(width: 8),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
               ],
             ),
           ),
@@ -671,16 +703,20 @@ class _BackendSelector extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Agent backend',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+        const Text(
+          'Agent backend',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
         const SizedBox(height: 6),
-        Row(children: [
-          tile('biumindkit', 'BiuMind 内建', Icons.hub_outlined),
-          const SizedBox(width: 8),
-          tile('claude-cli', 'Claude Code', Icons.terminal),
-          const SizedBox(width: 8),
-          tile('codex-cli', 'Codex', Icons.code_rounded),
-        ]),
+        Row(
+          children: [
+            tile('biumindkit', 'BiuMind 内建', Icons.hub_outlined),
+            const SizedBox(width: 8),
+            tile('claude-cli', 'Claude Code', Icons.terminal),
+            const SizedBox(width: 8),
+            tile('codex-cli', 'Codex', Icons.code_rounded),
+          ],
+        ),
         if (selected == 'claude-cli') ...[
           const SizedBox(height: 6),
           Text(
@@ -721,8 +757,13 @@ class _RuntimeEnvSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    Widget tile(String value, String label, IconData icon,
-        {required bool enabled, String? badge}) {
+    Widget tile(
+      String value,
+      String label,
+      IconData icon, {
+      required bool enabled,
+      String? badge,
+    }) {
       final on = selected == value;
       final bg = !enabled
           ? cs.surfaceContainerHighest.withValues(alpha: 0.4)
@@ -740,30 +781,41 @@ class _RuntimeEnvSelector extends StatelessWidget {
               color: bg,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: enabled && on ? cs.primary : cs.outlineVariant),
+                color: enabled && on ? cs.primary : cs.outlineVariant,
+              ),
             ),
             child: Row(
               children: [
                 Icon(icon, size: 16, color: fg),
                 const SizedBox(width: 8),
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 13,
-                        color: fg,
-                        fontWeight:
-                            enabled && on ? FontWeight.w600 : FontWeight.w400)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: fg,
+                    fontWeight: enabled && on
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
                 if (badge != null) ...[
                   const SizedBox(width: 6),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: cs.surfaceContainerHigh,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: Text(badge,
-                        style:
-                            TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+                    child: Text(
+                      badge,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
                   ),
                 ],
               ],
@@ -776,15 +828,24 @@ class _RuntimeEnvSelector extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('执行环境',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+        const Text(
+          '执行环境',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
         const SizedBox(height: 6),
-        Row(children: [
-          tile('local', '本机', Icons.computer_outlined, enabled: true),
-          const SizedBox(width: 8),
-          tile('cloud', '云端沙箱', Icons.cloud_outlined,
-              enabled: _cloudReady, badge: _cloudReady ? null : '即将上线'),
-        ]),
+        Row(
+          children: [
+            tile('local', '本机', Icons.computer_outlined, enabled: true),
+            const SizedBox(width: 8),
+            tile(
+              'cloud',
+              '云端沙箱',
+              Icons.cloud_outlined,
+              enabled: _cloudReady,
+              badge: _cloudReady ? null : '即将上线',
+            ),
+          ],
+        ),
         const SizedBox(height: 6),
         Text(
           selected == 'cloud'
@@ -826,7 +887,8 @@ class _AgentModePanel extends ConsumerWidget {
     final l = AppLocalizations.of(context)!;
     final async = ref.watch(agentEnvironmentsProvider);
     Logger('biumind.new_thread_dialog').info(
-        '_AgentModePanel.build: envs state=${async.runtimeType} hasValue=${async.hasValue} hasError=${async.hasError}');
+      '_AgentModePanel.build: envs state=${async.runtimeType} hasValue=${async.hasValue} hasError=${async.hasError}',
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -871,8 +933,10 @@ class _AgentModePanel extends ConsumerWidget {
             // wrong_worker_kind，这里直接过滤掉。
             final agentCapable = envs
                 .where((e) => e.isOnline)
-                .where((e) =>
-                    e.workerKind == 'biu_daemon' || e.workerKind == 'biu_cli')
+                .where(
+                  (e) =>
+                      e.workerKind == 'biu_daemon' || e.workerKind == 'biu_cli',
+                )
                 .toList();
             if (agentCapable.isEmpty) {
               return _EmptyEnvHint(allEnvs: envs);
@@ -921,8 +985,7 @@ class _AgentModePanel extends ConsumerWidget {
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.refresh, size: 16),
                     label: Text(l.chatV2NewDialogRefreshTooltip),
-                    onPressed: () =>
-                        ref.invalidate(agentEnvironmentsProvider),
+                    onPressed: () => ref.invalidate(agentEnvironmentsProvider),
                   ),
                 ),
               ],
@@ -967,7 +1030,11 @@ class _EmptyEnvHint extends StatelessWidget {
 }
 
 class _EnvTile extends StatelessWidget {
-  const _EnvTile({required this.env, required this.selected, required this.onTap});
+  const _EnvTile({
+    required this.env,
+    required this.selected,
+    required this.onTap,
+  });
   final AgentEnvironment env;
   final bool selected;
   final VoidCallback onTap;
@@ -984,13 +1051,16 @@ class _EnvTile extends StatelessWidget {
           color: selected ? theme.colorScheme.primaryContainer : null,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: selected ? theme.colorScheme.primary : theme.colorScheme.outlineVariant,
+            color: selected
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outlineVariant,
           ),
         ),
         child: Row(
           children: [
             Container(
-              width: 8, height: 8,
+              width: 8,
+              height: 8,
               decoration: const BoxDecoration(
                 color: Colors.green,
                 shape: BoxShape.circle,
@@ -1001,8 +1071,12 @@ class _EnvTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(env.machineName.isEmpty ? env.environmentId : env.machineName,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    env.machineName.isEmpty
+                        ? env.environmentId
+                        : env.machineName,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   if (env.osArch != null)
                     Text(
                       '${env.workerKind} · ${env.osArch}',
@@ -1056,8 +1130,8 @@ class _TaskModePanel extends StatelessWidget {
         Text(
           l.chatV2NewDialogTaskModeHint,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );

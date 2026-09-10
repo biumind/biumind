@@ -682,6 +682,7 @@
   "chatV2ModelPickerEmpty": "No models available",
   "chatV2ModelPickerEmptyAction": "Open AI providers",
   "chatV2ModelPickerNoMatch": "No models match",
+  "chatV2ModelPickerDefaultBadge": "Default",
   "chatV2ReasoningStreaming": "Thinking…",
   "chatV2ReasoningClosed": "Reasoning",
   "chatV2ReasoningExpand": "Expand",

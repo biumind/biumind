@@ -17,6 +17,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../chat/application/chat_controller.dart';
 import '../../chat/application/chat_preferences.dart';
 import '../../chat/domain/chat_models.dart';
+import '../../chat/presentation/v2/model_default_badge.dart';
 
 class ChatSettingsPane extends ConsumerWidget {
   const ChatSettingsPane({super.key});
@@ -34,12 +35,16 @@ class ChatSettingsPane extends ConsumerWidget {
         constraints: const BoxConstraints(maxWidth: 720),
         child: ListView(
           padding: const EdgeInsets.symmetric(
-              horizontal: BiuTokens.space5, vertical: BiuTokens.space6),
+            horizontal: BiuTokens.space5,
+            vertical: BiuTokens.space6,
+          ),
           children: [
             Text(t.settingsNavChat, style: theme.textTheme.headlineLarge),
             const SizedBox(height: BiuTokens.space1),
-            Text(t.settingsChatDefaultsSectionSubtitle,
-                style: theme.textTheme.bodySmall),
+            Text(
+              t.settingsChatDefaultsSectionSubtitle,
+              style: theme.textTheme.bodySmall,
+            ),
             const SizedBox(height: BiuTokens.space5),
 
             // ── 默认模式 ──────────────────────────────────────
@@ -76,8 +81,9 @@ class ChatSettingsPane extends ConsumerWidget {
                 loading: () => const LinearProgressIndicator(minHeight: 2),
                 error: (_, _) => Text(
                   '—',
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.error),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
                 ),
                 data: (models) {
                   final byKey = {for (final m in models) m.routeKey: m};
@@ -105,7 +111,20 @@ class ChatSettingsPane extends ConsumerWidget {
                       for (final m in models)
                         DropdownMenuItem(
                           value: m.routeKey,
-                          child: Text(m.label, overflow: TextOverflow.ellipsis),
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  m.label,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (m.isDefault) ...[
+                                const SizedBox(width: 6),
+                                const ModelDefaultBadge(),
+                              ],
+                            ],
+                          ),
                         ),
                     ],
                     onChanged: (v) {
@@ -115,7 +134,10 @@ class ChatSettingsPane extends ConsumerWidget {
                       }
                       final m = byKey[v];
                       if (m != null) {
-                        notifier.setDefaultModel(m.code, providerId: m.providerId);
+                        notifier.setDefaultModel(
+                          m.code,
+                          providerId: m.providerId,
+                        );
                       }
                     },
                   );
@@ -200,8 +222,9 @@ class _TtsSectionState extends ConsumerState<_TtsSection> {
             loading: () => const LinearProgressIndicator(minHeight: 2),
             error: (_, _) => Text(
               '—',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.error),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
             ),
             data: (models) {
               // 同 code 跨 provider 去重(TTS 不做路由消歧,按 code 即可),
@@ -211,8 +234,9 @@ class _TtsSectionState extends ConsumerState<_TtsSection> {
                 byCode.putIfAbsent(m.code, () => m);
               }
               final codes = byCode.keys.toList();
-              final current =
-                  codes.contains(prefs.ttsModel) ? prefs.ttsModel : null;
+              final current = codes.contains(prefs.ttsModel)
+                  ? prefs.ttsModel
+                  : null;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -228,8 +252,10 @@ class _TtsSectionState extends ConsumerState<_TtsSection> {
                       for (final code in codes)
                         DropdownMenuItem(
                           value: code,
-                          child: Text(byCode[code]!.label,
-                              overflow: TextOverflow.ellipsis),
+                          child: Text(
+                            byCode[code]!.label,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                     ],
                     onChanged: (v) => notifier.setTtsModel(v),

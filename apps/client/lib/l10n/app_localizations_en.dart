@@ -2089,6 +2089,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2ModelPickerNoMatch => 'No models match';
 
   @override
+  String get chatV2ModelPickerDefaultBadge => 'Default';
+
+  @override
   String get chatV2ReasoningStreaming => 'Thinking…';
 
   @override

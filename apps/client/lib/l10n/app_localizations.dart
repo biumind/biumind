@@ -3851,6 +3851,12 @@ abstract class AppLocalizations {
   /// **'No models match'**
   String get chatV2ModelPickerNoMatch;
 
+  /// No description provided for @chatV2ModelPickerDefaultBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Default'**
+  String get chatV2ModelPickerDefaultBadge;
+
   /// No description provided for @chatV2ReasoningStreaming.
   ///
   /// In en, this message translates to:

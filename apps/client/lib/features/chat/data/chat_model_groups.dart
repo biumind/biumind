@@ -26,11 +26,15 @@ class ChatModelEntry {
   final int? contextWindow;
   // P6: official 从 model-relay 取的 markup 后实际价 chip (如 "$5/M"); null 不显。
   final String? priceLabel;
+  // 平台默认 chat 模型 (admin 设置, is_default_chat 标记) — picker 显示
+  // "默认"标。仅 official 组可为 true。
+  final bool isDefault;
   const ChatModelEntry({
     required this.code,
     required this.displayName,
     this.contextWindow,
     this.priceLabel,
+    this.isDefault = false,
   });
 }
 
@@ -52,8 +56,9 @@ class ChatModelGroup {
   });
 }
 
-final chatModelGroupsProvider =
-    FutureProvider<List<ChatModelGroup>>((ref) async {
+final chatModelGroupsProvider = FutureProvider<List<ChatModelGroup>>((
+  ref,
+) async {
   final brainProviders = await ref.watch(providersListProvider.future);
   final groups = <ChatModelGroup>[];
 
@@ -67,15 +72,23 @@ final chatModelGroupsProvider =
         displayName: m.displayName.isEmpty ? m.code : m.displayName,
         contextWindow: m.contextWindow,
         priceLabel: m.inputPriceLabel,
+        isDefault: m.isDefaultChat,
       ),
   ];
   if (officialModels.isNotEmpty) {
-    groups.add(ChatModelGroup(
-      providerId: 'biumind-official',
-      displayName: 'BiuMind Cloud',
-      isOfficial: true,
-      models: officialModels,
-    ));
+    // 平台默认排最前 (与 biu CLI /model 选择器一致), 其余保持 catalog 序。
+    officialModels.sort((a, b) {
+      if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+      return 0;
+    });
+    groups.add(
+      ChatModelGroup(
+        providerId: 'biumind-official',
+        displayName: 'BiuMind Cloud',
+        isOfficial: true,
+        models: officialModels,
+      ),
+    );
   }
 
   // 2. identity BYOK providers — server BYOK (valid key in identity) 或
@@ -85,13 +98,15 @@ final chatModelGroupsProvider =
   for (final k in keys) {
     if (k.isClientSide) {
       // client-side BYOK: 需本机出口, key 加密存 identity. 显示供桌面 daemon 用.
-      groups.add(ChatModelGroup(
-        providerId: k.provider,
-        displayName: '${_providerLabel(k.provider)} (本机直连)',
-        isOfficial: false,
-        isClientSide: true,
-        models: _clientSideModels(k),
-      ));
+      groups.add(
+        ChatModelGroup(
+          providerId: k.provider,
+          displayName: '${_providerLabel(k.provider)} (本机直连)',
+          isOfficial: false,
+          isClientSide: true,
+          models: _clientSideModels(k),
+        ),
+      );
       continue;
     }
     if (k.status != ApiKeyStatus.valid) continue;
@@ -101,12 +116,14 @@ final chatModelGroupsProvider =
     final models = await (brainRow != null
         ? _brainChatModels(ref, brainRow.id)
         : Future.value(const <ChatModelEntry>[]));
-    groups.add(ChatModelGroup(
-      providerId: k.provider,
-      displayName: _providerLabel(k.provider),
-      isOfficial: false,
-      models: models,
-    ));
+    groups.add(
+      ChatModelGroup(
+        providerId: k.provider,
+        displayName: _providerLabel(k.provider),
+        isOfficial: false,
+        models: models,
+      ),
+    );
   }
 
   // official first, then by display name.
@@ -121,11 +138,13 @@ Future<List<ChatModelEntry>> _brainChatModels(Ref ref, String rowId) async {
   final models = await ref.watch(modelsListProvider(rowId).future);
   return models
       .where((m) => m.enabled && m.type == 'chat')
-      .map((m) => ChatModelEntry(
-            code: m.modelId,
-            displayName: m.displayName.isEmpty ? m.modelId : m.displayName,
-            contextWindow: m.contextWindow,
-          ))
+      .map(
+        (m) => ChatModelEntry(
+          code: m.modelId,
+          displayName: m.displayName.isEmpty ? m.modelId : m.displayName,
+          contextWindow: m.contextWindow,
+        ),
+      )
       .toList();
 }
 
@@ -148,18 +167,21 @@ String _providerLabel(String providerId) {
 /// Flatten the groups into a pick list (code + provider for routing). Used by
 /// NewThreadDialog + "default model" settings (formerly availableChatModelsProvider).
 List<AvailableChatModelItem> flattenChatModelGroups(
-    List<ChatModelGroup> groups) {
+  List<ChatModelGroup> groups,
+) {
   final out = <AvailableChatModelItem>[];
   for (final g in groups) {
     for (final m in g.models) {
-      out.add(AvailableChatModelItem(
-        code: m.code,
-        displayName: m.displayName,
-        providerId: g.providerId,
-        providerDisplayName: g.displayName,
-        isOfficial: g.isOfficial,
-        isClientSide: g.isClientSide,
-      ));
+      out.add(
+        AvailableChatModelItem(
+          code: m.code,
+          displayName: m.displayName,
+          providerId: g.providerId,
+          providerDisplayName: g.displayName,
+          isOfficial: g.isOfficial,
+          isClientSide: g.isClientSide,
+        ),
+      );
     }
   }
   return out;
