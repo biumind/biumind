@@ -206,6 +206,22 @@ tasks:
     dir: apps/cli/biu
     cmds: [go run ./cmd/biu]
 
+  # ─── 文档站 (mkdocs, /docs) ───────────────────────
+  docs:serve:
+    desc: 本地预览文档站 (http://localhost:8000)
+    cmds:
+      - mkdocs serve
+
+  docs:build:
+    desc: 构建文档站到 site/ (--strict: nav 缺页/断链直接红)
+    cmds:
+      - mkdocs build --strict
+
+  docs:check:
+    desc: CI 用: 仅构建校验, 不留产物
+    cmds:
+      - mkdocs build --strict --no-directory-urls -d /tmp/biumind-docs-check
+
   # ─── docker-compose 测试环境 ───────────────────────
   compose:up-infra:
     dir: deploy/docker-compose

@@ -67,3 +67,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: check_invariants.sh
         run: bash tools/scripts/check_invariants.sh
+
+  docs:
+    # 文档站 (/docs, mkdocs)。--strict: nav 缺页 / 源文件不在 nav / 断链直接红。
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: mkdocs build --strict
+        run: |
+          pip install "mkdocs-material==9.*"
+          mkdocs build --strict
+
