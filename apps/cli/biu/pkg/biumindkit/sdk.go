@@ -513,8 +513,16 @@ type Agent struct {
 	// engine.ErrInterrupted sentinel — the engine inspects
 	// context.Cause(ctx) to distinguish deliberate Interrupt() from
 	// parent timeout/cancel.
-	cancelMu sync.Mutex
-	cancel   context.CancelCauseFunc
+	//
+	// interruptPending: Interrupt() that arrived with NO in-flight
+	// turn (e.g. the runtime worker's trackAgent runs before Submit,
+	// and a cancel_session control message can land in that gap).
+	// Storing it and applying it to the next Submit turns a silently
+	// dropped cancel into a Done{interrupted} — without this, the
+	// turn would run to completion despite the user cancelling.
+	cancelMu         sync.Mutex
+	cancel           context.CancelCauseFunc
+	interruptPending bool
 }
 
 // ErrConcurrent is returned via the event channel when Submit is
@@ -822,7 +830,16 @@ func (a *Agent) SubmitContent(
 	subCtx, cancel := context.WithCancelCause(ctx)
 	a.cancelMu.Lock()
 	a.cancel = cancel
+	// Consume a pending Interrupt that fired before this Submit existed.
+	pending := a.interruptPending
+	a.interruptPending = false
 	a.cancelMu.Unlock()
+	if pending {
+		// Nothing has started yet — cancel now and the engine maps the
+		// cause to Done{StopReason:"interrupted"} without dialing the
+		// provider.
+		cancel(engine.ErrInterrupted)
+	}
 
 	go func() {
 		defer close(out)
@@ -926,6 +943,12 @@ func (a *Agent) SubmitContent(
 func (a *Agent) Interrupt() error {
 	a.cancelMu.Lock()
 	cancel := a.cancel
+	if cancel == nil {
+		// No in-flight turn: remember the intent so the NEXT Submit
+		// starts already-interrupted instead of silently dropping the
+		// cancel (worker trackAgent → Submit gap, bridge aborts, …).
+		a.interruptPending = true
+	}
 	a.cancelMu.Unlock()
 	if cancel == nil {
 		return nil

@@ -20,11 +20,17 @@ import (
 // holdingAgentBuilder 给 worker 一个 *real* biumindkit.Agent,但上游
 // (Anthropic 假模拟)hang 在 message_start 之后等 ctx 取消。这样我们能
 // 观察到「上游收到 ctx cancel」作为 Interrupt 真打到 engine 的证据。
-func holdingAgentBuilder(t *testing.T) (AgentBuilder, <-chan struct{}, *httptest.Server) {
+// started 在上游 handler 首次进入时关闭 — 比 agent 注册更强的 gate:
+// 保证 Interrupt 落地时 HTTP 请求已在流中(打断 track→Submit 窗口内的
+// control 消息由 biumindkit 的 pending-interrupt 契约覆盖,另有单测)。
+func holdingAgentBuilder(t *testing.T) (AgentBuilder, <-chan struct{}, <-chan struct{}, *httptest.Server) {
 	t.Helper()
 	canceled := make(chan struct{})
+	started := make(chan struct{})
 	var once sync.Once
+	var startOnce sync.Once
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startOnce.Do(func() { close(started) })
 		w.Header().Set("content-type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`event: message_start
@@ -47,7 +53,7 @@ data: {"type":"message_start","message":{"id":"m_1","model":"test"}}
 			BypassPermissions:   true,
 		})
 	}
-	return build, canceled, upstream
+	return build, canceled, started, upstream
 }
 
 // TestWorker_InterruptSession_RegistryRoundtrip — runtime 内进程 API:
@@ -76,7 +82,7 @@ func TestWorker_InterruptSession_RegistryRoundtrip(t *testing.T) {
 	}
 
 	// Case B: 注册一个真 agent,Interrupt 命中
-	build, _, upstream := holdingAgentBuilder(t)
+	build, _, _, upstream := holdingAgentBuilder(t)
 	defer upstream.Close()
 	a, err := build(context.Background(), WorkPayload{})
 	if err != nil {
@@ -127,7 +133,7 @@ func TestWorker_ObserveCancelLatency_OnlyAfterInterrupt(t *testing.T) {
 	}
 	defer reg.Stop(context.Background())
 
-	build, _, upstream := holdingAgentBuilder(t)
+	build, _, _, upstream := holdingAgentBuilder(t)
 	defer upstream.Close()
 	w := NewWorker(reg, build, WorkerConfig{}, newDiscardLogger())
 
@@ -215,7 +221,7 @@ func TestWorker_ControlLoop_RoutesCancel(t *testing.T) {
 	}
 	defer reg.Stop(context.Background())
 
-	build, upstreamCanceled, upstream := holdingAgentBuilder(t)
+	build, upstreamCanceled, upstreamStarted, upstream := holdingAgentBuilder(t)
 	defer upstream.Close()
 
 	w := NewWorker(reg, build, WorkerConfig{
@@ -230,14 +236,21 @@ func TestWorker_ControlLoop_RoutesCancel(t *testing.T) {
 		close(runDone)
 	}()
 
-	// Step 1: 等 agent 注册到 in-flight 表
+	// Step 1: 等上游 HTTP 请求已经 in-flight(比等 agent 注册更强:
+	// 保证 Interrupt 落地时流已在进行,upstream 观察到 cancel 才是
+	// 确定性断言)。agent 注册是它的必要前置。
 	deadline := time.Now().Add(3 * time.Second)
+pollStarted:
 	for time.Now().Before(deadline) {
 		w.agentsMu.Lock()
 		_, present := w.agents[sessionID]
 		w.agentsMu.Unlock()
 		if present {
-			break
+			select {
+			case <-upstreamStarted:
+				break pollStarted
+			default:
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -246,6 +259,11 @@ func TestWorker_ControlLoop_RoutesCancel(t *testing.T) {
 	w.agentsMu.Unlock()
 	if !present {
 		t.Fatal("agent never registered")
+	}
+	select {
+	case <-upstreamStarted:
+	default:
+		t.Fatal("upstream request never started within 3s")
 	}
 
 	// Step 2: 放 gate,让 control 下发触发 InterruptSession

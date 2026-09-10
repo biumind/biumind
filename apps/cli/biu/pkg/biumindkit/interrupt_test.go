@@ -2,8 +2,12 @@
 // the post-interrupt contract:
 //
 //   - The terminal event is Done{StopReason:"interrupted"}, not Error.
-//   - Idempotent: repeated Interrupt() is a no-op (no panic, returns nil).
-//   - Pre-Submit Interrupt() is a no-op.
+//   - Idempotent: repeated Interrupt() is safe (no panic, returns nil).
+//   - Pre-Submit Interrupt() is HELD: the next Submit starts already
+//     interrupted (Done{interrupted}, provider never dialed) instead of
+//     the cancel being silently dropped — the runtime worker's
+//     trackAgent→Submit gap depends on this (cancel_session control
+//     message can land before the first Submit exists).
 //   - Parent ctx cancel WITHOUT Interrupt() still surfaces the regular
 //     Error path (legacy behaviour preserved — only Interrupt() flips
 //     to the clean-Done contract).
@@ -19,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -127,7 +132,9 @@ func TestSDK_InterruptIdempotent(t *testing.T) {
 	}
 	defer a.Close()
 
-	// 1. Pre-Submit Interrupt() → no-op
+	// 1. Pre-Submit Interrupt() → held for the next Submit (case 2's
+	//    Submit below therefore ends Done{interrupted} — asserted in
+	//    TestSDK_InterruptBeforeSubmitHoldsToNextTurn).
 	if err := a.Interrupt(); err != nil {
 		t.Errorf("pre-Submit Interrupt: %v", err)
 	}
@@ -208,6 +215,68 @@ drain:
 
 	if doneStopReason == "interrupted" {
 		t.Errorf("parent cancel should NOT emit Done{interrupted}; only Interrupt() does that")
+	}
+}
+
+// TestSDK_InterruptBeforeSubmitHoldsToNextTurn — Interrupt() with no
+// in-flight Submit must not be dropped: the next Submit ends immediately
+// with Done{interrupted} and the provider is never dialed. This is the
+// runtime worker's trackAgent→Submit gap (cancel_session control message
+// racing the first Submit) — dropping it meant a cancelled session ran
+// the full turn anyway.
+func TestSDK_InterruptBeforeSubmitHoldsToNextTurn(t *testing.T) {
+	var upstreamHit atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHit.Store(true)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	a, err := New(Options{
+		Model:               "test",
+		APIKey:              "sk-fake",
+		AnthropicEndpoint:   upstream.URL,
+		LoadProjectMemory:   NoMemory,
+		LoadProjectSettings: NoSettings,
+		BypassPermissions:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	// Cancel BEFORE any Submit exists — the trackAgent→Submit gap.
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch := a.Submit(ctx, "should never run")
+
+	var doneStopReason string
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+drain:
+	for {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				break drain
+			}
+			if d, ok := ev.(Done); ok {
+				doneStopReason = d.StopReason
+			}
+		case <-deadline.C:
+			t.Fatal("Submit hung after pre-Submit Interrupt")
+		}
+	}
+
+	if doneStopReason != "interrupted" {
+		t.Errorf("Done.StopReason = %q, want \"interrupted\" (cancel must not be dropped)", doneStopReason)
+	}
+	if upstreamHit.Load() {
+		t.Error("provider was dialed despite held interrupt")
 	}
 }
 
