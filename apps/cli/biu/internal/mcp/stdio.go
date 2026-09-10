@@ -242,6 +242,20 @@ func (c *StdioClient) call(
 	if c.closed.Load() {
 		return nil, errors.New("mcp: client closed")
 	}
+	// Snapshot the stream-liveness channel: it closes — after readLoop
+	// has drained in-flight pendings — when the server stream is over.
+	// A call registered after that drain would otherwise never be
+	// answered and block until the caller's ctx expires; ctx
+	// cancellation deliberately doesn't count toward the breaker, so a
+	// dead server surfaced as slow ctx timeouts instead of tripping it
+	// (CI flake: TestCircuitBreakerTrips). Fail fast and count instead.
+	done := c.readLoopDone
+	select {
+	case <-done:
+		c.recordError()
+		return nil, fmt.Errorf("mcp[%s] %s: server stream closed", c.cfg.Name, method)
+	default:
+	}
 	id := c.nextID.Add(1)
 	respCh := make(chan json.RawMessage, 1)
 	errCh := make(chan *JSONRPCError, 1)
@@ -272,6 +286,16 @@ func (c *StdioClient) call(
 	case <-ctx.Done():
 		// User cancellation doesn't count toward the circuit breaker.
 		return nil, ctx.Err()
+	case <-done:
+		// Stream ended while we waited. readLoop's drain loop runs
+		// BEFORE close(done); landing here means we registered after
+		// the drain already passed — nobody will ever answer us.
+		c.recordError()
+		c.mu.Lock()
+		delete(c.pending, id)
+		delete(c.pendErr, id)
+		c.mu.Unlock()
+		return nil, fmt.Errorf("mcp[%s] %s: server stream closed", c.cfg.Name, method)
 	case e := <-errCh:
 		if e != nil {
 			c.recordError()
