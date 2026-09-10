@@ -163,6 +163,16 @@ func ParseStream(
 			if !ok {
 				// Provider closed without message_stop — we trust
 				// what we have and return.
+				//
+				// But cancellation wins over "clean EOS": close(ch)
+				// and ctx.Done() can land ready in the same select
+				// round (select picks pseudo-randomly), and a
+				// canceled ctx must surface as ctx.Err() — otherwise
+				// the empty stop_reason escalates to a bogus
+				// "unhandled stop_reason" error event upstairs.
+				if err := ctx.Err(); err != nil {
+					return msg, stopReason, usage, err
+				}
 				return msg, stopReason, usage, nil
 			}
 			switch f.Type {
