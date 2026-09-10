@@ -787,8 +787,14 @@ func (e *QueryEngine) SubmitContent(
 	// always draining, blocking sends here are well-defined.
 	inner := make(chan Event, 64)
 	go func() {
-		defer e.inflight.Unlock()
+		// LIFO: close(out) runs LAST. Releasing inflight BEFORE the
+		// channel closes closes the race where a caller observes the
+		// closed channel, immediately re-Submits, and TryLock fails
+		// against our not-yet-run Unlock — surfacing as a bogus
+		// ErrConcurrentSubmit (CI flake: drainAll returns the instant
+		// out closes; the final defer hadn't been scheduled yet).
 		defer close(out)
+		defer e.inflight.Unlock()
 		for ev := range inner {
 			fillBase(ev, e.agentID, e.parentToolUseID)
 			out <- ev
