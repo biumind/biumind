@@ -21,7 +21,7 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://biumind.com"
+Homepage = "https://biumind.ai"
 Source   = "https://github.com/biumind/biumind"
 
 [tool.setuptools.packages.find]

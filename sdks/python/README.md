@@ -1,6 +1,6 @@
 # biumind (Python SDK)
 
-Python client for [BiuMind Agentics](https://biumind.com).
+Python client for [BiuMind Agentics](https://biumind.ai).
 
 Stdlib-only — no third-party runtime dependencies.
 

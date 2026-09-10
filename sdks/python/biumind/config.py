@@ -2,7 +2,7 @@
 
 Environment variables:
 
-    BIUMIND_HUB_URL    — base URL for Hub (e.g. https://hub.biumind.com)
+    BIUMIND_HUB_URL    — base URL for Hub (e.g. https://biumind.ai)
     BIUMIND_BRAIN_URL  — base URL for Brain (defaults to BIUMIND_HUB_URL)
     BIUMIND_TOKEN      — bearer JWT
     BIUMIND_TIMEOUT    — request timeout in seconds (default 30)

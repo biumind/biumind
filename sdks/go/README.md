@@ -1,6 +1,6 @@
 # biumind (Go SDK)
 
-Go client for [BiuMind Agentics](https://biumind.com).
+Go client for [BiuMind Agentics](https://biumind.ai).
 
 Stdlib-only — no third-party runtime dependencies.
 

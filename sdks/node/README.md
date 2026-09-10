@@ -1,6 +1,6 @@
 # @biumind/sdk
 
-Node.js client for [BiuMind Agentics](https://biumind.com).
+Node.js client for [BiuMind Agentics](https://biumind.ai).
 
 Zero runtime dependencies — uses Node 18+'s built-in `fetch`.
 
