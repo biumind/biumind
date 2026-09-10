@@ -10,5 +10,5 @@ biu app inspect
 biu app pack
 ```
 
-See `docs/samples/app_center/hybrid_full.yaml` for the reference
-manifest + `docs/BiuMind-AppCenter-DevGuide.md` for the SDK API.
+See this template's `manifest.yaml` for the reference
+manifest + the BiuApp SDK in `packages/go-sdk/biu/biuapp/` for the API.

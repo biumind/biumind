@@ -65,7 +65,7 @@ extensions/vscode/src/
 ```
 
 The bridge protocol is documented in
-[`docs/biu/usage.md`](../../docs/biu/usage.md#3-http-bridge-ide-integration)
+[`docs/cli/usage.md`](../../docs/cli/usage.md)
 and implemented in
 [`apps/cli/biu/internal/bridge/server.go`](../../apps/cli/biu/internal/bridge/server.go).
 SSE supports `Last-Event-ID` resume out of the box; the client tracks

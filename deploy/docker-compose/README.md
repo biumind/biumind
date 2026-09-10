@@ -200,7 +200,7 @@ A: 看 `DESIGN.md`，compose 文件里只留 1 行陷阱指针回指它。
 
 要把测试环境用满，建议读：
 
-- [`docs/BiuMind-Self-Hosted-Deployment.md`](../../docs/BiuMind-Self-Hosted-Deployment.md) — 自托管部署完整指南
-- [`docs/BiuMind-Technical-Architecture.md`](../../docs/BiuMind-Technical-Architecture.md) §2 运行时拓扑、§16 部署与发布
-- `services/<name>/README.md`（每个服务的本地启动）
+- [`docs/self-hosting/`](../../docs/self-hosting/) — 自托管部署指南（在线版 `/docs/self-hosting/`）
+- [`docs/self-hosting/compose.md`](../../docs/self-hosting/compose.md) — 本地开发栈用法
+- [`docs/self-hosting/env-vars.md`](../../docs/self-hosting/env-vars.md) — 环境变量参考
 - `Makefile`（看有哪些 target）

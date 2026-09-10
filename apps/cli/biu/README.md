@@ -75,12 +75,14 @@ response. Press `Esc` then `q` to quit.
 
 ## Documentation
 
-- [getting-started.md](../../docs/biu/getting-started.md) — 3-minute tutorial
-- [usage.md](../../docs/biu/usage.md) — feature tour
-- [commands.md](../../docs/biu/commands.md) — every subcommand & flag
-- [biumind-md.md](../../docs/biu/biumind-md.md) — memory file format
-- [permissions.md](../../docs/biu/permissions.md) — rule grammar + modes
-- [architecture.md](../../docs/biu/architecture.md) — internals
+完整文档见 [`docs/cli/`](../../docs/cli/)（在线版：`/docs/cli/`）：
+
+- [getting-started.md](../../docs/cli/getting-started.md) — 安装与首次配置
+- [usage.md](../../docs/cli/usage.md) — feature tour
+- [commands.md](../../docs/cli/commands.md) — every subcommand & flag
+- [biumind-md.md](../../docs/cli/biumind-md.md) — memory file format
+- [permissions.md](../../docs/cli/permissions.md) — rule grammar + modes
+- [sandbox.md](../../docs/cli/sandbox.md) — sandbox policies
 
 ## Embedding
 

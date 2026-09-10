@@ -12,7 +12,7 @@ BiuMind 跨平台小程序客户端 — 基于 **uni-app + Vue 3 + TypeScript**�
 - 飞书小程序 (`mp-lark`)
 - H5 (`h5`)
 
-完整设计见 [`../../docs/BiuMind-MiniApp-Design.md`](../../docs/BiuMind-MiniApp-Design.md)。
+架构与跨端约定见仓库根文档 [`docs/`](../../docs/)。
 
 ## W1 范围（当前）
 

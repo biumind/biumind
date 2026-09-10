@@ -2,7 +2,6 @@
 
 > 版本：v0.2（2026-06-01）
 > S0-2 阶段产出 + S4/S11 集成完成 + Agent Plane follow-up 全部归档。
-> 配套 [`docs/BiuMind-Agent-Plane-Dev-Plan.md`](../../../../../docs/BiuMind-Agent-Plane-Dev-Plan.md)。
 >
 > 用途：brain / runtime / Flutter daemon 三方都已经在用 biumindkit 跑同一份
 > agent 内核 — 本文档列出公开 API + 使用模式 + 历史 follow-up 归档。
@@ -423,6 +422,4 @@ S0-2 阶段定义、v0.2 全部完成:
 - 源码：[`sdk.go`](sdk.go) + [`tool.go`](tool.go)
 - 现有 examples：`examples/{customtool,headless,policy,streaming}/`
 - 现有 README：[`examples/README.md`](examples/README.md)
-- Agent Plane 设计：[`../../../../../docs/BiuMind-Agent-Plane-Design.md`](../../../../../docs/BiuMind-Agent-Plane-Design.md)
-- Schema 对照：[`../../../../../docs/BiuMind-Agent-Plane-Schema-Mapping.md`](../../../../../docs/BiuMind-Agent-Plane-Schema-Mapping.md)
-- Dev Plan：[`../../../../../docs/BiuMind-Agent-Plane-Dev-Plan.md`](../../../../../docs/BiuMind-Agent-Plane-Dev-Plan.md) S4 / S11
+- 协议源：`packages/proto/biumind/runtime/v1/` + `schema/sdk/v1/`

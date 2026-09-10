@@ -2,7 +2,7 @@
 
 客户端发版历史。每条与 `git tag client-vX.Y.Z` 一一对应。
 
-版本号规范见 [`docs/BiuMind-Client-Release-Manifest.md`](../../docs/BiuMind-Client-Release-Manifest.md) §4:
+版本号规范:
 - `pubspec.yaml version: X.Y.Z+N`(N = build number,可手动 +1)
 - `git tag client-vX.Y.Z`(CI 从 tag 读版本,校验 == pubspec X.Y.Z)
 - `releases.json version: X.Y.Z`(无 v 无 build)

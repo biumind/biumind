@@ -16,4 +16,4 @@ The Go side lives wherever you want; the CLI only manages
 manifest + bundle. Wire your `App` implementation into the
 `app_center` registry with `Register(ctx, &MyApp{})`.
 
-See `docs/BiuMind-AppCenter-DevGuide.md` for the full SDK API.
+See the BiuApp SDK in `packages/go-sdk/biu/biuapp/` for the full API.
