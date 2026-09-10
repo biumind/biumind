@@ -213,12 +213,12 @@ tasks:
       - mkdocs serve
 
   docs:build:
-    desc: 构建文档站到 site/ (--strict: nav 缺页/断链直接红)
+    desc: 构建文档站到 site/（--strict，nav 缺页/断链直接红）
     cmds:
       - mkdocs build --strict
 
   docs:check:
-    desc: CI 用: 仅构建校验, 不留产物
+    desc: CI 用，仅构建校验不留产物
     cmds:
       - mkdocs build --strict --no-directory-urls -d /tmp/biumind-docs-check
 
