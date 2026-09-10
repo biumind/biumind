@@ -121,6 +121,36 @@ func TestPublicModels_ResponseHasOnlyPublicFields(t *testing.T) {
 	}
 }
 
+// is_default_chat: admin 设置的平台默认 chat 模型标记要透出, 未设置时
+// 字段整体缺席 (omitempty) — CLI 据此区分"有平台默认"与"引导用户手选"。
+func TestPublicModels_DefaultChatFlagPassThrough(t *testing.T) {
+	f := &fakeModelLister{
+		models: []registry.Model{
+			{Code: "claude-sonnet-4-6", DisplayName: "Sonnet", Mode: "chat", Status: registry.StatusActive, IsDefaultChat: true},
+			{Code: "kimi-k3", DisplayName: "Kimi", Mode: "chat", Status: registry.StatusActive},
+		},
+	}
+	h := &PublicModelsHandler{Models: f}
+	req := httptest.NewRequest(http.MethodGet, "/v1/me/models", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"is_default_chat":true`) {
+		t.Errorf("default model missing is_default_chat:true\nbody=%s", body)
+	}
+	// 未设默认的模型不带该字段 (omitempty, 不是 false)
+	if strings.Contains(body, `"is_default_chat":false`) {
+		t.Errorf("non-default model should omit is_default_chat entirely\nbody=%s", body)
+	}
+	if strings.Count(body, `"is_default_chat":true`) != 1 {
+		t.Errorf("expected exactly one default chat model\nbody=%s", body)
+	}
+}
+
 // 仅 GET 通过, 其他方法 405。
 func TestPublicModels_RejectsNonGet(t *testing.T) {
 	h := &PublicModelsHandler{Models: &fakeModelLister{}}

@@ -9,7 +9,7 @@
 //     5 个 role); 这里只走 authMiddleware 校验 JWT 真实即可。
 //   - 字段精简: 只返 client picker 渲染需要的字段
 //     {code, display_name, family, context_window, capabilities, mode,
-//      min_plan, max_output, pricing}, 不暴露 channel / sort_order /
+//      min_plan, max_output, pricing, is_default_chat}, 不暴露 channel / sort_order /
 //     upstream_ref / routing_strategy / dispatch_mode / manual_override /
 //     fallback_models / status 等 admin 内部信息。
 //   - pricing 是 **markup 后实际计费单价** (用户看到 = 实际扣费), 不含
@@ -70,9 +70,15 @@ type publicModelDTO struct {
 	// picker vs 创作/检索链路。
 	Mode string `json:"mode"`
 	// MinPlan: 用该模型所需的最低 plan (pro/team); free = 所有人可用,省略。
-	MinPlan   string            `json:"min_plan,omitempty"`
-	MaxOutput int               `json:"max_output,omitempty"`
-	Pricing   *publicPricingDTO `json:"pricing,omitempty"`
+	// IsDefaultChat: admin 设置的平台默认 chat 模型标记 (migration 00002,
+	// 全局最多一个 true)。CLI/客户端据此解析"系统默认模型" — 未设默认时
+	// 字段整体缺席 (omitempty), 由客户端引导用户手选 (见 biu 零配置启动)。
+	// 只是个布尔标记, 不暴露 sort_order 等优选内部信息 — admin 未设默认时
+	// 的 preferred-chat 自动优选仍留在服务端 internalapi。
+	IsDefaultChat bool              `json:"is_default_chat,omitempty"`
+	MinPlan       string            `json:"min_plan,omitempty"`
+	MaxOutput     int               `json:"max_output,omitempty"`
+	Pricing       *publicPricingDTO `json:"pricing,omitempty"`
 }
 
 // publicPricingDTO — markup 后实际计费单价 (per_mtok, 原币种)。用户看到 =
@@ -143,6 +149,7 @@ func (h *PublicModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			Capabilities:  m.Capabilities,
 			Mode:          m.Mode,
 			MaxOutput:     m.MaxOutput,
+			IsDefaultChat: m.IsDefaultChat,
 		}
 		// free = 所有人可用, 不显 min_plan (避免噪音); pro/team 显提示升级。
 		if m.MinPlan != "" && m.MinPlan != registry.PlanFree {
