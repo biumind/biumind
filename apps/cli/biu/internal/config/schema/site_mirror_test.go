@@ -1,4 +1,4 @@
-// The settings.schema.json under docs/biu/schemas/ is the canonical
+// The settings.schema.json under docs/cli/schemas/ is the canonical
 // snapshot regenerated via `biu config schema settings`. The
 // official site (your-biumind.example.com) serves a copy out of
 // web/site/public/schemas/biu/ so editor `$schema` resolves over
@@ -41,7 +41,7 @@ func repoRoot(t *testing.T) string {
 
 func TestSiteSchemaCopyMatchesDocsCopy(t *testing.T) {
 	root := repoRoot(t)
-	docsPath := filepath.Join(root, "docs/biu/schemas/settings.schema.json")
+	docsPath := filepath.Join(root, "docs/cli/schemas/settings.schema.json")
 	sitePath := filepath.Join(root, "web/site/public/schemas/biu/settings.schema.json")
 
 	docsBytes, err := os.ReadFile(docsPath)
@@ -57,7 +57,7 @@ func TestSiteSchemaCopyMatchesDocsCopy(t *testing.T) {
 	siteBytes, err := os.ReadFile(sitePath)
 	if err != nil {
 		t.Fatalf("read site schema: %v\n\nIf you regenerated the schema "+
-			"via `biu config schema settings > docs/biu/schemas/...`, "+
+			"via `biu config schema settings > docs/cli/schemas/...`, "+
 			"also copy the result to web/site/public/schemas/biu/ — "+
 			"editors resolve $schema from the latter.", err)
 	}

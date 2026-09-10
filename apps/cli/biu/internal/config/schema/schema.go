@@ -220,7 +220,7 @@ func SettingsSchema() map[string]any {
 			},
 			"sandbox": map[string]any{
 				"type":        "object",
-				"description": "Filesystem allow/deny lists for the Bash tool's sandbox layer. See docs/biu/sandbox.md for a full guide. Path values may use `~` (home), `${VAR}` (env), and `${PROJECT_ROOT}` (project cwd); relative paths are dropped. Three-layer merge is union-only — project / local can ADD entries, none can remove or override earlier layers' entries.",
+				"description": "Filesystem allow/deny lists for the Bash tool's sandbox layer. See docs/cli/sandbox.md for a full guide. Path values may use `~` (home), `${VAR}` (env), and `${PROJECT_ROOT}` (project cwd); relative paths are dropped. Three-layer merge is union-only — project / local can ADD entries, none can remove or override earlier layers' entries.",
 				"properties": map[string]any{
 					"fsReadDeny": map[string]any{
 						"type":        "array",

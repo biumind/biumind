@@ -333,7 +333,7 @@ func scaffoldSettings() error {
 	// defaults because the right rule set is workflow-dependent — a
 	// Python user wants ~/.cache/pip allowed for writes; a Go user
 	// wants $GOPATH; a polyglot user wants both. Pointing users at
-	// docs/biu/sandbox.md and letting them opt in beats baking in a
+	// docs/cli/sandbox.md and letting them opt in beats baking in a
 	// baseline that breaks half their workflows.
 	//
 	// JSON has no comment syntax (Go's encoding/json strictly
@@ -366,7 +366,7 @@ func scaffoldSettings() error {
 	// stays scriptable.
 	fmt.Fprintln(os.Stderr,
 		"[biu] tip: add a `sandbox` block to lock down credential paths "+
-			"(see docs/biu/sandbox.md) — the $schema reference enables "+
+			"(see docs/cli/sandbox.md) — the $schema reference enables "+
 			"editor autocomplete for every supported field.")
 	return nil
 }
