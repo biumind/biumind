@@ -21,7 +21,7 @@ export const en: Translation = {
     ctaPrimary: 'Try free',
     ctaSecondary: 'See what it does',
     ctaWeb: 'Open in Browser',
-    platforms: 'macOS · Windows · Linux · iOS · Android · Web',
+    platforms: 'macOS · Android · Web',
   },
 
   scenarios: {
@@ -38,11 +38,11 @@ export const en: Translation = {
       },
       {
         title: 'Make an image',
-        body: 'Text-to-image, text-to-video, viral-video breakdown — turn one prompt into finished work. Outputs archive to your knowledge base, ready to reuse and remix.',
+        body: 'Text-to-image, text-to-video, viral-video breakdown — turn one prompt into finished work. Finished work lands in your gallery and portfolio, ready to reuse and remix.',
       },
       {
         title: 'Remember everything',
-        body: 'Web clips, chats and docs flow into your knowledge base automatically; AI connects them into a graph. Weeks later, one search brings any article back.',
+        body: 'Web clips flow in automatically, chats save with one click, and AI connects everything into a graph. Weeks later, one search brings any article back.',
       },
     ],
   },
@@ -61,7 +61,7 @@ export const en: Translation = {
       },
       {
         title: 'Creation',
-        body: 'Text-to-image, text-to-video, viral-video breakdown — turn one prompt into finished work. Outputs archive to your knowledge base, ready to reuse and remix.',
+        body: 'Text-to-image, text-to-video, viral-video breakdown — turn one prompt into finished work. Finished work lands in your gallery and portfolio, ready to reuse and remix.',
       },
       {
         title: 'Cloud Workspace',
@@ -73,7 +73,7 @@ export const en: Translation = {
       },
       {
         title: 'App Center',
-        body: 'RSS digests, email summaries, market watchers, paper trackers — production-ready specialist agents, one click to enable.',
+        body: 'RSS feeds, translation, task management — ready-to-use AI assistants, one click to enable, and build your own.',
       },
     ],
   },
@@ -106,8 +106,8 @@ export const en: Translation = {
     title: 'One account. Everywhere.',
     description: 'The same working memory, synced across every device. Pick up wherever you left off.',
     items: [
-      { name: 'Desktop', sub: 'macOS · Windows · Linux' },
-      { name: 'Mobile', sub: 'iOS · Android' },
+      { name: 'Desktop', sub: 'macOS (Windows / Linux on the roadmap)' },
+      { name: 'Mobile', sub: 'Android (iOS on the roadmap)' },
       { name: 'Browser', sub: 'Chrome · Safari · Edge' },
       { name: 'CLI', sub: 'biu' },
     ],
@@ -172,19 +172,18 @@ export const en: Translation = {
       title: 'The desktop app feels better',
       subtitle: 'Built for long sessions — fewer paper cuts, more flow.',
       perks: [
-        { label: 'Global shortcuts', sub: 'Summon BiuMind from anywhere' },
-        { label: 'Native notifications', sub: 'Know the moment an agent finishes' },
+        { label: 'Built-in agent engine', sub: 'biu daemon ships with the app — local coding workbench' },
         { label: 'Faster rendering', sub: 'Big docs and graphs stay smooth' },
-        { label: 'Offline access', sub: 'Read and edit without a connection' },
+        { label: 'Sandboxed commands', sub: 'Shell runs in an OS-level sandbox by default' },
       ],
       primary: 'Download Desktop App',
       secondary: 'Continue to Web',
     },
     mobile: {
       title: 'BiuMind feels better as an app',
-      subtitle: 'Push notifications, native gestures, offline access — the way mobile should feel.',
-      ios: 'App Store',
-      android: 'Google Play',
+      subtitle: 'Approve agent work, browse sessions, search your knowledge base — on the go.',
+      ios: 'iOS · coming soon',
+      android: 'Download Android APK',
       secondary: 'Continue in browser',
     },
   },
@@ -194,7 +193,7 @@ export const en: Translation = {
     subtitle: 'One account. Desktop, mobile, browser, CLI — everywhere.',
     desktop: {
       title: 'Desktop',
-      body: 'Your main workstation. Block editor, knowledge graph, multi-agent coding and cloud sandboxes — all in the desktop app.',
+      body: 'Your main workstation. Block editor, knowledge graph, multi-agent coding, local terminal and sandboxed commands.',
       macSilicon: 'macOS · Apple Silicon',
       macIntel: 'macOS · Intel',
       windows: 'Windows 10/11',
@@ -204,8 +203,8 @@ export const en: Translation = {
     mobile: {
       title: 'Mobile',
       body: 'Approve agent work, browse sessions and search the knowledge base — from anywhere.',
-      ios: 'App Store',
-      android: 'Google Play',
+      ios: 'iOS · coming soon',
+      android: 'Android',
       androidApk: 'Download Android APK',
     },
     web: {

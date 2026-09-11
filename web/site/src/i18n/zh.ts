@@ -21,7 +21,7 @@ export const zh: Translation = {
     ctaPrimary: '免费试用',
     ctaSecondary: '看看能做什么',
     ctaWeb: '打开 Web 版',
-    platforms: 'macOS · Windows · Linux · iOS · Android · Web',
+    platforms: 'macOS · Android · Web',
   },
 
   scenarios: {
@@ -38,11 +38,11 @@ export const zh: Translation = {
       },
       {
         title: '做一张图',
-        body: '文生图、文生视频、爆款拆解，一句话把灵感变成成品。产物自动沉淀进知识库，随时复用、二次创作。',
+        body: '文生图、文生视频、爆款拆解，一句话把灵感变成成品。成品收进画廊与作品集，随时复用、二次创作。',
       },
       {
         title: '沉淀看到的一切',
-        body: '网页剪藏、对话、文档自动进知识库，AI 帮你连成图谱。下周再想起某篇文章，搜一句话就能找回来。',
+        body: '网页剪藏自动入库、对话一键存入、AI 帮你连成图谱。下周再想起某篇文章，搜一句话就能找回来。',
       },
     ],
   },
@@ -61,7 +61,7 @@ export const zh: Translation = {
       },
       {
         title: '创作',
-        body: '文生图、文生视频、爆款拆解，一句话把灵感变成成品。产物沉淀进知识库，随时复用、二次创作。',
+        body: '文生图、文生视频、爆款拆解，一句话把灵感变成成品。成品收进画廊与作品集，随时复用、二次创作。',
       },
       {
         title: '云端工位',
@@ -73,7 +73,7 @@ export const zh: Translation = {
       },
       {
         title: '应用中心',
-        body: 'RSS 订阅、邮件总结、股票动态、论文追踪……开箱即用的专业 AI 助手，按需开启。',
+        body: 'RSS 订阅、内容翻译、任务管理……开箱即用的 AI 助手，按需开启，也支持自己开发。',
       },
     ],
   },
@@ -106,8 +106,8 @@ export const zh: Translation = {
     title: '一个账号，处处可用',
     description: '同一份工作记忆，云端同步，任何设备打开都能继续。',
     items: [
-      { name: '桌面', sub: 'macOS · Windows · Linux' },
-      { name: '手机', sub: 'iOS · Android' },
+      { name: '桌面', sub: 'macOS（Windows / Linux 排期中）' },
+      { name: '手机', sub: 'Android（iOS 排期中）' },
       { name: '浏览器', sub: 'Chrome · Safari · Edge' },
       { name: '命令行', sub: 'biu CLI' },
     ],
@@ -172,19 +172,18 @@ export const zh: Translation = {
       title: '桌面客户端体验更完整',
       subtitle: '为长时间工作准备的旗舰端 — 你会用得更顺手。',
       perks: [
-        { label: '全局快捷键', sub: '随手呼出，零鼠标操作' },
-        { label: '原生通知', sub: 'Agent 跑完了立刻知道' },
+        { label: '内置 Agent 引擎', sub: 'biu 守护进程开箱即起，编码工作台本地跑' },
         { label: '本地渲染快', sub: '大文档、知识图谱也不卡' },
-        { label: '离线可用', sub: '断网时仍能阅读和编辑' },
+        { label: '沙箱命令执行', sub: 'Shell 默认跑在系统级沙箱里' },
       ],
       primary: '下载桌面客户端',
       secondary: '继续打开 Web 版',
     },
     mobile: {
       title: '装个 App 更顺手',
-      subtitle: '推送通知、原生手势、离线查看 — 移动端的最佳体验。',
-      ios: 'App Store',
-      android: 'Google Play',
+      subtitle: '随时审批 Agent 的工作、看会话、查知识库 — 移动端随手处理。',
+      ios: 'iOS · 即将上线',
+      android: '下载 Android APK',
       secondary: '在浏览器中继续',
     },
   },
@@ -194,7 +193,7 @@ export const zh: Translation = {
     subtitle: '一个账号，桌面、手机、浏览器、命令行处处可用。',
     desktop: {
       title: '桌面版',
-      body: '主力工作端。块编辑器、知识图谱、多 Agent 编码、云沙箱全部在桌面打开。',
+      body: '主力工作端。块编辑器、知识图谱、多 Agent 编码、本地终端与沙箱命令。',
       macSilicon: 'macOS · Apple Silicon',
       macIntel: 'macOS · Intel',
       windows: 'Windows 10/11',
@@ -204,8 +203,8 @@ export const zh: Translation = {
     mobile: {
       title: '移动端',
       body: '随时审批 AI Agent 的工作、看会话、查知识库。',
-      ios: 'App Store',
-      android: 'Google Play',
+      ios: 'iOS · 即将上线',
+      android: 'Android',
       androidApk: '下载 Android APK',
     },
     web: {
