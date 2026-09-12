@@ -18,6 +18,8 @@ BiuMind 是一体化 AI 工作平台：写文档、跑 Agent、写代码、做�
 | 把 BiuMind 部署到自己服务器 | [自托管部署指南](self-hosting/index.md) |
 | 本地起一套开发环境 | [本地开发栈](self-hosting/compose.md) |
 | 查某个环境变量怎么配 | [环境变量参考](self-hosting/env-vars.md) |
+| 让 AI Agent 读写我的知识库 | [开发者：API 参考](developers/api.md) |
+| 写一个 BiuApp / Skill | [开发者](developers/index.md) |
 
 ## 六大模块
 
@@ -31,4 +33,4 @@ BiuMind 是一体化 AI 工作平台：写文档、跑 Agent、写代码、做�
 | 应用中心 | 安装内置应用与社区应用，或开发自己的 BiuApp |
 
 > [!NOTE]
-> 更多模块级用户指南与开发者文档（REST / MCP API、SDK、SDK Protocol、BiuApp / Skills 开发）持续更新中。
+> 六大模块的详细用户指南持续更新中。

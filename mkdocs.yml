@@ -75,3 +75,10 @@ nav:
       - 部署指南: self-hosting/index.md
       - 本地开发栈 (compose): self-hosting/compose.md
       - 环境变量参考: self-hosting/env-vars.md
+  - 开发者:
+      - 总览: developers/index.md
+      - API 参考 (MCP + REST): developers/api.md
+      - SDK Protocol: developers/sdk-protocol.md
+      - SDK (Go / Python / Node): developers/sdks.md
+      - BiuApp 开发: developers/biuapp.md
+      - Skills 开发: developers/skills.md
