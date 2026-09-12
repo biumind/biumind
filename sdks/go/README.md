@@ -7,7 +7,7 @@ Stdlib-only — no third-party runtime dependencies.
 ## Install
 
 ```bash
-go get gitrelay.com/biumind/biumind/sdks/go
+go get github.com/biumind/biumind/sdks/go
 ```
 
 ## Usage
@@ -19,7 +19,7 @@ import (
     "context"
     "fmt"
 
-    biumind "gitrelay.com/biumind/biumind/sdks/go"
+    biumind "github.com/biumind/biumind/sdks/go"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
     relay := biumind.NewRelayClient(cfg)
     chunks, errs := relay.MessagesStream(context.Background(),
         biumind.MessagesRequest{
-            Model:    "claude-3-5-sonnet-latest",
+            Model:    "claude-sonnet-4-6",
             Messages: []biumind.Message{{Role: "user", Content: "hi"}},
         })
     for c := range chunks { fmt.Print(c) }

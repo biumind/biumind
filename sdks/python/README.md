@@ -13,13 +13,13 @@ pip install biumind
 ## Usage
 
 ```python
-from biumind import BiuMindConfig, RelayClient, MemoryClient
+from biumind import BiuMindConfig, HubClient, MemoryClient
 
-cfg = BiuMindConfig.from_env()  # BIUMIND_MODEL_RELAY_URL + BIUMIND_TOKEN
+cfg = BiuMindConfig.from_env()  # BIUMIND_HUB_URL + BIUMIND_TOKEN (+ BIUMIND_BRAIN_URL, BIUMIND_TIMEOUT)
 
-relay = RelayClient(cfg)
-for chunk in relay.messages_stream(
-    model="claude-3-5-sonnet-latest",
+hub = HubClient(cfg)
+for chunk in hub.messages_stream(
+    model="claude-sonnet-4-6",
     messages=[{"role": "user", "content": "Why is the sky blue?"}],
 ):
     print(chunk, end="", flush=True)
@@ -37,9 +37,12 @@ for m in result.memories:
 from biumind import RateLimitError, AuthError
 
 try:
-    relay.messages(model="...", messages=[...])
+    hub.messages(model="...", messages=[...])
 except RateLimitError as e:
     time.sleep(e.retry_after or 1)
 except AuthError:
     refresh_token()
 ```
+
+完整 API（含 `raw_stream`、`list`、`delete`、错误类型全表、三语言行为差异）见
+[开发者文档：SDK](https://biumind.ai/docs/developers/sdks/)。

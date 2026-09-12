@@ -13,13 +13,13 @@ npm install @biumind/sdk
 ## Usage
 
 ```js
-import { BiuMindConfig, RelayClient, MemoryClient } from "@biumind/sdk";
+import { BiuMindConfig, HubClient, MemoryClient } from "@biumind/sdk";
 
-const cfg = BiuMindConfig.fromEnv(); // BIUMIND_MODEL_RELAY_URL + BIUMIND_TOKEN
+const cfg = BiuMindConfig.fromEnv(); // BIUMIND_HUB_URL + BIUMIND_TOKEN (+ BIUMIND_BRAIN_URL, BIUMIND_TIMEOUT_MS)
 
-const relay = new RelayClient(cfg);
-for await (const chunk of relay.messagesStream({
-  model: "claude-3-5-sonnet-latest",
+const hub = new HubClient(cfg);
+for await (const chunk of hub.messagesStream({
+  model: "claude-sonnet-4-6",
   messages: [{ role: "user", content: "Why is the sky blue?" }],
 })) {
   process.stdout.write(chunk);
@@ -37,7 +37,7 @@ for (const m of r.memories) console.log(m.score, m.content);
 import { RateLimitError, AuthError } from "@biumind/sdk";
 
 try {
-  await relay.messages({ model: "...", messages: [...] });
+  await hub.messages({ model: "...", messages: [...] });
 } catch (e) {
   if (e instanceof RateLimitError) {
     await new Promise((r) => setTimeout(r, e.retryAfter * 1000 || 1000));
@@ -46,3 +46,6 @@ try {
   } else throw e;
 }
 ```
+
+完整 API（含 `rawStream`、`list`、`delete`、错误类型全表、三语言行为差异）见
+[开发者文档：SDK](https://biumind.ai/docs/developers/sdks/)。
