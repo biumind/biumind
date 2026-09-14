@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/biumind/biumind/packages/go-sdk/biu v0.0.0
-	github.com/nats-io/nats.go v1.52.0
+	github.com/nats-io/nats.go v1.53.1
 )
 
 require (
