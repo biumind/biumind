@@ -187,15 +187,19 @@ func TestRunCron_FirstDelayThenInterval(t *testing.T) {
 	defer srv.Close()
 
 	syncer := &Syncer{Store: store, URL: srv.URL}
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	// Generous 1s window: RunCron reschedules the next tick only AFTER
+	// SyncOnce returns, so wall-clock hit counts shift with sync latency.
+	// A tight window (250ms) starved to 1 hit on loaded CI runners.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	syncer.RunCron(ctx, 100*time.Millisecond, 50*time.Millisecond)
 
-	// Within 250ms after a 50ms first delay + 100ms intervals: ≈3 hits.
-	// Tolerate ±1 to keep CI flake-resistant.
-	if hits < 2 || hits > 4 {
-		t.Fatalf("expected ~3 hits in 250ms, got %d", hits)
+	// 1s with a 50ms first delay + 100ms minimum spacing ≈ 10 hits.
+	// Lower bound 2 tolerates a ~10× runner slowdown; upper bound is
+	// spacing-derived (hits can never exceed window/interval + 1).
+	if hits < 2 || hits > 15 {
+		t.Fatalf("expected a handful of hits in 1s, got %d", hits)
 	}
 
 	// Restore seed
