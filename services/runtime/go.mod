@@ -6,7 +6,7 @@ require (
 	github.com/biumind/biumind/apps/cli/biu v0.0.0
 	github.com/biumind/biumind/packages/go-sdk/biu v0.0.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 )
 
 require (
