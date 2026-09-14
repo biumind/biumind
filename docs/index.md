@@ -23,14 +23,14 @@ BiuMind 是一体化 AI 工作平台：写文档、跑 Agent、写代码、做�
 
 ## 六大模块
 
-| 模块 | 一句话 |
-|---|---|
-| 知识中枢 | Wiki 文档、知识图谱、全局搜索、外部来源接入、AI 调研与审阅 |
-| 编码工作台 | Git、终端、文件树、Skills / Hooks，AI 工程师多任务并行 |
-| 创作 (AIGC) | 文生图、文生视频、数字人、爆款拆解、灵感与画廊 |
-| 云端工位 | 云端沙箱跑代码，任务换设备不中断 |
-| 消息接入 | 飞书 / Telegram / Slack / Discord / 邮件渠道接入 Agent |
-| 应用中心 | 安装内置应用与社区应用，或开发自己的 BiuApp |
+| 模块 | 一句话 | 指南 |
+|---|---|---|
+| 知识中枢 | Wiki 文档、知识图谱、全局搜索、外部来源接入、AI 调研与审阅 | [知识中枢与笔记](guide/knowledge.md) |
+| 对话 | 模型选择、slash 命令、审批卡、跨会话搜索、存入 Wiki | [对话](guide/chat.md) |
+| 编码工作台 | Git、终端、文件树、多任务并行、Skills / Hooks | [编码工作台](guide/code.md) |
+| 创作 (AIGC) | 文生图、文生视频、爆款拆解、灵感与画廊 | [创作](guide/creation.md) |
+| 应用中心 | 安装内置应用与社区应用，或开发自己的 BiuApp | [应用中心](guide/apps.md) |
+| Skills | 可复用、可签名的 Agent 技能 | [Skills 使用](guide/skills.md) |
 
 > [!NOTE]
-> 六大模块的详细用户指南持续更新中。
+> 云端工位与消息接入（飞书 / Telegram / Slack / Discord / 邮件）的指南持续更新中。

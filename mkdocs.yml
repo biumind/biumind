@@ -64,6 +64,14 @@ nav:
       - 什么是 BiuMind: getting-started/index.md
       - 快速开始: getting-started/quickstart.md
       - 下载与安装: getting-started/download.md
+  - 用户指南:
+      - 知识中枢与笔记: guide/knowledge.md
+      - 对话: guide/chat.md
+      - 编码工作台: guide/code.md
+      - 创作 (AIGC): guide/creation.md
+      - 应用中心: guide/apps.md
+      - Skills 使用: guide/skills.md
+      - 账号与设置: guide/settings.md
   - CLI (biu):
       - 上手: cli/getting-started.md
       - 使用指南: cli/usage.md
