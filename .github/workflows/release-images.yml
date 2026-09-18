@@ -227,7 +227,11 @@ jobs:
             [channels]="services/channels packages/go-sdk/biu"
             [sandbox]="services/sandbox packages/go-sdk/biu"
             [deploy]="services/deploy packages/go-sdk/biu"
-            [site]="web/site"
+            # site 的 build context = 仓库根：Dockerfile COPY web/site +
+            # mkdocs.yml + docs/（docs-builder stage）。docs/ 或 mkdocs.yml
+            # 改动必须重建 site，否则文档站线上不更新（2026-09 阿里云 main
+            # tag 停在初版 13 篇的事故根因）。
+            [site]="web/site docs mkdocs.yml"
             [web-client]="apps/client"
             [admin-web]="admin"
             [miniapp-h5]="apps/miniapp"
@@ -252,7 +256,10 @@ jobs:
               for name in "${!paths[@]}"; do
                 hits[$name]=false
                 for p in ${paths[$name]}; do
-                  if grep -q "^${p}/" <<<"$changed"; then
+                  # "^p/" matches a directory prefix; "p$" a repo-root
+                  # file (e.g. mkdocs.yml) — the old "^${p}/" alone could
+                  # never match root files.
+                  if grep -qE "^${p}(/|$)" <<<"$changed"; then
                     hits[$name]=true
                     break
                   fi
