@@ -15,7 +15,11 @@ ARG INFRA_REGISTRY=docker.io
 
 ARG BASE=/m/
 
-FROM ${INFRA_REGISTRY}/library/node:22-alpine AS builder
+# 钉在构建机原生架构：产物是纯静态文件，与目标架构无关。
+# 不钉的话 arm64 腿要在 QEMU 模拟里跑 pnpm install，23 分钟装不完，
+# 撞 25 分钟 CI 超时把整个 job 连坐 cancel（2026-09 两次全量重建事故）。
+# runtime 的 nginx 仍按目标架构拉取——同 web/site/Dockerfile 先例。
+FROM --platform=$BUILDPLATFORM ${INFRA_REGISTRY}/library/node:22-alpine AS builder
 ARG BASE
 WORKDIR /app
 
