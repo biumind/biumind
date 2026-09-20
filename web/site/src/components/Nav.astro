@@ -27,7 +27,9 @@ const altHref = pathFor(altLocale, currentPath);
           <a href={pathFor(locale, '/download')} class="btn-ghost">{t.nav.download}</a>
         </li>
         <li>
-          <a href="/docs" class="btn-ghost">{t.nav.docs}</a>
+          {/* 文档站是 nginx 烤进镜像的 mkdocs（非 Astro 路由），不走 pathFor：
+              默认中文在 /docs，英文在 /docs/en/。 */}
+          <a href={locale === 'en' ? '/docs/en/' : '/docs'} class="btn-ghost">{t.nav.docs}</a>
         </li>
         <li>
           <a
