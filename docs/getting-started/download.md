@@ -57,7 +57,7 @@ tar -xzf biu_*_$(uname -s)_$(uname -m).tar.gz
 install -m 0755 biu /usr/local/bin/biu
 ```
 
-**从源码编译**（Go 1.22+）：
+**从源码编译**（Go 1.25+）：
 
 ```bash
 go install github.com/biumind/biumind/apps/cli/biu/cmd/biu@latest

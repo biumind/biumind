@@ -38,7 +38,7 @@ RUN pnpm build
 FROM --platform=$BUILDPLATFORM ${PYTHON_IMAGE} AS docs-builder
 ARG PIP_INDEX_URL=https://pypi.org/simple
 WORKDIR /build
-RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} "mkdocs-material==9.*"
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX_URL} "mkdocs-material==9.*" mkdocs-static-i18n
 COPY mkdocs.yml .
 COPY docs/ docs/
 RUN mkdocs build

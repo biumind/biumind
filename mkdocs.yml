@@ -41,6 +41,21 @@ theme:
         icon: material/brightness-4
         name: 切换到浅色模式
 
+# i18n：folder 结构 —— 默认语言（中文）留根路径，英文镜像在 docs/en/ 同构目录。
+# 站内链接不用改：en 页里的相对链接在 en 目录内解析；GitHub 上两棵树都可直接浏览。
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      languages:
+        - locale: zh
+          name: 简体中文
+          default: true
+          build: true
+        - locale: en
+          name: English
+          build: true
+
 markdown_extensions:
   - attr_list
   - md_in_html

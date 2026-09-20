@@ -29,8 +29,8 @@ BiuMind 是一体化 AI 工作平台：写文档、跑 Agent、写代码、做�
 | 对话 | 模型选择、slash 命令、审批卡、跨会话搜索、存入 Wiki | [对话](guide/chat.md) |
 | 编码工作台 | Git、终端、文件树、多任务并行、Skills / Hooks | [编码工作台](guide/code.md) |
 | 创作 (AIGC) | 文生图、文生视频、爆款拆解、灵感与画廊 | [创作](guide/creation.md) |
+| 云端工位 | 云端会话与记忆，多端接续 | 即将上线 |
+| 消息接入 | 飞书 / Telegram / Slack / Discord / 邮件渠道接入 Agent | 即将上线 |
 | 应用中心 | 安装内置应用与社区应用，或开发自己的 BiuApp | [应用中心](guide/apps.md) |
-| Skills | 可复用、可签名的 Agent 技能 | [Skills 使用](guide/skills.md) |
 
-> [!NOTE]
-> 云端工位与消息接入（飞书 / Telegram / Slack / Discord / 邮件）的指南持续更新中。
+另有一层跨模块的扩展能力：**Skills**（可复用、可签名的 Agent 技能，见 [Skills 使用](guide/skills.md) 与 [Skills 开发](developers/skills.md)）。

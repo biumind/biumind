@@ -79,6 +79,6 @@ jobs:
           python-version: "3.12"
       - name: mkdocs build --strict
         run: |
-          pip install "mkdocs-material==9.*"
+          pip install "mkdocs-material==9.*" mkdocs-static-i18n
           mkdocs build --strict
 
