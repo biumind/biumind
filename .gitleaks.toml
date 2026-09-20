@@ -18,3 +18,18 @@ paths = [
   '''apps/cli/biu/cmd/smoketest/.*''',
   '''admin/src/views/SystemConfigView\.vue''',
 ]
+
+# docs/ 的示例命令里大量尖括号占位符（<password> / <MinIO password> /
+# <same as .env>）。英文占位符的字符熵会触发 generic-api-key 规则
+# （中文占位不触发），行级 <...> 匹配只放行占位行——真实密钥不含
+# 尖括号占位，不误放行。
+[[allowlists]]
+description = "docs: angle-bracket placeholder values in examples"
+condition = "OR"
+regexTarget = "line"
+regexes = [
+  '''<[A-Za-z][^>]*>''',
+]
+paths = [
+  '''^docs/''',
+]
