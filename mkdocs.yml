@@ -55,6 +55,37 @@ plugins:
         - locale: en
           name: English
           build: true
+          site_name: BiuMind Docs
+          # nav 标题翻译：key 必须与 nav: 段的中文标题逐字一致（含空格）。
+          nav_translations:
+            首页: Home
+            入门: Getting Started
+            什么是 BiuMind: What is BiuMind
+            快速开始: Quick Start
+            下载与安装: Download & Install
+            用户指南: User Guides
+            知识中枢与笔记: Knowledge Hub & Notes
+            对话: Chat
+            编码工作台: Coding Workbench
+            创作 (AIGC): Creation (AIGC)
+            应用中心: App Center
+            Skills 使用: Using Skills
+            账号与设置: Account & Settings
+            上手: Getting Started
+            使用指南: Usage Guide
+            命令参考: Command Reference
+            权限与 Hooks: Permissions & Hooks
+            BIUMIND.md 记忆: BIUMIND.md Memory
+            沙箱: Sandbox
+            自托管: Self-Hosting
+            部署指南: Deployment Guide
+            本地开发栈 (compose): Local Dev Stack (compose)
+            环境变量参考: Environment Variables Reference
+            开发者: Developers
+            总览: Overview
+            API 参考 (MCP + REST): API Reference (MCP + REST)
+            BiuApp 开发: Building BiuApps
+            Skills 开发: Building Skills
 
 markdown_extensions:
   - attr_list
