@@ -11,6 +11,9 @@
 //
 // /install + /doctor are complementary — /doctor verifies runtime
 // integrity end-to-end; /install focuses on the binary itself.
+//
+// Detection + build-info plumbing live in internal/install, shared
+// with the cobra `biu upgrade` subcommand.
 
 package repl
 
@@ -20,45 +23,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 )
 
-// installInfo is filled by main.go via the same -ldflags variables
-// the version_cmd uses. Defaults are fine for tests / unbuilt
-// binaries.
-type installInfo struct {
-	Version   string
-	Commit    string
-	BuildDate string
-}
-
-// installInfoForREPL is a function variable so cmd/biu can inject
-// the build vars without exposing them as package-level globals
-// in internal/repl. Default returns "0.1.0-dev" placeholders so
-// the slash never crashes when called from a test that didn't set
-// up the wiring.
-var installInfoForREPL = func() installInfo {
-	return installInfo{
-		Version:   "0.1.0-dev",
-		Commit:    "none",
-		BuildDate: "unknown",
-	}
-}
-
-// SetInstallInfo lets the cobra wiring layer push the real build
-// vars into this package. Called from cmd/biu/main.go's init or
-// the version_cmd setup. Tests leave it alone.
-func SetInstallInfo(version, commit, buildDate string) {
-	installInfoForREPL = func() installInfo {
-		return installInfo{
-			Version:   version,
-			Commit:    commit,
-			BuildDate: buildDate,
-		}
-	}
-}
-
 func (m model) handleInstall(parts []string) string {
-	info := installInfoForREPL()
+	info := install.Current()
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -77,59 +47,12 @@ func (m model) handleInstall(parts []string) string {
 	fmt.Fprintf(&b, "  go:        %s\n", runtime.Version())
 	fmt.Fprintf(&b, "  os/arch:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
-	method, hint := detectInstallMethod(exe)
-	if method != "" {
+	method, hint := install.Detect(exe)
+	if method != install.MethodUnknown {
 		fmt.Fprintf(&b, "\ninstall method: %s\n", method)
 		if hint != "" {
 			fmt.Fprintf(&b, "update with:\n  %s\n", hint)
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
-}
-
-// detectInstallMethod inspects the binary path for tell-tales of
-// each common install pathway. Best-effort — when unsure, returns
-// empty + no hint rather than guessing wrong.
-func detectInstallMethod(exe string) (method, updateHint string) {
-	switch {
-	case exe == "" || exe == "(unknown)":
-		return "", ""
-	case strings.Contains(exe, "/Cellar/"),
-		strings.Contains(exe, "/homebrew/"),
-		strings.Contains(exe, "/linuxbrew/"):
-		return "homebrew",
-			"brew upgrade biumind/tap/biu"
-	case strings.Contains(exe, "/go/bin/"),
-		strings.HasSuffix(exe, "/biu") && strings.Contains(exe, "GOPATH"):
-		return "go install",
-			"go install github.com/biumind/biumind/apps/cli/biu/cmd/biu@latest"
-	case isUnderLocalBin(exe):
-		// ~/.local/bin is where the desktop client installs its biu
-		// daemon (biu_daemon_manager) — that install plane is managed
-		// by the client. Dev builds land there too via
-		// `task cli:install`, but those report a dev version and are
-		// skipped by update checks anyway.
-		return "client-managed (~/.local/bin)",
-			"installed by the BiuMind desktop client (it auto-updates biu); " +
-				"for a dev build re-run `task cli:install`"
-	case strings.HasPrefix(exe, "/usr/local/bin/"):
-		return "manual install (/usr/local/bin)",
-			"download the latest release from " +
-				"https://github.com/biumind/biumind/releases " +
-				"and replace " + exe
-	case strings.HasPrefix(exe, "/snap/"):
-		return "snap",
-			"sudo snap refresh biu"
-	}
-	return "", ""
-}
-
-// isUnderLocalBin reports whether exe lives in the user's
-// ~/.local/bin (the desktop client's biu install location).
-func isUnderLocalBin(exe string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return false
-	}
-	return strings.HasPrefix(exe, filepath.Join(home, ".local/bin")+string(os.PathSeparator))
 }

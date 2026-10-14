@@ -2,9 +2,10 @@ package repl
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 )
 
 // ─── /ide ──────────────────────────────────────────────────
@@ -73,49 +74,13 @@ func TestSlashInstall_basicShape(t *testing.T) {
 }
 
 func TestSlashInstall_withInjectedInfo(t *testing.T) {
-	original := installInfoForREPL
-	t.Cleanup(func() { installInfoForREPL = original })
+	t.Cleanup(func() { install.SetInfo("0.1.0-dev", "none", "unknown") })
 
-	SetInstallInfo("1.2.3", "abc1234", "2026-05-29T00:00:00Z")
+	install.SetInfo("1.2.3", "abc1234", "2026-05-29T00:00:00Z")
 	got := model{}.handleInstall([]string{"/install"})
 	for _, want := range []string{"1.2.3", "abc1234", "2026-05-29"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing injected %q: %s", want, got)
-		}
-	}
-}
-
-func TestSlashInstall_detectInstallMethod(t *testing.T) {
-	home := func(t *testing.T) string {
-		t.Helper()
-		h, err := os.UserHomeDir()
-		if err != nil {
-			t.Skipf("no home dir: %v", err)
-		}
-		return h
-	}
-	cases := []struct {
-		exe        string
-		wantMethod string
-	}{
-		{"/Cellar/biu/1.0/bin/biu", "homebrew"},
-		{"/usr/local/Homebrew/Cellar/biu/0.1/bin/biu", "homebrew"},
-		{"/Users/me/go/bin/biu", "go install"},
-		{"/snap/biu/x1/biu", "snap"},
-		{"/usr/local/bin/biu", "manual install"},
-		{filepath.Join(home(t), ".local/bin", "biu"), "client-managed"},
-		{"", ""},
-		{"(unknown)", ""},
-		{"/opt/random/biu", ""},
-	}
-	for _, tc := range cases {
-		method, hint := detectInstallMethod(tc.exe)
-		if !strings.HasPrefix(method, tc.wantMethod) {
-			t.Errorf("detectInstallMethod(%q) method=%q, want prefix %q",
-				tc.exe, method, tc.wantMethod)
-		}
-		if tc.wantMethod != "" && hint == "" {
-			t.Errorf("%q: known method should have an update hint", tc.exe)
 		}
 	}
 }

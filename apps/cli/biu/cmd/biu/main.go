@@ -35,6 +35,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
 	"github.com/biumind/biumind/apps/cli/biu/internal/headless"
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 	"github.com/biumind/biumind/apps/cli/biu/internal/mcp"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
 	"github.com/biumind/biumind/apps/cli/biu/internal/modelcatalog"
@@ -66,10 +67,11 @@ var (
 )
 
 func main() {
-	// Push build vars into internal/repl so /install slash can show
-	// them. Done in main() (not init()) so test builds without
-	// -ldflags fall back to the package-level defaults.
-	repl.SetInstallInfo(version, commit, buildDate)
+	// Push build vars into internal/install so /install, /upgrade and
+	// the cobra `biu upgrade` subcommand all see them. Done in main()
+	// (not init()) so test builds without -ldflags fall back to the
+	// package-level defaults.
+	install.SetInfo(version, commit, buildDate)
 
 	// Build the telemetry reporter early — disabled by default, so the
 	// fast path is a no-op. We instrument at the root level rather than
@@ -508,7 +510,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newDoctorCmd(&f), newVersionCmd(), newIngestCmd(&f), newPluginCmd(&f),
 		newMCPCmd(&f), newBridgeCmd(&f), newAgentCmd(&f), newServeCmd(&f), newPairCmd(&f), newSessionsCmd(),
-		newAuthCmd(&f), newInitCmd(&f), newUsageCmd(&f),
+		newAuthCmd(&f), newInitCmd(&f), newUsageCmd(&f), newUpgradeCmd(&f),
 		newConfigCmd(&f), newPlanCmd(&f), newSkillCmd(&f),
 		newAppCmd(&f), newRepoAppCmd(&f))
 

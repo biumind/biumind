@@ -21,17 +21,18 @@ import (
 	"os"
 	"strings"
 
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 )
 
 func (m model) handleUpgrade(parts []string) string {
-	info := installInfoForREPL()
+	info := install.Current()
 	exe, _ := os.Executable()
-	method, hint := detectInstallMethod(exe)
+	method, hint := install.Detect(exe)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "/upgrade: biu %s (%s)\n", info.Version, info.Commit)
-	if method == "" {
+	if method == install.MethodUnknown {
 		b.WriteString("install method: unknown — /upgrade run self-updates via the release archive,\n")
 		b.WriteString("or grab a binary from https://github.com/biumind/biumind/releases\n")
 		return strings.TrimRight(b.String(), "\n")

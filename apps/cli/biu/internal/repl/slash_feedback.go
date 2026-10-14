@@ -29,6 +29,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 )
 
 // feedbackRepo is the GitHub repo issues are filed against. Pinned
@@ -73,14 +75,14 @@ func (m model) handleFeedback(parts []string) string {
 // buildFeedbackBody assembles the diagnostic context. Stays
 // deliberately small — we'd rather under-share than leak.
 func buildFeedbackBody(m model) string {
-	info := installInfoForREPL()
+	info := install.Current()
 	exe, _ := os.Executable()
-	method, _ := detectInstallMethod(exe)
+	method, _ := install.Detect(exe)
 
 	var b strings.Builder
 	b.WriteString("## Environment\n\n")
 	fmt.Fprintf(&b, "- biu version: %s (%s)\n", info.Version, info.Commit)
-	fmt.Fprintf(&b, "- install method: %s\n", orUnknown(method))
+	fmt.Fprintf(&b, "- install method: %s\n", orUnknown(method.String()))
 	fmt.Fprintf(&b, "- os/arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(&b, "- go runtime: %s\n", runtime.Version())
 	if m.modelID != "" {

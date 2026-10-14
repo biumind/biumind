@@ -4,7 +4,7 @@
 // command (brew/go install can take minutes) nor the self-update
 // download blocks the Update loop.
 //
-// Routing by install method:
+// Routing by install method (install.Route, shared with `biu upgrade`):
 //
 //	homebrew / go install / snap → exec the delegated hint command
 //	(client-managed)               → refuse (the client owns updates)
@@ -18,10 +18,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
 
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 	"github.com/biumind/biumind/apps/cli/biu/internal/selfupdate"
 	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	tea "github.com/charmbracelet/bubbletea"
@@ -32,14 +31,14 @@ type upgradeRunResultMsg struct{ text string }
 
 func (m model) upgradeRunCmd() tea.Msg {
 	exe, _ := os.Executable()
-	method, hint := detectInstallMethod(exe)
+	method, hint := install.Detect(exe)
 
-	switch {
-	case method == "client-managed (~/.local/bin)":
+	switch install.Route(method) {
+	case install.ActionRefuse:
 		return upgradeRunResultMsg{text: "/upgrade run: this biu was installed by the BiuMind desktop client, which manages its updates — nothing to do"}
-	case method != "" && hint != "":
+	case install.ActionDelegate:
 		// homebrew / go install / snap: delegate.
-		out, err := runUpgradeCommand(hint)
+		out, err := install.RunDelegated(context.Background(), hint)
 		var b strings.Builder
 		fmt.Fprintf(&b, "/upgrade run (%s):\n%s", method, out)
 		if err != nil {
@@ -51,7 +50,7 @@ func (m model) upgradeRunCmd() tea.Msg {
 	}
 
 	// manual / unknown install → self-update.
-	info := installInfoForREPL()
+	info := install.Current()
 	if updatecheck.ShouldSkipVersion(info.Version) {
 		return upgradeRunResultMsg{text: fmt.Sprintf(
 			"/upgrade run: self-update is not available for this build (%s): dev and desktop-client-managed builds don't self-update",
@@ -85,27 +84,4 @@ func (m model) upgradeRunCmd() tea.Msg {
 	return upgradeRunResultMsg{text: fmt.Sprintf(
 		"/upgrade run: biu %s installed (was %s) — restart biu to load it; previous binary kept at %s.old",
 		res.Latest, res.Current, exe)}
-}
-
-// runUpgradeCommand executes the delegated hint command via /bin/sh -c
-// so multi-word args parse correctly. Times out at 5 minutes —
-// `go install` from a cold module cache can be slow, so we don't go
-// shorter than that.
-func runUpgradeCommand(cmdline string) (string, error) {
-	if strings.TrimSpace(cmdline) == "" {
-		return "", fmt.Errorf("empty command")
-	}
-	// Only the prefix word (brew / go / sudo / snap) is shell-safe —
-	// scrub the obvious foot-guns. We're not trying to be a full
-	// sandbox; the install hints we emit are static strings under our
-	// control, this is just a defence-in-depth against the table
-	// being changed carelessly.
-	if strings.ContainsAny(cmdline, "`$;|&><\n") {
-		return "", fmt.Errorf("command contains shell metachars; refusing to run: %s", cmdline)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmdline)
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
 }

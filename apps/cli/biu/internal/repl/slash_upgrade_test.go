@@ -57,25 +57,3 @@ func TestHandleUpgradeCheckSkip(t *testing.T) {
 		t.Errorf("bare skip should use latest known version, got: %s", got)
 	}
 }
-
-func TestRunUpgradeCommand_rejectsShellMetachars(t *testing.T) {
-	cases := []string{
-		"echo hi; rm -rf /",
-		"brew upgrade biu | tee /tmp/x",
-		"go install foo > /dev/null",
-		"`echo bad`",
-	}
-	for _, c := range cases {
-		_, err := runUpgradeCommand(c)
-		if err == nil || !strings.Contains(err.Error(), "metachars") {
-			t.Errorf("metachar %q should be rejected, got err=%v", c, err)
-		}
-	}
-}
-
-func TestRunUpgradeCommand_emptyErrors(t *testing.T) {
-	_, err := runUpgradeCommand("   ")
-	if err == nil {
-		t.Error("empty command should error")
-	}
-}

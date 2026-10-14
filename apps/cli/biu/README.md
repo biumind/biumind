@@ -25,6 +25,9 @@ From source (Go 1.22+):
 go install github.com/biumind/biumind/apps/cli/biu/cmd/biu@latest
 ```
 
+Upgrade later with `biu upgrade` — it delegates to brew / go install /
+snap when those own the binary, and self-updates manual installs.
+
 ## 30-second start
 
 ```sh

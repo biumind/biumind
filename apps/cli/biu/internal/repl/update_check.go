@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/biumind/biumind/apps/cli/biu/internal/install"
 	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -23,7 +24,7 @@ type updateCheckMsg struct{ res *updatecheck.Result }
 // checkUpdateCmd is the startup check. Anything but a positive result
 // returns nil (dropped by bubbletea, no notice shown).
 func (m model) checkUpdateCmd() tea.Msg {
-	info := installInfoForREPL()
+	info := install.Current()
 	res, err := updatecheck.MaybeCheck(context.Background(), updatecheck.Options{
 		CurrentVersion: info.Version,
 		ManifestURL:    m.updateManifestURL,
@@ -54,7 +55,7 @@ type upgradeCheckResultMsg struct {
 // network off the Update loop (blocking Update for the 3s HTTP budget
 // would freeze the TUI) and reports back asynchronously.
 func (m model) upgradeCheckCmd() tea.Msg {
-	info := installInfoForREPL()
+	info := install.Current()
 	if updatecheck.ShouldSkipVersion(info.Version) {
 		return upgradeCheckResultMsg{err: fmt.Errorf(
 			"update checks are skipped for this build (%s): dev and desktop-client-managed builds don't self-update",
