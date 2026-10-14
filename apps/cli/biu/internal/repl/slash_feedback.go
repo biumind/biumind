@@ -77,7 +77,7 @@ func (m model) handleFeedback(parts []string) string {
 func buildFeedbackBody(m model) string {
 	info := install.Current()
 	exe, _ := os.Executable()
-	method, _ := install.Detect(exe)
+	method, _ := install.Detect(exe, info.Version)
 
 	var b strings.Builder
 	b.WriteString("## Environment\n\n")

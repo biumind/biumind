@@ -67,7 +67,7 @@ binary is kept as biu.old for rollback).`,
 			if err != nil {
 				return clierr.Wrapf("upgrade", err, "resolve executable path")
 			}
-			method, hint := upgradeDetectFn(exe)
+			method, hint := upgradeDetectFn(exe, version)
 
 			switch install.Route(method) {
 			case install.ActionRefuse:

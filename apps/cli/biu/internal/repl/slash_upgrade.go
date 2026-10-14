@@ -28,7 +28,7 @@ import (
 func (m model) handleUpgrade(parts []string) string {
 	info := install.Current()
 	exe, _ := os.Executable()
-	method, hint := install.Detect(exe)
+	method, hint := install.Detect(exe, info.Version)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "/upgrade: biu %s (%s)\n", info.Version, info.Commit)

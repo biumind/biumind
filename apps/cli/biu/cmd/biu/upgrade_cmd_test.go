@@ -15,16 +15,17 @@ import (
 // upgradeFixture swaps every injection point with a mock and restores
 // them (plus the version build var) on cleanup.
 type upgradeFixture struct {
-	t           *testing.T
-	detect      install.Method
-	hint        string
-	checkRes    *updatecheck.Result
-	checkErr    error
-	checkOpt    updatecheck.Options
-	applyOpt    selfupdate.Options
-	applyErr    error
-	delegated   string
-	delegateErr error
+	t             *testing.T
+	detect        install.Method
+	hint          string
+	detectVersion string
+	checkRes      *updatecheck.Result
+	checkErr      error
+	checkOpt      updatecheck.Options
+	applyOpt      selfupdate.Options
+	applyErr      error
+	delegated     string
+	delegateErr   error
 }
 
 func newUpgradeFixture(t *testing.T) *upgradeFixture {
@@ -41,7 +42,10 @@ func newUpgradeFixture(t *testing.T) *upgradeFixture {
 	})
 
 	version = "0.1.0"
-	upgradeDetectFn = func(string) (install.Method, string) { return fx.detect, fx.hint }
+	upgradeDetectFn = func(_ string, ver string) (install.Method, string) {
+		fx.detectVersion = ver
+		return fx.detect, fx.hint
+	}
 	upgradeCheckFn = func(_ context.Context, opt updatecheck.Options) (*updatecheck.Result, error) {
 		fx.checkOpt = opt
 		return fx.checkRes, fx.checkErr
@@ -82,6 +86,11 @@ func TestUpgrade_clientManagedRefuses(t *testing.T) {
 	_, _, err := fx.run()
 	if err == nil || !strings.Contains(err.Error(), "desktop client") {
 		t.Errorf("client-managed should refuse, got %v", err)
+	}
+	// The build version must reach Detect — ~/.local/bin detection is
+	// version-aware (clean release versions there self-update).
+	if fx.detectVersion != "0.1.0" {
+		t.Errorf("version not threaded to Detect, got %q", fx.detectVersion)
 	}
 }
 

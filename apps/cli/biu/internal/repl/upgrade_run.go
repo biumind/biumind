@@ -30,8 +30,9 @@ import (
 type upgradeRunResultMsg struct{ text string }
 
 func (m model) upgradeRunCmd() tea.Msg {
+	info := install.Current()
 	exe, _ := os.Executable()
-	method, hint := install.Detect(exe)
+	method, hint := install.Detect(exe, info.Version)
 
 	switch install.Route(method) {
 	case install.ActionRefuse:
@@ -50,7 +51,6 @@ func (m model) upgradeRunCmd() tea.Msg {
 	}
 
 	// manual / unknown install → self-update.
-	info := install.Current()
 	if updatecheck.ShouldSkipVersion(info.Version) {
 		return upgradeRunResultMsg{text: fmt.Sprintf(
 			"/upgrade run: self-update is not available for this build (%s): dev and desktop-client-managed builds don't self-update",

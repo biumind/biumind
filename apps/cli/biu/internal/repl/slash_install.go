@@ -47,7 +47,7 @@ func (m model) handleInstall(parts []string) string {
 	fmt.Fprintf(&b, "  go:        %s\n", runtime.Version())
 	fmt.Fprintf(&b, "  os/arch:   %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
-	method, hint := install.Detect(exe)
+	method, hint := install.Detect(exe, info.Version)
 	if method != install.MethodUnknown {
 		fmt.Fprintf(&b, "\ninstall method: %s\n", method)
 		if hint != "" {

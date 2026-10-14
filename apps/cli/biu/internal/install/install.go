@@ -6,6 +6,15 @@
 // ONE routing decision — two copies would drift the first time a new
 // install plane (or hint) is added.
 //
+// Detection is version-aware, not purely path-based: the path alone
+// can't distinguish a desktop-client-managed binary from a manual
+// install into the same directory (~/.local/bin is both the client's
+// install plane AND the XDG-standard manual location). The build
+// metadata breaks the tie — client builds carry `+clientmanaged`,
+// dev builds carry a `-` suffix (same semantics as
+// updatecheck.ShouldSkipVersion), so a clean release version under
+// ~/.local/bin is treated as a manual install and may self-update.
+//
 // Routing contract:
 //
 //	homebrew / go install / snap → delegate to the owning package
@@ -25,6 +34,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/biumind/biumind/apps/cli/biu/internal/updatecheck"
 )
 
 // Method identifies the install pathway of the running binary.
@@ -90,7 +101,16 @@ func Route(m Method) Action {
 // Detect inspects the binary path for tell-tales of each common
 // install pathway. Best-effort — when unsure, returns MethodUnknown +
 // no hint rather than guessing wrong.
-func Detect(exe string) (Method, string) {
+//
+// version matters for exactly one branch: ~/.local/bin is both the
+// desktop client's install plane and the XDG-standard manual install
+// location, so the path alone can't decide. A version that update
+// checks would skip (empty, build metadata like `+clientmanaged`,
+// prerelease/dev suffix, non-semver) means the client (or a dev
+// `task cli:install`) owns the binary → MethodClientManaged. A clean
+// X.Y.Z release version there is a manual install → MethodUnknown,
+// which routes to self-update.
+func Detect(exe, version string) (Method, string) {
 	switch {
 	case exe == "" || exe == "(unknown)":
 		return MethodUnknown, ""
@@ -103,12 +123,12 @@ func Detect(exe string) (Method, string) {
 		strings.HasSuffix(exe, "/biu") && strings.Contains(exe, "GOPATH"):
 		return MethodGoInstall,
 			"go install github.com/biumind/biumind/apps/cli/biu/cmd/biu@latest"
-	case IsUnderLocalBin(exe):
+	case IsUnderLocalBin(exe) && updatecheck.ShouldSkipVersion(version):
 		// ~/.local/bin is where the desktop client installs its biu
 		// daemon (biu_daemon_manager) — that install plane is managed
 		// by the client. Dev builds land there too via
-		// `task cli:install`, but those report a dev version and are
-		// skipped by update checks anyway.
+		// `task cli:install`; both carry skip-eligible versions, so
+		// they never self-update.
 		return MethodClientManaged,
 			"installed by the BiuMind desktop client (it auto-updates biu); " +
 				"for a dev build re-run `task cli:install`"
