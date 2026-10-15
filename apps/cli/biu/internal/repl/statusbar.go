@@ -71,7 +71,15 @@ func (m model) statusBar() string {
 	// Filler colour mirrors the active mode so the entire bar tints
 	// when the user is in plan / bypass — peripheral-vision cue that
 	// they're not in default mode.
-	bg := modeBackground(m.engine)
+	//
+	// Guard on the concrete pointer, NOT inside modeBackground: a nil
+	// *QueryEngine boxed into the modeReader interface is non-nil, so
+	// the eng == nil check there can't see it (model unset → engine
+	// never built → first paint panics in Permissions()).
+	var bg lipgloss.TerminalColor = colorPurple
+	if m.engine != nil {
+		bg = modeBackground(m.engine)
+	}
 	filler := lipgloss.NewStyle().Background(bg).
 		Render(strings.Repeat(" ", pad))
 	return left + filler + right

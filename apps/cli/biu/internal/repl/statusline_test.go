@@ -63,6 +63,18 @@ func TestCostAndContextNoteEmptyOnFreshSession(t *testing.T) {
 	}
 }
 
+// Model unset → engine never built (main.go skips BuildEngine) → the
+// status bar must still render. Regression: modeBackground took
+// m.engine through an interface parameter, and a nil *QueryEngine
+// boxed in an interface slips past eng == nil — the first paint
+// panicked in Permissions().
+func TestStatusBarRendersWithoutEngine(t *testing.T) {
+	m := model{} // engine nil, as on a fresh unconfigured install
+	if got := m.statusBar(); !strings.Contains(got, "biu") {
+		t.Errorf("status bar should still render without an engine; got %q", got)
+	}
+}
+
 // nullProvider satisfies engine.Provider but never streams — we only
 // need a constructed *QueryEngine, not a running one.
 type nullProvider struct{}
