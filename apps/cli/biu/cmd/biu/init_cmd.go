@@ -96,10 +96,10 @@ func newInitCmd(_ *rootFlags) *cobra.Command {
 				token := relayTokenFlag
 				loggedIn := false
 				if token == "" && !nonInteractive {
-					// C10（方案 D8）：浏览器登录优先——token 进 OS
-					// keychain，不落 config。开浏览器失败/超时回落
-					// 手贴 token。
-					if promptYesNo("Sign in via browser now? (recommended — token goes to the OS keychain)", true) {
+					// C10（方案 D8）：浏览器登录优先——token 落
+					// ~/.biu/auth.json（0600），不落 config。开浏览器
+					// 失败/超时回落手贴 token。
+					if promptYesNo("Sign in via browser now? (recommended — token is stored in ~/.biu/auth.json, not in config)", true) {
 						if lerr := initBrowserLogin(cmd.Context(), url); lerr != nil {
 							fmt.Fprintf(os.Stderr, "[biu] browser login unavailable: %v — falling back to paste-token\n", lerr)
 						} else {
@@ -272,8 +272,8 @@ func writeConfig(cfgPath string, cfg *config.Config) error {
 	fmt.Fprintf(&b, "[default]\nmode = %q\nprovider = %q\nmodel = %q\n\n",
 		cfg.Default.Mode, cfg.Default.Provider, cfg.Default.Model)
 	fmt.Fprintf(&b, "[model-relay]\nendpoint = %q\n", cfg.Relay.Endpoint)
-	// virtual_key 为空（浏览器登录，token 在 keychain）时不落配置 —
-	// 对齐方案 §6.4：登录后用户的 config.toml 不含 virtual_key。
+	// virtual_key 为空（浏览器登录，token 在 ~/.biu/auth.json）时不落
+	// 配置 —— 对齐方案 §6.4：登录后用户的 config.toml 不含 virtual_key。
 	if cfg.Relay.VirtualKey != "" {
 		fmt.Fprintf(&b, "virtual_key = %q\n", cfg.Relay.VirtualKey)
 	}

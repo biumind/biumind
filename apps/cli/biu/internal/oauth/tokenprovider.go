@@ -1,9 +1,9 @@
 // Token 解析链（方案 D5）：cloud 模式请求 model-relay 的 bearer
 // token 按 `--token` flag > BIUMIND_TOKEN env > [model-relay].virtual_key
-// > OAuth store（keychain→file）顺序解析。前三级命中即返回、不碰
+// > OAuth store（~/.biu/auth.json）顺序解析。前三级命中即返回、不碰
 // store（CI 零行为变化）；OAuth 分支支持临期惰性刷新（Expired 带
 // 5min 缓冲）+ 401 强刷（ForceRefresh），解析结果进程内缓存避免每
-// 次请求都 spawn keychain 进程。
+// 次请求都重读文件。
 
 package oauth
 

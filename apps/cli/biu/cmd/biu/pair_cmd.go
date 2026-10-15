@@ -24,15 +24,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	// keychainServiceName 跟 oauth 的 keychainService 一致（同一个 OS keychain
-	// service，不同 account 区分用途）。
-	keychainServiceName    = "com.biumind.biu"
-	deviceTokenAccount     = "device-token"
-	agentplanePrivkeyAccnt = "agentplane-privkey"
-)
-
-// deviceTokenPath 返回 device token 的 0600 文件回退路径（~/.biu/device_token）。
+// deviceTokenPath 返回 device token 的 0600 文件路径（~/.biu/device_token）。
 func deviceTokenPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -41,15 +33,13 @@ func deviceTokenPath() (string, error) {
 	return filepath.Join(home, ".biu", "device_token"), nil
 }
 
-// deviceTokenStore 返回 device token 的 secretstore（R6.4：keychain 优先，
-// 回退 0600 文件 + 兼容读取 pre-R6.4 明文文件）。
+// deviceTokenStore 返回 device token 的 secretstore（0600 文件唯一存储）。
 func deviceTokenStore() *secretstore.Store {
-	p, _ := deviceTokenPath() // 路径取不到时 secretstore 仍可走 keychain
-	return secretstore.Open(keychainServiceName, deviceTokenAccount, p)
+	p, _ := deviceTokenPath()
+	return secretstore.Open(p)
 }
 
-// loadDeviceToken 读取已配对的 device token（不存在 → ""）。keychain 优先，
-// 老用户的 ~/.biu/device_token 明文文件仍可读（迁移在下次 save 时发生）。
+// loadDeviceToken 读取已配对的 device token（不存在 → ""）。
 func loadDeviceToken() string {
 	v, err := deviceTokenStore().Get()
 	if err != nil {
@@ -58,7 +48,7 @@ func loadDeviceToken() string {
 	return strings.TrimSpace(v)
 }
 
-// saveDeviceToken 存 device token（keychain 优先；keychain 不可用 → 0600 文件）。
+// saveDeviceToken 存 device token（0600 文件）。
 func saveDeviceToken(token string) error {
 	return deviceTokenStore().Set(token)
 }

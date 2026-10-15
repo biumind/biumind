@@ -1,7 +1,6 @@
 // Detached spawn for macOS/Linux: new session (Setsid) so closing the
 // terminal / CLI doesn't take the app down, stdio redirected into the
-// instance run log. Build-tagged in the oskeychain file-per-platform
-// style.
+// instance run log.
 
 //go:build darwin || linux
 

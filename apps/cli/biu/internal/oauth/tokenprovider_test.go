@@ -72,7 +72,7 @@ func useTempLock(t *testing.T) {
 }
 
 // C2：解析链优先级 —— 静态三级命中即返回，不碰 store（store 为 nil
-// 时若被碰会 Open("") 读到真实 keychain，测试直接失败兜底）。
+// 时若被碰会 Open("") 读到真实凭据文件，测试直接失败兜底）。
 func TestTokenProviderStaticPriority(t *testing.T) {
 	store := tempStore(t, expiredTokens())
 	cases := []struct {

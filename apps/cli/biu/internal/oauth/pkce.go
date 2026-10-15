@@ -19,8 +19,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -124,16 +122,13 @@ func RandomState() (string, error) {
 
 // ─── Token storage ───────────────────────────────────
 //
-// Store is a thin wrapper that delegates to a swappable `backend`.
-// Two backends ship out of the box (see backend.go):
-//
-//   - fileBackend     — JSON at ~/.biu/auth.json, 0600 perms.
-//   - keychainBackend — OS credential store (macOS Keychain on darwin,
-//                       Secret Service via `secret-tool` on linux).
-//
-// `NewStore("")` keeps the historical contract: file-backed at
-// $HOME/.biu/auth.json. Use `Open()` for the auto-pick (keychain →
-// file) recommended for end-user CLI commands.
+// Store is a thin wrapper that delegates to a `tokenBackend`. The
+// file backend (JSON at ~/.biu/auth.json, 0600 perms — see
+// backend.go) is the ONLY store: the OS-keychain backend was removed
+// because macOS Keychain ACL prompts can't be controlled across build
+// identities, and a 0600 file matches the threat model peer CLIs
+// ship with. Users upgrading from a keychain-era biu re-login once
+// (`biu auth login`); no migration shim is carried.
 
 // Store wraps a tokenBackend with a write mutex and the public CRUD
 // surface the rest of biu uses.
@@ -143,9 +138,7 @@ type Store struct {
 }
 
 // NewStore returns a file-backed store rooted at $HOME/.biu/auth.json
-// (or the supplied override). Kept for back-compat with callers /
-// tests that need a deterministic file path; new callers should use
-// Open(), which auto-picks keychain when available.
+// (or the supplied override).
 func NewStore(override string) (*Store, error) {
 	b, err := newFileBackend(override)
 	if err != nil {
@@ -154,27 +147,19 @@ func NewStore(override string) (*Store, error) {
 	return &Store{backend: b}, nil
 }
 
-// Open returns a Store using the most secure backend the host
-// supports: OS keychain when reachable, falling back to the file
-// store. Use this for `biu auth login` / `status` / `logout`.
-//
-// `fileOverride` is forwarded to the file backend if keychain isn't
-// available — empty string keeps the default path.
+// Open returns the token store for `biu auth login` / `status` /
+// `logout`. Identical to NewStore — kept as the named entry point so
+// call sites read as "open the credential store", and `fileOverride`
+// (empty = default path) keeps tests on a temp file.
 func Open(fileOverride string) (*Store, error) {
-	if b, ok := openKeychainBackend(); ok {
-		return &Store{backend: b}, nil
-	}
 	return NewStore(fileOverride)
 }
 
-// Backend returns the active backend's stable name (e.g. "file",
-// "darwin-keychain", "secret-service"). Surfaced by `biu doctor`
-// and `biu auth status`.
+// Backend returns the backend's stable name ("file"). Surfaced by
+// `biu doctor` and `biu auth status`.
 func (s *Store) Backend() string { return s.backend.Name() }
 
-// Path returns a human-readable identifier for where tokens live.
-// For the file backend this is the absolute filesystem path; for
-// keychain backends it's a label like "macOS Keychain (biu)".
+// Path returns the absolute path of the token file.
 func (s *Store) Path() string { return s.backend.Path() }
 
 // Load returns the saved tokens. Missing/empty entry yields (zero,
@@ -185,7 +170,7 @@ func (s *Store) Load() (Tokens, error) {
 	return s.backend.Load()
 }
 
-// Save writes tokens to the active backend.
+// Save writes tokens to the backend.
 func (s *Store) Save(t Tokens) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -199,36 +184,7 @@ func (s *Store) Delete() error {
 	return s.backend.Delete()
 }
 
-// Migrate copies tokens from `src` into this store and removes them
-// from `src` on success. Returns (false, nil) when src has no tokens
-// to migrate. The transactional shape (write target → delete source)
-// guarantees no token is ever lost — at worst it lives in both
-// places, which `biu auth migrate` recovers from on next run.
-func (s *Store) Migrate(src *Store) (migrated bool, err error) {
-	if src == nil {
-		return false, errors.New("oauth: nil source store")
-	}
-	t, err := src.Load()
-	if err != nil {
-		return false, fmt.Errorf("oauth: read source: %w", err)
-	}
-	if t.AccessToken == "" {
-		return false, nil
-	}
-	if err := s.Save(t); err != nil {
-		return false, fmt.Errorf("oauth: write target: %w", err)
-	}
-	if err := src.Delete(); err != nil {
-		// Target already has the token — leak the source rather than
-		// fail loud, but tell the caller so they can log a warning.
-		return true, fmt.Errorf("oauth: source delete: %w", err)
-	}
-	return true, nil
-}
-
-// fileStorePath returns the canonical $HOME/.biu/auth.json — used by
-// `biu auth migrate` to talk to the legacy file directly even when
-// the keychain backend is the default.
+// fileStorePath returns the canonical $HOME/.biu/auth.json.
 func fileStorePath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

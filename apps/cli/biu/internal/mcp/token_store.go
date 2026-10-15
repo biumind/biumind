@@ -34,11 +34,10 @@
 // diagnostics is one read. Per-file would balloon the inode count
 // without measurable benefit.
 //
-// Keychain backing (macOS / linux libsecret) is intentionally NOT
-// wired in this phase — internal/oauth.backend_keychain_* are
-// single-tenant. Multi-tenant keychain storage is a follow-up.
-// Plaintext-on-disk is no worse than today's cfg.headers["Authoriz-
-// ation"] = "Bearer …" pattern.
+// Keychain backing is intentionally NOT wired — biu's own credential
+// store (internal/oauth) is file-only as well. Plaintext-on-disk is no
+// worse than today's cfg.headers["Authorization"] = "Bearer …"
+// pattern.
 
 package mcp
 

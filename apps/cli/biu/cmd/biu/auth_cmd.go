@@ -16,8 +16,11 @@
 // identity 与 model-relay 同 origin），[auth] / BIU_OAUTH_* env 只作
 // 为自部署的覆盖入口。
 //
-// Token storage: OS keychain (auto-picked) or ~/.biu/auth.json (0600).
-// The agent loop / provider adapters read it via oauth.TokenProvider.
+// Token storage: ~/.biu/auth.json (0600) is the only store — the OS
+// keychain backend was removed (macOS Keychain ACL prompts are
+// uncontrollable across build identities). Users upgrading from a
+// keychain-era biu re-login once. The agent loop / provider adapters
+// read it via oauth.TokenProvider.
 
 package main
 
@@ -63,76 +66,7 @@ func newAuthCmd(f *rootFlags) *cobra.Command {
 		Use:   "auth",
 		Short: "Manage OAuth credentials (login / logout / status)",
 	}
-	c.AddCommand(newAuthLoginCmd(f), newAuthLogoutCmd(f), newAuthStatusCmd(f),
-		newAuthMigrateCmd(f))
-	return c
-}
-
-// newAuthMigrateCmd moves tokens from the legacy ~/.biu/auth.json file
-// into the OS keychain. One-shot, idempotent: re-running after a
-// successful migration is a no-op (the file is already gone). On
-// hosts without a keychain the command exits with a clear note —
-// nothing is moved, the file stays where it is.
-func newAuthMigrateCmd(_ *rootFlags) *cobra.Command {
-	var dryRun bool
-	c := &cobra.Command{
-		Use:   "migrate",
-		Short: "Move credentials from ~/.biu/auth.json into the OS keychain",
-		Long: `Move credentials from the legacy file store into the OS keychain.
-
-biu auto-picks the keychain backend on every run; this command is for
-users upgrading from an older biu that wrote to ~/.biu/auth.json. After
-a successful migration the file is deleted and future logins / refreshes
-flow through the keychain.`,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			filePath, err := oauth.FileStorePath()
-			if err != nil {
-				return clierr.Wrapf("auth migrate", err, "resolve file store path")
-			}
-			fileSrc, err := oauth.NewStore(filePath)
-			if err != nil {
-				return clierr.Wrapf("auth migrate", err, "open file store")
-			}
-			t, err := fileSrc.Load()
-			if err != nil {
-				return clierr.Wrapf("auth migrate", err, "read %s",
-					clierr.DisplayPath(filePath))
-			}
-			if t.AccessToken == "" {
-				fmt.Fprintf(os.Stderr, "[biu] nothing to migrate — %s has no tokens\n",
-					clierr.DisplayPath(filePath))
-				return nil
-			}
-
-			dst, err := oauth.Open("")
-			if err != nil {
-				return clierr.Wrapf("auth migrate", err, "open keychain")
-			}
-			if dst.Backend() == "file" {
-				return clierr.WithHint(
-					clierr.Newf("auth migrate", "no OS keychain available on this host"),
-					"tokens stay in "+clierr.DisplayPath(filePath)+" (mode 0600); install libsecret-tools on Linux or run on macOS to enable keychain")
-			}
-
-			if dryRun {
-				fmt.Fprintf(os.Stderr, "[biu] dry-run: would migrate tokens from %s → %s (%s)\n",
-					clierr.DisplayPath(filePath), dst.Path(), dst.Backend())
-				return nil
-			}
-
-			migrated, err := dst.Migrate(fileSrc)
-			if err != nil {
-				return clierr.Wrapf("auth migrate", err, "transfer tokens")
-			}
-			if !migrated {
-				fmt.Fprintln(os.Stderr, "[biu] nothing to migrate")
-				return nil
-			}
-			fmt.Fprintf(os.Stderr, "[biu] migrated → %s (backend=%s)\n", dst.Path(), dst.Backend())
-			return nil
-		},
-	}
-	c.Flags().BoolVar(&dryRun, "dry-run", false, "print intent without writing")
+	c.AddCommand(newAuthLoginCmd(f), newAuthLogoutCmd(f), newAuthStatusCmd(f))
 	return c
 }
 

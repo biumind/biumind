@@ -144,27 +144,15 @@ func newDoctorCmd(f *rootFlags) *cobra.Command {
 			}
 
 			// ── Auth backend ────────────────────────
-			// Prefers OS keychain when available; reports the
-			// fallback so users know where their tokens land.
+			// File-only store; report the path so users know
+			// where their tokens land.
 			var storeTokens oauth.Tokens
 			var storeHasTokens bool
 			if store, err := oauth.Open(""); err == nil {
 				t, _ := store.Load()
 				storeTokens = t
 				storeHasTokens = t.AccessToken != ""
-				switch store.Backend() {
-				case "file":
-					// Suggest migration when the file backend is in
-					// use AND the legacy file already has tokens.
-					if storeHasTokens {
-						report.warn("auth backend",
-							fmt.Sprintf("file (%s) — run `biu auth migrate` to move into the OS keychain", store.Path()))
-					} else {
-						report.ok("auth backend", "file (no tokens)")
-					}
-				default:
-					report.ok("auth backend", store.Backend()+" — "+store.Path())
-				}
+				report.ok("auth backend", "file — "+clierr.DisplayPath(store.Path()))
 				// C12（方案 D8）：OAuth token 的过期状态 + refresh
 				// 能力，排查 "明明登录过却 401" 的关键信息。
 				if storeHasTokens {
@@ -224,15 +212,11 @@ func newDoctorCmd(f *rootFlags) *cobra.Command {
 				report.ok("update check", "on, up to date ("+version+")")
 			}
 
-			// ── Agent-plane secrets backend (R6.4) ──
-			// device token + X25519 privkey 落 keychain 还是 0600 文件。
+			// ── Agent-plane secrets (R6.4) ──
+			// device token + X25519 privkey 落 0600 文件。
 			if p, perr := deviceTokenPath(); perr == nil {
-				ss := secretstore.Open(keychainServiceName, deviceTokenAccount, p)
-				if ss.Backend() == "file" {
-					report.ok("agent-plane secrets", "file (no OS keychain) — "+ss.Path())
-				} else {
-					report.ok("agent-plane secrets", ss.Backend()+" — device token + privkey in OS keychain")
-				}
+				ss := secretstore.Open(p)
+				report.ok("agent-plane secrets", "file — "+clierr.DisplayPath(ss.Path()))
 			}
 
 			report.print()

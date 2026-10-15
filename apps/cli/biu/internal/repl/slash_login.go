@@ -1,8 +1,8 @@
 // /login + /logout slash — surface OAuth state from inside the REPL.
 //
-// Store 统一用 oauth.Open("")（keychain 优先，方案 D8 修复：
-// 历史上这里用 file-only 的 NewStore，keychain 迁移后 REPL 会误报
-// not signed in）。
+// Store 统一用 oauth.Open("")（~/.biu/auth.json 文件唯一存储；方案
+// D8 修复：历史上这里用 file-only 的 NewStore 与 auth 子命令的默认
+// 后端不一致，REPL 会误报 not signed in）。
 //
 // /login 在未登录时直接触发浏览器登录 flow（与 `biu auth login`
 // 共用 oauth.BrowserLogin）；浏览器打不开 / flow 失败时回落到引导

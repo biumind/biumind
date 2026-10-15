@@ -65,7 +65,7 @@ func runFirstLaunchOnboarding(ctx context.Context) bool {
 		url := promptString("model-relay endpoint URL (https://biumind.xxlab.tech): ", "https://biumind.xxlab.tech")
 		cfg.Relay.Endpoint = url
 		loggedIn := false
-		if promptYesNo("Sign in via browser now? (recommended — token goes to the OS keychain)", true) {
+		if promptYesNo("Sign in via browser now? (recommended — token is stored in ~/.biu/auth.json, not in config)", true) {
 			if lerr := initBrowserLogin(ctx, url); lerr != nil {
 				fmt.Fprintf(os.Stderr, "[biu] browser login unavailable: %v — falling back to paste-token\n", lerr)
 			} else {
