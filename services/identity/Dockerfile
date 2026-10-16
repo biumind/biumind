@@ -1,5 +1,5 @@
 ARG INFRA_REGISTRY=docker.io
-FROM ${INFRA_REGISTRY}/library/golang:1.25-alpine AS builder
+FROM ${INFRA_REGISTRY}/library/golang:1.26-alpine AS builder
 WORKDIR /workspace
 ENV GOPROXY=https://goproxy.cn,direct
 ENV GOSUMDB=off

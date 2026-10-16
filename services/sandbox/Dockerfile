@@ -1,5 +1,5 @@
 ARG INFRA_REGISTRY=docker.io
-# go.mod 要求 go 1.26 — builder 用 golang:1.26-alpine（其余服务多为 1.25）。
+# go.mod 要求 go 1.26 — builder 用 golang:1.26-alpine（所有服务统一）。
 FROM ${INFRA_REGISTRY}/library/golang:1.26-alpine AS builder
 WORKDIR /workspace
 ENV GOPROXY=https://goproxy.cn,direct
