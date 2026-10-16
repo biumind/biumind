@@ -64,7 +64,9 @@ func (m model) startEngineStream(prompt string) (tea.Model, tea.Cmd) {
 	}
 	m.pend().Reset()
 	m.state = stateSending
-	m.toolRows = nil
+	// Normally a no-op (DoneEvent flushed already); folds leftovers
+	// from a turn that was canceled before its sentinel arrived.
+	m.flushToolRows()
 	m.refreshBody()
 
 	parent := context.Background()
@@ -119,6 +121,11 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 		m.refreshBody()
 
 	case *engine.AssistantMessageEvent:
+		// Fold the finished tool batch into the transcript ahead of
+		// the assistant text that follows it, so the scrollback keeps
+		// chronological order (tools → answer) instead of pinning the
+		// rows below the final message.
+		m.flushToolRows()
 		// Persist the final assistant text into history so the user
 		// can scroll back past streaming flicker.
 		text := strings.TrimRight(m.pendingString(), "\n")
@@ -229,6 +236,7 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 	case *engine.ErrorEvent:
 		m.lastErr = e.Err
 		m.state = stateError
+		m.flushToolRows()
 		m.refreshBody()
 		return m, true
 
@@ -236,6 +244,7 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 		m.state = stateIdle
 		m.lastStopReason = e.StopReason
 		m.turnsCount++
+		m.flushToolRows()
 		m.refreshBody()
 		return m, true
 	}
@@ -555,6 +564,37 @@ type toolRow struct {
 // retained per running tool. 5 is a good trade between context and
 // vertical real estate.
 const ProgressLineCap = 5
+
+// toolCluster is a frozen snapshot of one batch of live toolRows,
+// folded into the scrollback when the turn advances. beforeIdx anchors
+// it to a position in model.history: transcriptString renders the
+// cluster immediately before history[beforeIdx] (or at the tail when
+// beforeIdx is past the current history length).
+type toolCluster struct {
+	beforeIdx int
+	rows      []toolRow
+}
+
+// flushToolRows folds the live tool rows into the transcript and
+// clears the live area. Rows still marked running (a turn canceled
+// mid-tool) are stamped as interrupted so they don't render a
+// perpetual "…" in the scrollback.
+func (m *model) flushToolRows() {
+	if len(m.toolRows) == 0 {
+		return
+	}
+	for i := range m.toolRows {
+		if m.toolRows[i].Phase == "running" {
+			m.toolRows[i].Phase = "error"
+			m.toolRows[i].Message = "interrupted"
+		}
+	}
+	m.toolClusters = append(m.toolClusters, toolCluster{
+		beforeIdx: len(m.history),
+		rows:      m.toolRows,
+	})
+	m.toolRows = nil
+}
 
 // formatProgress turns a ProgressData payload into a single display
 // line. Returns empty string when the payload has nothing user-

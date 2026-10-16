@@ -166,7 +166,10 @@ type model struct {
 	lastErr error
 
 	// Engine path: per-call decoration shown above the assistant text
-	toolRows             []toolRow
+	toolRows []toolRow
+	// toolClusters holds completed tool-row batches folded into the
+	// scrollback, each anchored to the history index it renders before.
+	toolClusters         []toolCluster
 	permissionAsk        *engine.PermissionAskEvent
 	questionAsk          *engine.UserQuestionAskEvent
 	questionCursor       int          // currently focused option index (highlights preview)
@@ -468,6 +471,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state != stateError {
 			m.state = stateIdle
 		}
+		// A canceled turn may never see DoneEvent; fold whatever tool
+		// rows are still live so they don't pin above the input.
+		m.flushToolRows()
 		m.refreshBody()
 		return m, nil
 	}
@@ -669,6 +675,8 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "/clear":
 		m.history = m.history[:0]
+		m.toolRows = nil
+		m.toolClusters = nil
 		m.lastErr = nil
 		// /clear drops any plan attachment so the fresh session
 		// doesn't auto-inject a stale plan after the next compact.
@@ -1322,6 +1330,10 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		}
 		// Mirror replay into REPL history so the viewport renders it.
 		m.history = m.history[:0]
+		// Replay rebuilds text only; stale clusters/rows from the
+		// previous conversation must not leak into the resumed one.
+		m.toolRows = nil
+		m.toolClusters = nil
 		for _, msg := range m.engine.State().Snapshot() {
 			text := ""
 			for _, b := range msg.Content {
@@ -1470,23 +1482,11 @@ func (m *model) applySize(w, h int) {
 func (m *model) refreshBody() {
 	var b strings.Builder
 	b.WriteString(m.welcome())
-	for _, msg := range m.history {
-		switch msg.Role {
-		case "user":
-			b.WriteString(renderUserPrefix())
-			b.WriteString(msg.Content)
-			b.WriteString("\n\n")
-		case "assistant":
-			b.WriteString(renderAssistantPrefix())
-			b.WriteString(m.renderMarkdown(msg.Content))
-			b.WriteString("\n")
-		case "system":
-			b.WriteString(styleHint.Render(msg.Content))
-			b.WriteString("\n\n")
-		}
-	}
-	// Tool rows (engine path) — rendered above any in-flight text so the
-	// user sees ⏺ Read foo.go ahead of the assistant's narration.
+	b.WriteString(m.transcriptString())
+	// Live tool rows (engine path) — rendered above any in-flight text
+	// so the user sees ⏺ Read foo.go ahead of the assistant's
+	// narration. Completed batches live in toolClusters, folded into
+	// the transcript by flushToolRows.
 	if rows := renderToolRows(m.toolRows); rows != "" {
 		b.WriteString(rows)
 	}
@@ -1507,6 +1507,42 @@ func (m *model) refreshBody() {
 	}
 	m.viewport.SetContent(b.String())
 	m.viewport.GotoBottom()
+}
+
+// transcriptString renders the settled conversation (m.history) with
+// completed tool clusters interleaved at the position they were
+// flushed: a cluster anchored at beforeIdx renders immediately before
+// history[beforeIdx]; one anchored past the current history end (a
+// flush at turn completion, before any follow-up message exists)
+// renders at the tail.
+func (m model) transcriptString() string {
+	var b strings.Builder
+	for i, msg := range m.history {
+		for _, c := range m.toolClusters {
+			if c.beforeIdx == i {
+				b.WriteString(renderToolRows(c.rows))
+			}
+		}
+		switch msg.Role {
+		case "user":
+			b.WriteString(renderUserPrefix())
+			b.WriteString(msg.Content)
+			b.WriteString("\n\n")
+		case "assistant":
+			b.WriteString(renderAssistantPrefix())
+			b.WriteString(m.renderMarkdown(msg.Content))
+			b.WriteString("\n")
+		case "system":
+			b.WriteString(styleHint.Render(msg.Content))
+			b.WriteString("\n\n")
+		}
+	}
+	for _, c := range m.toolClusters {
+		if c.beforeIdx >= len(m.history) {
+			b.WriteString(renderToolRows(c.rows))
+		}
+	}
+	return b.String()
 }
 
 func (m *model) appendSystemNote(s string) {

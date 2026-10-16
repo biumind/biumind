@@ -216,8 +216,13 @@ func (e *QueryEngine) runOne(
 		toolCtx = context.Background()
 	}
 
+	// The displayed elapsed measures tool runtime only: everything
+	// above (permission prompt, PreToolUse hooks) is setup, and parking
+	// on user approval — potentially hours — must not show up as tool
+	// time.
+	execStart := time.Now()
 	result, err := tool.Call(toolCtx, input, env)
-	elapsed := time.Since(started)
+	elapsed := time.Since(execStart)
 
 	// ── Map outcome to ToolResultPayload ────────────────────
 	var payload ToolResultPayload
