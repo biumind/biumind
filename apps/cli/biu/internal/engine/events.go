@@ -380,6 +380,13 @@ func (b *baseEvent) setBase(sessionID, parentToolUseID string) {
 	b.EventParentToolUseID = parentToolUseID
 }
 
+// SetBaseForTest stamps the metadata fields from outside the engine
+// package (REPL render tests, SDK fakes). Production code must not
+// call this — stamping happens once, at the SubmitContent forwarder.
+func (b *baseEvent) SetBaseForTest(sessionID, parentToolUseID string) {
+	b.setBase(sessionID, parentToolUseID)
+}
+
 // fillBase stamps SessionID + ParentToolUseID onto the event before it
 // flies. The engine calls this from a single chokepoint right before
 // every SafeSend so per-call sites stay free of metadata bookkeeping.

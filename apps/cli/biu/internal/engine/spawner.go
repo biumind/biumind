@@ -212,9 +212,32 @@ func (s *engineSpawner) runSubmit(ctx context.Context, sub *QueryEngine, prompt,
 			if !e.Recoverable {
 				out.Err = e.Err
 			}
+		case *PermissionAskEvent:
+			// Interactive asks MUST be answered — dropping one
+			// deadlocks the sub-engine on its Decision channel, and
+			// with it the parent's parallel tool batch. Forward into
+			// the parent's live turn stream so the UI prompts as
+			// usual; when no turn is active (parent finished /
+			// cancelled, or a background teammate asking between
+			// turns), fail closed with a deny.
+			if !s.forwardAsk(e) {
+				e.Decision <- PermissionAnswer{Decision: PermDeny}
+			}
+		case *UserQuestionAskEvent:
+			// Same contract as PermissionAskEvent.
+			if !s.forwardAsk(e) {
+				e.Decision <- UserAnswer{Cancelled: true}
+			}
 		}
 	}
 	return out
+}
+
+// forwardAsk routes a sub-agent's interactive ask into the parent
+// engine's live event stream. False when the parent has no active
+// turn (or no parent at all) — the caller then answers fail-closed.
+func (s *engineSpawner) forwardAsk(ev Event) bool {
+	return s.parent != nil && s.parent.forwardSubEvent(ev)
 }
 
 func nextAgentID() string {

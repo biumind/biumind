@@ -196,7 +196,12 @@ func (realAgentTool) Call(ctx context.Context, in map[string]any, env *ToolEnv) 
 	if env == nil || env.Spawner == nil {
 		return &ToolResultPayload{IsError: true, SoftError: "no spawner"}, nil
 	}
-	res, err := env.Spawner.Spawn(ctx, AgentSpawnRequest{Prompt: prompt})
+	// ParentToolUseID mirrors orchestration.AgentTool: events the child
+	// emits (including forwarded permission asks) link back to this call.
+	res, err := env.Spawner.Spawn(ctx, AgentSpawnRequest{
+		Prompt:          prompt,
+		ParentToolUseID: env.ToolUseID,
+	})
 	if err != nil {
 		return &ToolResultPayload{IsError: true, SoftError: err.Error()}, nil
 	}

@@ -218,7 +218,8 @@ func (m *model) cancelQuestion() {
 }
 
 // clearQuestion resets the panel state after a submit/cancel so the
-// next AskUserQuestion call starts clean.
+// next AskUserQuestion call starts clean. Queued questions (parallel
+// sub-agents) promote FIFO into the visible slot.
 func (m *model) clearQuestion() {
 	m.questionAsk = nil
 	m.questionCursor = 0
@@ -226,4 +227,9 @@ func (m *model) clearQuestion() {
 	m.questionOther = false
 	m.questionTyping = false
 	m.questionTypeFor = 0
+	if len(m.questionQueue) > 0 {
+		m.questionAsk = m.questionQueue[0]
+		m.questionQueue[0] = nil
+		m.questionQueue = m.questionQueue[1:]
+	}
 }

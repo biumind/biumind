@@ -263,6 +263,13 @@ type QueryEngine struct {
 	agentID         string
 	parentToolUseID string // outer AgentTool tool_use_id for sub-agents; empty for root
 
+	// askMu guards activeOut: the live turn's event channel, exposed so
+	// a sub-agent spawner can forward interactive asks (PermissionAsk /
+	// UserQuestionAsk) into the UI's event stream. Non-nil only between
+	// SubmitContent's TryLock and the turn goroutine's teardown.
+	askMu     sync.Mutex
+	activeOut chan<- Event
+
 	// planVerifier observes destructive tool calls when a plan is
 	// active and surfaces drift attachments through the same channel
 	// as the plan re-injection. Optional; nil = no verification.
@@ -705,6 +712,31 @@ func (e *QueryEngine) FireSessionStart() {
 	})
 }
 
+// forwardSubEvent injects an already-stamped sub-agent event (a
+// PermissionAskEvent / UserQuestionAskEvent from a nested engine) into
+// the live turn's event stream, so the UI answers it exactly like a
+// top-level ask — the reply lands on the event's Decision channel,
+// which is the one the sub-engine is blocked on.
+//
+// Returns false when no turn is active. The caller MUST then answer
+// the event's Decision channel itself (fail-closed): an unanswered
+// Decision deadlocks the sub-engine, and with it the parent's parallel
+// tool batch — this is exactly the contract biumindkit documents at
+// its own interception site.
+//
+// The send happens under askMu so it can never race the turn
+// goroutine's close(inner): the clear of activeOut is ordered before
+// that close, and both hold the same mutex.
+func (e *QueryEngine) forwardSubEvent(ev Event) bool {
+	e.askMu.Lock()
+	defer e.askMu.Unlock()
+	if e.activeOut == nil {
+		return false
+	}
+	e.activeOut <- ev
+	return true
+}
+
 // Close fires the SessionEnd hook chain (idempotent via sync.Once)
 // and releases any resources the engine still owns. Callers that
 // need a clean shutdown — main / SDK on Ctrl-C — invoke this; tests
@@ -786,6 +818,9 @@ func (e *QueryEngine) SubmitContent(
 	// fires AFTER ctx is canceled). With a 64-slot buffer + the reader
 	// always draining, blocking sends here are well-defined.
 	inner := make(chan Event, 64)
+	e.askMu.Lock()
+	e.activeOut = inner
+	e.askMu.Unlock()
 	go func() {
 		// LIFO: close(out) runs LAST. Releasing inflight BEFORE the
 		// channel closes closes the race where a caller observes the
@@ -796,12 +831,27 @@ func (e *QueryEngine) SubmitContent(
 		defer close(out)
 		defer e.inflight.Unlock()
 		for ev := range inner {
-			fillBase(ev, e.agentID, e.parentToolUseID)
+			// Sub-agent asks forwarded via forwardSubEvent arrive
+			// already stamped (sub session id + the AgentTool
+			// tool_use_id that links them back to the spawning call);
+			// re-stamping would sever that link.
+			if ev.SessionID() == "" {
+				fillBase(ev, e.agentID, e.parentToolUseID)
+			}
 			out <- ev
 		}
 	}()
 	go func() {
 		defer close(inner)
+		// LIFO: clear activeOut BEFORE close(inner). A spawner that
+		// grabbed the channel under askMu just before the clear can
+		// still complete its buffered send; after the clear, forwards
+		// fail closed instead of racing the close.
+		defer func() {
+			e.askMu.Lock()
+			e.activeOut = nil
+			e.askMu.Unlock()
+		}()
 		e.runSubmit(ctx, inner, prompt, attachments)
 	}()
 	return out

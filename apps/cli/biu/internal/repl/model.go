@@ -169,9 +169,17 @@ type model struct {
 	toolRows []toolRow
 	// toolClusters holds completed tool-row batches folded into the
 	// scrollback, each anchored to the history index it renders before.
-	toolClusters         []toolCluster
-	permissionAsk        *engine.PermissionAskEvent
-	questionAsk          *engine.UserQuestionAskEvent
+	toolClusters  []toolCluster
+	permissionAsk *engine.PermissionAskEvent
+	questionAsk   *engine.UserQuestionAskEvent
+	// permissionQueue / questionQueue hold asks that arrived while a
+	// dialog is already up — parallel sub-agents forward their asks
+	// into this same stream (engine.forwardSubEvent). FIFO: answering
+	// the visible dialog promotes the head of the queue. Never
+	// overwrite the visible slot: the displaced event's Decision
+	// channel would go unanswered and deadlock the engine that sent it.
+	permissionQueue      []*engine.PermissionAskEvent
+	questionQueue        []*engine.UserQuestionAskEvent
 	questionCursor       int          // currently focused option index (highlights preview)
 	questionPicked       map[int]bool // multi-select toggle state
 	questionOther        bool         // true when the synthesised "Other" row is focused / picked
@@ -511,31 +519,32 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				Decision:       engine.PermAllow,
 				AppliedUpdates: []sdkproto.PermissionUpdate{sg.Update},
 			}
-			m.permissionAsk = nil
+			m.advancePermissionAsk()
 			m.refreshBody()
 			return m, nil
 		}
 		switch key {
 		case "a":
 			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermAllow}
-			m.permissionAsk = nil
+			m.advancePermissionAsk()
 			m.refreshBody()
 			return m, nil
 		case "A", "shift+a", "s":
 			m.permissionAsk.Decision <- engine.PermissionAnswer{
 				Decision: engine.PermAllow, Remember: true,
 			}
-			m.permissionAsk = nil
+			m.advancePermissionAsk()
 			m.refreshBody()
 			return m, nil
 		case "d":
 			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermDeny}
-			m.permissionAsk = nil
+			m.advancePermissionAsk()
 			m.refreshBody()
 			return m, nil
 		case "q", "esc":
 			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermDeny}
 			m.permissionAsk = nil
+			m.denyQueuedAsks()
 			if m.streamCancel != nil {
 				m.streamCancel()
 			}
@@ -1568,7 +1577,7 @@ func (m model) inputArea() string {
 	if m.slashOpen {
 		body = m.slashPanel() + "\n" + body
 	}
-	if ask := renderPermissionAsk(m.permissionAsk); ask != "" {
+	if ask := renderPermissionAsk(m.permissionAsk, len(m.permissionQueue)); ask != "" {
 		body = ask + "\n" + body
 	}
 	if q := renderQuestionAsk(m); q != "" {

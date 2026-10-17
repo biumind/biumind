@@ -214,15 +214,26 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 	case *engine.PermissionAskEvent:
 		// Park the request in model state; let the user answer via
 		// keyboard. Update() handles 'a' / 'd' / 'q' keys when
-		// m.permissionAsk is non-nil.
-		m.permissionAsk = e
+		// m.permissionAsk is non-nil. Concurrent asks (parallel
+		// sub-agents forwarding through engine.forwardSubEvent) queue
+		// FIFO behind the visible one.
+		if m.permissionAsk == nil {
+			m.permissionAsk = e
+		} else {
+			m.permissionQueue = append(m.permissionQueue, e)
+		}
 		m.refreshBody()
 
 	case *engine.UserQuestionAskEvent:
 		// Same pattern as permissionAsk: park the request, let
-		// handleKey route arrow + Enter into Decision.
-		m.questionAsk = e
-		m.questionCursor = 0
+		// handleKey route arrow + Enter into Decision. Overflow
+		// queues FIFO; clearQuestion promotes the next one.
+		if m.questionAsk == nil {
+			m.questionAsk = e
+			m.questionCursor = 0
+		} else {
+			m.questionQueue = append(m.questionQueue, e)
+		}
 		m.refreshBody()
 
 	case *engine.CompactStartEvent:
@@ -372,12 +383,21 @@ func ellipsize(s string, n int) string {
 // When the runner attached suggestions (e.g. an "Allow + add dir to
 // working dirs" shortcut), each gets its own line above the standard
 // hotkey hint, rendered inline rather than as a separate dialog.
-func renderPermissionAsk(ask *engine.PermissionAskEvent) string {
+//
+// A non-empty ParentToolUseID marks the ask as forwarded from a
+// sub-agent (engine.forwardSubEvent) — the header says so, so the
+// user knows whose action they're approving. queued > 0 appends a
+// "+N queued" hint: more asks are waiting FIFO behind this one.
+func renderPermissionAsk(ask *engine.PermissionAskEvent, queued int) string {
 	if ask == nil {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(styleErrorPrefix.Render("⚠ Permission required"))
+	header := "⚠ Permission required"
+	if ask.ParentToolUseID() != "" {
+		header += " (sub-agent)"
+	}
+	b.WriteString(styleErrorPrefix.Render(header))
 	b.WriteString("\n  ")
 	b.WriteString(ask.ToolName)
 	if s := summariseInput(ask.Input); s != "" {
@@ -394,9 +414,12 @@ func renderPermissionAsk(ask *engine.PermissionAskEvent) string {
 		b.WriteString(styleHint.Render(
 			"[" + sg.HotKey + "] " + sg.Label))
 	}
+	hint := "[a]llow once · [s]hift+a always · [d]eny · [q]uit"
+	if queued > 0 {
+		hint += fmt.Sprintf(" · +%d queued", queued)
+	}
 	b.WriteString("\n  ")
-	b.WriteString(styleHint.Render(
-		"[a]llow once · [s]hift+a always · [d]eny · [q]uit"))
+	b.WriteString(styleHint.Render(hint))
 	return b.String()
 }
 
@@ -619,4 +642,32 @@ func formatProgress(d engine.ProgressData) string {
 		return fmt.Sprintf("    matched: %d", int(v))
 	}
 	return ""
+}
+
+// advancePermissionAsk clears the just-answered permission dialog and
+// promotes the head of the FIFO queue (if any) into the visible slot.
+func (m *model) advancePermissionAsk() {
+	if len(m.permissionQueue) == 0 {
+		m.permissionAsk = nil
+		return
+	}
+	m.permissionAsk = m.permissionQueue[0]
+	m.permissionQueue[0] = nil
+	m.permissionQueue = m.permissionQueue[1:]
+}
+
+// denyQueuedAsks fail-closed-answers every queued ask. Used when the
+// user aborts the stream from the permission dialog: the senders'
+// engines are about to be cancelled, but an unanswered Decision
+// channel deadlocks any engine whose cancel arrives late — answering
+// is cheap insurance (buffered channel, non-blocking).
+func (m *model) denyQueuedAsks() {
+	for _, ask := range m.permissionQueue {
+		ask.Decision <- engine.PermissionAnswer{Decision: engine.PermDeny}
+	}
+	m.permissionQueue = nil
+	for _, q := range m.questionQueue {
+		q.Decision <- engine.UserAnswer{Cancelled: true}
+	}
+	m.questionQueue = nil
 }
