@@ -108,7 +108,11 @@ func (e *QueryEngine) runOne(
 			Payload: payload, Elapsed: elapsed}
 	}
 	if answer.Decision == PermDeny {
-		payload := softError(in.Name, "denied by user")
+		msg := "denied by user"
+		if answer.Feedback != "" {
+			msg = "denied by user: " + answer.Feedback
+		}
+		payload := softError(in.Name, msg)
 		elapsed := time.Since(started)
 		e.recordToolUsage(in.Name, elapsed, payload)
 		SafeSend(out, &ToolUseResultEvent{

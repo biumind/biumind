@@ -232,11 +232,16 @@ type AskSuggestion struct {
 // (or the SDK callback selected). The runner applies each entry via
 // permissions.ApplyPermissionUpdate before returning Allow, so the
 // next tool call sees the widened ctx.
+//
+// Feedback is optional free text attached to a Deny ("deny with
+// feedback"): the runner folds it into the denial tool_result so the
+// model learns WHY and can adjust, instead of retrying blindly.
 type PermissionAnswer struct {
 	Decision       PermissionDecision
 	UpdatedInput   map[string]any
 	Remember       bool // store in alwaysAllow when true
 	AppliedUpdates []sdkproto.PermissionUpdate
+	Feedback       string // deny-only; "" = no feedback
 }
 
 type PermissionDecision string

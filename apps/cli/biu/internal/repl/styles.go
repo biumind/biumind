@@ -89,6 +89,14 @@ var (
 	styleSeparator = lipgloss.NewStyle().
 			Foreground(colorBorder)
 
+	// Permission dialog: focused option row + danger warning line.
+	stylePermSelected = lipgloss.NewStyle().
+				Foreground(colorPurple).
+				Bold(true)
+	styleWarn = lipgloss.NewStyle().
+			Foreground(colorYellow).
+			Bold(true)
+
 	// Spinner colour
 	styleSpinner = lipgloss.NewStyle().
 			Foreground(colorPurple)

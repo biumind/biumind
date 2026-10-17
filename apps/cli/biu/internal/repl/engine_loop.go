@@ -213,12 +213,14 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 
 	case *engine.PermissionAskEvent:
 		// Park the request in model state; let the user answer via
-		// keyboard. Update() handles 'a' / 'd' / 'q' keys when
-		// m.permissionAsk is non-nil. Concurrent asks (parallel
-		// sub-agents forwarding through engine.forwardSubEvent) queue
-		// FIFO behind the visible one.
+		// keyboard. handlePermissionKey routes arrows / digits /
+		// hotkeys while m.permissionAsk is non-nil. Concurrent asks
+		// (parallel sub-agents forwarding through
+		// engine.forwardSubEvent) queue FIFO behind the visible one.
 		if m.permissionAsk == nil {
 			m.permissionAsk = e
+			m.permissionCursor = 0
+			m.permissionTyping = false
 		} else {
 			m.permissionQueue = append(m.permissionQueue, e)
 		}
@@ -375,52 +377,6 @@ func ellipsize(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
-}
-
-// renderPermissionAsk produces the inline confirmation prompt block.
-// Shown right above the input box when m.permissionAsk is non-nil.
-//
-// When the runner attached suggestions (e.g. an "Allow + add dir to
-// working dirs" shortcut), each gets its own line above the standard
-// hotkey hint, rendered inline rather than as a separate dialog.
-//
-// A non-empty ParentToolUseID marks the ask as forwarded from a
-// sub-agent (engine.forwardSubEvent) — the header says so, so the
-// user knows whose action they're approving. queued > 0 appends a
-// "+N queued" hint: more asks are waiting FIFO behind this one.
-func renderPermissionAsk(ask *engine.PermissionAskEvent, queued int) string {
-	if ask == nil {
-		return ""
-	}
-	var b strings.Builder
-	header := "⚠ Permission required"
-	if ask.ParentToolUseID() != "" {
-		header += " (sub-agent)"
-	}
-	b.WriteString(styleErrorPrefix.Render(header))
-	b.WriteString("\n  ")
-	b.WriteString(ask.ToolName)
-	if s := summariseInput(ask.Input); s != "" {
-		b.WriteString("  ")
-		b.WriteString(styleToolDesc.Render(s))
-	}
-	b.WriteString("\n  ")
-	b.WriteString(styleHint.Render(ask.Reason))
-	for _, sg := range ask.Suggestions {
-		if sg.HotKey == "" || sg.Label == "" {
-			continue
-		}
-		b.WriteString("\n  ")
-		b.WriteString(styleHint.Render(
-			"[" + sg.HotKey + "] " + sg.Label))
-	}
-	hint := "[a]llow once · [s]hift+a always · [d]eny · [q]uit"
-	if queued > 0 {
-		hint += fmt.Sprintf(" · +%d queued", queued)
-	}
-	b.WriteString("\n  ")
-	b.WriteString(styleHint.Render(hint))
-	return b.String()
 }
 
 // renderQuestionAsk shapes the AskUserQuestion panel:
@@ -646,7 +602,14 @@ func formatProgress(d engine.ProgressData) string {
 
 // advancePermissionAsk clears the just-answered permission dialog and
 // promotes the head of the FIFO queue (if any) into the visible slot.
+// Dialog-local state (cursor, feedback typing) resets either way.
 func (m *model) advancePermissionAsk() {
+	m.permissionCursor = 0
+	if m.permissionTyping {
+		m.permissionTyping = false
+		m.textarea.Reset()
+		m.textarea.Placeholder = ""
+	}
 	if len(m.permissionQueue) == 0 {
 		m.permissionAsk = nil
 		return

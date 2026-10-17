@@ -46,7 +46,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
 	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
-	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
 
 // Options is the public entry surface (kept compatible with the old
@@ -180,6 +179,8 @@ type model struct {
 	// channel would go unanswered and deadlock the engine that sent it.
 	permissionQueue      []*engine.PermissionAskEvent
 	questionQueue        []*engine.UserQuestionAskEvent
+	permissionCursor     int          // focused option row in the permission dialog
+	permissionTyping     bool         // true when the textarea captures deny feedback
 	questionCursor       int          // currently focused option index (highlights preview)
 	questionPicked       map[int]bool // multi-select toggle state
 	questionOther        bool         // true when the synthesised "Other" row is focused / picked
@@ -504,55 +505,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Permission dialog steals key handling while it's up.
 	if m.permissionAsk != nil {
-		key := msg.String()
-		// Suggestion hotkeys come first so a suggestion's HotKey
-		// can override the standard "a/d/q" path. Suggestions are
-		// pre-computed by runner.generateAskSuggestions and carry
-		// a single character HotKey (e.g. "w" for "Allow + add to
-		// working dirs"). On match, apply ALL of that suggestion's
-		// updates (currently always 1) and return Allow.
-		for _, sg := range m.permissionAsk.Suggestions {
-			if sg.HotKey == "" || sg.HotKey != key {
-				continue
-			}
-			m.permissionAsk.Decision <- engine.PermissionAnswer{
-				Decision:       engine.PermAllow,
-				AppliedUpdates: []sdkproto.PermissionUpdate{sg.Update},
-			}
-			m.advancePermissionAsk()
-			m.refreshBody()
-			return m, nil
-		}
-		switch key {
-		case "a":
-			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermAllow}
-			m.advancePermissionAsk()
-			m.refreshBody()
-			return m, nil
-		case "A", "shift+a", "s":
-			m.permissionAsk.Decision <- engine.PermissionAnswer{
-				Decision: engine.PermAllow, Remember: true,
-			}
-			m.advancePermissionAsk()
-			m.refreshBody()
-			return m, nil
-		case "d":
-			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermDeny}
-			m.advancePermissionAsk()
-			m.refreshBody()
-			return m, nil
-		case "q", "esc":
-			m.permissionAsk.Decision <- engine.PermissionAnswer{Decision: engine.PermDeny}
-			m.permissionAsk = nil
-			m.denyQueuedAsks()
-			if m.streamCancel != nil {
-				m.streamCancel()
-			}
-			m.refreshBody()
-			return m, nil
-		}
-		// Other keys: swallow until decided.
-		return m, nil
+		return m.handlePermissionKey(msg)
 	}
 
 	// Slash menu has priority for navigation keys.
@@ -1577,7 +1530,7 @@ func (m model) inputArea() string {
 	if m.slashOpen {
 		body = m.slashPanel() + "\n" + body
 	}
-	if ask := renderPermissionAsk(m.permissionAsk, len(m.permissionQueue)); ask != "" {
+	if ask := renderPermissionAsk(m); ask != "" {
 		body = ask + "\n" + body
 	}
 	if q := renderQuestionAsk(m); q != "" {
