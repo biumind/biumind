@@ -2095,6 +2095,12 @@ abstract class AppLocalizations {
   /// **'Default conversation mode'**
   String get chatV2SettingsDefaultMode;
 
+  /// No description provided for @chatV2SettingsDefaultPermissionMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Default permission mode'**
+  String get chatV2SettingsDefaultPermissionMode;
+
   /// No description provided for @chatV2SettingsAutoRenameTitle.
   ///
   /// In en, this message translates to:
@@ -3797,28 +3803,28 @@ abstract class AppLocalizations {
   /// **'Clear workdir'**
   String get chatV2ComposerWorkdirClear;
 
-  /// No description provided for @chatV2ComposerAutoApproveAuto.
-  ///
-  /// In en, this message translates to:
-  /// **'Auto approve'**
-  String get chatV2ComposerAutoApproveAuto;
-
-  /// No description provided for @chatV2ComposerAutoApproveWhitelist.
-  ///
-  /// In en, this message translates to:
-  /// **'Whitelist'**
-  String get chatV2ComposerAutoApproveWhitelist;
-
   /// No description provided for @chatV2ComposerAutoApproveManual.
   ///
   /// In en, this message translates to:
-  /// **'Manual'**
+  /// **'Ask each time'**
   String get chatV2ComposerAutoApproveManual;
+
+  /// No description provided for @chatV2ComposerAutoApproveAuto.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto run'**
+  String get chatV2ComposerAutoApproveAuto;
+
+  /// No description provided for @chatV2ComposerAutoApprovePlan.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan mode'**
+  String get chatV2ComposerAutoApprovePlan;
 
   /// No description provided for @chatV2ComposerAutoApproveTooltip.
   ///
   /// In en, this message translates to:
-  /// **'Tool-call approval mode'**
+  /// **'Tool-call permission mode'**
   String get chatV2ComposerAutoApproveTooltip;
 
   /// No description provided for @chatV2ModelPickerSearchHint.

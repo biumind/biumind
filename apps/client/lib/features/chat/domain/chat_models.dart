@@ -32,27 +32,33 @@ enum ThreadMode {
       };
 }
 
-/// Agent 工具调用的自治程度。client 拦截 SDKControlRequest{can_use_tool}
-/// 时按这个字段决定立即应答 or 弹 ApprovalCard。
+/// Agent 工具调用的自治程度（用户面三档权限模式：manual / auto / plan）。
+/// client 拦截 SDKControlRequest{can_use_tool} 时按这个字段决定立即应答
+/// or 弹 ApprovalCard。
 ///
-/// 跟 brain migration 00038 chat.threads.auto_approve check 约束保持一致。
+/// brain chat.threads.auto_approve check 约束（migration 00038）仍只有
+/// 'auto' / 'whitelist' / 'manual' 三值：'plan' 上行到 brain 时落库为
+/// 'manual'（permission_mode 映射天然兼容）。存量 'whitelist' 值读时映射
+/// 为 manual（白名单语义由引擎 allow/deny/ask 规则承担，不再有客户端档）。
 enum AutoApproveMode {
-  /// 全自动 allow（PermissionMode.bypassPermissions）—— 适合可信 workdir 自动跑。
+  /// 每次都弹 ApprovalCard 让用户确认。默认；安全优先。
+  manual,
+
+  /// 自动执行（引擎 ModeAuto：全放行但 deny 规则仍生效）—— client 本地
+  /// 对 can_use_tool 也立即应答 allow，适合可信 workdir 自动跑。
   auto,
 
-  /// 命中已批准规则 → allow；否则弹 client 询问。规则持久化复用
-  /// settings.PersistPermissionUpdate(AddRules) 现成路径。
-  whitelist,
-
-  /// 每次都弹 ApprovalCard 让用户确认。默认；安全优先。
-  manual;
+  /// 规划模式（只读）。正确语义由引擎决定；client 只负责把模式发给引擎，
+  /// 本地分流与 manual 一致（弹卡）。
+  plan;
 
   static AutoApproveMode fromName(String s) {
     switch (s) {
       case 'auto':
         return AutoApproveMode.auto;
-      case 'whitelist':
-        return AutoApproveMode.whitelist;
+      case 'plan':
+        return AutoApproveMode.plan;
+      case 'whitelist': // 存量值读时降级
       case 'manual':
       default:
         return AutoApproveMode.manual;
@@ -60,9 +66,9 @@ enum AutoApproveMode {
   }
 
   String get name => switch (this) {
-        AutoApproveMode.auto => 'auto',
-        AutoApproveMode.whitelist => 'whitelist',
         AutoApproveMode.manual => 'manual',
+        AutoApproveMode.auto => 'auto',
+        AutoApproveMode.plan => 'plan',
       };
 }
 

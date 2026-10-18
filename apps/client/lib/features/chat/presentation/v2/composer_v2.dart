@@ -1384,7 +1384,7 @@ class _WorkdirChipInline extends ConsumerWidget {
   }
 }
 
-/// 自动批准 chip —— 三档 popover (auto / whitelist / manual)。
+/// 权限模式 chip —— 三档 popover (manual / auto / plan)。
 class _AutoApproveChipInline extends ConsumerWidget {
   const _AutoApproveChipInline({required this.threadId});
   final String threadId;
@@ -1396,14 +1396,14 @@ class _AutoApproveChipInline extends ConsumerWidget {
     final th = ref.watch(threadProvider(threadId));
     final m = th.value?.autoApprove ?? AutoApproveMode.manual;
     final label = switch (m) {
-      AutoApproveMode.auto => l.chatV2ComposerAutoApproveAuto,
-      AutoApproveMode.whitelist => l.chatV2ComposerAutoApproveWhitelist,
       AutoApproveMode.manual => l.chatV2ComposerAutoApproveManual,
+      AutoApproveMode.auto => l.chatV2ComposerAutoApproveAuto,
+      AutoApproveMode.plan => l.chatV2ComposerAutoApprovePlan,
     };
     final icon = switch (m) {
-      AutoApproveMode.auto => Icons.flash_on,
-      AutoApproveMode.whitelist => Icons.playlist_add_check,
       AutoApproveMode.manual => Icons.pan_tool_outlined,
+      AutoApproveMode.auto => Icons.flash_on,
+      AutoApproveMode.plan => Icons.assignment_outlined,
     };
     final color = m == AutoApproveMode.auto
         ? theme.colorScheme.tertiary
@@ -1411,11 +1411,17 @@ class _AutoApproveChipInline extends ConsumerWidget {
 
     return PopupMenuButton<AutoApproveMode>(
       tooltip: l.chatV2ComposerAutoApproveTooltip,
-      onSelected: (next) => ref
-          .read(chatControllerDepsProvider)
-          .repo
-          .setThreadAutoApprove(threadId, next),
+      onSelected: (next) =>
+          ref.read(chatThreadOpsProvider).setAutoApprove(threadId, next),
       itemBuilder: (_) => [
+        PopupMenuItem(
+          value: AutoApproveMode.manual,
+          child: _AutoApproveItem(
+            checked: m == AutoApproveMode.manual,
+            icon: Icons.pan_tool_outlined,
+            label: l.chatV2ComposerAutoApproveManual,
+          ),
+        ),
         PopupMenuItem(
           value: AutoApproveMode.auto,
           child: _AutoApproveItem(
@@ -1425,19 +1431,11 @@ class _AutoApproveChipInline extends ConsumerWidget {
           ),
         ),
         PopupMenuItem(
-          value: AutoApproveMode.whitelist,
+          value: AutoApproveMode.plan,
           child: _AutoApproveItem(
-            checked: m == AutoApproveMode.whitelist,
-            icon: Icons.playlist_add_check,
-            label: l.chatV2ComposerAutoApproveWhitelist,
-          ),
-        ),
-        PopupMenuItem(
-          value: AutoApproveMode.manual,
-          child: _AutoApproveItem(
-            checked: m == AutoApproveMode.manual,
-            icon: Icons.pan_tool_outlined,
-            label: l.chatV2ComposerAutoApproveManual,
+            checked: m == AutoApproveMode.plan,
+            icon: Icons.assignment_outlined,
+            label: l.chatV2ComposerAutoApprovePlan,
           ),
         ),
       ],

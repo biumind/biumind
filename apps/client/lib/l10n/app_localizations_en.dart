@@ -1092,6 +1092,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2SettingsDefaultMode => 'Default conversation mode';
 
   @override
+  String get chatV2SettingsDefaultPermissionMode => 'Default permission mode';
+
+  @override
   String get chatV2SettingsAutoRenameTitle => 'Auto-title from first prompt';
 
   @override
@@ -2062,16 +2065,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2ComposerWorkdirClear => 'Clear workdir';
 
   @override
-  String get chatV2ComposerAutoApproveAuto => 'Auto approve';
+  String get chatV2ComposerAutoApproveManual => 'Ask each time';
 
   @override
-  String get chatV2ComposerAutoApproveWhitelist => 'Whitelist';
+  String get chatV2ComposerAutoApproveAuto => 'Auto run';
 
   @override
-  String get chatV2ComposerAutoApproveManual => 'Manual';
+  String get chatV2ComposerAutoApprovePlan => 'Plan mode';
 
   @override
-  String get chatV2ComposerAutoApproveTooltip => 'Tool-call approval mode';
+  String get chatV2ComposerAutoApproveTooltip => 'Tool-call permission mode';
 
   @override
   String get chatV2ModelPickerSearchHint => 'Search models…';

@@ -1057,6 +1057,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2SettingsDefaultMode => '默认对话模式';
 
   @override
+  String get chatV2SettingsDefaultPermissionMode => '权限模式默认值';
+
+  @override
   String get chatV2SettingsAutoRenameTitle => '自动从首句 prompt 起标题';
 
   @override
@@ -1998,16 +2001,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2ComposerWorkdirClear => '清空工作目录';
 
   @override
-  String get chatV2ComposerAutoApproveAuto => '自动批准';
+  String get chatV2ComposerAutoApproveManual => '逐项询问';
 
   @override
-  String get chatV2ComposerAutoApproveWhitelist => '白名单';
+  String get chatV2ComposerAutoApproveAuto => '自动执行';
 
   @override
-  String get chatV2ComposerAutoApproveManual => '手动批准';
+  String get chatV2ComposerAutoApprovePlan => '规划模式';
 
   @override
-  String get chatV2ComposerAutoApproveTooltip => '工具调用批准模式';
+  String get chatV2ComposerAutoApproveTooltip => '工具调用权限模式';
 
   @override
   String get chatV2ModelPickerSearchHint => '搜索模型…';

@@ -969,10 +969,11 @@ class BiuSessionConnection {
         : <String, dynamic>{};
 
     // 按 thread.autoApprove 分流:
-    //   * auto       → 立即应答 allow,不打扰用户
-    //   * whitelist  → 暂时未实现规则匹配,fall through 到 manual
-    //   * manual     → 通过 _events 抛 PermissionRequested 事件,UI/Controller
-    //                  弹 ApprovalCard;用户决策后调 respond()。
+    //   * auto          → 立即应答 allow,不打扰用户
+    //   * manual / plan → 通过 _events 抛 PermissionRequested 事件,UI/Controller
+    //                     弹 ApprovalCard;用户决策后调 respond()。plan 的只读
+    //                     语义由引擎保证(模式已随 WorkPayload 下发),client 本地
+    //                     分流与 manual 一致。
     if (thread.autoApprove == AutoApproveMode.auto) {
       _sendPermissionResult(req.requestId, allow: true);
       return;
