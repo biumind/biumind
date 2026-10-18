@@ -39,7 +39,7 @@ class _NewTaskComposerState extends ConsumerState<NewTaskComposer> {
   final _focus = FocusNode();
 
   AgentKind _agent = AgentKind.biu;
-  PermissionMode _mode = PermissionMode.ask;
+  PermissionMode _mode = PermissionMode.manual;
   CodeLaunchMode _launchMode = CodeLaunchMode.auto;
 
   String? _baseBranch;
@@ -85,11 +85,7 @@ class _NewTaskComposerState extends ConsumerState<NewTaskComposer> {
           'codex' => AgentKind.codex,
           _ => AgentKind.biu,
         };
-        _mode = switch (cfg.defaultPermissionMode) {
-          'auto_edit' => PermissionMode.autoEdit,
-          'full_access' => PermissionMode.fullAccess,
-          _ => PermissionMode.ask,
-        };
+        _mode = permissionModeFromName(cfg.defaultPermissionMode);
       });
     } catch (_) {/* 默认即兜底 */}
   }
@@ -377,9 +373,9 @@ class _NewTaskComposerState extends ConsumerState<NewTaskComposer> {
           label: _permLabel(_mode),
           value: _mode,
           items: const [
-            (PermissionMode.ask, 'Ask Permission'),
-            (PermissionMode.autoEdit, 'Auto Edit'),
-            (PermissionMode.fullAccess, 'Full Access'),
+            (PermissionMode.manual, '逐项询问'),
+            (PermissionMode.auto, '自动执行'),
+            (PermissionMode.plan, '规划模式'),
           ],
           onSelected: (v) => setState(() => _mode = v),
         ),
@@ -432,9 +428,9 @@ class _NewTaskComposerState extends ConsumerState<NewTaskComposer> {
   }
 
   String _permLabel(PermissionMode m) => switch (m) {
-        PermissionMode.ask => 'Ask Permission',
-        PermissionMode.autoEdit => 'Auto Edit',
-        PermissionMode.fullAccess => 'Full Access',
+        PermissionMode.manual => '逐项询问',
+        PermissionMode.auto => '自动执行',
+        PermissionMode.plan => '规划模式',
       };
 }
 

@@ -50,7 +50,7 @@ class FakeCodeTransport implements CodeTransport {
 CodeTask _task({
   String id = 't1',
   AgentKind agent = AgentKind.claudeCode,
-  PermissionMode mode = PermissionMode.autoEdit,
+  PermissionMode mode = PermissionMode.auto,
   String prompt = 'fix the bug',
 }) =>
     CodeTask(
@@ -88,7 +88,7 @@ void main() {
       final params = fake.lastSentJson()['params'] as Map<String, dynamic>;
       expect(params['task_id'], 't1');
       expect(params['agent_type'], 'claude');
-      expect(params['permission_mode'], 'auto_edit');
+      expect(params['permission_mode'], 'auto');
       expect(params['prompt'], 'do it');
 
       // 回 runTask 响应 + 进程退出,收尾让 stream 关闭

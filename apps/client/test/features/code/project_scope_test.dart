@@ -10,7 +10,7 @@ CodeTask task(String id, String? projectId) => CodeTask(
       title: id,
       prompt: 'p',
       agent: AgentKind.biu,
-      mode: PermissionMode.ask,
+      mode: PermissionMode.manual,
       status: CodeTaskStatus.queued,
       events: const [],
       cost: const TaskCost(),

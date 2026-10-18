@@ -9,7 +9,7 @@ CodeTask t(String id, String? projectId, DateTime updated) => CodeTask(
       title: id,
       prompt: 'p',
       agent: AgentKind.biu,
-      mode: PermissionMode.ask,
+      mode: PermissionMode.manual,
       status: CodeTaskStatus.done,
       events: const [],
       cost: const TaskCost(),

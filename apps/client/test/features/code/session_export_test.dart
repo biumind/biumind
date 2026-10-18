@@ -16,7 +16,7 @@ CodeTask _task({
     title: title,
     prompt: prompt,
     agent: AgentKind.claudeCode,
-    mode: PermissionMode.autoEdit,
+    mode: PermissionMode.auto,
     status: status,
     events: events,
     cost: cost,
@@ -33,7 +33,7 @@ void main() {
       expect(md, contains('# 修复登录 bug'));
       expect(md, contains('## 元信息'));
       expect(md, contains('- **Agent**: Claude'));
-      expect(md, contains('- **权限模式**: auto_edit'));
+      expect(md, contains('- **权限模式**: auto'));
       expect(md, contains('- **模型**: `claude-opus-4-8`'));
       expect(md, contains('- **状态**: 已完成'));
       expect(md, contains('- **耗时**: 2m 30s'));
@@ -83,7 +83,7 @@ void main() {
         title: '炸了',
         prompt: 'do x',
         agent: AgentKind.codex,
-        mode: PermissionMode.ask,
+        mode: PermissionMode.manual,
         status: CodeTaskStatus.failed,
         events: [
           TextDelta(ts: ts, text: '尝试中'),

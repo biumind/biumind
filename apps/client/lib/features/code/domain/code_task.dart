@@ -45,16 +45,32 @@ extension CodeLaunchModeLabel on CodeLaunchMode {
       };
 }
 
-/// 三档权限模式（直接映射到 CLI flag）
-enum PermissionMode { ask, autoEdit, fullAccess }
+/// 三档权限模式（用户面统一词汇：manual / auto / plan，与 chat 侧
+/// AutoApproveMode 对齐）。label 是写到 bridge / 引擎的 wire 值。
+enum PermissionMode { manual, auto, plan }
 
 extension PermissionModeLabel on PermissionMode {
   String get label => switch (this) {
-        PermissionMode.ask => 'ask',
-        PermissionMode.autoEdit => 'auto_edit',
-        PermissionMode.fullAccess => 'full_access',
+        PermissionMode.manual => 'manual',
+        PermissionMode.auto => 'auto',
+        PermissionMode.plan => 'plan',
       };
 }
+
+/// 存量值读时映射：'full_access'→auto，'auto_edit'→manual（安全方向降级），
+/// 'ask'→manual；未知值同样回落 manual。
+PermissionMode permissionModeFromName(String name) => switch (name) {
+      'auto' => PermissionMode.auto,
+      'plan' => PermissionMode.plan,
+      'full_access' || 'fullAccess' => PermissionMode.auto,
+      _ => PermissionMode.manual, // manual / ask / auto_edit / autoEdit / 未知
+    };
+
+/// 权限档字符串归一化到新三档 wire 值（'manual' | 'auto' | 'plan'）——
+/// 给 config.toml / JSON 里仍是老词汇（ask / auto_edit / full_access）的
+/// 存量配置做读时映射。
+String normalizePermissionModeName(String name) =>
+    permissionModeFromName(name).label;
 
 /// 流式 agent 事件 — 归一化各 adapter 的输出格式（参考 AG-UI 协议）
 @immutable

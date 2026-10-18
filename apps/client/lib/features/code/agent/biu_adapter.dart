@@ -305,25 +305,23 @@ class BiuAdapter implements AgentAdapter {
   }
 
   /// PermissionMode → biu 的 --permission-policy 值 (callback policy)。
-  /// 引擎在 mode=acceptEdits 时已经把 read-only / 非破坏性 edit 自动放行,
-  /// 只有真正需要询问的 (Bash / 写操作) 才回调 policy。所以 ask/autoEdit
-  /// 都用 stdin-json: 真出现 ask 时 GUI 弹 PermissionCard, 没 ask 时
-  /// callback 不会被触发。fullAccess 不需要 stdin 通道, 直接 allow。
+  /// 三档都用 stdin-json: auto 档引擎 ModeAuto 全放行(deny 规则仍生效)、
+  /// plan 档引擎只读, 都不会触发 callback; 真出现 ask (manual 档) 时 GUI
+  /// 弹 PermissionCard。
   static String _mapPermissionPolicy(PermissionMode m) => switch (m) {
-        PermissionMode.ask => 'stdin-json',
-        PermissionMode.autoEdit => 'stdin-json',
-        PermissionMode.fullAccess => 'allow',
+        PermissionMode.manual => 'stdin-json',
+        PermissionMode.auto => 'stdin-json',
+        PermissionMode.plan => 'stdin-json',
       };
 
   /// PermissionMode → biu 引擎的 --permission-mode 值。
-  ///   ask        → default     (engine 在所有破坏性工具上 ask)
-  ///   autoEdit   → acceptEdits (read-only + 非破坏性 edit auto-allow,
-  ///                             Bash / 删 / git push 等仍 ask)
-  ///   fullAccess → bypassPermissions (engine 全放行, 不会触发 callback)
+  ///   manual → default (engine 在所有破坏性工具上 ask)
+  ///   auto   → auto    (engine 全放行, deny 规则仍生效)
+  ///   plan   → plan    (engine 只读, 拒绝一切写操作)
   static String _mapPermissionMode(PermissionMode m) => switch (m) {
-        PermissionMode.ask => 'default',
-        PermissionMode.autoEdit => 'acceptEdits',
-        PermissionMode.fullAccess => 'bypassPermissions',
+        PermissionMode.manual => 'default',
+        PermissionMode.auto => 'auto',
+        PermissionMode.plan => 'plan',
       };
 
   static String _truncate(String s, int max) =>

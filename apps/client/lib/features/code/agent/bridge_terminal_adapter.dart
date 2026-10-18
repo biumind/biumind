@@ -116,7 +116,7 @@ class BridgeTerminalAdapter implements AgentAdapter {
         await c.runTask(
           taskId: task.id,
           agentType: agentType,
-          permissionMode: task.mode.label, // ask / auto_edit / full_access
+          permissionMode: task.mode.label, // manual / auto / plan
           prompt: task.prompt,
           model: task.model, // 用户选的模型;null = CLI 默认(不传 --model)
           cwd: task.workspace?.localPath,

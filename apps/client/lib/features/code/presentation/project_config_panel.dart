@@ -22,7 +22,12 @@ class ProjectConfigPanel extends ConsumerStatefulWidget {
 
 class _ProjectConfigPanelState extends ConsumerState<ProjectConfigPanel> {
   static const _agents = ['biu', 'claude', 'codex'];
-  static const _perms = ['ask', 'auto_edit', 'full_access'];
+  static const _perms = ['manual', 'auto', 'plan'];
+  static const _permLabels = {
+    'manual': '逐项询问',
+    'auto': '自动执行',
+    'plan': '规划模式',
+  };
 
   ProjectConfig _cfg = const ProjectConfig();
   final _prefixCtl = TextEditingController();
@@ -161,7 +166,8 @@ class _ProjectConfigPanelState extends ConsumerState<ProjectConfigPanel> {
         _label('默认权限档'),
         _dropdown(_perms, _cfg.defaultPermissionMode,
             (v) => setState(
-                () => _cfg = _cfg.copyWith(defaultPermissionMode: v))),
+                () => _cfg = _cfg.copyWith(defaultPermissionMode: v)),
+            labelOf: (v) => _permLabels[v] ?? v),
         const SizedBox(height: 14),
         _label('prompt 前缀'),
         Text('拼到本项目每个任务 prompt 最前(如「遵循 STYLE.md」)。',
@@ -198,7 +204,8 @@ class _ProjectConfigPanelState extends ConsumerState<ProjectConfigPanel> {
       );
 
   Widget _dropdown(
-          List<String> opts, String value, ValueChanged<String> onChanged) =>
+          List<String> opts, String value, ValueChanged<String> onChanged,
+          {String Function(String)? labelOf}) =>
       DropdownButtonFormField<String>(
         initialValue: opts.contains(value) ? value : opts.first,
         isDense: true,
@@ -207,7 +214,9 @@ class _ProjectConfigPanelState extends ConsumerState<ProjectConfigPanel> {
         items: [
           for (final o in opts)
             DropdownMenuItem(
-                value: o, child: Text(o, style: const TextStyle(fontSize: 12))),
+                value: o,
+                child: Text(labelOf?.call(o) ?? o,
+                    style: const TextStyle(fontSize: 12))),
         ],
         onChanged: (v) {
           if (v != null) onChanged(v);

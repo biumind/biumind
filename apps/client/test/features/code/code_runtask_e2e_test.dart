@@ -111,7 +111,7 @@ void main() {
     await client.runTask(
       taskId: taskId,
       agentType: 'claude',
-      permissionMode: 'ask',
+      permissionMode: 'manual',
       prompt: 'Reply with the single word READY and stop.',
       cwd: repoDir.path,
       cols: 100,

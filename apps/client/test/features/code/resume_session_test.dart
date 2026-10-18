@@ -10,7 +10,7 @@ CodeTask _task({
       title: 't',
       prompt: 'p',
       agent: AgentKind.claudeCode,
-      mode: PermissionMode.ask,
+      mode: PermissionMode.manual,
       status: status,
       events: events,
       cost: const TaskCost(),

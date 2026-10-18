@@ -1,18 +1,20 @@
 // 项目级配置模型(PERI-2)。镜像 Go projcfg.Config(.biu/config.toml 的 [agent] 段)。
 import 'package:flutter/foundation.dart';
 
+import 'code_task.dart';
+
 @immutable
 class ProjectConfig {
   const ProjectConfig({
     this.agentDefault = 'biu',
-    this.defaultPermissionMode = 'ask',
+    this.defaultPermissionMode = 'manual',
     this.promptPrefix = '',
   });
 
   /// 新任务默认 agent:'biu' | 'claude' | 'codex'。
   final String agentDefault;
 
-  /// 默认权限档:'ask' | 'auto_edit' | 'full_access'。
+  /// 默认权限档:'manual' | 'auto' | 'plan'。
   final String defaultPermissionMode;
 
   /// 自动拼到每个任务 prompt 最前的前缀。
@@ -34,8 +36,8 @@ class ProjectConfig {
     final agent = (j['agent'] as Map?)?.cast<String, dynamic>() ?? const {};
     return ProjectConfig(
       agentDefault: agent['default'] as String? ?? 'biu',
-      defaultPermissionMode:
-          agent['default_permission_mode'] as String? ?? 'ask',
+      defaultPermissionMode: normalizePermissionModeName(
+          agent['default_permission_mode'] as String? ?? 'manual'),
       promptPrefix: agent['prompt_prefix'] as String? ?? '',
     );
   }

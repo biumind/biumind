@@ -145,10 +145,7 @@ class CodeTasksDao {
       );
 
   static PermissionMode _modeFromName(String name) =>
-      PermissionMode.values.firstWhere(
-        (m) => m.name == name,
-        orElse: () => PermissionMode.ask,
-      );
+      permissionModeFromName(name);
 
   static CodeTaskStatus _statusFromName(String name) =>
       CodeTaskStatus.values.firstWhere(
