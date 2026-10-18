@@ -26,6 +26,7 @@ class ChatPreferences {
     this.defaultModel,
     this.defaultProviderId,
     this.defaultMode = ThreadMode.agent,
+    this.defaultPermissionMode = AutoApproveMode.manual,
     this.autoRenameEnabled = true,
     this.localeOverride,
     this.ttsModel,
@@ -38,6 +39,9 @@ class ChatPreferences {
   /// (同 model code 可能在官方 + BYOK provider 下都有)。null = 不锁路由。
   final String? defaultProviderId;
   final ThreadMode defaultMode;
+  /// 新建 thread 的初始权限模式(manual / auto / plan)。仅作用于创建时刻,
+  /// 之后用户在 composer chip 上的逐会话修改不受影响。
+  final AutoApproveMode defaultPermissionMode;
   /// 首条 user message 后自动从 prompt 推标题，覆盖 thread.title 为空的场景。
   /// 默认开。用户希望保留"新对话"占位时关掉。
   final bool autoRenameEnabled;
@@ -61,6 +65,7 @@ class ChatPreferences {
     String? defaultModel,
     String? defaultProviderId,
     ThreadMode? defaultMode,
+    AutoApproveMode? defaultPermissionMode,
     bool? autoRenameEnabled,
     String? localeOverride,
     String? ttsModel,
@@ -77,6 +82,8 @@ class ChatPreferences {
           ? null
           : (defaultProviderId ?? this.defaultProviderId),
       defaultMode: defaultMode ?? this.defaultMode,
+      defaultPermissionMode:
+          defaultPermissionMode ?? this.defaultPermissionMode,
       autoRenameEnabled: autoRenameEnabled ?? this.autoRenameEnabled,
       localeOverride: clearLocaleOverride
           ? null
@@ -90,6 +97,7 @@ class ChatPreferences {
         'defaultModel': defaultModel,
         'defaultProviderId': defaultProviderId,
         'defaultMode': defaultMode.name,
+        'defaultPermissionMode': defaultPermissionMode.name,
         'autoRenameEnabled': autoRenameEnabled,
         'localeOverride': localeOverride,
         'ttsModel': ttsModel,
@@ -102,6 +110,10 @@ class ChatPreferences {
       defaultProviderId: j['defaultProviderId'] as String?,
       defaultMode:
           ThreadMode.fromName((j['defaultMode'] as String?) ?? 'agent'),
+      // 存量 JSON 无此键 → manual;fromName 顺带把不可能出现的 'whitelist'
+      // 降级为 manual。
+      defaultPermissionMode: AutoApproveMode.fromName(
+          (j['defaultPermissionMode'] as String?) ?? 'manual'),
       autoRenameEnabled: (j['autoRenameEnabled'] as bool?) ?? true,
       localeOverride: j['localeOverride'] as String?,
       ttsModel: j['ttsModel'] as String?,
@@ -145,6 +157,11 @@ class ChatPreferencesNotifier extends StateNotifier<ChatPreferences> {
 
   Future<void> setDefaultMode(ThreadMode mode) async {
     state = state.copyWith(defaultMode: mode);
+    await _persist(state);
+  }
+
+  Future<void> setDefaultPermissionMode(AutoApproveMode mode) async {
+    state = state.copyWith(defaultPermissionMode: mode);
     await _persist(state);
   }
 

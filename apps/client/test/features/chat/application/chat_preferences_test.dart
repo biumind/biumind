@@ -47,6 +47,27 @@ void main() {
     expect(back.defaultMode, ThreadMode.task);
   });
 
+  test('defaultPermissionMode defaults to manual + round-trips', () async {
+    final n = ChatPreferencesNotifier();
+    await Future.delayed(Duration.zero);
+    expect(n.state.defaultPermissionMode, AutoApproveMode.manual);
+    await n.setDefaultPermissionMode(AutoApproveMode.plan);
+    expect(n.state.defaultPermissionMode, AutoApproveMode.plan);
+    const p = ChatPreferences(defaultPermissionMode: AutoApproveMode.auto);
+    final back = ChatPreferences.fromJson(p.toJson());
+    expect(back.defaultPermissionMode, AutoApproveMode.auto);
+    // 存量 JSON 无此键 → manual;老 'whitelist' 值降级 manual。
+    expect(
+      ChatPreferences.fromJson(const {}).defaultPermissionMode,
+      AutoApproveMode.manual,
+    );
+    expect(
+      ChatPreferences.fromJson(const {'defaultPermissionMode': 'whitelist'})
+          .defaultPermissionMode,
+      AutoApproveMode.manual,
+    );
+  });
+
   test('persists across notifier instances', () async {
     final a = ChatPreferencesNotifier();
     await Future.delayed(Duration.zero);

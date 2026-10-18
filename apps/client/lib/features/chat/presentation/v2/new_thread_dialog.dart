@@ -90,6 +90,9 @@ Future<String?> createDefaultThread(WidgetRef ref, {String? projectId}) async {
       providerId: providerId,
       runtimeEnvMode: runtimeEnvMode,
       projectId: projectId,
+      // 全局默认权限模式(设置 > 智能体 > 聊天)只作用于新建 thread 的初始
+      // autoApprove,之后 composer chip 的逐会话修改不受影响。
+      autoApprove: prefs.defaultPermissionMode,
     );
     return id;
   } catch (_) {
@@ -247,6 +250,8 @@ class _NewThreadDialogState extends ConsumerState<NewThreadDialog> {
         projectId: widget.projectId,
         runtimeEnvMode: _runtimeEnvForMode(),
         backend: _mode == ThreadMode.agent ? _agentBackend : 'biumindkit',
+        // 与 createDefaultThread 一致:全局默认权限模式作为初始 autoApprove。
+        autoApprove: ref.read(chatPreferencesProvider).defaultPermissionMode,
       );
       // 记忆字段：systemPrompt + poolTag —— 下次打开 dialog 自动预填。
       // unawaited，不阻塞 pop。

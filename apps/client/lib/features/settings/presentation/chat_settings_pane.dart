@@ -2,6 +2,7 @@
 //
 // 承载聊天专属偏好(SharedPreferences `biu.chat.prefs` 经 chatPreferencesProvider):
 //   * 默认模式 chat / agent / task —— 新对话出厂选中哪个(出厂 = agent)
+//   * 权限模式默认值 manual / auto / plan —— 新建 thread 的初始 autoApprove
 //   * 默认模型 —— 新会话默认走的模型(空 = BiuMind 官方默认);新会话创建
 //     (createDefaultThread)读的就是这一处,是默认模型的单一真相源
 //   * 自动改名 —— 首条 user 消息后自动用 prompt 推标题
@@ -70,6 +71,34 @@ class ChatSettingsPane extends ConsumerWidget {
                 ],
                 selected: {prefs.defaultMode},
                 onSelectionChanged: (s) => notifier.setDefaultMode(s.first),
+              ),
+            ),
+            const SizedBox(height: BiuTokens.space4),
+
+            // ── 权限模式默认值(仅作用于新建 thread 的初始 autoApprove) ──
+            _SectionCard(
+              title: t.chatV2SettingsDefaultPermissionMode,
+              child: SegmentedButton<AutoApproveMode>(
+                segments: [
+                  ButtonSegment(
+                    value: AutoApproveMode.manual,
+                    label: Text(t.chatV2ComposerAutoApproveManual),
+                    icon: const Icon(Icons.pan_tool_outlined, size: 14),
+                  ),
+                  ButtonSegment(
+                    value: AutoApproveMode.auto,
+                    label: Text(t.chatV2ComposerAutoApproveAuto),
+                    icon: const Icon(Icons.flash_on, size: 14),
+                  ),
+                  ButtonSegment(
+                    value: AutoApproveMode.plan,
+                    label: Text(t.chatV2ComposerAutoApprovePlan),
+                    icon: const Icon(Icons.assignment_outlined, size: 14),
+                  ),
+                ],
+                selected: {prefs.defaultPermissionMode},
+                onSelectionChanged: (s) =>
+                    notifier.setDefaultPermissionMode(s.first),
               ),
             ),
             const SizedBox(height: BiuTokens.space4),

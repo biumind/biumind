@@ -30,6 +30,7 @@ import '../../../../core/ui/biu_text_field.dart';
 import '../../../../core/ui/popup_position.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../application/chat_controller.dart';
+import '../../application/chat_preferences.dart';
 import '../../application/draft_history_controller.dart';
 import '../../application/effective_default_model.dart';
 import '../../domain/greeting.dart';
@@ -117,6 +118,9 @@ class _ThreadsShellPageState extends ConsumerState<ThreadsShellPage> {
         model: eff.code,
         providerId: eff.providerId,
         projectId: widget.projectId,
+        // 与 createDefaultThread 一致:全局默认权限模式作为初始 autoApprove。
+        autoApprove:
+            ref.read(chatPreferencesProvider).defaultPermissionMode,
       );
       if (mounted) setState(() => _selectedId = id);
     } catch (_) {
