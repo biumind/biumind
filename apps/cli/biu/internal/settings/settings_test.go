@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {

@@ -23,8 +23,8 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/compact"
 	"github.com/biumind/biumind/apps/cli/biu/internal/cost"
 	"github.com/biumind/biumind/apps/cli/biu/internal/hooks"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // maxConsecutiveMalformed caps how many consecutive turns may self-heal

@@ -35,7 +35,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // Definition is one parsed agent record.

@@ -12,7 +12,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/bgtask"
 	"github.com/biumind/biumind/apps/cli/biu/internal/client/searxng"
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/exechost"
 )
 

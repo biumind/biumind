@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // R6.4 / D7：SetCwd 在 floor（permission Context 有 OriginalCwd 锚点）下拒绝

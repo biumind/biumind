@@ -40,7 +40,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/lsp"
 	"github.com/biumind/biumind/apps/cli/biu/internal/mcp"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planhint"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planverify"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plugins"
@@ -55,6 +54,7 @@ import (
 	webtools "github.com/biumind/biumind/apps/cli/biu/internal/tools/web"
 	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
 	"github.com/biumind/biumind/apps/cli/biu/internal/worktree"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // Flags is the slice of CLI/env state the wiring layer needs. Mirrors

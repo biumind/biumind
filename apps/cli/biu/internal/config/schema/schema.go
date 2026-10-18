@@ -36,8 +36,8 @@ var validModes = []string{"cloud", "byo_endpoint", "direct"}
 // the legacy aliases (`ask`, `auto_edit`, `full_access`, …) so we
 // don't false-positive on a config that's actively used.
 //
-// Same reason for duplication as validModes (avoid an
-// internal/permissions → schema cycle).
+// Same reason for duplication as validModes (avoid a
+// biumindkit/permissions → schema cycle).
 var validPermissionModes = []string{
 	// canonical
 	"default", "acceptEdits", "plan", "bypassPermissions", "dontAskAgain",
@@ -359,7 +359,7 @@ func inEnum(v string, allowed []string) bool {
 // looksLikeRule sanity-checks a permissions rule. Forgiving: we
 // accept anything that starts with a letter and has balanced parens
 // (or no parens at all). Real parsing happens in
-// internal/permissions; we don't duplicate it here, just catch the
+// biumindkit/permissions; we don't duplicate it here, just catch the
 // obvious typos like trailing `(` or comma-separated rules.
 func looksLikeRule(r string) bool {
 	r = strings.TrimSpace(r)

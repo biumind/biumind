@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // handlePermissions renders the active permission state. parts is

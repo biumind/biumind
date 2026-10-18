@@ -37,11 +37,11 @@ import (
 
 	"github.com/biumind/biumind/apps/cli/biu/internal/agents"
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planverify"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
 	"github.com/biumind/biumind/apps/cli/biu/internal/tools/interactive"
 	"github.com/biumind/biumind/apps/cli/biu/internal/tools/orchestration"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // ─── routerProvider: parent + Plan + CodeReview multiplexer ───

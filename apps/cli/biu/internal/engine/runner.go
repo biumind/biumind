@@ -37,9 +37,9 @@ import (
 	"time"
 
 	"github.com/biumind/biumind/apps/cli/biu/internal/hooks"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
 

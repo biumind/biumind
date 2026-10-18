@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/biumind/biumind/apps/cli/biu/internal/cost"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 func (m model) statusBar() string {

@@ -38,7 +38,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
 	"github.com/biumind/biumind/apps/cli/biu/internal/modelcatalog"
 	"github.com/biumind/biumind/apps/cli/biu/internal/output"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/plans"
 	"github.com/biumind/biumind/apps/cli/biu/internal/session"
 	clauseSettings "github.com/biumind/biumind/apps/cli/biu/internal/settings"
@@ -46,6 +45,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
 	"github.com/biumind/biumind/apps/cli/biu/internal/statusline"
 	"github.com/biumind/biumind/apps/cli/biu/internal/trust"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // Options is the public entry surface (kept compatible with the old

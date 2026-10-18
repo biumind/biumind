@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/state"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
 

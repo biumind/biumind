@@ -5,7 +5,7 @@
 
 package agents
 
-import "github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+import "github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 
 // Builtins returns the list of agent definitions baked into biu.
 // Currently:

@@ -29,7 +29,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/clierr"
 	"github.com/biumind/biumind/apps/cli/biu/internal/config"
 	"github.com/biumind/biumind/apps/cli/biu/internal/oauth"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )

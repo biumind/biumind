@@ -67,7 +67,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/engine"
 	"github.com/biumind/biumind/apps/cli/biu/internal/hooks"
 	"github.com/biumind/biumind/apps/cli/biu/internal/memory"
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planhint"
 	"github.com/biumind/biumind/apps/cli/biu/internal/planverify"
 	"github.com/biumind/biumind/apps/cli/biu/internal/settings"
@@ -78,6 +77,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/tools/interactive"
 	"github.com/biumind/biumind/apps/cli/biu/internal/tools/orchestration"
 	webtools "github.com/biumind/biumind/apps/cli/biu/internal/tools/web"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/exechost"
 )
 

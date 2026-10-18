@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 func write(t *testing.T, dir, rel, body string) string {

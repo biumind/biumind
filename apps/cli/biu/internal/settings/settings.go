@@ -37,7 +37,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/biumind/biumind/apps/cli/biu/internal/permissions"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 )
 
 // Settings is one parsed settings.json file. Pointer types are used so
