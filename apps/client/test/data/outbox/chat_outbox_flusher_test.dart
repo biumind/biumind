@@ -109,6 +109,21 @@ void main() {
     expect(await pending(), isEmpty, reason: '成功的 op 已删除');
   });
 
+  test('入队 → flush 成功：PATCH auto_approve', () async {
+    await repo.enqueueOutbox(
+      op: ChatRepo.outboxOpSetAutoApprove,
+      threadId: 't4',
+      payload: const {'auto_approve': 'auto'},
+    );
+
+    await makeFlusher().flushOnce();
+
+    expect(brain.requests, [
+      'PATCH /v1/threads/t4 {"auto_approve":"auto"}',
+    ]);
+    expect(await pending(), isEmpty, reason: '成功的 op 已删除');
+  });
+
   test('404 → 丢 op（幂等收敛），其他 op 照常', () async {
     brain.statusByPath['/v1/threads/gone'] = 404;
     await repo.enqueueOutbox(

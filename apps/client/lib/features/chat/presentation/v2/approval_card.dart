@@ -144,8 +144,9 @@ class ApprovalCardV2 extends ConsumerWidget {
   Future<void> _resolveAlwaysForThread(
       WidgetRef ref, PermissionRequested req) async {
     _resolve(ref, req, allow: true);
-    final repo = ref.read(chatControllerDepsProvider).repo;
-    await repo.setThreadAutoApprove(threadId, AutoApproveMode.auto);
+    await ref
+        .read(chatThreadOpsProvider)
+        .setAutoApprove(threadId, AutoApproveMode.auto);
   }
 }
 

@@ -1091,10 +1091,11 @@ class ChatRepo {
   static const outboxOpDeleteThread = 'delete_thread';
   static const outboxOpArchiveThread = 'archive_thread';
   static const outboxOpRenameThread = 'rename_thread';
+  static const outboxOpSetAutoApprove = 'set_auto_approve';
 
   /// 入队一条上行 op。payload：archive → {"archived": true}；rename →
-  /// {"title": ...}；delete → 空 {}。立即到期（nextAttemptAt = now），
-  /// 由 flusher kick() 触发首次尝试。
+  /// {"title": ...}；set_auto_approve → {"auto_approve": ...}；delete →
+  /// 空 {}。立即到期（nextAttemptAt = now），由 flusher kick() 触发首次尝试。
   Future<void> enqueueOutbox({
     required String op,
     required String threadId,

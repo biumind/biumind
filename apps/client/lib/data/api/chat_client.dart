@@ -407,6 +407,9 @@ class ChatClient {
     bool? archived,
     String? agentId,
     bool? syncEnabled,
+    /// 三档权限模式 'manual' | 'auto' | 'plan'（'plan' 服务端落库为
+    /// 'manual'，permission_mode 映射天然兼容）。
+    String? autoApprove,
     /// Pass `{}` to clear, a populated map to set, omit to leave alone.
     Map<String, dynamic>? modelParams,
   }) async {
@@ -418,6 +421,7 @@ class ChatClient {
     if (archived != null) body['archived'] = archived;
     if (agentId != null) body['agent_id'] = agentId;
     if (syncEnabled != null) body['sync_enabled'] = syncEnabled;
+    if (autoApprove != null) body['auto_approve'] = autoApprove;
     if (modelParams != null) body['model_params'] = modelParams;
     final raw = await _request('PATCH', '/v1/threads/$id', body: body);
     return ChatThread.fromJson(raw);

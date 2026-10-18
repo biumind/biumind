@@ -1,8 +1,9 @@
 // ChatOutboxFlusher —— chat 上行写盒冲刷器（P1.3，设计
 // docs/BiuMind-Local-Data-Isolation-Design.md §4）。
 //
-// 照搬 WikiOutboxFlusher 范式（wiki_outbox_flusher.dart），覆盖 chat 的三
-// 种会话级上行 op：delete_thread / archive_thread / rename_thread。
+// 照搬 WikiOutboxFlusher 范式（wiki_outbox_flusher.dart），覆盖 chat 的会
+// 话级上行 op：delete_thread / archive_thread / rename_thread /
+// set_auto_approve。
 //
 // 策略：
 //   * flushOnce() 按 id 序（FIFO）应用所有 nextAttemptAt <= now 的 op，
@@ -134,6 +135,10 @@ class ChatOutboxFlusher {
       case ChatRepo.outboxOpRenameThread:
         await req('PATCH', '/v1/threads/${entry.threadId}', body: {
           'title': payload['title'] ?? '',
+        });
+      case ChatRepo.outboxOpSetAutoApprove:
+        await req('PATCH', '/v1/threads/${entry.threadId}', body: {
+          'auto_approve': payload['auto_approve'] ?? 'manual',
         });
       default:
         // 未知 op 重试一万年也不会成功 —— 丢掉防毒丸卡死队列。

@@ -173,7 +173,7 @@ final chatControllerDepsProvider = Provider<ChatControllerDeps>((ref) {
   );
 });
 
-/// ChatThreadOps —— 会话级写操作（删除 / 归档 / 重命名）入口。
+/// ChatThreadOps —— 会话级写操作（删除 / 归档 / 重命名 / 权限模式）入口。
 ///
 /// 不挂 per-thread 的 ChatController family：那个 build() 会尝试 resume
 /// session（拉历史 + 接实时），为「删一个没打开的会话」实例化它既浪费
@@ -239,6 +239,24 @@ class ChatThreadOps {
       }
     }
     await _deps.repo.renameThread(threadId, title);
+  }
+
+  /// 权限模式：先上行（PATCH auto_approve，brain 按它填 WorkPayload
+  /// .permission_mode 点亮云端/ daemon runtime 的引擎模式）再写本地。
+  /// 失败处理同删除；本地写永远执行 —— 本地分流（auto 立即应答）不依赖上行。
+  Future<void> setAutoApprove(String threadId, AutoApproveMode mode) async {
+    try {
+      await _deps.chatClient.patchThread(threadId, autoApprove: mode.name);
+    } catch (e) {
+      if (e is IdentityApiError && e.status == 404) {
+        // direct 会话服务端无此行 —— 静默。
+      } else {
+        await _enqueue(ChatRepo.outboxOpSetAutoApprove, threadId, {
+          'auto_approve': mode.name,
+        }, '$e');
+      }
+    }
+    await _deps.repo.setThreadAutoApprove(threadId, mode);
   }
 
   /// 上行失败（非 404）入队 + kick flusher 立即首试。入队本身失败只告警
@@ -944,7 +962,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
             ),
           );
         case PermissionRequested():
-          // 仅 manual / whitelist 模式才会到这里(auto 模式 BiuSessionConnection
+          // 仅 manual / plan 模式才会到这里(auto 模式 BiuSessionConnection
           // 自己已应答)。投递到 pendingApprovalsProvider 让 UI 弹 ApprovalCard。
           // ChatController 这层不改 ChatState —— streaming 状态在 daemon 等
           // 答复期间继续保持 isStreaming=true,UI 流不被打断。
