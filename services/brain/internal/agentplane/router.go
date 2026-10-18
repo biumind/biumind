@@ -46,6 +46,30 @@ func (s *Server) stampToolPolicy(ctx context.Context, env *Environment, payload 
 	payload.ToolPolicy = policy
 }
 
+// permissionModeForThread 把 chat.threads.auto_approve 映射成
+// WorkPayload.PermissionMode：'auto' → "auto"（worker 端共享权限内核
+// ModeAuto，deny 规则之上全放行）；其余取值（'whitelist' / 'manual'）、
+// 无 thread、ChatStore 未注入、查询失败 → ""（保持 worker 端现状行为，
+// omitempty 保证老 payload 字节流不变）。跟 stampToolPolicy 同款语义：
+// 查询失败仅 log 不阻断。
+func (s *Server) permissionModeForThread(ctx context.Context, uid uuid.UUID, threadID *uuid.UUID) string {
+	if threadID == nil || *threadID == uuid.Nil || s.ChatStore == nil {
+		return ""
+	}
+	autoApprove, err := s.ChatStore.ThreadAutoApprove(ctx, uid, *threadID)
+	if err != nil {
+		if !errors.Is(err, chatpkg.ErrNotFound) {
+			s.Logger.Warn("agentplane: lookup thread auto_approve",
+				"thread_id", *threadID, "err", err)
+		}
+		return ""
+	}
+	if autoApprove == "auto" {
+		return "auto"
+	}
+	return ""
+}
+
 // allowedModes 跟 schema CHECK 约束一致。
 var allowedModes = map[string]bool{
 	"chat":  true,
@@ -141,6 +165,11 @@ type WorkPayload struct {
 	ProviderID   string `json:"provider_id,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	ThreadID     string `json:"thread_id,omitempty"`
+	// PermissionMode 是用户面权限模式（"auto" / "plan" / "manual"），由
+	// permissionModeForThread 从 chat.threads.auto_approve 映射填充
+	// （'auto' → "auto"；其余 → 空）。空串 = 老行为，worker 端各自走
+	// 默认权限路径（runtime 走 legacy PermSafe，daemon 用本地模式）。
+	PermissionMode string `json:"permission_mode,omitempty"`
 	// Workdir 让 daemon 知道在哪个目录跑工具。空 → daemon 用启动时的 cwd。
 	// daemon 端 worker.go::handleWork 把它写到 biumindkit Options.Cwd +
 	// 通过 PermissionUpdate.AddDirectories 加入工作目录白名单。
@@ -415,7 +444,8 @@ func (s *Server) createChatSession(w http.ResponseWriter, r *http.Request, uid u
 			// 透传 user JWT 给 ChatRunner — biumindkit 拿来当 Bearer 喂
 			// model-relay,使 chat 模式跟 chat send v1 / agent BYOK 一致
 			// 走"用户身份 + admin channel 路由 + 平台计费"链路。
-			UserBearer: bearerFromAuthHeader(r.Header.Get("Authorization")),
+			UserBearer:     bearerFromAuthHeader(r.Header.Get("Authorization")),
+			PermissionMode: s.permissionModeForThread(r.Context(), uid, threadID),
 		}
 		// detached ctx —— 父请求 ctx 在 HTTP response 写完后会 cancel；
 		// chat runner 要继续跑到 LLM 完。background ctx 让它不受 HTTP
@@ -627,6 +657,10 @@ type agentWorkSpec struct {
 // sealBYOK/EncBYOK/BYOKKey 加密投递链已删（P1 起 relay 不再读 X-Biumind-LLM-Key
 // header fast-path，那条链是死信）。
 func (s *Server) buildAgentWorkPayload(ctx context.Context, env *Environment, spec agentWorkSpec) WorkPayload {
+	var threadID *uuid.UUID
+	if parsed, err := uuid.Parse(spec.ThreadID); err == nil && parsed != uuid.Nil {
+		threadID = &parsed
+	}
 	payload := WorkPayload{
 		SessionID:          spec.SessionID,
 		UserID:             spec.UserID,
@@ -644,6 +678,7 @@ func (s *Server) buildAgentWorkPayload(ctx context.Context, env *Environment, sp
 		ClientSideRecordID: spec.ClientSideRecordID,
 		ClientSideBaseURL:  spec.ClientSideBaseURL,
 		ClientSideProtocol: spec.ClientSideProtocol,
+		PermissionMode:     s.permissionModeForThread(ctx, spec.UserID, threadID),
 	}
 	s.stampToolPolicy(ctx, env, &payload) // R6.3 per-device 能力 preset
 	return payload
@@ -730,6 +765,7 @@ func (s *Server) createTaskSession(w http.ResponseWriter, r *http.Request, uid u
 			Workdir:        req.Workdir,
 			RuntimeEnvMode: renv,
 			UserBearer:     bearerFromAuthHeader(r.Header.Get("Authorization")),
+			PermissionMode: s.permissionModeForThread(r.Context(), uid, threadID),
 		}
 		// R6.3：task pool 的 runtime environment 通常无 device → no-op；保持对称。
 		s.stampToolPolicy(r.Context(), env, &payload)

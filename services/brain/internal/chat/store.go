@@ -185,6 +185,25 @@ func (s *Store) GetThread(ctx context.Context, userID, threadID uuid.UUID) (*Thr
 	return t, nil
 }
 
+// ThreadAutoApprove 只读 chat.threads.auto_approve（'auto' | 'whitelist' |
+// 'manual'）—— agentplane 路由层构造 WorkPayload 时映射 permission_mode
+// 用。轻量单列查询，避免为这一个字段拉整条 Thread。thread 不存在 / 不属
+// 于该 user → ErrNotFound。
+func (s *Store) ThreadAutoApprove(ctx context.Context, userID, threadID uuid.UUID) (string, error) {
+	var autoApprove string
+	err := s.pool.QueryRow(ctx, `
+		SELECT auto_approve FROM chat.threads
+		WHERE id = $1 AND user_id = $2
+	`, threadID, userID).Scan(&autoApprove)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return autoApprove, nil
+}
+
 type ListThreadsInput struct {
 	UserID   uuid.UUID
 	Archived *bool // nil = both; true/false to filter

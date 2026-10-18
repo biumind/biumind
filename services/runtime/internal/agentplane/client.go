@@ -41,7 +41,11 @@ type WorkPayload struct {
 	Model        string    `json:"model,omitempty"`
 	SystemPrompt string    `json:"system_prompt,omitempty"`
 	ThreadID     string    `json:"thread_id,omitempty"`
-	PoolTag      string    `json:"pool_tag,omitempty"`
+	// PermissionMode 是用户面权限模式（"auto" / "plan" / "manual"），由 brain
+	// 路由层从 thread 配置透传（与 brain 端 router.go WorkPayload 对齐）。
+	// 空串 = 旧 payload，worker 走 legacy PermSafe 兼容路径。
+	PermissionMode string `json:"permission_mode,omitempty"`
+	PoolTag        string `json:"pool_tag,omitempty"`
 }
 
 // APIError 是 4xx / 5xx HTTP 的封装。worker poll loop 用它判断是否是

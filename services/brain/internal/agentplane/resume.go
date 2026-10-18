@@ -226,15 +226,16 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess.State = "active" // CAS 已翻牌,内存副本同步给 runner 日志用
 	s.ChatRunner.RunSession(detachedCtx(ctx), sess, WorkPayload{
-		SessionID:    sessionID,
-		UserID:       uid,
-		Mode:         "chat",
-		Prompt:       prompt,
-		Model:        sess.Model,
-		SystemPrompt: sess.SystemPrompt,
-		ThreadID:     sess.ThreadID.String(),
-		History:      history,
-		UserBearer:   bearerFromAuthHeader(r.Header.Get("Authorization")),
+		SessionID:      sessionID,
+		UserID:         uid,
+		Mode:           "chat",
+		Prompt:         prompt,
+		Model:          sess.Model,
+		SystemPrompt:   sess.SystemPrompt,
+		ThreadID:       sess.ThreadID.String(),
+		History:        history,
+		UserBearer:     bearerFromAuthHeader(r.Header.Get("Authorization")),
+		PermissionMode: s.permissionModeForThread(ctx, uid, sess.ThreadID),
 	})
 
 	s.Logger.Info("agentplane: session resumed",
