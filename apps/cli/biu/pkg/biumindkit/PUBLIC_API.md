@@ -45,6 +45,7 @@ func (a *Agent) Compact(ctx context.Context) error
 func (a *Agent) Cost() Cost                              // session 聚合
 func (a *Agent) CostByTool() map[string]ToolCost          // F4: 按工具拆分
 func (a *Agent) Interrupt() error                         // F5: 干净 stop,emit Done{interrupted}
+func (a *Agent) Permissions() *permissions.Context        // 会话中动态切权限模式（set_permission_mode）
 func (a *Agent) Close() error
 ```
 

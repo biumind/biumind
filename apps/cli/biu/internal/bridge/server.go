@@ -34,6 +34,7 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/gitassist"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/code"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
@@ -481,6 +482,9 @@ func (rec *sessionRec) appendFrame(frame sdkproto.Frame) {
 //   - interrupt：cancel 当前 turn 的 context，submit goroutine 自动收尾
 //   - cancel_async_message：biumindkit 没 message-级 cancel，best-effort 用 turn-级
 //   - set_model：biumindkit Agent 不暴露动态换模型，返回 error
+//   - set_permission_mode：切引擎权限 Context 的模式。plan 走 EnterPlanMode /
+//     ExitPlanMode 保持 prePlanMode 簿记（同 REPL /mode），其余直接 SetMode；
+//     未知模式字符串按 ModeFromString 语义回落 default，不报错。
 //
 // 其他 subtype（mcp_* / get_context_usage / hook_callback / ...）暂不支持 ——
 // 返回 error 让调用方知道；后续 brain 集成时一并实化。
@@ -515,6 +519,29 @@ func (rec *sessionRec) dispatchControl(req *sdkproto.SDKControlRequest) sdkproto
 	case sdkproto.SubtypeSetModel:
 		// biumindkit Agent 没动态 SetModel API —— 想换模型必须重建 session。
 		return controlError(req.RequestID, "set_model not supported by biu bridge; recreate session with desired model")
+
+	case sdkproto.SubtypeSetPermissionMode:
+		body, ok := req.Request.(*sdkproto.SetPermissionMode)
+		if !ok {
+			return controlError(req.RequestID, "invalid set_permission_mode request")
+		}
+		// 与 REPL /mode 同一套语义（internal/repl/model.go）：未知模式
+		// 字符串按 ModeFromString 回落 default 不报错；plan 走
+		// EnterPlanMode / ExitPlanMode 保持 prePlanMode 簿记，其余直接
+		// SetMode。引擎策略链每次工具调用都重读 mode，立即生效。
+		newMode := permissions.ModeFromString(body.Mode)
+		permCtx := rec.agent.Permissions()
+		switch {
+		case newMode == permissions.ModePlan:
+			permCtx.EnterPlanMode()
+		case permCtx.Mode() == permissions.ModePlan:
+			permCtx.ExitPlanMode()
+			permCtx.SetMode(newMode)
+		default:
+			permCtx.SetMode(newMode)
+		}
+		resp, _ := json.Marshal(map[string]string{"mode": string(permCtx.Mode())})
+		return controlSuccess(req.RequestID, resp)
 
 	default:
 		return controlError(req.RequestID, fmt.Sprintf("control subtype %q not implemented", subtype))

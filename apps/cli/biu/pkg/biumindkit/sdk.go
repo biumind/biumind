@@ -794,6 +794,16 @@ func New(opt Options) (*Agent, error) {
 	return &Agent{eng: eng, policy: policy, policyExt: opt.PermissionPolicyExt, askUser: opt.AskUser}, nil
 }
 
+// Permissions exposes the engine's live permission Context so embedders
+// (e.g. the bridge's set_permission_mode control) can switch modes
+// mid-session. The Context is internally locked and the decision chain
+// reads the mode per tool call, so the change takes effect on the next
+// permission check. Use EnterPlanMode / ExitPlanMode for plan
+// transitions to keep prePlanMode bookkeeping intact.
+func (a *Agent) Permissions() *permissions.Context {
+	return a.eng.Permissions()
+}
+
 // Submit fires a user prompt. The returned channel emits SDK-level
 // events and closes when the turn finishes. Callers drain the channel
 // to completion.

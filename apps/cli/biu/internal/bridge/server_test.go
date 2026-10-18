@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
+	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
+	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
 
 func newTestServer(t *testing.T, auth string) *httptest.Server {
@@ -164,5 +166,81 @@ func TestCostEndpointReturnsSnapshot(t *testing.T) {
 	}
 	if got.Model == "" {
 		t.Errorf("cost.Model missing")
+	}
+}
+
+// set_permission_mode 控制分支：语义跟 REPL /mode 对齐（auto 直接
+// SetMode；plan 走 EnterPlanMode/ExitPlanMode 簿记；未知模式回落
+// default 不报错）。
+func TestDispatchControlSetPermissionMode(t *testing.T) {
+	ag, err := biumindkit.New(biumindkit.Options{
+		Model:               "test",
+		APIKey:              "sk-fake",
+		LoadProjectMemory:   biumindkit.NoMemory,
+		LoadProjectSettings: biumindkit.NoSettings,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ag.Close()
+	rec := &sessionRec{id: "s1", agent: ag}
+
+	dispatch := func(requestID, mode string) *sdkproto.SDKControlResponse {
+		t.Helper()
+		frame := rec.dispatchControl(&sdkproto.SDKControlRequest{
+			Type:      sdkproto.TypeControlRequest,
+			RequestID: requestID,
+			Request:   &sdkproto.SetPermissionMode{Mode: mode},
+		})
+		resp, ok := frame.(*sdkproto.SDKControlResponse)
+		if !ok {
+			t.Fatalf("mode %q: unexpected frame type %T", mode, frame)
+		}
+		if resp.Response.Subtype != sdkproto.ControlSubtypeSuccess {
+			t.Fatalf("mode %q: control error: %s", mode, resp.Response.Error)
+		}
+		return resp
+	}
+
+	// auto：直接 SetMode。
+	dispatch("r1", "auto")
+	if got := ag.Permissions().Mode(); got != permissions.ModeAuto {
+		t.Errorf("after auto: mode=%v want auto", got)
+	}
+
+	// plan：EnterPlanMode 簿记 prePlanMode=auto。
+	dispatch("r2", "plan")
+	if got := ag.Permissions().Mode(); got != permissions.ModePlan {
+		t.Errorf("after plan: mode=%v want plan", got)
+	}
+	if got := ag.Permissions().PrePlanMode(); got != permissions.ModeAuto {
+		t.Errorf("prePlanMode=%v want auto", got)
+	}
+
+	// 离开 plan：ExitPlanMode 清簿记 + SetMode(default)。
+	dispatch("r3", "default")
+	if got := ag.Permissions().Mode(); got != permissions.ModeDefault {
+		t.Errorf("after default: mode=%v want default", got)
+	}
+	if got := ag.Permissions().PrePlanMode(); got != "" {
+		t.Errorf("prePlanMode should be cleared, got %q", got)
+	}
+
+	// 未知模式字符串 → 回落 default，不报错。
+	dispatch("r4", "bogus")
+	if got := ag.Permissions().Mode(); got != permissions.ModeDefault {
+		t.Errorf("unknown mode: mode=%v want default", got)
+	}
+
+	// 成功应答带生效后的模式。
+	resp := dispatch("r5", "auto")
+	var payload struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(resp.Response.Response, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Mode != "auto" {
+		t.Errorf("response mode=%q want auto", payload.Mode)
 	}
 }
