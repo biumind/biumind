@@ -1,11 +1,12 @@
 // Permission modes.
 //
-// Five modes:
+// Six modes:
 //
 //   default            — ask on first use of a destructive tool
 //   acceptEdits        — auto-allow Edit/Write to project workspace
 //   plan               — read-only browsing (denies all writes)
-//   bypassPermissions  — never ask; "yolo" mode (--dangerously-skip-permissions)
+//   bypassPermissions  — never ask; "yolo" mode, skips rule evaluation
+//   auto               — never ask, but deny rules still win
 //   dontAsk            — answer every ask with deny
 //
 // The mode is independent of rules. A rule-allow always wins over the
@@ -24,6 +25,10 @@ const (
 	ModePlan        Mode = "plan"
 	ModeBypass      Mode = "bypassPermissions"
 	ModeDontAsk     Mode = "dontAsk"
+	// ModeAuto never asks, but stays below deny rules (and, once wired,
+	// the dangerous-command / sensitive-path guards) in the decision
+	// chain — unlike ModeBypass, which skips rule evaluation entirely.
+	ModeAuto Mode = "auto"
 
 	// ModeFullAccess is a legacy alias kept for backwards compat with
 	// the old config schema. New code should use ModeBypass.
@@ -50,6 +55,8 @@ func ModeFromString(s string) Mode {
 		return ModePlan
 	case "bypassPermissions", "bypass":
 		return ModeBypass
+	case "auto":
+		return ModeAuto
 	case "dontAsk", "dont_ask":
 		return ModeDontAsk
 
@@ -68,7 +75,7 @@ func ModeFromString(s string) Mode {
 func (m Mode) IsValid() bool {
 	switch m {
 	case ModeDefault, ModeAcceptEdits, ModePlan, ModeBypass, ModeDontAsk,
-		ModeFullAccess, ModeAutoEdit, ModeAsk:
+		ModeAuto, ModeFullAccess, ModeAutoEdit, ModeAsk:
 		return true
 	}
 	return false
@@ -83,6 +90,8 @@ func (m Mode) ShortTitle() string {
 		return "Plan"
 	case ModeBypass, ModeFullAccess:
 		return "Bypass"
+	case ModeAuto:
+		return "Auto"
 	case ModeDontAsk:
 		return "DontAsk"
 	default:
@@ -94,7 +103,8 @@ func (m Mode) ShortTitle() string {
 // string for default mode.
 func (m Mode) Symbol() string {
 	switch m {
-	case ModeAcceptEdits, ModeAutoEdit, ModeBypass, ModeFullAccess, ModeDontAsk:
+	case ModeAcceptEdits, ModeAutoEdit, ModeBypass, ModeFullAccess, ModeDontAsk,
+		ModeAuto:
 		return "⏵⏵"
 	case ModePlan:
 		return "❙❙"

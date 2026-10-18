@@ -709,7 +709,7 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 		return m.handleModel(parts)
 	case "/mode":
 		if len(parts) < 2 {
-			m.appendSystemNote("usage: /mode <default|acceptEdits|plan|bypassPermissions>")
+			m.appendSystemNote("usage: /mode <default|acceptEdits|auto|plan|bypassPermissions>")
 			return m, nil
 		}
 		if m.engine == nil {

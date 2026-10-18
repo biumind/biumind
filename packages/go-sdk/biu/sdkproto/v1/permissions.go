@@ -14,6 +14,7 @@ const (
 	PermissionModeDefault           = "default"
 	PermissionModeAcceptEdits       = "acceptEdits"
 	PermissionModeBypassPermissions = "bypassPermissions"
+	PermissionModeAuto              = "auto"
 	PermissionModePlan              = "plan"
 	PermissionModeDontAsk           = "dontAsk"
 

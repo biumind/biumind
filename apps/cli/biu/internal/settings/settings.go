@@ -17,7 +17,7 @@
 //       "allow":  ["Bash(npm install)", "Edit(/repo/**)"],
 //       "deny":   ["Bash(rm -rf /)"],
 //       "ask":    ["Bash(git push:*)"],
-//       "defaultMode": "default" | "acceptEdits" | "plan" | "bypassPermissions"
+//       "defaultMode": "default" | "acceptEdits" | "auto" | "plan" | "bypassPermissions"
 //     },
 //     "hooks": { "PreToolUse": [...], "PostToolUse": [...], ... },
 //     "model":  "claude-sonnet-4-6",

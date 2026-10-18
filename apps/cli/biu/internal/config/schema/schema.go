@@ -40,7 +40,7 @@ var validModes = []string{"cloud", "byo_endpoint", "direct"}
 // biumindkit/permissions → schema cycle).
 var validPermissionModes = []string{
 	// canonical
-	"default", "acceptEdits", "plan", "bypassPermissions", "dontAskAgain",
+	"default", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAskAgain",
 	// legacy aliases ModeFromString understands
 	"ask", "accept_edits", "bypass", "dontAsk", "dont_ask",
 	"auto_edit", "full_access",

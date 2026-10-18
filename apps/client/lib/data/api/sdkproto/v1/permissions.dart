@@ -14,6 +14,7 @@ class PermissionMode {
   static const defaultMode = 'default';
   static const acceptEdits = 'acceptEdits';
   static const bypassPermissions = 'bypassPermissions';
+  static const auto = 'auto';
   static const plan = 'plan';
   static const dontAsk = 'dontAsk';
 }

@@ -10,7 +10,7 @@
     },
     "PermissionMode": {
       "type": "string",
-      "enum": ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk"]
+      "enum": ["default", "acceptEdits", "bypassPermissions", "auto", "plan", "dontAsk"]
     },
     "PermissionUpdateDestination": {
       "type": "string",
