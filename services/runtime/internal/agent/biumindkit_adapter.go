@@ -22,6 +22,12 @@
 // PermissionPolicyFn 拿到的 biumindkit.PermissionRequest 没有 Risk 字段
 // （biumindkit 不知道这个分类）—— 我们用 ToolName 反查 Registry
 // 拿原 Risk。这样跟 runtime 现有 PermissionMode 行为完全一致。
+//
+// 注意（auto 权限模式落地后）：这套 Risk 策略现在只服务 **空串 payload**
+// 的 legacy 兼容路径（BuildBiumindkitAgentInput.PermissionMode == ""）。
+// 非空用户面模式（"auto" / "plan" / "manual"）改由共享权限内核
+// （biumindkit Options.PermissionMode）决策 + PermissionDeny 兜底，
+// 见 biumindkit_builder.go resolvePermissionWiring。
 
 package agent
 

@@ -217,7 +217,8 @@ func TestBuildBiumindkitAgent_BasicConstruction(t *testing.T) {
 			Model:           "claude-haiku-4-5",
 			System:          "you are a tester",
 			Tools:           DefaultRegistry(),
-			PermissionMode:  PermSafe,
+			// 空串 = legacy PermSafe 兼容路径（改造前的默认行为）。
+			PermissionMode: "",
 		})
 	if err != nil {
 		t.Fatalf("BuildBiumindkitAgent: %v", err)

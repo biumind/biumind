@@ -34,10 +34,22 @@ type BuildBiumindkitAgentInput struct {
 	AnthropicEndpoint string
 
 	// 任务参数 —— 跟 RunInput 一致
-	Model          string
-	System         string
-	UserID         interface{} // uuid.UUID; interface{} 避开循环 import 风险
-	PermissionMode PermissionMode
+	Model  string
+	System string
+	UserID interface{} // uuid.UUID; interface{} 避开循环 import 风险
+	// PermissionMode 是 brain WorkPayload.permission_mode 的用户面权限
+	// 模式字符串（不再是 runtime 自有的 agent.PermissionMode 枚举）：
+	//
+	//	"auto"                 → 共享权限内核 ModeAuto（deny 规则之上全放行）
+	//	"plan"                 → 内核 ModePlan（只读）
+	//	"manual" / "default" / 未知值 → 内核 default 模式
+	//	""                     → 旧 payload 兼容路径：PermissionPolicy(reg,
+	//	                         PermSafe) 的 Risk 分级策略，行为与改造前一致
+	//
+	// 非空模式统一配 PermissionDeny() 兜底：沙箱无 client 审批回路，
+	// 残余 ask 落 fail-closed，模型收到 deny 原因（设计文档
+	// BiuMind-Auto-Permission-Mode-Design §4.3 的明确决策）。
+	PermissionMode string
 
 	// ResolveDefaultModel —— Model 为空时注入 biumindkit 的默认模型
 	// 解析钩子(见 default_model.go)。nil 时 biumindkit.New 对空 Model
@@ -59,7 +71,8 @@ type BuildBiumindkitAgentInput struct {
 // BuildBiumindkitAgent 构造一个 task-mode biumindkit.Agent，包含：
 //   - 克隆基础 Registry + 注册 memory / skills / apps 工具
 //   - skills + apps 的系统提示注入
-//   - PermissionMode → biumindkit.PermissionPolicy 映射
+//   - PermissionMode（payload 用户面模式）→ 内核模式 + PermissionPolicy
+//     映射（resolvePermissionWiring）
 //   - PriorMessages = nil（task mode 单轮提示，没历史；agentplane router
 //     不投递 thread 历史）
 //
@@ -141,8 +154,9 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		}
 	}
 
-	// PermissionMode → PermissionPolicy（适配器在 biumindkit_adapter.go）
-	policy := PermissionPolicy(reg, in.PermissionMode)
+	// PermissionMode → 内核模式 + PermissionPolicy（映射逻辑收在
+	// resolvePermissionWiring，可单测）。
+	kernelMode, policy := resolvePermissionWiring(reg, in.PermissionMode)
 
 	// 工具集：reg.AsBiumindkitTools 把每个 *Tool 投影成 biumindkit.Tool
 	var bkTools []biumindkit.Tool
@@ -159,6 +173,7 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		MaxTokens:           in.MaxTokens,
 		MaxToolTurns:        in.MaxToolTurns,
 		ExtraTools:          bkTools,
+		PermissionMode:      kernelMode,
 		PermissionPolicy:    policy,
 		LoadProjectMemory:   biumindkit.NoMemory,   // runtime 不读本地 BIUMIND.md
 		LoadProjectSettings: biumindkit.NoSettings, // runtime 不读本地 settings.json
@@ -176,4 +191,33 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		return nil, fmt.Errorf("agent: build biumindkit agent: %w", err)
 	}
 	return ag, nil
+}
+
+// resolvePermissionWiring 把 payload 的用户面权限模式映射成
+// (biumindkit Options.PermissionMode, Options.PermissionPolicy)：
+//
+//	""        → ("", PermissionPolicy(reg, PermSafe)) —— 旧 payload 兼容
+//	            路径，Risk 分级策略，行为与改造前一字不差（内核模式留空 =
+//	            biumindkit 不动 Context mode，全部决策由 policy 应答）。
+//	"auto"    → ("auto", PermissionDeny()) —— 内核 ModeAuto 在策略链
+//	            deny 规则之后全量放行；deny 兜底只接残余 ask。
+//	"plan"    → ("plan", PermissionDeny()) —— 内核 ModePlan 只读。
+//	"manual" / "default" / 未知值 → ("default", PermissionDeny()) ——
+//	            内核 default 模式：只读工具链内放行，写/危险工具落
+//	            fallback-ask → 沙箱无 client 回路，deny 兜底 fail-closed，
+//	            模型收到 deny 原因（设计文档 §4.3：提示用户改用 auto 或
+//	            配置规则）。未知字符串按 ModeFromString 同款语义回落
+//	            default，不报错。
+func resolvePermissionWiring(reg *Registry, payloadMode string) (string, biumindkit.PermissionPolicyFn) {
+	if payloadMode == "" {
+		return "", PermissionPolicy(reg, PermSafe)
+	}
+	switch payloadMode {
+	case "auto":
+		return "auto", biumindkit.PermissionDeny()
+	case "plan":
+		return "plan", biumindkit.PermissionDeny()
+	default:
+		return "default", biumindkit.PermissionDeny()
+	}
 }

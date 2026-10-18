@@ -352,8 +352,12 @@ func run() error {
 						ResolveDefaultModel: modelResolver.Resolve,
 						System:              work.SystemPrompt,
 						UserID:              work.UserID,
-						PermissionMode:      agent.PermSafe, // task mode 默认中等（允许 read + 受控写）
-						Tools:               baseTools,
+						// payload 的用户面权限模式透传（brain 从 thread
+						// auto_approve 映射）。空串（旧 payload）走 legacy
+						// PermSafe 兼容路径，行为与硬编码 agent.PermSafe
+						// 一致。
+						PermissionMode: work.PermissionMode,
+						Tools:          baseTools,
 					})
 				}
 				worker := rtagentplane.NewWorker(registrar, builder, rtagentplane.WorkerConfig{}, logger)
