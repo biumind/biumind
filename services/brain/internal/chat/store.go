@@ -288,6 +288,9 @@ type UpdateThreadInput struct {
 	Archived     *bool
 	AgentID      *uuid.UUID
 	SyncEnabled  *bool
+	// AutoApprove 已由 HTTP 层 normalizeAutoApprove 归一化（'plan' →
+	// 'manual'），落库值恒满足 threads_auto_approve_chk 约束。
+	AutoApprove *string
 	// ModelParams replaces metadata.model_params wholesale (not a
 	// deep merge). Pass an empty struct via &json.RawMessage("{}")
 	// to clear it. nil = leave the existing value alone.
@@ -322,6 +325,9 @@ func (s *Store) UpdateThread(ctx context.Context, in UpdateThreadInput) (*Thread
 	}
 	if in.SyncEnabled != nil {
 		add("sync_enabled", *in.SyncEnabled)
+	}
+	if in.AutoApprove != nil {
+		add("auto_approve", *in.AutoApprove)
 	}
 	if in.ModelParams != nil {
 		// Merge into the metadata jsonb without touching other

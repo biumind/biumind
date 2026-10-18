@@ -3,7 +3,7 @@
 //	GET    /v1/threads                          list (cursor pagination; updated_after=RFC3339 for incremental sync)
 //	POST   /v1/threads                          create
 //	GET    /v1/threads/{id}                     get one
-//	PATCH  /v1/threads/{id}                     rename / pin / archive / model
+//	PATCH  /v1/threads/{id}                     rename / pin / archive / model / auto_approve
 //	DELETE /v1/threads/{id}                     hard delete (CASCADE messages)
 //
 //	GET    /v1/threads/{id}/messages            list (position-cursor)
@@ -357,9 +357,26 @@ type updateThreadReq struct {
 	Archived     *bool   `json:"archived"`
 	AgentID      *string `json:"agent_id"`
 	SyncEnabled  *bool   `json:"sync_enabled"`
+	// AutoApprove 是用户面三档权限模式（'manual' | 'auto' | 'plan'）。
+	// DB check 约束（migration 00038）只认 'auto' | 'whitelist' | 'manual'，
+	// 不改约束：'plan' 落库为 'manual'（agentplane 的 permission_mode 映射
+	// 只把 'auto' 升级为 "auto"，天然兼容）。
+	AutoApprove *string `json:"auto_approve"`
 	// ModelParams: omit field to leave alone; pass `{}` to clear;
 	// pass {temperature, top_p, max_tokens, stop_sequences} to set.
 	ModelParams json.RawMessage `json:"model_params,omitempty"`
+}
+
+// normalizeAutoApprove 校验并归一化 auto_approve 取值。返回 false = 非法值
+// （调用方回 400）。'plan' 归一化为 'manual' 落库（见 updateThreadReq 注释）。
+func normalizeAutoApprove(v string) (string, bool) {
+	switch v {
+	case "auto", "manual":
+		return v, true
+	case "plan":
+		return "manual", true
+	}
+	return "", false
 }
 
 func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
@@ -389,6 +406,15 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 		if id, err := uuid.Parse(*req.AgentID); err == nil {
 			in.AgentID = &id
 		}
+	}
+	if req.AutoApprove != nil {
+		v, ok := normalizeAutoApprove(*req.AutoApprove)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "bad_auto_approve",
+				"auto_approve must be one of: manual, auto, plan")
+			return
+		}
+		in.AutoApprove = &v
 	}
 	t, err := s.Store.UpdateThread(r.Context(), in)
 	if errors.Is(err, ErrNotFound) {
