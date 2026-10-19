@@ -159,6 +159,13 @@ type Options struct {
 	// settings.json defaultMode or fall back to "default".
 	PermissionMode string
 
+	// DangerousCommandGuard toggles the auto-mode guards (dangerous
+	// commands + sensitive paths). nil = keep the Context default
+	// (on) or whatever settings.json configured; explicit value wins
+	// over settings. Cloud sandboxes pass a non-nil false — the
+	// sandbox is the security boundary and their asks fail-closed.
+	DangerousCommandGuard *bool
+
 	// BypassPermissions disables the ask flow entirely. Equivalent to
 	// PermissionMode="bypassPermissions".
 	//
@@ -598,6 +605,9 @@ func New(opt Options) (*Agent, error) {
 	}
 	if opt.PermissionMode != "" {
 		permCtx.SetMode(permissions.ModeFromString(opt.PermissionMode))
+	}
+	if opt.DangerousCommandGuard != nil {
+		permCtx.SetGuardsEnabled(*opt.DangerousCommandGuard)
 	}
 
 	// R6.3 / D7 — remote-device hard floor. Enforced in the permission

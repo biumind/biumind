@@ -101,8 +101,9 @@ func ConfigSchema() map[string]any {
 				"type":        "object",
 				"description": "Default permission mode. Per-tool rules belong in settings.json.",
 				"properties": map[string]any{
-					"mode":      map[string]any{"type": "string", "enum": anyStrings(validPermissionModes)},
-					"allowlist": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"mode":                    map[string]any{"type": "string", "enum": anyStrings(validPermissionModes)},
+					"allowlist":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					"dangerous_command_guard": map[string]any{"type": "boolean"},
 				},
 			},
 			"search": map[string]any{

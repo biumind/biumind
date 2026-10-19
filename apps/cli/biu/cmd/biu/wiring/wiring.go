@@ -309,6 +309,9 @@ func BuildEngine(cfg *config.Config, f Flags, model string) (*engine.QueryEngine
 	if cfg.Permissions.Mode != "" {
 		permCtx.SetMode(permissions.ModeFromString(cfg.Permissions.Mode))
 	}
+	if cfg.Permissions.DangerousCommandGuard != nil {
+		permCtx.SetGuardsEnabled(*cfg.Permissions.DangerousCommandGuard)
+	}
 	if len(cfg.Permissions.Allowlist) > 0 {
 		permCtx.AddRules(permissions.SrcUserSettings,
 			permissions.BehaviorAllow, cfg.Permissions.Allowlist)

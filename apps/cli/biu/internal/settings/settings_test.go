@@ -279,3 +279,55 @@ func TestApplyToContext_RelativeDirsBecomeAbsolute(t *testing.T) {
 		t.Errorf("dir should be absolute; got %q", dirs[0])
 	}
 }
+
+func TestApplyToContext_DangerousCommandGuardPrecedence(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// user 层关、project 层开 → project 赢（更局部）。
+	writeFile(t, home, ".biumind/settings.json", `{
+		"permissions": { "dangerousCommandGuard": false }
+	}`)
+	writeFile(t, cwd, ".biumind/settings.json", `{
+		"permissions": { "dangerousCommandGuard": true }
+	}`)
+
+	l, err := Load(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := permissions.NewContext()
+	l.ApplyToContext(ctx)
+	if !ctx.GuardsEnabled() {
+		t.Error("project layer true should win over user layer false")
+	}
+
+	// local 层关 → local 最终赢。
+	writeFile(t, cwd, ".biumind/settings.local.json", `{
+		"permissions": { "dangerousCommandGuard": false }
+	}`)
+	l, err = Load(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = permissions.NewContext()
+	l.ApplyToContext(ctx)
+	if ctx.GuardsEnabled() {
+		t.Error("local layer false should win over project layer true")
+	}
+}
+
+func TestApplyToContext_GuardDefaultOn(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	l, err := Load(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := permissions.NewContext()
+	l.ApplyToContext(ctx)
+	if !ctx.GuardsEnabled() {
+		t.Error("unset everywhere should keep the default (on)")
+	}
+}

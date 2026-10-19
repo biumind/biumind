@@ -160,6 +160,11 @@ type PermissionsBlock struct {
 	Ask                   []string `json:"ask,omitempty"`
 	DefaultMode           string   `json:"defaultMode,omitempty"`
 	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	// DangerousCommandGuard toggles the auto-mode guards (dangerous
+	// commands + sensitive paths). nil = default on; explicit false
+	// disables. Layer precedence local > project > user, like
+	// defaultMode.
+	DangerousCommandGuard *bool `json:"dangerousCommandGuard,omitempty"`
 }
 
 // Layered holds the three discrete files that contributed rules so we
@@ -320,6 +325,18 @@ func (l *Layered) ApplyToContext(ctx *permissions.Context) permissions.Mode {
 		}
 	}
 	ctx.SetMode(mode)
+
+	// Guard resolution: same layer precedence as mode — the last
+	// (most local) explicit value wins. Unset everywhere keeps the
+	// Context default (on).
+	for _, layer := range []*Settings{l.User, l.Project, l.Local} {
+		if layer == nil || layer.Permissions == nil {
+			continue
+		}
+		if g := layer.Permissions.DangerousCommandGuard; g != nil {
+			ctx.SetGuardsEnabled(*g)
+		}
+	}
 	return mode
 }
 

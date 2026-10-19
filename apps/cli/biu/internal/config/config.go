@@ -152,6 +152,10 @@ type PermissionsSection struct {
 	Mode      string   `toml:"mode"` // ask | auto_edit | full_access
 	Allowlist []string `toml:"allowlist"`
 
+	// DangerousCommandGuard toggles the auto-mode guards (dangerous
+	// commands + sensitive paths). nil = default on.
+	DangerousCommandGuard *bool `toml:"dangerous_command_guard"`
+
 	// PlanDriftThreshold gates when the engine surfaces a `<plan-drift>`
 	// system attachment after ExitPlanMode. 0 = surface on first
 	// drifted call (default). Negative = observe but never surface

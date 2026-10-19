@@ -154,9 +154,9 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 		}
 	}
 
-	// PermissionMode → 内核模式 + PermissionPolicy（映射逻辑收在
-	// resolvePermissionWiring，可单测）。
-	kernelMode, policy := resolvePermissionWiring(reg, in.PermissionMode)
+	// PermissionMode → 内核模式 + PermissionPolicy + 守卫开关（映射逻辑
+	// 收在 resolvePermissionWiring，可单测）。
+	kernelMode, policy, guards := resolvePermissionWiring(reg, in.PermissionMode)
 
 	// 工具集：reg.AsBiumindkitTools 把每个 *Tool 投影成 biumindkit.Tool
 	var bkTools []biumindkit.Tool
@@ -165,18 +165,19 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 	}
 
 	ag, err := biumindkit.New(biumindkit.Options{
-		APIKey:              in.AnthropicAPIKey,
-		AnthropicEndpoint:   in.AnthropicEndpoint,
-		Model:               in.Model,
-		ResolveDefaultModel: in.ResolveDefaultModel,
-		System:              systemPrompt,
-		MaxTokens:           in.MaxTokens,
-		MaxToolTurns:        in.MaxToolTurns,
-		ExtraTools:          bkTools,
-		PermissionMode:      kernelMode,
-		PermissionPolicy:    policy,
-		LoadProjectMemory:   biumindkit.NoMemory,   // runtime 不读本地 BIUMIND.md
-		LoadProjectSettings: biumindkit.NoSettings, // runtime 不读本地 settings.json
+		APIKey:                in.AnthropicAPIKey,
+		AnthropicEndpoint:     in.AnthropicEndpoint,
+		Model:                 in.Model,
+		ResolveDefaultModel:   in.ResolveDefaultModel,
+		System:                systemPrompt,
+		MaxTokens:             in.MaxTokens,
+		MaxToolTurns:          in.MaxToolTurns,
+		ExtraTools:            bkTools,
+		PermissionMode:        kernelMode,
+		PermissionPolicy:      policy,
+		DangerousCommandGuard: guards,
+		LoadProjectMemory:     biumindkit.NoMemory,   // runtime 不读本地 BIUMIND.md
+		LoadProjectSettings:   biumindkit.NoSettings, // runtime 不读本地 settings.json
 		// BypassPermissions=false —— 我们要 PermissionPolicy 实际生效；
 		// 不像 chat 模式 cloud 工具全 read-only 可以 bypass
 		//
@@ -194,30 +195,36 @@ func BuildBiumindkitAgent(ctx context.Context, logger interface {
 }
 
 // resolvePermissionWiring 把 payload 的用户面权限模式映射成
-// (biumindkit Options.PermissionMode, Options.PermissionPolicy)：
+// (biumindkit Options.PermissionMode, Options.PermissionPolicy,
+// Options.DangerousCommandGuard)：
 //
-//	""        → ("", PermissionPolicy(reg, PermSafe)) —— 旧 payload 兼容
-//	            路径，Risk 分级策略，行为与改造前一字不差（内核模式留空 =
-//	            biumindkit 不动 Context mode，全部决策由 policy 应答）。
-//	"auto"    → ("auto", PermissionDeny()) —— 内核 ModeAuto 在策略链
-//	            deny 规则之后全量放行；deny 兜底只接残余 ask。
-//	"plan"    → ("plan", PermissionDeny()) —— 内核 ModePlan 只读。
-//	"manual" / "default" / 未知值 → ("default", PermissionDeny()) ——
+//	""        → ("", PermissionPolicy(reg, PermSafe), nil) —— 旧 payload
+//	            兼容路径，Risk 分级策略，行为与改造前一字不差（内核模式
+//	            留空 = biumindkit 不动 Context mode，全部决策由 policy
+//	            应答；守卫 nil 保持默认开，但该路径不设 ModeAuto，守卫
+//	            本来也不会触发）。
+//	"auto"    → ("auto", PermissionDeny(), off) —— 内核 ModeAuto 在
+//	            策略链 deny 规则之后全量放行；deny 兜底只接残余 ask。
+//	            沙箱即安全边界 → 守卫显式关（守卫只在 auto 触发，开着
+//	            会把危险命令变成 ask → fail-closed deny，违背 auto 语义）。
+//	"plan"    → ("plan", PermissionDeny(), off) —— 内核 ModePlan 只读。
+//	"manual" / "default" / 未知值 → ("default", PermissionDeny(), off) ——
 //	            内核 default 模式：只读工具链内放行，写/危险工具落
 //	            fallback-ask → 沙箱无 client 回路，deny 兜底 fail-closed，
 //	            模型收到 deny 原因（设计文档 §4.3：提示用户改用 auto 或
 //	            配置规则）。未知字符串按 ModeFromString 同款语义回落
 //	            default，不报错。
-func resolvePermissionWiring(reg *Registry, payloadMode string) (string, biumindkit.PermissionPolicyFn) {
+func resolvePermissionWiring(reg *Registry, payloadMode string) (string, biumindkit.PermissionPolicyFn, *bool) {
 	if payloadMode == "" {
-		return "", PermissionPolicy(reg, PermSafe)
+		return "", PermissionPolicy(reg, PermSafe), nil
 	}
+	guardsOff := false
 	switch payloadMode {
 	case "auto":
-		return "auto", biumindkit.PermissionDeny()
+		return "auto", biumindkit.PermissionDeny(), &guardsOff
 	case "plan":
-		return "plan", biumindkit.PermissionDeny()
+		return "plan", biumindkit.PermissionDeny(), &guardsOff
 	default:
-		return "default", biumindkit.PermissionDeny()
+		return "default", biumindkit.PermissionDeny(), &guardsOff
 	}
 }
