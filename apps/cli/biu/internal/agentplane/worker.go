@@ -376,6 +376,69 @@ func (w *Worker) answerPermission(requestID string, decision biumindkit.Permissi
 	respCh <- decision
 }
 
+// applyPermissionModeControl 处理 brain 经 control 队列下行的
+// set_permission_mode（chat composer 中途切档）。应用到 session 对应的
+// 在飞 agent 后回 control_response ack —— 跟 bridge dispatchControl 的
+// set_permission_mode 分支同一套 ack 语义（success 带 {"mode": ...}），
+// 让 client 能按 request_id 确认引擎侧已落地。session 不在飞（会话已
+// 结束 / 从未在本机跑）回 error ack 而不是静默 —— client 据此知道本次
+// 切换只在下一个会话生效。
+func (w *Worker) applyPermissionModeControl(ctx context.Context, body controlBody) {
+	sid, err := uuid.Parse(body.SessionID)
+	if err != nil {
+		w.logger.Warn("control: set_permission_mode invalid session_id",
+			"raw", body.SessionID, "request_id", body.RequestID)
+		return
+	}
+	w.agentsMu.Lock()
+	agent, ok := w.agents[sid]
+	w.agentsMu.Unlock()
+
+	var frame sdkproto.Frame
+	switch {
+	case !ok:
+		frame = controlErrorFrame(body.RequestID, "session not in flight on this daemon")
+	default:
+		applied := biumindkit.ApplyPermissionMode(agent.Permissions(), body.Mode)
+		resp, _ := json.Marshal(map[string]string{"mode": string(applied)})
+		frame = controlSuccessFrame(body.RequestID, resp)
+		w.logger.Info("control: set_permission_mode applied",
+			"session_id", sid, "request_id", body.RequestID,
+			"mode", string(applied))
+	}
+	// ack 投递失败仅 log:模式已经应用上了（或本就不在飞）,重投也改变
+	// 不了结果;client 收不到 ack 时本地 chip 状态已由 PATCH 落库兜底。
+	if err := w.publishFrame(ctx, sid, frame); err != nil {
+		w.logger.Warn("control: set_permission_mode ack publish failed",
+			"session_id", sid, "request_id", body.RequestID, "err", err)
+	}
+}
+
+// controlSuccessFrame / controlErrorFrame 组 SDKControlResponse（bridge
+// server.go 的 controlSuccess/controlError 同构;worker 侧没有那个文件
+// 的依赖,这里独立一份保持 agentplane 包自洽）。
+func controlSuccessFrame(requestID string, response json.RawMessage) *sdkproto.SDKControlResponse {
+	return &sdkproto.SDKControlResponse{
+		Type: sdkproto.TypeControlResponse,
+		Response: &sdkproto.ControlResponseBody{
+			Subtype:   sdkproto.ControlSubtypeSuccess,
+			RequestID: requestID,
+			Response:  response,
+		},
+	}
+}
+
+func controlErrorFrame(requestID, msg string) *sdkproto.SDKControlResponse {
+	return &sdkproto.SDKControlResponse{
+		Type: sdkproto.TypeControlResponse,
+		Response: &sdkproto.ControlResponseBody{
+			Subtype:   sdkproto.ControlSubtypeError,
+			RequestID: requestID,
+			Error:     msg,
+		},
+	}
+}
+
 // trackAgent / untrackAgent 维护 in-flight agent 索引。trackAgent 在
 // handleWork 拿到 *Agent 后立刻调；untrackAgent 在 Submit channel 关
 // 闭后调（defer 里）—— 保证查表只返回真正在跑的。
@@ -569,12 +632,15 @@ func (w *Worker) controlLoop(ctx context.Context) {
 }
 
 // controlBody 跟 brain ingress.maybeRouteCancel / maybeRoutePermissionResponse
-// （permission 与 elicitation 回包共用此投递 schema）对齐。字段都 omitempty
+// / maybeRouteSetPermissionMode（permission / elicitation 回包与
+// set_permission_mode 下行共用此投递 schema）对齐。字段都 omitempty
 // 是为了未来扩展不破坏老 daemon 解析。
 type controlBody struct {
 	Type      string `json:"type"`
 	SessionID string `json:"session_id,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	// set_permission_mode only: 目标模式（manual / auto / plan / …）。
+	Mode string `json:"mode,omitempty"`
 	// permission_response / elicitation_response only:
 	Subtype  string          `json:"subtype,omitempty"`  // "success" | "error"
 	Response json.RawMessage `json:"response,omitempty"` // permission_result / elicitation_response JSON
@@ -624,6 +690,12 @@ func (w *Worker) handleControl(ctx context.Context, envID uuid.UUID, ctrl *Contr
 			"request_id", body.RequestID,
 			"subtype", body.Subtype,
 			"action", ans.Action)
+	case "set_permission_mode":
+		// 活动会话中途切档（P1 遗留 1）：client composer chip 经 brain
+		// ingress 投到 control 队列。应用到在飞 agent 的权限 Context
+		// （策略链每次工具调用重读 mode，下一个判定即生效）并回 ack，
+		// 让 client 能确认引擎侧已落地。
+		w.applyPermissionModeControl(ctx, body)
 	default:
 		// 未知 type —— 老 daemon 跑新协议时合法,不要 spam ERROR。
 		w.logger.Info("control: ignoring unknown type", "type", body.Type)

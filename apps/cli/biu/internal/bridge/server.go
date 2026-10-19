@@ -34,7 +34,6 @@ import (
 	"github.com/biumind/biumind/apps/cli/biu/internal/gitassist"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/code"
-	"github.com/biumind/biumind/apps/cli/biu/pkg/biumindkit/permissions"
 	"github.com/biumind/biumind/apps/cli/biu/pkg/sdkbridge"
 	sdkproto "github.com/biumind/biumind/packages/go-sdk/biu/sdkproto/v1"
 )
@@ -525,22 +524,12 @@ func (rec *sessionRec) dispatchControl(req *sdkproto.SDKControlRequest) sdkproto
 		if !ok {
 			return controlError(req.RequestID, "invalid set_permission_mode request")
 		}
-		// 与 REPL /mode 同一套语义（internal/repl/model.go）：未知模式
-		// 字符串按 ModeFromString 回落 default 不报错；plan 走
-		// EnterPlanMode / ExitPlanMode 保持 prePlanMode 簿记，其余直接
-		// SetMode。引擎策略链每次工具调用都重读 mode，立即生效。
-		newMode := permissions.ModeFromString(body.Mode)
-		permCtx := rec.agent.Permissions()
-		switch {
-		case newMode == permissions.ModePlan:
-			permCtx.EnterPlanMode()
-		case permCtx.Mode() == permissions.ModePlan:
-			permCtx.ExitPlanMode()
-			permCtx.SetMode(newMode)
-		default:
-			permCtx.SetMode(newMode)
-		}
-		resp, _ := json.Marshal(map[string]string{"mode": string(permCtx.Mode())})
+		// 与 REPL /mode 同一套语义收敛在 biumindkit.ApplyPermissionMode
+		// （ModeFromString 未知值回落 default；plan 走 EnterPlanMode /
+		// ExitPlanMode 簿记）。引擎策略链每次工具调用都重读 mode，
+		// 立即生效。
+		applied := biumindkit.ApplyPermissionMode(rec.agent.Permissions(), body.Mode)
+		resp, _ := json.Marshal(map[string]string{"mode": string(applied)})
 		return controlSuccess(req.RequestID, resp)
 
 	default:
