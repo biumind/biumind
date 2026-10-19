@@ -10,9 +10,9 @@ func TestNormalizeAutoApprove(t *testing.T) {
 	}{
 		{"auto", "auto", true},
 		{"manual", "manual", true},
-		// plan 落库为 manual：DB check 约束（migration 00038）不含 'plan'，
-		// agentplane permission_mode 映射只升级 'auto'，天然兼容。
-		{"plan", "manual", true},
+		// plan 原样落库：00013 起 DB check 约束含 'plan'，agentplane 的
+		// permission_mode 映射把它升级为 "plan"（runtime ModePlan 只读）。
+		{"plan", "plan", true},
 		// 老词汇 / 非法值一律拒绝（客户端读时已映射，不该再上行）。
 		{"whitelist", "", false},
 		{"", "", false},

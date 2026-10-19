@@ -358,9 +358,9 @@ type updateThreadReq struct {
 	AgentID      *string `json:"agent_id"`
 	SyncEnabled  *bool   `json:"sync_enabled"`
 	// AutoApprove 是用户面三档权限模式（'manual' | 'auto' | 'plan'）。
-	// DB check 约束（migration 00038）只认 'auto' | 'whitelist' | 'manual'，
-	// 不改约束：'plan' 落库为 'manual'（agentplane 的 permission_mode 映射
-	// 只把 'auto' 升级为 "auto"，天然兼容）。
+	// DB check 约束（migration 00013 起）三档 + 历史遗留 'whitelist'
+	// 全认，plan 原样落库 —— agentplane 的 permission_mode 映射把
+	// 'plan' 升级为 "plan"（runtime 端 ModePlan 只读运行）。
 	AutoApprove *string `json:"auto_approve"`
 	// ModelParams: omit field to leave alone; pass `{}` to clear;
 	// pass {temperature, top_p, max_tokens, stop_sequences} to set.
@@ -368,13 +368,12 @@ type updateThreadReq struct {
 }
 
 // normalizeAutoApprove 校验并归一化 auto_approve 取值。返回 false = 非法值
-// （调用方回 400）。'plan' 归一化为 'manual' 落库（见 updateThreadReq 注释）。
+// （调用方回 400）。三档（manual / auto / plan）原样落库 —— 00013 起
+// check 约束含 'plan'。
 func normalizeAutoApprove(v string) (string, bool) {
 	switch v {
-	case "auto", "manual":
+	case "auto", "manual", "plan":
 		return v, true
-	case "plan":
-		return "manual", true
 	}
 	return "", false
 }

@@ -186,9 +186,9 @@ func (s *Store) GetThread(ctx context.Context, userID, threadID uuid.UUID) (*Thr
 }
 
 // ThreadAutoApprove 只读 chat.threads.auto_approve（'auto' | 'whitelist' |
-// 'manual'）—— agentplane 路由层构造 WorkPayload 时映射 permission_mode
-// 用。轻量单列查询，避免为这一个字段拉整条 Thread。thread 不存在 / 不属
-// 于该 user → ErrNotFound。
+// 'manual' | 'plan'）—— agentplane 路由层构造 WorkPayload 时映射
+// permission_mode 用。轻量单列查询，避免为这一个字段拉整条 Thread。
+// thread 不存在 / 不属于该 user → ErrNotFound。
 func (s *Store) ThreadAutoApprove(ctx context.Context, userID, threadID uuid.UUID) (string, error) {
 	var autoApprove string
 	err := s.pool.QueryRow(ctx, `
@@ -288,8 +288,8 @@ type UpdateThreadInput struct {
 	Archived     *bool
 	AgentID      *uuid.UUID
 	SyncEnabled  *bool
-	// AutoApprove 已由 HTTP 层 normalizeAutoApprove 归一化（'plan' →
-	// 'manual'），落库值恒满足 threads_auto_approve_chk 约束。
+	// AutoApprove 已由 HTTP 层 normalizeAutoApprove 校验（manual / auto /
+	// plan 原样通过），落库值恒满足 threads_auto_approve_chk 约束。
 	AutoApprove *string
 	// ModelParams replaces metadata.model_params wholesale (not a
 	// deep merge). Pass an empty struct via &json.RawMessage("{}")

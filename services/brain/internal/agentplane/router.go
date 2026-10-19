@@ -48,8 +48,9 @@ func (s *Server) stampToolPolicy(ctx context.Context, env *Environment, payload 
 
 // permissionModeForThread 把 chat.threads.auto_approve 映射成
 // WorkPayload.PermissionMode：'auto' → "auto"（worker 端共享权限内核
-// ModeAuto，deny 规则之上全放行）；其余取值（'whitelist' / 'manual'）、
-// 无 thread、ChatStore 未注入、查询失败 → ""（保持 worker 端现状行为，
+// ModeAuto，deny 规则之上全放行）；'plan' → "plan"（ModePlan 只读，
+// 云端 task 以规划档运行）；其余取值（'whitelist' / 'manual'）、无
+// thread、ChatStore 未注入、查询失败 → ""（保持 worker 端现状行为，
 // omitempty 保证老 payload 字节流不变）。跟 stampToolPolicy 同款语义：
 // 查询失败仅 log 不阻断。
 func (s *Server) permissionModeForThread(ctx context.Context, uid uuid.UUID, threadID *uuid.UUID) string {
@@ -64,8 +65,16 @@ func (s *Server) permissionModeForThread(ctx context.Context, uid uuid.UUID, thr
 		}
 		return ""
 	}
-	if autoApprove == "auto" {
-		return "auto"
+	return permissionModeFromAutoApprove(autoApprove)
+}
+
+// permissionModeFromAutoApprove 是纯映射（auto_approve 落库值 →
+// WorkPayload.PermissionMode），抽出来让单测不用起 DB。
+// 'auto' / 'plan' 原样升级；'whitelist' / 'manual' / 未知值 → ""。
+func permissionModeFromAutoApprove(autoApprove string) string {
+	switch autoApprove {
+	case "auto", "plan":
+		return autoApprove
 	}
 	return ""
 }
