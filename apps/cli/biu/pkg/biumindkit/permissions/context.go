@@ -107,6 +107,14 @@ type Context struct {
 	// Wiring sets this via SetOriginalCwd; Decide consults it
 	// through allWorkingDirsForCheck.
 	originalCwd string
+
+	// guardsEnabled gates the auto-mode guard policies
+	// (dangerousCommandGuardPolicy + sensitivePathGuardPolicy).
+	// Default on: local runs keep a human in the loop for dangerous
+	// commands and sensitive paths even in auto mode. Cloud sandboxes
+	// turn it off (the sandbox is the security boundary and asks
+	// fail-closed there). Wired via SetGuardsEnabled.
+	guardsEnabled bool
 }
 
 // NewContext returns an empty context in default mode.
@@ -118,6 +126,7 @@ func NewContext() *Context {
 		ask:            map[Source][]string{},
 		grants:         map[string]bool{},
 		additionalDirs: map[string]AdditionalDirectory{},
+		guardsEnabled:  true,
 	}
 }
 
@@ -126,6 +135,22 @@ func (c *Context) Mode() Mode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.mode
+}
+
+// GuardsEnabled reports whether the auto-mode guard policies
+// (dangerous commands, sensitive paths) are active.
+func (c *Context) GuardsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.guardsEnabled
+}
+
+// SetGuardsEnabled toggles the auto-mode guards. Cloud sandboxes
+// call this with false; local runs keep the default (true).
+func (c *Context) SetGuardsEnabled(on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.guardsEnabled = on
 }
 
 // SetMode swaps the active mode. Used by /mode slash and CLI flags.

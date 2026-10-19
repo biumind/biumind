@@ -340,6 +340,18 @@ func (e *QueryEngine) askPermission(
 		IsDestructive: tool.IsDestructive(in.Input),
 	}
 
+	// Optional Warner enrichment: tools that know their input is
+	// destructive (Bash with `rm -rf`, etc.) surface human-readable
+	// warnings. Computed BEFORE Decide so the dangerous-command guard
+	// can escalate auto mode to ask; on the ask path the same notes
+	// are folded into the dialog reason below. Type-assert so
+	// non-Warner tools pay zero cost.
+	var warnings []string
+	if w, ok := tool.(Warner); ok {
+		warnings = w.Warnings(in.Input)
+		req.Warnings = warnings
+	}
+
 	dec, reason := permissions.Decide(e.perms, req)
 
 	// Fire PermissionRequest (P20.55) before we either auto-allow,
@@ -375,21 +387,18 @@ func (e *QueryEngine) askPermission(
 		return PermissionAnswer{Decision: PermDeny},
 			fmt.Errorf("denied by %s: %s", reason.Source, reason.Detail)
 	case permissions.DecideAsk:
-		// Optional Warner enrichment: tools that know their input is
-		// destructive (Bash with `rm -rf`, etc.) get to surface a
-		// human-readable warning into the dialog. Type-assert so
-		// non-Warner tools pay zero cost.
-		if w, ok := tool.(Warner); ok {
-			if notes := w.Warnings(in.Input); len(notes) > 0 {
-				if reason.Detail != "" {
+		// Fold the Warner notes computed above into the dialog reason.
+		// Guard asks already carry the warning text — skip the fold to
+		// avoid rendering it twice.
+		if len(warnings) > 0 && reason.Kind != "guard" {
+			if reason.Detail != "" {
+				reason.Detail += "\n"
+			}
+			for i, n := range warnings {
+				if i > 0 {
 					reason.Detail += "\n"
 				}
-				for i, n := range notes {
-					if i > 0 {
-						reason.Detail += "\n"
-					}
-					reason.Detail += "Note: " + n
-				}
+				reason.Detail += "Note: " + n
 			}
 		}
 		// Build "Allow + side-effect" suggestions the UI can render

@@ -44,6 +44,11 @@ type Request struct {
 	Args          map[string]any
 	IsReadOnly    bool
 	IsDestructive bool
+	// Warnings carries the tool's own danger analysis (Warner
+	// interface, e.g. BashTool → bashsec patterns). The
+	// dangerous-command guard escalates to ask when auto mode meets a
+	// warned call; other policies ignore it.
+	Warnings []string
 }
 
 func isEditish(name string) bool {
