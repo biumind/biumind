@@ -2101,6 +2101,24 @@ abstract class AppLocalizations {
   /// **'Default permission mode'**
   String get chatV2SettingsDefaultPermissionMode;
 
+  /// No description provided for @permissionAutoOptInTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable auto run?'**
+  String get permissionAutoOptInTitle;
+
+  /// No description provided for @permissionAutoOptInBody.
+  ///
+  /// In en, this message translates to:
+  /// **'In auto run mode, tool calls will no longer be confirmed one by one.\n\nYour deny rules and the dangerous-command / sensitive-path guards still apply. You can switch back anytime in Settings.'**
+  String get permissionAutoOptInBody;
+
+  /// No description provided for @permissionAutoOptInConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable auto run'**
+  String get permissionAutoOptInConfirm;
+
   /// No description provided for @chatV2SettingsAutoRenameTitle.
   ///
   /// In en, this message translates to:

@@ -21,6 +21,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../app/theme.dart';
 import '../../../../shared/brand/biu_mark.dart';
+import '../../../chat/application/auto_mode_opt_in.dart';
 import '../../application/projects_controller.dart';
 import '../../application/tasks_controller.dart';
 import '../../data/code_bridge_provider.dart';
@@ -377,7 +378,14 @@ class _NewTaskComposerState extends ConsumerState<NewTaskComposer> {
             (PermissionMode.auto, '自动执行'),
             (PermissionMode.plan, '规划模式'),
           ],
-          onSelected: (v) => setState(() => _mode = v),
+          onSelected: (v) async {
+            // auto 首次启用需 opt-in 确认;取消则不 setState,下拉保持原档。
+            if (v == PermissionMode.auto &&
+                !await confirmAutoModeOptIn(context, ref)) {
+              return;
+            }
+            setState(() => _mode = v);
+          },
         ),
         const Spacer(),
         _SendButton(

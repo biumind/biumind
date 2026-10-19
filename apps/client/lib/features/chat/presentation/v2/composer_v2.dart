@@ -42,6 +42,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../../services/token_manager.dart'
     show ConnectivityState, connectivityStateProvider;
 import '../../application/attachments_provider.dart';
+import '../../application/auto_mode_opt_in.dart';
 import '../../application/chat_controller.dart';
 import '../../application/composer_draft_store.dart';
 import '../../application/draft_history_controller.dart';
@@ -1411,8 +1412,14 @@ class _AutoApproveChipInline extends ConsumerWidget {
 
     return PopupMenuButton<AutoApproveMode>(
       tooltip: l.chatV2ComposerAutoApproveTooltip,
-      onSelected: (next) =>
-          ref.read(chatThreadOpsProvider).setAutoApprove(threadId, next),
+      onSelected: (next) async {
+        // auto 首次启用需 opt-in 确认;取消则放弃切换(chip 显示不变)。
+        if (next == AutoApproveMode.auto &&
+            !await confirmAutoModeOptIn(context, ref)) {
+          return;
+        }
+        await ref.read(chatThreadOpsProvider).setAutoApprove(threadId, next);
+      },
       itemBuilder: (_) => [
         PopupMenuItem(
           value: AutoApproveMode.manual,

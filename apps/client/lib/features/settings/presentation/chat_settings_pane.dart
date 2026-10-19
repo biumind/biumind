@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../chat/application/auto_mode_opt_in.dart';
 import '../../chat/application/chat_controller.dart';
 import '../../chat/application/chat_preferences.dart';
 import '../../chat/domain/chat_models.dart';
@@ -97,8 +98,15 @@ class ChatSettingsPane extends ConsumerWidget {
                   ),
                 ],
                 selected: {prefs.defaultPermissionMode},
-                onSelectionChanged: (s) =>
-                    notifier.setDefaultPermissionMode(s.first),
+                onSelectionChanged: (s) async {
+                  final mode = s.first;
+                  // auto 首次启用需 opt-in 确认;取消则不写默认值。
+                  if (mode == AutoApproveMode.auto &&
+                      !await confirmAutoModeOptIn(context, ref)) {
+                    return;
+                  }
+                  await notifier.setDefaultPermissionMode(mode);
+                },
               ),
             ),
             const SizedBox(height: BiuTokens.space4),

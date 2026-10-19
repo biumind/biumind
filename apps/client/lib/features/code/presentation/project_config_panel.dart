@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../chat/application/auto_mode_opt_in.dart';
 import '../application/projects_controller.dart';
 import '../data/code_bridge_provider.dart';
 import '../domain/project_config.dart';
@@ -84,8 +85,15 @@ class _ProjectConfigPanelState extends ConsumerState<ProjectConfigPanel> {
     final bridge = ref.read(codeBridgeClientProvider);
     final root = _root;
     if (bridge == null || root == null || _saving) return;
-    setState(() => _saving = true);
     final next = _cfg.copyWith(promptPrefix: _prefixCtl.text);
+    // auto 首次启用需 opt-in 确认(保存时统一拦:下拉非受控,选择时拦截
+    // 无法回退显示)。取消 → 整体不落盘,用户可改回其它档再存。
+    if (next.defaultPermissionMode == 'auto') {
+      final ok = await confirmAutoModeOptIn(context, ref);
+      if (!mounted) return;
+      if (!ok) return;
+    }
+    setState(() => _saving = true);
     try {
       await bridge.configWrite(root, next);
       if (!mounted) return;

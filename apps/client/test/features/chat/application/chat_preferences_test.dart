@@ -68,6 +68,22 @@ void main() {
     );
   });
 
+  test('autoModeOptedIn defaults false + persists across instances', () async {
+    final a = ChatPreferencesNotifier();
+    await Future.delayed(Duration.zero);
+    expect(a.state.autoModeOptedIn, isFalse);
+    await a.setAutoModeOptedIn(true);
+    expect(a.state.autoModeOptedIn, isTrue);
+    // 跨实例持久化(SharedPreferences biu.chat.prefs)。
+    final b = ChatPreferencesNotifier();
+    await Future.delayed(const Duration(milliseconds: 10));
+    expect(b.state.autoModeOptedIn, isTrue);
+    // JSON 往返 + 存量 JSON 无此键 → false。
+    const p = ChatPreferences(autoModeOptedIn: true);
+    expect(ChatPreferences.fromJson(p.toJson()).autoModeOptedIn, isTrue);
+    expect(ChatPreferences.fromJson(const {}).autoModeOptedIn, isFalse);
+  });
+
   test('persists across notifier instances', () async {
     final a = ChatPreferencesNotifier();
     await Future.delayed(Duration.zero);

@@ -1095,6 +1095,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatV2SettingsDefaultPermissionMode => 'Default permission mode';
 
   @override
+  String get permissionAutoOptInTitle => 'Enable auto run?';
+
+  @override
+  String get permissionAutoOptInBody =>
+      'In auto run mode, tool calls will no longer be confirmed one by one.\n\nYour deny rules and the dangerous-command / sensitive-path guards still apply. You can switch back anytime in Settings.';
+
+  @override
+  String get permissionAutoOptInConfirm => 'Enable auto run';
+
+  @override
   String get chatV2SettingsAutoRenameTitle => 'Auto-title from first prompt';
 
   @override

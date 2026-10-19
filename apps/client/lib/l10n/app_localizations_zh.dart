@@ -1060,6 +1060,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatV2SettingsDefaultPermissionMode => '权限模式默认值';
 
   @override
+  String get permissionAutoOptInTitle => '启用自动执行？';
+
+  @override
+  String get permissionAutoOptInBody =>
+      '自动执行模式下，工具调用将不再逐一确认。\n\n你的 deny 规则与危险命令、敏感路径守卫仍然生效。可在设置中随时改回。';
+
+  @override
+  String get permissionAutoOptInConfirm => '启用自动执行';
+
+  @override
   String get chatV2SettingsAutoRenameTitle => '自动从首句 prompt 起标题';
 
   @override

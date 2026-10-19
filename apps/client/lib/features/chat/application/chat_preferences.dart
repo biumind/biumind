@@ -27,6 +27,7 @@ class ChatPreferences {
     this.defaultProviderId,
     this.defaultMode = ThreadMode.agent,
     this.defaultPermissionMode = AutoApproveMode.manual,
+    this.autoModeOptedIn = false,
     this.autoRenameEnabled = true,
     this.localeOverride,
     this.ttsModel,
@@ -42,6 +43,11 @@ class ChatPreferences {
   /// 新建 thread 的初始权限模式(manual / auto / plan)。仅作用于创建时刻,
   /// 之后用户在 composer chip 上的逐会话修改不受影响。
   final AutoApproveMode defaultPermissionMode;
+  /// auto 模式首次启用 opt-in 确认标记(设计 §6/§7-3):客户端本地用户级,
+  /// 与服务端 Go 侧 user 层 settings.json 的 permissions.autoModeOptIn
+  /// 语义对齐。**不写 Drift、不写项目级配置**(防恶意仓库偷开 auto)。
+  /// 确认入口统一走 confirmAutoModeOptIn(auto_mode_opt_in.dart)。
+  final bool autoModeOptedIn;
   /// 首条 user message 后自动从 prompt 推标题，覆盖 thread.title 为空的场景。
   /// 默认开。用户希望保留"新对话"占位时关掉。
   final bool autoRenameEnabled;
@@ -66,6 +72,7 @@ class ChatPreferences {
     String? defaultProviderId,
     ThreadMode? defaultMode,
     AutoApproveMode? defaultPermissionMode,
+    bool? autoModeOptedIn,
     bool? autoRenameEnabled,
     String? localeOverride,
     String? ttsModel,
@@ -84,6 +91,7 @@ class ChatPreferences {
       defaultMode: defaultMode ?? this.defaultMode,
       defaultPermissionMode:
           defaultPermissionMode ?? this.defaultPermissionMode,
+      autoModeOptedIn: autoModeOptedIn ?? this.autoModeOptedIn,
       autoRenameEnabled: autoRenameEnabled ?? this.autoRenameEnabled,
       localeOverride: clearLocaleOverride
           ? null
@@ -98,6 +106,7 @@ class ChatPreferences {
         'defaultProviderId': defaultProviderId,
         'defaultMode': defaultMode.name,
         'defaultPermissionMode': defaultPermissionMode.name,
+        'autoModeOptedIn': autoModeOptedIn,
         'autoRenameEnabled': autoRenameEnabled,
         'localeOverride': localeOverride,
         'ttsModel': ttsModel,
@@ -114,6 +123,7 @@ class ChatPreferences {
       // 降级为 manual。
       defaultPermissionMode: AutoApproveMode.fromName(
           (j['defaultPermissionMode'] as String?) ?? 'manual'),
+      autoModeOptedIn: (j['autoModeOptedIn'] as bool?) ?? false,
       autoRenameEnabled: (j['autoRenameEnabled'] as bool?) ?? true,
       localeOverride: j['localeOverride'] as String?,
       ttsModel: j['ttsModel'] as String?,
@@ -162,6 +172,14 @@ class ChatPreferencesNotifier extends StateNotifier<ChatPreferences> {
 
   Future<void> setDefaultPermissionMode(AutoApproveMode mode) async {
     state = state.copyWith(defaultPermissionMode: mode);
+    await _persist(state);
+  }
+
+  /// 写 auto 模式 opt-in 确认标记。只由 confirmAutoModeOptIn 在用户点
+  /// 「启用自动执行」后调用;不设 false 入口(没有"取消确认"语义,想退回
+  /// manual 直接切模式即可)。
+  Future<void> setAutoModeOptedIn(bool v) async {
+    state = state.copyWith(autoModeOptedIn: v);
     await _persist(state);
   }
 
