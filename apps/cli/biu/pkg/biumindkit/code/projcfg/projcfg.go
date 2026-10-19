@@ -23,7 +23,8 @@ import (
 type Agent struct {
 	// Default 是新任务默认 agent:"biu" | "claude" | "codex"。
 	Default string `toml:"default" json:"default"`
-	// DefaultPermissionMode 是默认权限档:"ask" | "auto_edit" | "full_access"。
+	// DefaultPermissionMode 是默认权限档。新三档词汇:"manual" | "auto" | "plan";
+	// 老词汇 "ask" | "auto_edit" | "full_access" 仍识别(见 agent.claudePermArgs)。
 	DefaultPermissionMode string `toml:"default_permission_mode" json:"default_permission_mode"`
 	// PromptPrefix 自动拼到每个任务 prompt 最前(后跟一个空行)。
 	PromptPrefix string `toml:"prompt_prefix" json:"prompt_prefix"`

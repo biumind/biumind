@@ -99,8 +99,9 @@ func isExecutableFile(path string) bool {
 	return info.Mode()&0o111 != 0
 }
 
-// BuildLaunch 组装 LaunchSpec。path 来自 DetectPath;mode ∈ ask|auto_edit|full_access;
-// prompt 空 → 不传 positional(进交互式 REPL)。flag 映射 1:1 。
+// BuildLaunch 组装 LaunchSpec。path 来自 DetectPath;mode ∈ manual|auto|plan
+// (新三档)或 ask|auto_edit|full_access(老词汇,均仍识别);prompt 空 → 不传
+// positional(进交互式 REPL)。flag 映射见 claudePermArgs / codexPermArgs。
 //
 // sessionID:非空且为 claude 时加 --session-id,使会话 JSONL 路径确定
 // (~/.claude/projects/<encoded-cwd>/<sessionID>.jsonl),供 M3 会话发现 watcher 精确
@@ -119,9 +120,9 @@ func BuildLaunch(agentType, path, mode, prompt, sessionID, model string) (Launch
 	}
 }
 
-// buildClaude:ask→--permission-mode default;auto_edit→acceptEdits;
-// full_access→--dangerously-skip-permissions。sessionID 非空 → --session-id。
-// prompt 作 positional。
+// buildClaude:权限档经 claudePermArgs 映射(auto/full_access→
+// --dangerously-skip-permissions,plan→--permission-mode plan,manual/ask 不加
+// flag)。sessionID 非空 → --session-id。prompt 作 positional。
 func buildClaude(path, mode, prompt, sessionID, model string) LaunchSpec {
 	args := claudePermArgs(mode)
 	if model != "" {
@@ -137,15 +138,24 @@ func buildClaude(path, mode, prompt, sessionID, model string) LaunchSpec {
 }
 
 // claudePermArgs 把权限档映射成 Claude flag(launch / resume 共用)。
+// 新三档词汇 manual/auto/plan 与老词汇 ask/auto_edit/full_access 都识别:
+//
+//	manual / default / ask → 不加 flag(claude 默认即逐项询问)
+//	auto / full_access     → --dangerously-skip-permissions(全权放行)
+//	plan                   → --permission-mode plan
+//	auto_edit              → --permission-mode acceptEdits
+//
 // 未知档不加 flag(保持与原 buildClaude 一致)。
 func claudePermArgs(mode string) []string {
 	switch mode {
-	case "ask":
-		return []string{"--permission-mode", "default"}
+	case "manual", "default", "ask":
+		return nil
+	case "auto", "full_access":
+		return []string{"--dangerously-skip-permissions"}
+	case "plan":
+		return []string{"--permission-mode", "plan"}
 	case "auto_edit":
 		return []string{"--permission-mode", "acceptEdits"}
-	case "full_access":
-		return []string{"--dangerously-skip-permissions"}
 	default:
 		return nil
 	}
@@ -286,8 +296,9 @@ func versionGTE(a, b [3]int) bool {
 	return true // 相等
 }
 
-// buildCodex:auto_edit→--sandbox workspace-write -a on-request;
-// full_access→--dangerously-bypass-approvals-and-sandbox。prompt 在 `--` 后。
+// buildCodex:权限档经 codexPermArgs 映射(auto_edit→workspace-write;
+// auto/full_access→--dangerously-bypass-approvals-and-sandbox;plan→read-only)。
+// prompt 在 `--` 后。
 func buildCodex(path, mode, prompt, model string) LaunchSpec {
 	args := codexPermArgs(mode)
 	// --model 须在 `--`(分隔 positional prompt)之前。
@@ -301,12 +312,23 @@ func buildCodex(path, mode, prompt, model string) LaunchSpec {
 }
 
 // codexPermArgs 把权限档映射成 Codex flag(launch / resume 共用)。
+// 新三档词汇 manual/auto/plan 与老词汇 ask/auto_edit/full_access 都识别:
+//
+//	manual / default / ask → 不加 flag(codex 默认策略)
+//	auto / full_access     → --dangerously-bypass-approvals-and-sandbox
+//	plan                   → --sandbox read-only -a on-request(codex 无
+//	                         plan 档;只读沙箱 + 按需升级是最接近的语义)
+//	auto_edit              → --sandbox workspace-write -a on-request
+//
+// 未知档不加 flag。
 func codexPermArgs(mode string) []string {
 	switch mode {
+	case "auto", "full_access":
+		return []string{"--dangerously-bypass-approvals-and-sandbox"}
+	case "plan":
+		return []string{"--sandbox", "read-only", "-a", "on-request"}
 	case "auto_edit":
 		return []string{"--sandbox", "workspace-write", "-a", "on-request"}
-	case "full_access":
-		return []string{"--dangerously-bypass-approvals-and-sandbox"}
 	default:
 		return nil
 	}

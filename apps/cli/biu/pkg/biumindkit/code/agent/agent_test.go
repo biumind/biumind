@@ -7,9 +7,10 @@ import (
 
 func TestBuildClaude_PermissionFlags(t *testing.T) {
 	cases := map[string][]string{
-		"ask":         {"--permission-mode", "default"},
 		"auto_edit":   {"--permission-mode", "acceptEdits"},
 		"full_access": {"--dangerously-skip-permissions"},
+		"auto":        {"--dangerously-skip-permissions"},
+		"plan":        {"--permission-mode", "plan"},
 	}
 	for mode, wantFlags := range cases {
 		spec, err := BuildLaunch("claude", "/bin/claude", mode, "fix bug", "", "")
@@ -29,12 +30,30 @@ func TestBuildClaude_PermissionFlags(t *testing.T) {
 	}
 }
 
-func TestBuildClaude_EmptyPromptNoPositional(t *testing.T) {
-	spec, _ := BuildLaunch("claude", "/bin/claude", "ask", "", "", "")
-	if strings.Contains(strings.Join(spec.Args, " "), "default") == false {
-		t.Fatal("expected --permission-mode default")
+// manual / default / ask 都映射 claude 的默认行为 → 不加任何权限 flag。
+func TestBuildClaude_ManualVocabularyAddsNoFlags(t *testing.T) {
+	for _, mode := range []string{"manual", "default", "ask"} {
+		spec, err := BuildLaunch("claude", "/bin/claude", mode, "fix bug", "", "")
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		joined := strings.Join(spec.Args, " ")
+		if strings.Contains(joined, "--permission-mode") ||
+			strings.Contains(joined, "--dangerously-skip-permissions") {
+			t.Errorf("claude %s: expected no permission flags; got %v", mode, spec.Args)
+		}
+		if spec.Args[len(spec.Args)-1] != "fix bug" {
+			t.Errorf("claude %s: prompt not last positional: %v", mode, spec.Args)
+		}
 	}
-	// 末项应是 "default"(flag),而非空 prompt
+}
+
+func TestBuildClaude_EmptyPromptNoPositional(t *testing.T) {
+	spec, _ := BuildLaunch("claude", "/bin/claude", "auto_edit", "", "", "")
+	if strings.Contains(strings.Join(spec.Args, " "), "acceptEdits") == false {
+		t.Fatal("expected --permission-mode acceptEdits")
+	}
+	// 末项应是 "acceptEdits"(flag),而非空 prompt
 	if spec.Args[len(spec.Args)-1] == "" {
 		t.Error("empty prompt should not be appended as positional")
 	}
@@ -54,6 +73,29 @@ func TestBuildCodex_Flags(t *testing.T) {
 	full, _ := BuildLaunch("codex", "/bin/codex", "full_access", "", "", "")
 	if !strings.Contains(strings.Join(full.Args, " "), "--dangerously-bypass-approvals-and-sandbox") {
 		t.Errorf("codex full_access flag wrong: %v", full.Args)
+	}
+}
+
+// 新三档词汇在 codex 上的映射:auto→bypass;plan→read-only 沙箱;
+// manual→不加 flag。
+func TestBuildCodex_NewVocabulary(t *testing.T) {
+	auto, _ := BuildLaunch("codex", "/bin/codex", "auto", "", "", "")
+	if !strings.Contains(strings.Join(auto.Args, " "), "--dangerously-bypass-approvals-and-sandbox") {
+		t.Errorf("codex auto should map to bypass: %v", auto.Args)
+	}
+
+	plan, _ := BuildLaunch("codex", "/bin/codex", "plan", "", "", "")
+	pj := strings.Join(plan.Args, " ")
+	if !strings.Contains(pj, "--sandbox read-only") || !strings.Contains(pj, "-a on-request") {
+		t.Errorf("codex plan should map to read-only sandbox: %v", plan.Args)
+	}
+
+	for _, mode := range []string{"manual", "default", "ask"} {
+		spec, _ := BuildLaunch("codex", "/bin/codex", mode, "", "", "")
+		mj := strings.Join(spec.Args, " ")
+		if strings.Contains(mj, "--sandbox") || strings.Contains(mj, "--dangerously") {
+			t.Errorf("codex %s: expected no permission flags; got %v", mode, spec.Args)
+		}
 	}
 }
 
