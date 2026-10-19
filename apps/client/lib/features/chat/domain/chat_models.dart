@@ -270,6 +270,21 @@ class ImageBlock extends Block {
   });
 }
 
+/// SystemBlock —— 会话内系统状态行（dim 灰字渲染，不进 assembledText /
+/// markdown）。当前唯一生产者：auto 权限模式审计行（SDK
+/// system/local_command_output，Go sdkbridge 把 PermissionAuditEvent 映射
+/// 成该帧，文案 '[auto] …' / '[auto-guard] …'）；其他
+/// local_command_output 内容也走这个块（通用 dim 渲染，无 ⏵⏵ 前缀图标）。
+class SystemBlock extends Block {
+  final String content;
+  const SystemBlock({
+    required super.id,
+    required super.index,
+    required super.state,
+    required this.content,
+  });
+}
+
 /// FormBlock —— AskUserQuestion 表单终态（accept/decline/cancel/timeout）
 /// 沉淀进消息流的只读块（P3-b 表单沉淀，设计 §6.2）。payload 与服务端
 /// chat.messages.parts[{type:'form'}] 同形；[answerSummary] 是

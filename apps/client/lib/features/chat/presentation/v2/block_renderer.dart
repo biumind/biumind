@@ -6,6 +6,8 @@
 //   - ToolUseBlock：折叠卡，默认折叠；点 header 展开看参数
 //   - ToolResultBlock：折叠卡，默认折叠；展开看 monospace 输出
 //   - ImageBlock：点开看大图
+//   - SystemBlock：dim 灰字系统状态行（auto 权限审计 '[auto]' /
+//     '[auto-guard]' 前缀带 ⏵⏵ 图标）
 
 import 'dart:convert';
 
@@ -48,7 +50,47 @@ class BlockRenderer extends StatelessWidget {
         _ImageBlockView(cacheKey: id, mimeType: mimeType, base64Data: data),
       // 表单终态（P3-b）：历史回放渲染只读表单卡。
       FormBlock() => FormBlockCard(block: block as FormBlock),
+      // 系统状态行（auto 权限审计等 local_command_output）：dim 灰字。
+      SystemBlock(:final content) => _SystemBlockView(content: content),
     };
+  }
+}
+
+/// _SystemBlockView —— 会话内系统状态行。'[auto]' / '[auto-guard]' 前缀
+/// 的权限审计行带 ⏵⏵ 图标（对齐 REPL 的 ModeAuto.Symbol 样式）；其他
+/// local_command_output 内容纯 dim 文本。
+class _SystemBlockView extends StatelessWidget {
+  const _SystemBlockView({required this.content});
+  final String content;
+
+  bool get _isAudit =>
+      content.startsWith('[auto]') || content.startsWith('[auto-guard]');
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_isAudit) ...[
+            Text(
+              '⏵⏵',
+              style: theme.textTheme.bodySmall?.copyWith(color: color),
+            ),
+            const SizedBox(width: 4),
+          ],
+          Expanded(
+            child: Text(
+              content,
+              style: theme.textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

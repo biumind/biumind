@@ -188,6 +188,32 @@ void main() {
       expect((blocks[1] as ToolResultBlock).content, 'file1\nfile2');
     });
 
+    test('preserves system blocks（auto 权限审计行导出）', () {
+      final t = _thread();
+      final messages = [
+        _msg(
+          id: 'm1',
+          role: MessageRole.assistant,
+          seq: 1,
+          blocks: [
+            const SystemBlock(
+              id: 's0',
+              index: 0,
+              state: BlockState.closed,
+              content: '[auto] Bash approved without prompting',
+            ),
+          ],
+        ),
+      ];
+      final parsed = parseThreadExportJson(
+          exportThreadAsJson(thread: t, messages: messages));
+      final blocks = parsed.messages.first.blocks;
+      expect(blocks, hasLength(1));
+      expect(blocks[0], isA<SystemBlock>());
+      expect((blocks[0] as SystemBlock).content,
+          '[auto] Bash approved without prompting');
+    });
+
     test('preserves form blocks（P3-b 表单沉淀导出）', () {
       final t = _thread();
       final messages = [

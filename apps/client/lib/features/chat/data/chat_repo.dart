@@ -851,6 +851,19 @@ class ChatRepo {
                 updatedAt: now,
               ),
             );
+      case SystemBlock(:final content):
+        await db.into(db.chatContentBlocks).insert(
+              ChatContentBlocksCompanion.insert(
+                id: id,
+                messageId: messageId,
+                ownerKey: Value(scope),
+                blockIndex: index,
+                type: 'system',
+                textContent: Value(content),
+                createdAt: now,
+                updatedAt: now,
+              ),
+            );
     }
   }
 
@@ -1504,6 +1517,13 @@ Block _blockFromRow(LocalChatContentBlock r) {
         index: r.blockIndex,
         state: state,
       );
+    case 'system':
+      return SystemBlock(
+        id: r.id,
+        index: r.blockIndex,
+        state: state,
+        content: r.textContent ?? '',
+      );
     case 'text':
     default:
       return TextBlock(
@@ -1557,6 +1577,11 @@ ChatContentBlocksCompanion _blockToCompanion(
       return base.copyWith(
         type: const Value('form'),
         formPayloadJson: Value(encodeJsonMap(b.toPayload())),
+      );
+    case SystemBlock(:final content):
+      return base.copyWith(
+        type: const Value('system'),
+        textContent: Value(content),
       );
   }
 }

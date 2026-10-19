@@ -43,6 +43,7 @@ import '../data/chat_model_groups.dart' show chatModelGroupsProvider;
 import '../../../services/auth_service.dart';
 import '../../creation/application/credits_controller.dart';
 import '../data/biu_session_connection.dart';
+import '../data/permission_audit_tap.dart';
 import '../data/chat_repo.dart';
 import '../data/chat_scope.dart';
 import '../sync/chat_sync_manager.dart';
@@ -317,7 +318,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       agentPlane: deps.agentPlane,
       brainBaseUrl: deps.brainBaseUrl,
       thread: thread,
-      transportConnector: deps.transportConnector,
+      transportConnector: _auditConnector(deps),
     );
     if (maybe == null) return const ChatState();
 
@@ -330,6 +331,52 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
       isStreaming: maybe.sessionStatus != SessionStatus.paused,
       activeAssistantMessageId: null, // resume 时由 SessionEvent 更新
     );
+  }
+
+  /// 权限审计行 tee（设计 §7-4 客户端半）：auto 模式的
+  /// system/local_command_output 帧不经 BiuSessionConnection 块管线
+  /// （那里 switch 无该分支、静默丢弃），在 transport 层旁路 tee 出来写
+  /// SystemBlock。inner 传 deps.transportConnector —— 测试注入 fake 时
+  /// tee 包在 fake 外面，行为一致。
+  BiuTransport Function(Uri) _auditConnector(ChatControllerDeps deps) =>
+      auditTeeConnector(
+        inner: deps.transportConnector,
+        onLocalCommandOutput: (uuid, content) =>
+            _onAuditLine(deps, uuid, content),
+      );
+
+  /// 审计行落库：挂到当前 streaming 的 assistant 消息末尾（审计帧在工具
+  /// 执行期到达）；找不到（晚到 / 重启后 replay）→ 最近一条 assistant
+  /// 消息；一条都没有 → drop。block id 由帧 uuid 派生 —— resume replay
+  /// 重复帧 upsert 幂等，不产生重复行。
+  Future<void> _onAuditLine(
+      ChatControllerDeps deps, String uuid, String content) async {
+    try {
+      final msgs = await deps.repo.watchMessages(arg).first;
+      Message? target;
+      for (final m in msgs.reversed) {
+        if (m.role != MessageRole.assistant) continue;
+        if (m.status == MessageStatus.streaming) {
+          target = m;
+          break;
+        }
+        target ??= m;
+      }
+      if (target == null) return;
+      final nextIndex =
+          target.blocks.isEmpty ? 0 : target.blocks.last.index + 1;
+      await deps.repo.upsertBlock(
+        SystemBlock(
+          id: uuid.isEmpty ? 'audit:${_uuid.v4()}' : 'audit:$uuid',
+          index: nextIndex,
+          state: BlockState.closed,
+          content: content,
+        ),
+        messageId: target.id,
+      );
+    } catch (e) {
+      debugPrint('[chat] audit line write failed: $e');
+    }
   }
 
   /// 发一条 user message。没活跃 connection → 创新 brain session；
@@ -565,7 +612,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         userMessageId: userMessageId,
         assistantMessageId: assistantMessageId,
         attachments: attachments,
-        transportConnector: deps.transportConnector,
+        transportConnector: _auditConnector(deps),
         clientSideRecordId: clientSideRecordId,
         clientSideBaseUrl: clientSideBaseUrl,
         clientSideProtocol: clientSideProtocol,
@@ -612,7 +659,7 @@ class ChatController extends FamilyAsyncNotifier<ChatState, String> {
         userMessageId: userMessageId,
         assistantMessageId: assistantMessageId,
         attachments: attachments,
-        transportConnector: deps.transportConnector,
+        transportConnector: _auditConnector(deps),
         clientSideRecordId: clientSideRecordId,
         clientSideBaseUrl: clientSideBaseUrl,
         clientSideProtocol: clientSideProtocol,

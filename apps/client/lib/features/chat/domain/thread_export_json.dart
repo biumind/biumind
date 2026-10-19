@@ -263,6 +263,7 @@ Map<String, dynamic> _blockToJson(Block b) {
     // FormBlock.toPayload 自带 'type': 'form' + 完整 payload（与服务端
     // chat.messages.parts 同形），导出直接透传。
     FormBlock() => b.toPayload(),
+    SystemBlock(:final content) => {'type': 'system', 'content': content},
   };
 }
 
@@ -309,6 +310,13 @@ Block? _blockFromJson(Map<String, dynamic> j, {required int index}) {
       );
     case 'form':
       return FormBlock.fromPayload(j, id: id, index: index);
+    case 'system':
+      return SystemBlock(
+        id: id,
+        index: index,
+        state: BlockState.closed,
+        content: (j['content'] as String?) ?? '',
+      );
     default:
       return null;
   }

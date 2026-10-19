@@ -293,6 +293,30 @@ void main() {
     expect(f.notes, '都喜欢');
   });
 
+  test('upsertBlock supports system type（auto 权限审计行 round-trip + upsert 幂等）',
+      () async {
+    await repo.createThread(id: 't1', mode: ThreadMode.agent);
+    await repo.appendMessage(
+        id: 'm1', threadId: 't1', role: MessageRole.assistant);
+    const block = SystemBlock(
+      id: 'audit:u-1',
+      index: 0,
+      state: BlockState.closed,
+      content: '[auto] Bash approved without prompting',
+    );
+    await repo.upsertBlock(block, messageId: 'm1');
+    // resume replay 重复帧：同 id upsert 不产生重复行。
+    await repo.upsertBlock(block, messageId: 'm1');
+
+    final m = await repo.getMessage('m1');
+    expect(m!.blocks, hasLength(1));
+    final b = m.blocks.first;
+    expect(b, isA<SystemBlock>());
+    expect((b as SystemBlock).content, '[auto] Bash approved without prompting');
+    // system block 不进 assembledText（复制/导出纯文本不含审计行）。
+    expect(m.assembledText, isNot(contains('[auto]')));
+  });
+
   test('upsertMessageFromSync with formBlocks writes form block（保真回放）',
       () async {
     await repo.createThread(id: 't1', mode: ThreadMode.chat);

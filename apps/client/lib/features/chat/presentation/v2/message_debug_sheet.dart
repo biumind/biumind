@@ -122,6 +122,13 @@ class _MessageDebugSheet extends StatelessWidget {
           'action': action,
           'answerSummary': answerSummary,
         },
+      SystemBlock(:final id, :final index, :final state, :final content) => {
+          'kind': 'system',
+          'id': id,
+          'index': index,
+          'state': state.name,
+          'content': content,
+        },
     };
   }
 

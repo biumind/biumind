@@ -259,6 +259,11 @@ class BiuClient {
     return _WSChannelTransport(ch);
   }
 
+  /// 公开的默认 connector —— 给包装类 connector（如审计行 tee，见
+  /// features/chat/data/permission_audit_tap.dart）在 inner 为 null 时
+  /// 回落到生产 WS 实现。
+  static BiuTransport defaultConnector(Uri uri) => _defaultConnector(uri);
+
   void _onFrame(dynamic raw) {
     if (raw is! String) {
       // gorilla 用 TextMessage；BinaryMessage 当前不支持，drop
