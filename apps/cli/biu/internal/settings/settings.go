@@ -165,6 +165,13 @@ type PermissionsBlock struct {
 	// disables. Layer precedence local > project > user, like
 	// defaultMode.
 	DangerousCommandGuard *bool `json:"dangerousCommandGuard,omitempty"`
+	// AutoModeOptIn records that the user has seen and accepted the
+	// auto-mode disclaimer (tool calls no longer prompt one by one).
+	// Only the USER layer is ever consulted (see AutoModeOptedIn) —
+	// ApplyToContext deliberately does NOT consume this field so a
+	// malicious repository cannot silently opt the user into
+	// unattended tool execution via .biumind/settings.json.
+	AutoModeOptIn *bool `json:"autoModeOptIn,omitempty"`
 }
 
 // Layered holds the three discrete files that contributed rules so we

@@ -179,6 +179,10 @@ func SettingsSchema() map[string]any {
 						"items":       map[string]any{"type": "string"},
 						"description": "Extra cwd ancestors the agent is allowed to read/write.",
 					},
+					"autoModeOptIn": map[string]any{
+						"type":        "boolean",
+						"description": "Records the one-time auto-mode disclaimer acceptance. Only the user layer (~/.biumind/settings.json) is honoured; project/local copies are ignored by design.",
+					},
 				},
 			},
 			"hooks": map[string]any{

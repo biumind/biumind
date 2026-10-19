@@ -181,6 +181,7 @@ type model struct {
 	questionQueue        []*engine.UserQuestionAskEvent
 	permissionCursor     int          // focused option row in the permission dialog
 	permissionTyping     bool         // true when the textarea captures deny feedback
+	modeOptInPending     bool         // true while the /mode auto opt-in dialog is up (mode_optin.go)
 	questionCursor       int          // currently focused option index (highlights preview)
 	questionPicked       map[int]bool // multi-select toggle state
 	questionOther        bool         // true when the synthesised "Other" row is focused / picked
@@ -498,6 +499,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Auto-mode opt-in dialog steals keys while it's up.
+	if m.modeOptInPending {
+		return m.handleModeOptInKey(msg)
+	}
+
 	// User-question panel steals keys while it's up.
 	if m.questionAsk != nil {
 		return m.handleQuestionKey(msg)
@@ -717,29 +723,14 @@ func (m model) runSlash(line string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newMode := permissions.ModeFromString(parts[1])
-		ctx := m.engine.Permissions()
-		// Route plan mode through EnterPlanMode/ExitPlanMode so the
-		// session remembers what to restore to. Direct SetMode for the
-		// rest — they don't have a "previous" concept.
-		switch {
-		case newMode == permissions.ModePlan:
-			prev := ctx.EnterPlanMode()
-			if prev != "" && prev != permissions.ModePlan {
-				m.appendSystemNote("permission mode: plan (was " + string(prev) + ")")
-			} else {
-				m.appendSystemNote("permission mode: plan")
-			}
-		case ctx.Mode() == permissions.ModePlan:
-			// Leaving plan via /mode → restore via the same path the tool
-			// uses so prePlanMode bookkeeping clears.
-			ctx.ExitPlanMode()
-			ctx.SetMode(newMode)
-			m.appendSystemNote("permission mode: " + string(newMode))
-		default:
-			ctx.SetMode(newMode)
-			m.appendSystemNote("permission mode: " + string(newMode))
+		// First-time switch to auto requires an explicit opt-in (see
+		// mode_optin.go); everything else switches immediately.
+		if m.needsAutoOptIn(newMode) {
+			m.modeOptInPending = true
+			m.refreshBody()
+			return m, nil
 		}
-		return m, nil
+		return m.applyPermissionMode(newMode), nil
 	case "/reload":
 		if m.engine == nil {
 			m.appendSystemNote("/reload: requires engine path")
@@ -1535,6 +1526,9 @@ func (m model) inputArea() string {
 	}
 	if q := renderQuestionAsk(m); q != "" {
 		body = q + "\n" + body
+	}
+	if opt := renderModeOptIn(m); opt != "" {
+		body = opt + "\n" + body
 	}
 	return body
 }
