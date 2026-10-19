@@ -59,6 +59,14 @@ func (e *QueryEngine) runCompact(ctx context.Context, out chan<- Event, reason s
 	}
 	e.state.ResetMessages(res.Replaced)
 
+	// Auto-mode reminder (mode_reminder.go) is a one-shot history
+	// message — ResetMessages just wiped it. Re-arm the lazy injector
+	// so the next turn re-injects the enter reminder when the session
+	// is still in auto. When the session has meanwhile left auto, the
+	// reset also correctly SUPPRESSES the exit reminder: the enter
+	// reminder it would retract no longer exists in history.
+	e.autoReminderShown = false
+
 	if e.hooks.Has(hooks.EventPostCompact) {
 		_ = hooks.Run(ctx,
 			e.hooks.For(hooks.EventPostCompact, ""),
