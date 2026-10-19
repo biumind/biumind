@@ -357,6 +357,11 @@ func (i *Ingress) handleStream(w http.ResponseWriter, r *http.Request) {
 		// ({action,content} vs {behavior})分 elicitation_response /
 		// permission_response 两种 type 投 control 队列。
 		i.maybeRoutePermissionResponse(r.Context(), sessionID, envID, msg)
+		// client→engine 方向的 control_request 下行（P1 遗留 1）：
+		// composer 中途切档的 set_permission_mode 投 daemon control
+		// 队列（worker PollControl 消费）。投递后照常 publish 到 .in
+		// 保持会话流记录完整 —— 与 cancel / control_response 同模式。
+		i.maybeRouteSetPermissionMode(r.Context(), sessionID, envID, msg)
 		// publish 到 in subject。失败仅 log，不断 connection —— 客户端可
 		// 重发；publish 失败通常是 broker 短时间不可用。
 		if err := js.Publish(r.Context(), inSubject, json.RawMessage(msg)); err != nil {
@@ -391,6 +396,13 @@ type inboundFrameHead struct {
 		Response  json.RawMessage `json:"response,omitempty"`
 		Error     string          `json:"error,omitempty"`
 	} `json:"response,omitempty"`
+	// Request 字段仅 control_request 帧使用（client→engine 方向的控制
+	// 下行，P1 遗留 1：目前只有 set_permission_mode 一种）。只展开
+	// subtype + mode 两个 leaf，其余字段（ultraplan 等）不感知。
+	Request *struct {
+		Subtype string `json:"subtype"`
+		Mode    string `json:"mode,omitempty"`
+	} `json:"request,omitempty"`
 }
 
 // maybeRouteCancel 探测 msg 是否是 cancel 帧;是则触发反向打断。
@@ -544,8 +556,57 @@ func (i *Ingress) maybeRoutePermissionResponse(ctx context.Context, sessionID uu
 	return true
 }
 
-// decodeElicitationAns 把 control_response 嵌套体解成 ElicitationAnswer。
-// 回包体是 ElicitationResponse{action, content}。解析失败也回一个
+// maybeRouteSetPermissionMode 探测 client→engine 方向的
+// control_request{subtype:"set_permission_mode"} 帧（chat composer 中途
+// 切档，P1 遗留 1），投到 daemon 的 control 队列让 worker PollControl
+// 消费后应用到在飞引擎。返回 true 表示识别为该帧（无论投递成败）。
+//
+// 与 cancel / control_response 旁路同模式：调用方在本函数之后照常
+// publish 到 .in，会话流记录保持完整。
+//
+// chat 模式进程内会话（envID == nil）没有权限内核接线 ——
+// chat.AgentLoop 恒 PermissionAllow（云端工具全只读），模式无从应用,
+// 静默收掉。daemon 不在飞 / 会话已结束时 worker 侧回 error ack
+// （worker.applyPermissionModeControl），本次切换只对下个会话生效
+// （PATCH auto_approve 已先行落库）。
+func (i *Ingress) maybeRouteSetPermissionMode(ctx context.Context, sessionID uuid.UUID, envID *uuid.UUID, msg []byte) bool {
+	var head inboundFrameHead
+	if err := json.Unmarshal(msg, &head); err != nil {
+		return false
+	}
+	if head.Type != "control_request" || head.Request == nil ||
+		head.Request.Subtype != "set_permission_mode" {
+		return false
+	}
+	if envID == nil {
+		i.logger.Info("ingress: set_permission_mode — in-process chat session, no-op",
+			"session_id", sessionID, "request_id", head.RequestID,
+			"mode", head.Request.Mode)
+		return true
+	}
+	if i.queue == nil {
+		i.logger.Warn("ingress: set_permission_mode cannot route — Queue not wired",
+			"session_id", sessionID)
+		return true
+	}
+	payload := map[string]any{
+		"type":       "set_permission_mode",
+		"session_id": sessionID.String(),
+		"request_id": head.RequestID,
+		"mode":       head.Request.Mode,
+	}
+	if err := i.queue.EnqueueControl(ctx, *envID, payload); err != nil {
+		i.logger.Warn("ingress: set_permission_mode enqueue failed",
+			"session_id", sessionID, "env_id", *envID, "err", err)
+		return true
+	}
+	i.logger.Info("ingress: set_permission_mode routed via control queue",
+		"session_id", sessionID, "env_id", *envID,
+		"request_id", head.RequestID, "mode", head.Request.Mode)
+	return true
+}
+
+// decodeElicitationAns 把 control_response 嵌套体解成 ElicitationAnswer。// 回包体是 ElicitationResponse{action, content}。解析失败也回一个
 // cancel —— 让等候方立刻 soft error 出局,而不是干等 5 分钟超时。
 func decodeElicitationAns(logger *slog.Logger, sessionID uuid.UUID, head *inboundFrameHead) ElicitationAnswer {
 	ans := ElicitationAnswer{Action: "cancel"}
