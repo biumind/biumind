@@ -47,6 +47,7 @@ import '../../application/chat_controller.dart';
 import '../../application/composer_draft_store.dart';
 import '../../application/draft_history_controller.dart';
 import '../../application/web_search_provider.dart';
+import '../../data/biu_session_connection.dart';
 import '../../data/chat_image_compressor.dart';
 import '../../domain/chat_models.dart'
     show AttachmentInput, AutoApproveMode, ThreadMode;
@@ -1419,6 +1420,10 @@ class _AutoApproveChipInline extends ConsumerWidget {
           return;
         }
         await ref.read(chatThreadOpsProvider).setAutoApprove(threadId, next);
+        // 活动会话中途切档即时下发引擎（P1 遗留 1）：经 brain 把
+        // set_permission_mode 投到在飞 daemon / runtime。无活跃连接时
+        // 静默 —— PATCH 已落库,下个会话生效。
+        BiuSessionConnection.activeFor(threadId)?.setPermissionMode(next.name);
       },
       itemBuilder: (_) => [
         PopupMenuItem(

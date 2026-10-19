@@ -1257,6 +1257,52 @@ void main() {
   });
 
 
+  // ─── set_permission_mode 下发（P1 遗留 1）────────────────────
+
+  test('setPermissionMode 发 control_request{set_permission_mode} 帧', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+
+    c.setPermissionMode('auto');
+
+    final frame = fake.sent.firstWhere(
+      (s) => s.contains('set_permission_mode'),
+      orElse: () => '',
+    );
+    expect(frame, isNotEmpty,
+        reason: 'setPermissionMode should write the control frame to WS');
+    final wire = jsonDecode(frame) as Map<String, dynamic>;
+    expect(wire['type'], 'control_request');
+    expect(wire['request_id'], isNotEmpty);
+    final req = wire['request'] as Map<String, dynamic>;
+    expect(req['subtype'], 'set_permission_mode');
+    expect(req['mode'], 'auto');
+  });
+
+  test('activeFor 跟踪 open/close 生命周期', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+
+    expect(BiuSessionConnection.activeFor('t1'), same(c),
+        reason: 'open 后应立即注册');
+
+    await c.close();
+    expect(BiuSessionConnection.activeFor('t1'), isNull,
+        reason: 'close 后应注销');
+  });
+
+  test('closed connection 的 setPermissionMode 不再发帧', () async {
+    final fake = FakeTransport();
+    final c = await openChat(fake);
+    await c.close();
+    final before = fake.sent.length;
+
+    c.setPermissionMode('plan');
+
+    expect(fake.sent.length, before,
+        reason: 'closed connection must not send');
+  });
+
   test('imports resolve', () {
     expect(http.Client, isNotNull);
     expect(jsonEncode, isNotNull);

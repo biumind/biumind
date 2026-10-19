@@ -39,6 +39,7 @@ import '../../../data/agent_plane/agent_plane_client.dart';
 import '../../../data/api/_http_helpers.dart' show ApiError;
 import '../../../data/api/biu_client.dart';
 import '../../../data/api/sdkproto/v1/control/elicitation.dart';
+import '../../../data/api/sdkproto/v1/control/set_model.dart';
 import '../../../data/api/sdkproto/v1/control/wrappers.dart';
 import '../../../data/api/sdkproto/v1/data/assistant.dart';
 import '../../../data/api/sdkproto/v1/data/result.dart';
@@ -281,6 +282,17 @@ class BiuSessionConnection {
 
   StreamSubscription? _frameSub;
 
+  // ─── 活跃连接注册表（中途切档用，P1 遗留 1）──────────────────
+  /// threadId → 当前活跃 connection。构造（open / resume）即注册,
+  /// _internalClose 注销。composer 的权限模式 chip 经 [activeFor] 找到
+  /// 活动会话并把 set_permission_mode 控制帧投给 brain —— 中途切档
+  /// 即时下发引擎,不再等下个会话。
+  static final Map<String, BiuSessionConnection> _activeByThread = {};
+
+  /// thread 当前活跃的 connection;没有（未开场 / 已关闭）返 null。
+  static BiuSessionConnection? activeFor(String threadId) =>
+      _activeByThread[threadId];
+
   BiuSessionConnection._({
     required this.repo,
     required this.agentPlane,
@@ -289,7 +301,9 @@ class BiuSessionConnection {
     required Session session,
     required BiuClient ws,
   })  : _session = session,
-        _ws = ws;
+        _ws = ws {
+    _activeByThread[thread.id] = this;
+  }
 
   /// 监听帧事件流（broadcast）。多 listener OK。
   Stream<SessionEvent> get events => _events.stream;
@@ -680,9 +694,30 @@ class BiuSessionConnection {
     );
   }
 
+  /// 把权限模式下发到活动会话的引擎（composer chip 中途切档，
+  /// P1 遗留 1）。brain ingress 路由 control_request{
+  /// set_permission_mode} 到 daemon 的 control 队列，worker 应用到在飞
+  /// 引擎的权限 Context（下一个工具判定即生效）并回 control_response
+  /// ack。进程内 chat 会话（无 environment）brain 侧是 no-op —— chat
+  /// 内核的云端工具全只读，没有模式可切。
+  ///
+  /// fire-and-forget：不 await ack。本地 chip 状态已由 PATCH
+  /// auto_approve 落库兜底；WS 已断时静默（同 cancel 的语义，不重连
+  /// 重发）。
+  void setPermissionMode(String mode) {
+    if (_closed) return;
+    try {
+      _ws.send(SDKControlRequest(
+        requestId: 'perm-mode-${DateTime.now().millisecondsSinceEpoch}',
+        request: SetPermissionMode(mode: mode).toJson(),
+      ));
+    } catch (_) {
+      // WS 已断 —— 静默,不重连重发。
+    }
+  }
+
   /// 给 brain 发取消请求,等服务端走完 clean-stop 路径(F5 之后 brain
   /// emit Done{interrupted} + 合成 tool_result),然后 finalize。
-  ///
   /// 跟旧实现的差异:
   ///   - 不立刻关 WS。brain 走 engine 的 isInterrupt 路径需要时间投递最终
   ///     Done 帧,过早 close 导致这帧到达时连接已经没了,UI 状态不一致。
@@ -759,6 +794,11 @@ class BiuSessionConnection {
   Future<void> _internalClose(SessionStatus status) async {
     if (_closed) return;
     _closed = true;
+    // 注销活跃注册表 —— 仅当表里仍是自己（同 thread 可能已开了新
+    // connection，不能把别人的注册顶掉）。
+    if (identical(_activeByThread[thread.id], this)) {
+      _activeByThread.remove(thread.id);
+    }
     _tokenRefreshTimer?.cancel();
     _cancelTimeoutTimer?.cancel();
     _cancelTimeoutTimer = null;
