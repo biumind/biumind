@@ -76,6 +76,12 @@ func (e *QueryEngine) runSubmit(
 			hooks.EventStopFailure, payload)
 	}()
 
+	// ── Auto-mode reminder ────────────────────────────
+	// Lazy one-shot reminder on auto-mode transitions (see
+	// mode_reminder.go). Runs before the other attachments so the
+	// reminder precedes any drift / completion notes of this turn.
+	e.maybeInjectModeReminder()
+
 	// ── Plan drift attachment ─────────────────────────────
 	// If the previous turn's tool calls drifted from the approved
 	// plan above the threshold, surface a `<plan-drift>` system

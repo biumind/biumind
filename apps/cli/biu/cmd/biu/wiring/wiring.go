@@ -454,6 +454,10 @@ func BuildEngine(cfg *config.Config, f Flags, model string) (*engine.QueryEngine
 		PlanVerifier:       verifier,
 		PlanDriftThreshold: cfg.Permissions.PlanDriftThreshold,
 		PlanHinter:         hinter,
+		// Auto-mode reminder: default on; [permissions]
+		// permission_mode_reminder=false opts out.
+		ModeReminder: cfg.Permissions.PermissionModeReminder == nil ||
+			*cfg.Permissions.PermissionModeReminder,
 		// Background-task completion notifier: same store the Bash
 		// tool writes to, so `Bash{run_in_background:true}`'s exit
 		// auto-surfaces in the next user turn. Nil-safe at the

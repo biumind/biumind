@@ -191,6 +191,15 @@ type Options struct {
 	// notification path.
 	BgTaskNotifier BgTaskNotifier
 
+	// ModeReminder enables the auto-permission-mode reminder: entering
+	// ModeAuto folds a one-shot system message into the next turn's
+	// history telling the model approvals are automatic; leaving
+	// injects the release note. Wired from [permissions]
+	// permission_mode_reminder (default on there). False here keeps
+	// history untouched (unattended embedders that don't want the
+	// extra context).
+	ModeReminder bool
+
 	// Teams + TeamMessages let callers share team registries between
 	// the engine and the orchestration tool layer (P20.53-2). When
 	// nil, engine.New() creates fresh in-memory registries. Wiring
@@ -289,6 +298,13 @@ type QueryEngine struct {
 	// head of every user turn. nil = no auto-notification (model
 	// must poll BashOutput manually). See BgTaskNotifier.
 	bgTaskNotifier BgTaskNotifier
+
+	// modeReminder gates the auto-mode reminder injection (see
+	// mode_reminder.go). autoReminderShown tracks whether the enter
+	// reminder is currently "live" in history so each crossing of the
+	// auto boundary injects exactly one message.
+	modeReminder      bool
+	autoReminderShown bool
 
 	// selections is the deferred-tool unlock set for this engine
 	// (P20.51 Phase 2). Persists for the lifetime of the QueryEngine
@@ -477,6 +493,7 @@ func New(opt Options) (*QueryEngine, error) {
 		parentToolUseID:    opt.ParentToolUseID,
 		planVerifier:       opt.PlanVerifier,
 		planDriftThreshold: planDriftThreshold(opt.PlanDriftThreshold),
+		modeReminder:       opt.ModeReminder,
 		planHinter:         opt.PlanHinter,
 		bgTaskNotifier:     opt.BgTaskNotifier,
 		selections:         NewDeferredSelection(),

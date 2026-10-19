@@ -104,6 +104,10 @@ func ConfigSchema() map[string]any {
 					"mode":                    map[string]any{"type": "string", "enum": anyStrings(validPermissionModes)},
 					"allowlist":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"dangerous_command_guard": map[string]any{"type": "boolean"},
+					"permission_mode_reminder": map[string]any{
+						"type":        "boolean",
+						"description": "Inject a system reminder when the session enters/leaves auto mode. Default true.",
+					},
 				},
 			},
 			"search": map[string]any{

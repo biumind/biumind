@@ -172,6 +172,12 @@ type PermissionsSection struct {
 	// for users who find it noisy. Suggested defaults are chosen
 	// conservatively — leaving this false should be safe for most.
 	SuggestPlanDisabled bool `toml:"suggest_plan_disabled"`
+
+	// PermissionModeReminder toggles the one-shot system reminder the
+	// engine injects when the session enters / leaves auto mode (it
+	// tells the model tool approvals are automatic so it stops asking
+	// for confirmation). nil = on.
+	PermissionModeReminder *bool `toml:"permission_mode_reminder"`
 }
 
 // SearchSection controls how the `websearch` tool resolves queries.
