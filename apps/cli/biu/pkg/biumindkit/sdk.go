@@ -1303,6 +1303,28 @@ type ToolResult struct {
 
 func (ToolResult) sdkEvent() {}
 
+// PermissionAudit fires when auto permission mode silently resolves a
+// tool call — approved without prompting ("auto-approved") or held by
+// a guard for confirmation ("guard-ask"). Mirrors
+// engine.PermissionAuditEvent; purely informational, never enters the
+// model context. Embedders use it to render an "auto mode did this on
+// your behalf" audit trail.
+type PermissionAudit struct {
+	BaseEvent
+	ToolName string
+	// Outcome: "auto-approved" | "guard-ask".
+	Outcome string
+	// Policy is the permission-chain policy that produced the verdict
+	// ("auto-mode-approve" / "dangerous-command-ask" /
+	// "sensitive-path-ask").
+	Policy string
+	// Reason is the chain's human-readable detail (guard reason for
+	// guard-ask).
+	Reason string
+}
+
+func (PermissionAudit) sdkEvent() {}
+
 // CompactStarted / CompactFinished fire on auto / manual compact.
 type CompactStarted struct {
 	BaseEvent
@@ -1413,6 +1435,14 @@ func translate(raw engine.Event) Event {
 			BaseEvent: base,
 			ID:        e.ID, Name: e.Name, Output: body,
 			IsError: e.Result.IsError, Elapsed: e.Elapsed,
+		}
+	case *engine.PermissionAuditEvent:
+		return PermissionAudit{
+			BaseEvent: base,
+			ToolName:  e.ToolName,
+			Outcome:   e.Outcome,
+			Policy:    e.Policy,
+			Reason:    e.Reason,
 		}
 	case *engine.CompactStartEvent:
 		return CompactStarted{BaseEvent: base, Reason: e.Reason, TokensBefore: e.TokensBefore}

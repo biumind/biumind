@@ -122,6 +122,28 @@ func ToSDKFrame(ev biumindkit.Event, callerSessionID string) sdkproto.Frame {
 			UUID:                uuid,
 			SessionID:           sessionID,
 		}
+	case biumindkit.PermissionAudit:
+		// auto 模式审计行 → system/local_command_output。不新增 wire
+		// variant:该 subtype 是协议里现成的"会话内系统文本通知"帧,
+		// 客户端按灰色系统行渲染;Flutter 侧后续如需结构化展示可再
+		// 升级为专用 variant。
+		var line string
+		switch e.Outcome {
+		case "auto-approved":
+			line = fmt.Sprintf("[auto] %s approved without prompting", e.ToolName)
+		case "guard-ask":
+			line = fmt.Sprintf("[auto-guard] %s held for confirmation: %s",
+				e.ToolName, e.Reason)
+		default:
+			line = fmt.Sprintf("[auto] %s: %s", e.ToolName, e.Outcome)
+		}
+		return &sdkproto.SDKLocalCommandOutput{
+			Type:      sdkproto.TypeSystem,
+			Subtype:   sdkproto.SubtypeLocalCommandOutput,
+			Content:   line,
+			UUID:      uuid,
+			SessionID: sessionID,
+		}
 	case biumindkit.CompactStarted:
 		return &sdkproto.BiumindCompactStarted{
 			Type:         sdkproto.TypeBiumindCompactStarted,

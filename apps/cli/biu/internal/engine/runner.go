@@ -378,6 +378,32 @@ func (e *QueryEngine) askPermission(
 		}
 	}
 
+	// Permission audit (auto-mode visibility): surface the two silent
+	// outcomes auto mode produces — the auto-approve policy letting a
+	// call through without any prompt, and the guards escalating one
+	// to an ask. Everything else stays quiet: manual-mode asks are
+	// their own record, and denials already surface as an error
+	// tool_result + PermissionDenied hook. Emitted AFTER the
+	// PermissionRequest hook so a hook-blocked call (which flips to
+	// deny) never masquerades as an auto-approval.
+	auditOutcome := ""
+	switch {
+	case dec == permissions.DecideAllow && reason.Policy == "auto-mode-approve":
+		auditOutcome = "auto-approved"
+	case dec == permissions.DecideAsk && reason.Kind == "guard":
+		auditOutcome = "guard-ask"
+	}
+	if auditOutcome != "" {
+		SafeSend(out, &PermissionAuditEvent{
+			ToolUseID: in.UseID,
+			ToolName:  in.Name,
+			Input:     in.Input,
+			Outcome:   auditOutcome,
+			Policy:    reason.Policy,
+			Reason:    reason.Detail,
+		}, ctx.Done())
+	}
+
 	switch dec {
 	case permissions.DecideAllow:
 		return PermissionAnswer{Decision: PermAllow}, nil

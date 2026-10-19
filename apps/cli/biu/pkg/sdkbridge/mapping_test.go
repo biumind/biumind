@@ -108,6 +108,43 @@ func TestMapping_CompactFinished(t *testing.T) {
 	}
 }
 
+// PermissionAudit rides the generic system/local_command_output frame
+// (no new wire variant). The formatted line must name the tool and
+// the outcome; session_id/uuid must be populated like every frame.
+func TestMapping_PermissionAudit(t *testing.T) {
+	frame := ToSDKFrame(biumindkit.PermissionAudit{
+		ToolName: "Bash", Outcome: "auto-approved",
+		Policy: "auto-mode-approve", Reason: "auto mode",
+	}, testSessionID)
+	lco, ok := frame.(*sdkproto.SDKLocalCommandOutput)
+	if !ok {
+		t.Fatalf("PermissionAudit → %T, want *SDKLocalCommandOutput", frame)
+	}
+	if lco.Type != "system" || lco.Subtype != sdkproto.SubtypeLocalCommandOutput {
+		t.Errorf("wrong frame identity: %+v", lco)
+	}
+	if !strings.Contains(lco.Content, "Bash") ||
+		!strings.Contains(lco.Content, "approved without prompting") {
+		t.Errorf("content lost tool/outcome: %q", lco.Content)
+	}
+	if lco.SessionID != testSessionID || lco.UUID == "" {
+		t.Errorf("session_id/uuid lost: %+v", lco)
+	}
+
+	guard := ToSDKFrame(biumindkit.PermissionAudit{
+		ToolName: "Write", Outcome: "guard-ask",
+		Policy: "sensitive-path-ask", Reason: "sensitive path guard: .env",
+	}, testSessionID)
+	gl, ok := guard.(*sdkproto.SDKLocalCommandOutput)
+	if !ok {
+		t.Fatalf("guard-ask → %T, want *SDKLocalCommandOutput", guard)
+	}
+	if !strings.Contains(gl.Content, "Write") ||
+		!strings.Contains(gl.Content, "sensitive path guard: .env") {
+		t.Errorf("guard content lost detail: %q", gl.Content)
+	}
+}
+
 func TestMapping_Error(t *testing.T) {
 	frame := ToSDKFrame(biumindkit.Error{
 		Err: errors.New("rate limited"), Recoverable: true,

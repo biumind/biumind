@@ -74,6 +74,7 @@ type ToolStart       struct { BaseEvent; ID, Name string; Input map[string]any }
 type ToolResult      struct { BaseEvent; ID, Name, Output string; IsError bool; Elapsed time.Duration }
 type CompactStarted  struct { BaseEvent; Reason string; TokensBefore int }
 type CompactFinished struct { BaseEvent; TokensBefore, TokensAfter, TokensSaved int }
+type PermissionAudit struct { BaseEvent; ToolName, Outcome, Policy, Reason string }  // auto 模式审计(auto-approved | guard-ask)
 type Error           struct { BaseEvent; Err error; Recoverable bool }
 type Done            struct { BaseEvent; StopReason string; InputTokens, OutputTokens, CacheReadTokens, CacheWriteTokens int; Elapsed time.Duration }
 

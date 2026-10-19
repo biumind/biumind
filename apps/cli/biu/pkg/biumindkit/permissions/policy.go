@@ -32,10 +32,16 @@ const (
 // when a rule produced the decision so the UI can render "blocked by
 // projectSettings".
 type Reason struct {
-	Kind   string // "rule" | "mode" | "readOnly" | "session" | "default"
+	Kind   string // "rule" | "mode" | "readOnly" | "session" | "default" | "guard" | "workingDir" | "allowedPrompt"
 	Detail string
 	Source Source // populated when Kind == "rule"
 	Rule   RuleValue
+	// Policy is the Name() of the chain policy that produced the
+	// verdict, stamped by Decide (chain.go). Stable identifier for
+	// programmatic consumers (audit surfaces) that must not rely on
+	// the human-readable Detail text. Empty for Reasons constructed
+	// outside the chain.
+	Policy string
 }
 
 // Request is the input to Decide / Evaluate.

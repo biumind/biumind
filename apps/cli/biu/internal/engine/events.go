@@ -253,6 +253,37 @@ const (
 
 func (*PermissionAskEvent) eventKind() string { return "permission_ask" }
 
+// PermissionAuditEvent fires when auto permission mode silently
+// resolves a tool call one way or the other: the auto-mode policy
+// approved it without any prompt ("auto-approved"), or one of the
+// guards (dangerous command / sensitive path) escalated it to an ask
+// ("guard-ask"). Purely informational — the audit line never enters
+// the model context; it exists so the UI / client can answer "what
+// did auto mode do on my behalf?".
+//
+// Scope is deliberately narrow: manual-mode asks/approvals stay
+// silent (the dialog itself is the record), and denials are NOT
+// audited here — a deny already surfaces as an error tool_result
+// (ToolUseResultEvent with IsError) plus the PermissionDenied hook
+// chain, so a third channel would be noise.
+type PermissionAuditEvent struct {
+	baseEvent
+	ToolUseID string
+	ToolName  string
+	Input     map[string]any
+	// Outcome: "auto-approved" | "guard-ask".
+	Outcome string
+	// Policy is the chain policy that produced the verdict
+	// ("auto-mode-approve", "dangerous-command-ask",
+	// "sensitive-path-ask") — stable machine-readable identifier.
+	Policy string
+	// Reason is the chain's human-readable detail (guard reason for
+	// guard-ask; "auto mode" for approvals).
+	Reason string
+}
+
+func (*PermissionAuditEvent) eventKind() string { return "permission_audit" }
+
 // UserQuestionAskEvent fires when a tool (typically AskUserQuestion)
 // needs the user to pick from a multi-choice list. The REPL renders
 // a panel and writes the selected indices back through Decision.

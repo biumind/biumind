@@ -66,13 +66,16 @@ var decisionChain = []ChainPolicy{
 
 // Decide evaluates a Request against a Context by walking
 // decisionChain in order. fallbackAskPolicy terminates the chain, so
-// Decide always returns a verdict.
+// Decide always returns a verdict. The winning policy's Name() is
+// stamped onto Reason.Policy so callers can branch on the policy
+// identity rather than the human-readable text.
 func Decide(ctx *Context, r Request) (Decision, Reason) {
 	if ctx == nil {
 		ctx = NewContext()
 	}
 	for _, p := range decisionChain {
 		if d, reason, ok := p.Decide(ctx, r); ok {
+			reason.Policy = p.Name()
 			return d, reason
 		}
 	}

@@ -211,6 +211,28 @@ func (m model) handleEngineEvent(ev engine.Event) (model, bool /*terminal*/) {
 		}
 		m.refreshBody()
 
+	case *engine.PermissionAuditEvent:
+		// Auto-mode audit line — attach to the tool's row so it folds
+		// into the transcript with the batch (ToolUseStart always
+		// fires before the permission check, so the row exists). A
+		// stray audit with no matching row degrades to a plain system
+		// note rather than being dropped.
+		if line := auditLine(e); line != "" {
+			attached := false
+			for i := range m.toolRows {
+				if m.toolRows[i].ID == e.ToolUseID {
+					m.toolRows[i].Audit = line
+					attached = true
+					break
+				}
+			}
+			if !attached {
+				m.history = append(m.history,
+					client.Message{Role: "system", Content: "⏵⏵ " + line})
+			}
+			m.refreshBody()
+		}
+
 	case *engine.PermissionAskEvent:
 		// Park the request in model state; let the user answer via
 		// keyboard. handlePermissionKey routes arrows / digits /
@@ -300,6 +322,13 @@ func renderToolRows(rows []toolRow) string {
 			b.WriteString(styleErrorPrefix.Render("✗ " + msg))
 		}
 		b.WriteString("\n")
+		// Auto-mode audit line (permission_audit event) — dim, always
+		// shown (running or finished), so the user can see what auto
+		// mode did without expanding anything.
+		if r.Audit != "" {
+			b.WriteString(styleToolDesc.Render("  ⏵⏵ " + r.Audit))
+			b.WriteByte('\n')
+		}
 		// Stream the latest progress lines under a running row so
 		// users see live Bash stdout / Grep hits without expanding
 		// anything. The buffer is capped at ProgressLineCap so a
@@ -377,6 +406,20 @@ func ellipsize(s string, n int) string {
 		return s
 	}
 	return s[:n-1] + "…"
+}
+
+// auditLine formats a PermissionAuditEvent as the dim one-liner shown
+// under the tool row. Empty string = nothing worth rendering. The
+// guard Reason already names the guard ("dangerous command guard: …"
+// / "sensitive path guard: …"), so it renders verbatim.
+func auditLine(e *engine.PermissionAuditEvent) string {
+	switch e.Outcome {
+	case "auto-approved":
+		return "auto: " + e.ToolName + " approved without prompting"
+	case "guard-ask":
+		return e.Reason
+	}
+	return ""
 }
 
 // renderQuestionAsk shapes the AskUserQuestion panel:
@@ -537,6 +580,11 @@ type toolRow struct {
 	// hits, Glob progress, …). Capped at ProgressLineCap so a noisy
 	// command doesn't blow out the viewport.
 	ProgressLines []string
+	// Audit is the auto-mode audit line from PermissionAuditEvent
+	// (e.g. "auto: approved without prompting" / "guard: dangerous
+	// command guard: …"), rendered dim under the row. Empty for
+	// calls that went through the normal manual flow.
+	Audit string
 }
 
 // ProgressLineCap is the max number of streaming progress lines
