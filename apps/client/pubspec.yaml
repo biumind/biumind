@@ -47,7 +47,7 @@ dependencies:
   path: ^1.9.1
 
   # JSON / freezed
-  freezed_annotation: ^2.4.4
+  freezed_annotation: ^3.1.0
   json_annotation: ^4.9.0
 
   # Platform / OS integration
@@ -129,13 +129,13 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   build_runner: ^2.4.13
-  riverpod_generator: ^2.6.4
+  riverpod_generator: ^2.6.5
   drift_dev: ^2.21.2
   # drift 的传递依赖 — 迁移测试 (migration_v22_to_v25_test) 用它手搓旧版本
   # 库 (NativeDatabase.opened) 触发 onUpgrade;db.g.dart 只懂当前 schema,
   # 无法测旧库迁移,故显式声明。仅 dev,不向用户发包。
   sqlite3: ^2.9.4
-  freezed: ^2.5.7
+  freezed: ^3.1.0
   json_serializable: ^6.9.0
   msix: ^3.18.0
   # gpt_markdown 的传递依赖 — 测试里直接 import `Math` widget 验证 LaTeX
