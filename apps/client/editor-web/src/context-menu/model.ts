@@ -78,6 +78,9 @@ export type TableEditAction =
   | 'alignRight'
   | 'sortAsc'
   | 'sortDesc'
+  | 'duplicateRow'
+  | 'duplicateColumn'
+  | 'clearContents'
 
 /** 模型依赖：编辑器动作 + 剪贴板 + 文档级操作，全部在 controller 注入。 */
 export interface MenuDeps {
@@ -410,6 +413,25 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
       label: 'Sort Descending',
       isActive: inTableEditable,
       run: () => deps.tableEdit('sortDesc'),
+    },
+    'separator',
+    {
+      id: 'table-duplicate-row',
+      label: 'Duplicate Row',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('duplicateRow'),
+    },
+    {
+      id: 'table-duplicate-col',
+      label: 'Duplicate Column',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('duplicateColumn'),
+    },
+    {
+      id: 'table-clear-contents',
+      label: 'Clear Contents',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('clearContents'),
     },
     'separator',
     {

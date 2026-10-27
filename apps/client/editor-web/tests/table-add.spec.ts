@@ -10,10 +10,14 @@ import {
   ADD_STRIP,
   appendTableColumn,
   appendTableRow,
+  clearTableCellContents,
   computeAddStripLayout,
+  duplicateTableColumn,
+  duplicateTableRow,
   lastColCellPos,
   lastRowCellPos,
 } from '../src/plugins/table-add'
+import { CellSelection, cellAround } from '@milkdown/kit/prose/tables'
 
 const schema = new Schema({
   nodes: {
@@ -92,6 +96,51 @@ function cellPositions(
     return true
   })
   return positions
+}
+
+function cellPosByRowCol(
+  doc: ReturnType<typeof schema.node>,
+  row: number,
+  col: number,
+): number {
+  const byRow: number[][] = []
+  let cur = -1
+  doc.descendants((node, pos) => {
+    if (node.type.name === 'table_row') {
+      cur += 1
+      byRow.push([])
+      return true
+    }
+    if (node.type.name === 'table_cell' || node.type.name === 'table_header') {
+      byRow[cur].push(pos)
+      return false
+    }
+    return true
+  })
+  const pos = byRow[row]?.[col]
+  if (pos === undefined) throw new Error('cell not found')
+  return pos
+}
+
+/** 光标放进第 row 行第 col 列的单元格（table 在 doc 起点，无合并格） */
+function selectionInCell(
+  doc: ReturnType<typeof schema.node>,
+  row: number,
+  col: number,
+) {
+  return TextSelection.create(doc, cellPosByRowCol(doc, row, col) + 1)
+}
+
+/** 整行 CellSelection（row 首格 → 末格） */
+function rowCellSelection(
+  doc: ReturnType<typeof schema.node>,
+  row: number,
+  cols: number,
+) {
+  const first = cellAround(doc.resolve(cellPosByRowCol(doc, row, 0) + 1))
+  const last = cellAround(doc.resolve(cellPosByRowCol(doc, row, cols - 1) + 1))
+  if (!first || !last) throw new Error('cellAround failed')
+  return new CellSelection(first, last)
 }
 
 describe('computeAddStripLayout', () => {
@@ -213,5 +262,128 @@ describe('appendTableRow / appendTableColumn', () => {
     expect(appendTableRow(view)).toBe(false)
     expect(appendTableColumn(view)).toBe(false)
     expect(state().doc.eq(doc)).toBe(true)
+  })
+})
+
+describe('duplicateTableRow / duplicateTableColumn', () => {
+  it('复制行：含内容克隆插到本行后', () => {
+    const { doc } = tableWithDoc([
+      ['h1', 'h2'],
+      ['a', 'b'],
+      ['c', 'd'],
+    ])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: selectionInCell(doc, 1, 0),
+    })
+    const { view, state } = fakeView(initial)
+    expect(duplicateTableRow(view)).toBe(true)
+    const table = state().doc.firstChild
+    expect(table?.childCount).toBe(4)
+    expect(table?.child(1).textContent).toBe('ab')
+    expect(table?.child(2).textContent).toBe('ab') // 副本紧跟本行
+    expect(table?.child(3).textContent).toBe('cd')
+  })
+
+  it('复制列：表头行克隆 header 格，数据行克隆 cell 格', () => {
+    const { doc } = tableWithDoc([
+      ['h1', 'h2'],
+      ['a', 'b'],
+    ])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: selectionInCell(doc, 1, 0), // 第 1 列
+    })
+    const { view, state } = fakeView(initial)
+    expect(duplicateTableColumn(view)).toBe(true)
+    const table = state().doc.firstChild
+    expect(table?.child(0).childCount).toBe(3)
+    expect(table?.child(0).child(1).type.name).toBe('table_header')
+    expect(table?.child(0).child(1).textContent).toBe('h1') // 副本紧随本列
+    expect(table?.child(1).child(1).type.name).toBe('table_cell')
+    expect(table?.child(1).child(1).textContent).toBe('a')
+    expect(table?.child(1).child(2).textContent).toBe('b')
+  })
+
+  it('选区不在表格内返回 false', () => {
+    const para = schema.node('paragraph', undefined, [schema.text('x')])
+    const doc = schema.node('doc', undefined, [para])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: TextSelection.create(doc, 1),
+    })
+    const { view } = fakeView(initial)
+    expect(duplicateTableRow(view)).toBe(false)
+    expect(duplicateTableColumn(view)).toBe(false)
+  })
+})
+
+describe('clearTableCellContents', () => {
+  it('文本光标：只清当前单元格，结构不动', () => {
+    const { doc } = tableWithDoc([
+      ['h1', 'h2'],
+      ['a', 'b'],
+    ])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: selectionInCell(doc, 1, 0),
+    })
+    const { view, state } = fakeView(initial)
+    expect(clearTableCellContents(view)).toBe(true)
+    const table = state().doc.firstChild
+    expect(table?.childCount).toBe(2)
+    expect(table?.child(1).childCount).toBe(2)
+    expect(table?.child(1).child(0).textContent).toBe('')
+    expect(table?.child(1).child(1).textContent).toBe('b')
+    expect(table?.child(0).textContent).toBe('h1h2')
+  })
+
+  it('CellSelection 整行：清该行全部单元格', () => {
+    const { doc } = tableWithDoc([
+      ['h1', 'h2'],
+      ['a', 'b'],
+      ['c', 'd'],
+    ])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: rowCellSelection(doc, 1, 2),
+    })
+    const { view, state } = fakeView(initial)
+    expect(clearTableCellContents(view)).toBe(true)
+    const table = state().doc.firstChild
+    expect(table?.child(1).textContent).toBe('')
+    expect(table?.child(2).textContent).toBe('cd')
+  })
+
+  it('目标已空返回 false（不产生无意义 undo 步）', () => {
+    const { doc } = tableWithDoc([
+      ['h1'],
+      [''],
+    ])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: selectionInCell(doc, 1, 0),
+    })
+    const { view, state } = fakeView(initial)
+    expect(clearTableCellContents(view)).toBe(false)
+    expect(state().doc.eq(doc)).toBe(true)
+  })
+
+  it('选区不在表格内返回 false', () => {
+    const para = schema.node('paragraph', undefined, [schema.text('x')])
+    const doc = schema.node('doc', undefined, [para])
+    const initial = EditorState.create({
+      schema,
+      doc,
+      selection: TextSelection.create(doc, 1),
+    })
+    const { view } = fakeView(initial)
+    expect(clearTableCellContents(view)).toBe(false)
   })
 })

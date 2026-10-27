@@ -157,6 +157,7 @@ describe('context-menu model 过滤', () => {
       'table-add-row-above,table-add-row-below,table-add-col-left,' +
         'table-add-col-right,|,table-align-left,table-align-center,' +
         'table-align-right,table-sort-asc,table-sort-desc,|,' +
+        'table-duplicate-row,table-duplicate-col,table-clear-contents,|,' +
         'table-delete-row,table-delete-col,table-delete',
     )
   })
@@ -169,6 +170,7 @@ describe('context-menu model 过滤', () => {
         'table-add-row-above,table-add-row-below,table-add-col-left,' +
         'table-add-col-right,|,table-align-left,table-align-center,' +
         'table-align-right,table-sort-asc,table-sort-desc,|,' +
+        'table-duplicate-row,table-duplicate-col,table-clear-contents,|,' +
         'table-delete-row,table-delete-col,table-delete',
     )
   })

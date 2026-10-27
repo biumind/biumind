@@ -1,4 +1,8 @@
-// 表格末尾追加行/列：下缘「+ 添加行」细条、右缘「+」细条。
+// 表格行列结构操作 + 末尾追加条。
+// 结构操作（右键菜单调）：appendTableRow/Column（末尾追加）、
+// duplicateTableRow/Column（复制行/列）、clearTableCellContents（清空内容）、
+// findTable / columnAtSelection（table-sort 复用的定位帮手）。
+// 追加条 UI：下缘「+ 添加行」细条、右缘「+」细条。
 // 背景：crepe table-block 行列手柄是 pointermove hover 驱动，触屏点按不
 // 触发（无 hover），移动端没有任何增删行列路径；桌面端手柄之外的第二
 // 通道是右键菜单（context-menu 表格组）。这里补双端通用、触屏优先的
@@ -16,6 +20,7 @@ import type { Ctx } from '@milkdown/kit/ctx'
 import type { Node as PMNode, ResolvedPos } from '@milkdown/kit/prose/model'
 import { Selection } from '@milkdown/kit/prose/state'
 import {
+  CellSelection,
   TableMap,
   addColumnAfter,
   addRowAfter,
@@ -103,6 +108,101 @@ export function findTable($pos: ResolvedPos): TableLocation | null {
 function selectCell(view: EditorView, cellPos: number): void {
   const sel = Selection.near(view.state.doc.resolve(cellPos + 1), 1)
   view.dispatch(view.state.tr.setSelection(sel))
+}
+
+/** 选区所在列索引（沿 depth 找 table_row，取 cell 在 row 内的 index）。
+ *  table-sort 的按列排序同样复用。 */
+export function columnAtSelection(view: EditorView): number | null {
+  const { $from } = view.state.selection
+  for (let d = $from.depth; d > 0; d -= 1) {
+    if ($from.node(d).type.name === 'table_row') return $from.index(d)
+  }
+  return null
+}
+
+/** 复制当前行：整行（含内容）克隆插到本行之后，光标落进新行。 */
+export function duplicateTableRow(view: EditorView): boolean {
+  const { $from } = view.state.selection
+  for (let d = $from.depth; d > 0; d -= 1) {
+    if ($from.node(d).type.name === 'table_row') {
+      const row = $from.node(d)
+      const rowPos = $from.before(d)
+      const insertAt = rowPos + row.nodeSize
+      const tr = view.state.tr.insert(insertAt, row.copy(row.content))
+      tr.setSelection(Selection.near(tr.doc.resolve(insertAt + 1), 1))
+      view.dispatch(tr.scrollIntoView())
+      return true
+    }
+  }
+  return false
+}
+
+/** 复制当前列：每行克隆同位置 cell 插到其后（表头行克隆 header 格），
+ *  整表 replaceWith 一次 tr、一步撤销。 */
+export function duplicateTableColumn(view: EditorView): boolean {
+  const found = findTable(view.state.selection.$from)
+  if (!found) return false
+  const col = columnAtSelection(view)
+  if (col === null) return false
+  const newRows: PMNode[] = []
+  found.node.forEach((row) => {
+    if (row.type.name !== 'table_row' || col >= row.childCount) {
+      newRows.push(row)
+      return
+    }
+    const cells: PMNode[] = []
+    row.forEach((cell) => cells.push(cell))
+    cells.splice(col + 1, 0, cells[col].copy(cells[col].content))
+    newRows.push(row.type.create(row.attrs, cells, row.marks))
+  })
+  const newTable = found.node.type.create(
+    found.node.attrs,
+    newRows,
+    found.node.marks,
+  )
+  const tr = view.state.tr.replaceWith(
+    found.pos,
+    found.pos + found.node.nodeSize,
+    newTable,
+  )
+  // 光标落进新列同行（原 from 经 mapping 仍指旧列，+1 列宽难精确，
+  // 保守落表格内即可）
+  const target = Math.min(view.state.selection.from, tr.doc.content.size)
+  tr.setSelection(Selection.near(tr.doc.resolve(target), 1))
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 清空内容：CellSelection 清选中全部单元格，文本光标清当前单元格；
+ *  只删 cell 内容不动结构（区分于删除行/列）。全部已空返回 false。 */
+export function clearTableCellContents(view: EditorView): boolean {
+  const { selection } = view.state
+  // [from, to) 内容区间（cell 节点内），倒序删除防位置漂移
+  const ranges: Array<[number, number]> = []
+  if (selection instanceof CellSelection) {
+    selection.forEachCell((node, pos) => {
+      if (node.content.size > 0) ranges.push([pos + 1, pos + node.nodeSize - 1])
+    })
+  } else {
+    const { $from } = selection
+    for (let d = $from.depth; d > 0; d -= 1) {
+      const node = $from.node(d)
+      if (node.type.name === 'table_cell' || node.type.name === 'table_header') {
+        if (node.content.size > 0) {
+          const cellPos = $from.before(d)
+          ranges.push([cellPos + 1, cellPos + node.nodeSize - 1])
+        }
+        break
+      }
+    }
+  }
+  if (ranges.length === 0) return false
+  const tr = view.state.tr
+  for (const [from, to] of ranges.sort((a, b) => b[0] - a[0])) {
+    tr.delete(from, to)
+  }
+  view.dispatch(tr)
+  return true
 }
 
 /** 末尾追加一行：选区先落末行单元格，再走 addRowAfter（合并单元格由

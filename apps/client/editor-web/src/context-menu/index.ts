@@ -26,6 +26,11 @@ import type { $Command } from '@milkdown/kit/utils'
 
 import type { BridgeClient } from '../bridge/client'
 import { createTranslator } from '../i18n'
+import {
+  clearTableCellContents,
+  duplicateTableColumn,
+  duplicateTableRow,
+} from '../plugins/table-add'
 import { sortTableByColumn } from '../plugins/table-sort'
 import type { SourceModeController } from '../source-mode'
 import type { ToolbarActions, TableSizePicker } from '../toolbar'
@@ -457,6 +462,16 @@ export class ContextMenuController {
             break
           case 'sortDesc':
             withView((view) => sortTableByColumn(view, false))
+            break
+          // 复制行/列、清空内容：自研 tr（无现成命令）
+          case 'duplicateRow':
+            withView((view) => duplicateTableRow(view))
+            break
+          case 'duplicateColumn':
+            withView((view) => duplicateTableColumn(view))
+            break
+          case 'clearContents':
+            withView((view) => clearTableCellContents(view))
             break
         }
       },

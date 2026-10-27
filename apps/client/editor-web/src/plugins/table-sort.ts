@@ -10,7 +10,7 @@
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { Selection } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
-import { findTable } from './table-add'
+import { columnAtSelection, findTable } from './table-add'
 import { parseCellNumber } from './table-stats'
 
 export type SortKey =
@@ -58,15 +58,6 @@ export function sortRowOrder(
   return columnTexts
     .map((_, i) => i)
     .sort((ia, ib) => compareSortKeys(keys[ia], keys[ib], ascending))
-}
-
-/** 选区所在列索引（沿 depth 找 table_row，取 cell 在 row 内的 index）。 */
-function columnAtSelection(view: EditorView): number | null {
-  const { $from } = view.state.selection
-  for (let d = $from.depth; d > 0; d -= 1) {
-    if ($from.node(d).type.name === 'table_row') return $from.index(d)
-  }
-  return null
 }
 
 /** 按选区所在列排序数据行。选区不在表格内或数据行不足两行返回 false。 */
