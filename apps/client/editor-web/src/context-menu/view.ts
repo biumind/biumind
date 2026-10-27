@@ -332,7 +332,10 @@ export class MenuView {
       if (this.mobileLayout) return
       if (item.children) {
         this.openSubmenu(level, rendered)
-      } else {
+      } else if (this.levels.indexOf(level) === 0) {
+        // 只在父级 hover 叶子项时收子菜单；子菜单层内的叶子项
+        // hover 是「用户正在子菜单里」，排自毁定时器会把子菜单
+        // 在静止指针底下摘掉（实机 bug：移到子菜单项上 200ms 后消失）
         this.scheduleSubmenuClose()
       }
     })

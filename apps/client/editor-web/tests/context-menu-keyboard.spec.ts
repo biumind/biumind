@@ -148,3 +148,52 @@ describe('菜单键盘导航', () => {
     expect(second.view.isOpen).toBe(false)
   })
 })
+
+describe('子菜单 hover 稳定性（实机 bug 回归）', () => {
+  // bug：子菜单层内 hover 叶子项走 scheduleSubmenuClose，静止指针底下
+  // 200ms 后子菜单自毁。修复：仅父级（level 0）叶子项排关闭定时器。
+  it('hover 子菜单叶子项超过 200ms，子菜单保持打开', () => {
+    vi.useFakeTimers()
+    try {
+      const { view } = openMenu([
+        item('parent', { children: [item('t1'), item('t2')] }),
+        item('leaf'),
+      ])
+      document
+        .querySelectorAll('.kc-menu-item')[0]
+        .dispatchEvent(new MouseEvent('mouseenter'))
+      expect(document.querySelectorAll('.kc-context-submenu').length).toBe(1)
+      // 移到子菜单叶子项上并静止
+      document
+        .querySelector('.kc-context-submenu .kc-menu-item')!
+        .dispatchEvent(new MouseEvent('mouseenter'))
+      vi.advanceTimersByTime(500)
+      expect(document.querySelectorAll('.kc-context-submenu').length).toBe(1)
+      expect(view.isOpen).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('hover 父级叶子项仍按时收起子菜单', () => {
+    vi.useFakeTimers()
+    try {
+      openMenu([
+        item('parent', { children: [item('t1')] }),
+        item('leaf'),
+      ])
+      document
+        .querySelectorAll('.kc-menu-item')[0]
+        .dispatchEvent(new MouseEvent('mouseenter'))
+      expect(document.querySelectorAll('.kc-context-submenu').length).toBe(1)
+      // 移回父级，hover 同级叶子项 → 子菜单应在 200ms 后收起
+      document
+        .querySelectorAll('.kc-menu-item')[1]
+        .dispatchEvent(new MouseEvent('mouseenter'))
+      vi.advanceTimersByTime(500)
+      expect(document.querySelectorAll('.kc-context-submenu').length).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
