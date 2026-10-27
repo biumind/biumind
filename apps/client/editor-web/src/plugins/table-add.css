@@ -1,0 +1,32 @@
+/* 表格末尾追加条（下缘「+ 添加行」/ 右缘「+」）。颜色走 --kc-editor-* 变量。 */
+
+.kc-tadd {
+  position: fixed;
+  display: none;
+  z-index: 990; /* 与汇总条同层：菜单 mask(999) 之下、浮动工具条(980) 之上 */
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--kc-editor-border);
+  border-radius: 6px;
+  background: var(--kc-editor-bg);
+  color: var(--kc-editor-muted, var(--kc-editor-fg));
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation; /* 触屏点按免 300ms 延迟 */
+}
+
+.kc-tadd:hover {
+  background: var(--kc-editor-code-bg);
+  color: var(--kc-editor-fg);
+}
+
+/* 尺寸与 table-add.ts 的 ADD_STRIP 保持一致 */
+.kc-tadd-row {
+  height: 22px;
+}
+
+.kc-tadd-col {
+  width: 22px;
+}

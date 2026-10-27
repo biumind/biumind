@@ -64,6 +64,12 @@ import { createImagePresignConfig } from './plugins/image-presign'
 import { createImageUploadConfig } from './plugins/image-upload'
 import { mermaidPlugins } from './plugins/mermaid'
 import {
+  appendTableColumn,
+  appendTableRow,
+  createTableAddController,
+  type TableAddController,
+} from './plugins/table-add'
+import {
   createTableStatsController,
   domRectAt,
   type TableStatsController,
@@ -92,6 +98,8 @@ interface EditorState {
   tablePicker: TableSizePicker | null
   /** 表格统计浮层（底部汇总条 + 列选详情片） */
   tableStats: TableStatsController | null
+  /** 表格末尾追加条（下缘「+ 添加行」/ 右缘「+」；触屏主通道） */
+  tableAdd: TableAddController | null
   sourceMode: SourceModeController | null
   contextMenu: ContextMenuController | null
   /** 移动端选区浮动工具条（M1；仅 platform = ios/android 时创建） */
@@ -126,6 +134,7 @@ const state: EditorState = {
   toolbar: null,
   tablePicker: null,
   tableStats: null,
+  tableAdd: null,
   sourceMode: null,
   contextMenu: null,
   selectionToolbar: null,
@@ -209,6 +218,8 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     state.crepe?.setReadonly(payload.readOnly)
     state.toolbar?.setDisabled(payload.readOnly)
     state.sourceMode?.setReadOnly(payload.readOnly)
+    // 追加条是写操作：只读切换即时隐藏（下次 sync 按 getReadOnly 重估）
+    state.tableAdd?.hide()
     // F2：readOnly 恒隐浮动条
     state.floatingToolbar?.refresh()
   }
@@ -218,6 +229,7 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     state.contextMenu?.setLocale(payload.locale)
     state.tablePicker?.setTranslator(createTranslator(payload.locale))
     state.tableStats?.setTranslator(createTranslator(payload.locale))
+    state.tableAdd?.setTranslator(createTranslator(payload.locale))
   }
 }
 
@@ -266,6 +278,8 @@ async function teardownEditor(): Promise<void> {
   state.tablePicker = null
   state.tableStats?.destroy()
   state.tableStats = null
+  state.tableAdd?.destroy()
+  state.tableAdd = null
   state.sourceMode?.destroy()
   state.sourceMode = null
   state.toolbar = null
@@ -354,11 +368,14 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
         updateToolbarActive(updatedCtx)
         // 表格统计：文档变化（含键入）后重算
         state.tableStats?.sync(updatedCtx)
+        // 追加条让位汇总条（读其高度），必须后于 tableStats sync
+        state.tableAdd?.sync(updatedCtx)
       })
       ctx.get(listenerCtx).selectionUpdated((updatedCtx) => {
         updateToolbarActive(updatedCtx)
         // 表格统计：选区移入/移出表格、列选中态变化驱动显隐
         state.tableStats?.sync(updatedCtx)
+        state.tableAdd?.sync(updatedCtx)
         pushSelection(updatedCtx)
         // 移动端选区浮动工具条（M1）：选区落定/塌缩驱动显隐
         state.selectionToolbar?.onSelectionUpdated()
@@ -421,6 +438,33 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   root.appendChild(tableStats.element)
   root.appendChild(tableStats.chipElement)
   state.tableStats = tableStats
+
+  // 表格末尾追加条（下缘「+ 添加行」/ 右缘「+」）：触屏主通道 —— crepe
+  // 行列手柄 hover 驱动移动端不可达；桌面端是手柄/右键之外的第三入口。
+  const tableAdd = createTableAddController({
+    t: createTranslator(payload.locale),
+    rectAt: domRectAt,
+    isSourceMode: () => state.sourceMode?.active === true,
+    getReadOnly: () => state.readOnly,
+    // 行条让位汇总条：汇总条可见时按其高度下移
+    belowTableOffset: () => {
+      const el = state.tableStats?.element
+      return el && el.style.display !== 'none' ? el.offsetHeight + 4 : 0
+    },
+    appendRow: () => {
+      state.crepe?.editor.action((ctx) => {
+        appendTableRow(ctx.get(editorViewCtx))
+      })
+    },
+    appendColumn: () => {
+      state.crepe?.editor.action((ctx) => {
+        appendTableColumn(ctx.get(editorViewCtx))
+      })
+    },
+  })
+  root.appendChild(tableAdd.rowElement)
+  root.appendChild(tableAdd.colElement)
+  state.tableAdd = tableAdd
 
   // F2：移动端顶部不再常驻 —— 浮动格式条贴可见视口底部（键盘上沿），
   // 按钮定义与桌面完全同源（createToolbar floating 模式）；桌面保持

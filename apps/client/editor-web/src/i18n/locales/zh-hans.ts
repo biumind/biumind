@@ -67,6 +67,16 @@ export const zhHans: Record<string, string> = {
   'Copy Link': '复制链接',
   'Remove Link': '移除链接',
   'Delete Table': '删除表格',
+  'Insert Row Above': '在上方插入行',
+  'Insert Row Below': '在下方插入行',
+  'Insert Column Left': '在左侧插入列',
+  'Insert Column Right': '在右侧插入列',
+  'Delete Row': '删除行',
+  'Delete Column': '删除列',
+
+  // ── 表格末尾追加条（src/plugins/table-add.ts 浮层）──
+  'Add Row': '添加行',
+  'Add Column': '添加列',
   'Replace Image...': '替换图片…',
   'Edit Caption': '编辑说明',
   'Copy Image': '复制图片',

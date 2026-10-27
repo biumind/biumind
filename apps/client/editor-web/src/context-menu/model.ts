@@ -2,8 +2,9 @@
 // isActive(ctx) 谓词，渲染前按上下文过滤，无 if-else 散弹。
 // label 是英文原文（msgid），渲染时过 createTranslator（i18n 守护见
 // tests/context-menu-i18n.spec.ts）。
-// 表格说明：crepe table-block 的行列手柄已覆盖 增删行列/列对齐/拖拽移动，
-// 菜单只补它没有「删除表格」，不建重复入口（设计 §11 决策点 2）。
+// 表格说明：crepe table-block 行列手柄是 hover 驱动（pointermove 贴近边界
+// 才出现），触屏点按不可达 —— 菜单补全增删行列六项作为全端补盲通道
+// （移动端主通道是表格下缘/右缘追加条，见 plugins/table-add.ts）。
 // 图标：格式/转换/插入组复用 toolbar ICONS，剪贴板/链接/图片等用
 // context-menu/icons.ts 补画的同款 SVG（P2 起配图标）。
 
@@ -61,6 +62,15 @@ export interface MenuItem {
 
 export type MenuEntry = MenuItem | 'separator'
 
+/** 表格行列编辑动作（menu 项 id → preset-gfm 命令的映射键） */
+export type TableEditAction =
+  | 'addRowBefore'
+  | 'addRowAfter'
+  | 'addColumnBefore'
+  | 'addColumnAfter'
+  | 'deleteRow'
+  | 'deleteColumn'
+
 /** 模型依赖：编辑器动作 + 剪贴板 + 文档级操作，全部在 controller 注入。 */
 export interface MenuDeps {
   /** 与 toolbar 共用的同一批命令（main.ts 提取的 editorCommands） */
@@ -78,6 +88,8 @@ export interface MenuDeps {
   removeLink: (ctx: MenuContext) => void
   openLink: (href: string) => void
   deleteTable: () => void
+  /** 表格行列编辑六命令（index.ts 映射到 preset-gfm 命令，相对当前选区） */
+  tableEdit: (action: TableEditAction) => void
   copyCodeBlock: (ctx: MenuContext) => Promise<void>
   editImageCaption: (nodePos: number) => void
   deleteNode: (nodePos: number) => void
@@ -329,7 +341,46 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
       run: (ctx) => deps.removeLink(ctx),
     },
 
-    // ── 表格组（crepe 行列手柄已覆盖增删行列/对齐/拖拽，只补删除表格）──
+    // ── 表格组（行列手柄 hover 驱动、触屏不可达：菜单补全增删行列）──
+    {
+      id: 'table-add-row-above',
+      label: 'Insert Row Above',
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('addRowBefore'),
+    },
+    {
+      id: 'table-add-row-below',
+      label: 'Insert Row Below',
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('addRowAfter'),
+    },
+    {
+      id: 'table-add-col-left',
+      label: 'Insert Column Left',
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('addColumnBefore'),
+    },
+    {
+      id: 'table-add-col-right',
+      label: 'Insert Column Right',
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('addColumnAfter'),
+    },
+    'separator',
+    {
+      id: 'table-delete-row',
+      label: 'Delete Row',
+      danger: true,
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('deleteRow'),
+    },
+    {
+      id: 'table-delete-col',
+      label: 'Delete Column',
+      danger: true,
+      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      run: () => deps.tableEdit('deleteColumn'),
+    },
     {
       id: 'table-delete',
       label: 'Delete Table',

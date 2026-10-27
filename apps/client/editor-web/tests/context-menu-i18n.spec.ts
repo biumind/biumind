@@ -44,6 +44,7 @@ function makeDeps(): MenuDeps {
     removeLink: noop,
     openLink: noop,
     deleteTable: noop,
+    tableEdit: noop,
     copyCodeBlock: asyncNoop,
     editImageCaption: noop,
     deleteNode: noop,

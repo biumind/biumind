@@ -46,6 +46,7 @@ function makeDeps(): MenuDeps {
     removeLink: vi.fn(),
     openLink: vi.fn(),
     deleteTable: vi.fn(),
+    tableEdit: vi.fn(),
     copyCodeBlock: vi.fn(async () => {}),
     editImageCaption: vi.fn(),
     deleteNode: vi.fn(),
@@ -151,10 +152,19 @@ describe('context-menu model 过滤', () => {
     ).toBe('image-copy')
   })
 
-  it('tableCell（可编辑）：crepe 手柄已覆盖行列/对齐，只补删除表格', () => {
+  it('tableCell（可编辑）：增删行列六项 + 删除表格（手柄触屏不可达的补盲通道）', () => {
     expect(ids(filterMenuEntries(registry, ctx({ itemType: 'tableCell' })))).toBe(
-      'table-delete',
+      'table-add-row-above,table-add-row-below,table-add-col-left,' +
+        'table-add-col-right,|,table-delete-row,table-delete-col,table-delete',
     )
+  })
+
+  it('tableCell（readOnly）：表格组全隐（无只读可用项）', () => {
+    expect(
+      ids(
+        filterMenuEntries(registry, ctx({ itemType: 'tableCell', readOnly: true })),
+      ),
+    ).toBe('')
   })
 
   it('codeBlock：复制代码（readOnly 也可用）', () => {

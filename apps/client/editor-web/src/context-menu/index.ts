@@ -8,7 +8,13 @@
 import { editorViewCtx, serializerCtx } from '@milkdown/kit/core'
 import { callCommand, insert } from '@milkdown/kit/utils'
 import {
+  addColAfterCommand,
+  addColBeforeCommand,
+  addRowAfterCommand,
+  addRowBeforeCommand,
   deleteSelectedCellsCommand,
+  selectColCommand,
+  selectRowCommand,
   selectTableCommand,
 } from '@milkdown/kit/preset/gfm'
 import { TextSelection } from 'prosemirror-state'
@@ -396,6 +402,34 @@ export class ContextMenuController {
         if (this.deps.getReadOnly()) return
         this.runCommand(selectTableCommand)
         this.runCommand(deleteSelectedCellsCommand)
+      },
+
+      // 增删行列：全部走 preset-gfm 现成命令，作用于当前选区所在行列
+      // （右键不挪 PM 选区，光标格即目标格，与 deleteTable 同前提）
+      tableEdit: (action) => {
+        if (this.deps.getReadOnly()) return
+        switch (action) {
+          case 'addRowBefore':
+            this.runCommand(addRowBeforeCommand)
+            break
+          case 'addRowAfter':
+            this.runCommand(addRowAfterCommand)
+            break
+          case 'addColumnBefore':
+            this.runCommand(addColBeforeCommand)
+            break
+          case 'addColumnAfter':
+            this.runCommand(addColAfterCommand)
+            break
+          case 'deleteRow':
+            this.runCommand(selectRowCommand)
+            this.runCommand(deleteSelectedCellsCommand)
+            break
+          case 'deleteColumn':
+            this.runCommand(selectColCommand)
+            this.runCommand(deleteSelectedCellsCommand)
+            break
+        }
       },
 
       copyCodeBlock: async (menuCtx) => {
