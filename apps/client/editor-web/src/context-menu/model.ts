@@ -76,6 +76,8 @@ export type TableEditAction =
   | 'alignLeft'
   | 'alignCenter'
   | 'alignRight'
+  | 'sortAsc'
+  | 'sortDesc'
 
 /** 模型依赖：编辑器动作 + 剪贴板 + 文档级操作，全部在 controller 注入。 */
 export interface MenuDeps {
@@ -396,6 +398,18 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
       label: 'Align Right',
       isActive: inTableEditable,
       run: () => deps.tableEdit('alignRight'),
+    },
+    {
+      id: 'table-sort-asc',
+      label: 'Sort Ascending',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('sortAsc'),
+    },
+    {
+      id: 'table-sort-desc',
+      label: 'Sort Descending',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('sortDesc'),
     },
     'separator',
     {

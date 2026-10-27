@@ -76,6 +76,8 @@ export const zhHans: Record<string, string> = {
   'Align Left': '左对齐',
   'Align Center': '居中对齐',
   'Align Right': '右对齐',
+  'Sort Ascending': '按本列升序',
+  'Sort Descending': '按本列降序',
 
   // ── 表格末尾追加条（src/plugins/table-add.ts 浮层）──
   'Add Row': '添加行',

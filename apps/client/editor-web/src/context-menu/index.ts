@@ -26,6 +26,7 @@ import type { $Command } from '@milkdown/kit/utils'
 
 import type { BridgeClient } from '../bridge/client'
 import { createTranslator } from '../i18n'
+import { sortTableByColumn } from '../plugins/table-sort'
 import type { SourceModeController } from '../source-mode'
 import type { ToolbarActions, TableSizePicker } from '../toolbar'
 import { createClipboard, type ClipboardBackend } from './clipboard'
@@ -449,6 +450,13 @@ export class ContextMenuController {
             break
           case 'alignRight':
             this.runCommand(setAlignCommand, 'right')
+            break
+          // 按列排序：重排数据行（表头不动），自研 tr 无现成命令
+          case 'sortAsc':
+            withView((view) => sortTableByColumn(view, true))
+            break
+          case 'sortDesc':
+            withView((view) => sortTableByColumn(view, false))
             break
         }
       },

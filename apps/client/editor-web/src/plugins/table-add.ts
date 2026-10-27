@@ -83,13 +83,14 @@ export function lastColCellPos(table: PMNode, tablePos: number): number | null {
   return tablePos + 1 + map.map[map.width - 1]
 }
 
-interface TableLocation {
+export interface TableLocation {
   node: PMNode
   /** table 节点在文档中的位置（rectAt 定位、cellPos 推算用） */
   pos: number
 }
 
-function findTable($pos: ResolvedPos): TableLocation | null {
+/** 选区位置向上找 table 节点（table-sort 复用） */
+export function findTable($pos: ResolvedPos): TableLocation | null {
   for (let d = $pos.depth; d > 0; d -= 1) {
     if ($pos.node(d).type.name === 'table') {
       return { node: $pos.node(d), pos: $pos.before(d) }
