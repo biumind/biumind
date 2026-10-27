@@ -152,10 +152,22 @@ describe('context-menu model 过滤', () => {
     ).toBe('image-copy')
   })
 
-  it('tableCell（可编辑）：增删行列六项 + 删除表格（手柄触屏不可达的补盲通道）', () => {
+  it('tableCell（可编辑）：增删行列 + 对齐 + 删除（手柄触屏不可达的补盲通道）', () => {
     expect(ids(filterMenuEntries(registry, ctx({ itemType: 'tableCell' })))).toBe(
       'table-add-row-above,table-add-row-below,table-add-col-left,' +
-        'table-add-col-right,|,table-delete-row,table-delete-col,table-delete',
+        'table-add-col-right,|,table-align-left,table-align-center,' +
+        'table-align-right,|,table-delete-row,table-delete-col,table-delete',
+    )
+  })
+
+  it('text + inTable（移动端「更多」菜单在表格内）：文本组与表格组同场', () => {
+    expect(
+      ids(filterMenuEntries(registry, ctx({ inTable: true, hasSelection: false }))),
+    ).toBe(
+      'paste,paste-plain,select-all,|,convert,|,insert,|,' +
+        'table-add-row-above,table-add-row-below,table-add-col-left,' +
+        'table-add-col-right,|,table-align-left,table-align-center,' +
+        'table-align-right,|,table-delete-row,table-delete-col,table-delete',
     )
   })
 

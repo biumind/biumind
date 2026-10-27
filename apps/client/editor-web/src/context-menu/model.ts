@@ -23,6 +23,9 @@ export type MenuItemType =
 
 export interface MenuContext {
   itemType: MenuItemType
+  /** 选区在表格内（移动端「更多」菜单固定 itemType=text，靠此补出表格组；
+   *  桌面右键单元格时 itemType=tableCell 已隐含，无需另设） */
+  inTable?: boolean
   /** text 类型再分「有选区 / 光标」两态 */
   hasSelection: boolean
   readOnly: boolean
@@ -70,6 +73,9 @@ export type TableEditAction =
   | 'addColumnAfter'
   | 'deleteRow'
   | 'deleteColumn'
+  | 'alignLeft'
+  | 'alignCenter'
+  | 'alignRight'
 
 /** 模型依赖：编辑器动作 + 剪贴板 + 文档级操作，全部在 controller 注入。 */
 export interface MenuDeps {
@@ -109,6 +115,9 @@ export interface MenuDeps {
 const editable = (ctx: MenuContext): boolean => !ctx.readOnly
 const isText = (ctx: MenuContext): boolean => ctx.itemType === 'text'
 const pasteDisabled = (ctx: MenuContext): boolean => !ctx.canPaste
+/** 表格组可见：桌面右键单元格（tableCell）或移动端菜单选区在表格内 */
+const inTableEditable = (ctx: MenuContext): boolean =>
+  editable(ctx) && (ctx.itemType === 'tableCell' || ctx.inTable === true)
 
 /** 转换为 ▸ 子菜单（text 两态共用） */
 function convertChildren(deps: MenuDeps): MenuItem[] {
@@ -341,44 +350,66 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
       run: (ctx) => deps.removeLink(ctx),
     },
 
-    // ── 表格组（行列手柄 hover 驱动、触屏不可达：菜单补全增删行列）──
+    // ── 表格组（行列手柄 hover 驱动、触屏不可达：菜单补全增删行列 + 对齐）──
+    // 前导分隔线：text+inTable 同场时与文本组分界；tableCell 单组时被
+    // filterMenuEntries 当作开头分隔线剥掉，无副作用。
+    'separator',
     {
       id: 'table-add-row-above',
       label: 'Insert Row Above',
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('addRowBefore'),
     },
     {
       id: 'table-add-row-below',
       label: 'Insert Row Below',
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('addRowAfter'),
     },
     {
       id: 'table-add-col-left',
       label: 'Insert Column Left',
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('addColumnBefore'),
     },
     {
       id: 'table-add-col-right',
       label: 'Insert Column Right',
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('addColumnAfter'),
+    },
+    'separator',
+    {
+      id: 'table-align-left',
+      label: 'Align Left',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('alignLeft'),
+    },
+    {
+      id: 'table-align-center',
+      label: 'Align Center',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('alignCenter'),
+    },
+    {
+      id: 'table-align-right',
+      label: 'Align Right',
+      isActive: inTableEditable,
+      run: () => deps.tableEdit('alignRight'),
     },
     'separator',
     {
       id: 'table-delete-row',
       label: 'Delete Row',
       danger: true,
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('deleteRow'),
     },
     {
       id: 'table-delete-col',
       label: 'Delete Column',
       danger: true,
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.tableEdit('deleteColumn'),
     },
     {
@@ -386,7 +417,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
       label: 'Delete Table',
       icon: MENU_ICONS.trash,
       danger: true,
-      isActive: (ctx) => editable(ctx) && ctx.itemType === 'tableCell',
+      isActive: inTableEditable,
       run: () => deps.deleteTable(),
     },
 

@@ -73,6 +73,9 @@ export const zhHans: Record<string, string> = {
   'Insert Column Right': '在右侧插入列',
   'Delete Row': '删除行',
   'Delete Column': '删除列',
+  'Align Left': '左对齐',
+  'Align Center': '居中对齐',
+  'Align Right': '右对齐',
 
   // ── 表格末尾追加条（src/plugins/table-add.ts 浮层）──
   'Add Row': '添加行',

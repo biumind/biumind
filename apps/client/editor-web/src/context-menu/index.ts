@@ -16,6 +16,7 @@ import {
   selectColCommand,
   selectRowCommand,
   selectTableCommand,
+  setAlignCommand,
 } from '@milkdown/kit/preset/gfm'
 import { TextSelection } from 'prosemirror-state'
 import { selectAll as pmSelectAll } from 'prosemirror-commands'
@@ -179,9 +180,19 @@ export class ContextMenuController {
       buildTextContext: () => {
         const view = this.pmView()
         if (!view) return null
-        const { from, to, empty } = view.state.selection
+        const { from, to, empty, $from } = view.state.selection
+        // 选区在表格内 → 补出表格组（增删行列/对齐/删除表格）。
+        // 移动端「更多」菜单固定 text 类型，表格组靠 inTable 谓词进场。
+        let inTable = false
+        for (let d = $from.depth; d > 0; d -= 1) {
+          if ($from.node(d).type.name === 'table') {
+            inTable = true
+            break
+          }
+        }
         return {
           itemType: 'text',
+          inTable,
           hasSelection: !empty,
           readOnly: this.deps.getReadOnly(),
           canPaste: true,
@@ -428,6 +439,16 @@ export class ContextMenuController {
           case 'deleteColumn':
             this.runCommand(selectColCommand)
             this.runCommand(deleteSelectedCellsCommand)
+            break
+          // 列对齐：attr 序列化成 GFM `:--`/`:-:`/`--:` 语法，落盘不丢
+          case 'alignLeft':
+            this.runCommand(setAlignCommand, 'left')
+            break
+          case 'alignCenter':
+            this.runCommand(setAlignCommand, 'center')
+            break
+          case 'alignRight':
+            this.runCommand(setAlignCommand, 'right')
             break
         }
       },
