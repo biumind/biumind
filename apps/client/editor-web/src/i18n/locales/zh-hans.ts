@@ -79,7 +79,7 @@ export const zhHans: Record<string, string> = {
 
   // ── 表格统计（src/plugins/table-stats.ts 浮层）──
   Column: '列',
-  Sum: '求和',
+  Sum: '合计',
   Average: '平均值',
   Count: '计数',
   Max: '最大值',

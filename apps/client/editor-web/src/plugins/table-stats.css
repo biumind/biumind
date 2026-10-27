@@ -24,6 +24,12 @@
   gap: 4px;
   padding: 0 8px;
   border-right: 1px solid var(--kc-editor-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.kc-tsbar-col:hover {
+  background: var(--kc-editor-code-bg);
 }
 
 .kc-tsbar-col:last-child {
@@ -72,6 +78,19 @@
   justify-content: space-between;
   gap: 16px;
   line-height: 18px;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.kc-tschip-row:hover {
+  background: var(--kc-editor-code-bg);
+}
+
+.kc-tschip-row-active span,
+.kc-tschip-row-active b {
+  color: var(--kc-editor-accent);
 }
 
 .kc-tschip-row span {

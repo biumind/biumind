@@ -8,9 +8,13 @@ import { CellSelection, cellAround } from '@milkdown/kit/prose/tables'
 
 import {
   computeTableStats,
+  defaultMetric,
   formatStat,
+  metricMsgId,
+  metricValue,
   parseCellNumber,
   selectedColumnIndex,
+  type ColumnStats,
 } from '../src/plugins/table-stats'
 
 const schema = new Schema({
@@ -213,5 +217,45 @@ describe('formatStat', () => {
     expect(formatStat(12.5)).toBe('12.5')
     expect(formatStat(12.0)).toBe('12')
     expect(formatStat(0.333333, 2)).toBe('0.33')
+  })
+})
+
+describe('主口径（方案 B：单口径 + 点击切换）', () => {
+  const numeric: ColumnStats = {
+    count: 3,
+    numericCount: 2,
+    sum: 30,
+    min: 10,
+    max: 20,
+  }
+  const text: ColumnStats = {
+    count: 2,
+    numericCount: 0,
+    sum: 0,
+    min: Infinity,
+    max: -Infinity,
+  }
+
+  it('默认口径：数值列合计，非数值列计数', () => {
+    expect(defaultMetric(numeric)).toBe('sum')
+    expect(defaultMetric(text)).toBe('count')
+  })
+
+  it('口径取值', () => {
+    expect(metricValue(numeric, 'sum')).toBe(30)
+    expect(metricValue(numeric, 'average')).toBe(15)
+    expect(metricValue(numeric, 'count')).toBe(3)
+    expect(metricValue(numeric, 'max')).toBe(20)
+    expect(metricValue(numeric, 'min')).toBe(10)
+    // 非数值列求均值不炸
+    expect(metricValue(text, 'average')).toBe(0)
+  })
+
+  it('口径 msgid 走扁平字典', () => {
+    expect(metricMsgId('sum')).toBe('Sum')
+    expect(metricMsgId('average')).toBe('Average')
+    expect(metricMsgId('count')).toBe('Count')
+    expect(metricMsgId('max')).toBe('Max')
+    expect(metricMsgId('min')).toBe('Min')
   })
 })

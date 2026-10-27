@@ -2,8 +2,10 @@
 // 不写 AST —— 纯计算展示，markdown 往返零影响（GFM 无公式语法，
 // 计算结果落文档会被 remark-stringify 冲掉，故只做查看型）。
 // 两种形态共存，均自管 fixed 浮层，不改 crepe table-tooltip：
-//   1. 底部汇总条：选区在表格内即显，按列压缩展示
-//   2. 列选浮片：CellSelection 整列选中时在该列上方出详情
+//   1. 底部汇总条：选区在表格内即显，每列只出一个主口径（数值列默认
+//      合计，非数值列计数），点列段弹详情浮片可换口径
+//   2. 详情浮片：列出该列全部口径，点行即设为该列主口径；
+//      CellSelection 整列选中时也会在该列上方自动弹出
 // 显隐由 main.ts 的 updated / selectionUpdated 监听驱动 sync(ctx)。
 
 import './table-stats.css'
@@ -116,6 +118,55 @@ export function formatStat(n: number, fractionDigits = 2): string {
   return n.toFixed(fractionDigits).replace(/\.?0+$/, '')
 }
 
+/** 汇总条主口径。 */
+export type MetricKey = 'sum' | 'average' | 'count' | 'max' | 'min'
+
+/** 口径的可用顺序（详情浮片行序）。 */
+export const METRIC_KEYS: readonly MetricKey[] = [
+  'count',
+  'sum',
+  'average',
+  'max',
+  'min',
+]
+
+/** 列的默认口径：有数值 → 合计，否则 → 计数。 */
+export function defaultMetric(stats: ColumnStats): MetricKey {
+  return stats.numericCount > 0 ? 'sum' : 'count'
+}
+
+/** 口径取值（average 只对解析成功的数值格求均值）。 */
+export function metricValue(stats: ColumnStats, key: MetricKey): number {
+  switch (key) {
+    case 'sum':
+      return stats.sum
+    case 'average':
+      return stats.numericCount > 0 ? stats.sum / stats.numericCount : 0
+    case 'count':
+      return stats.count
+    case 'max':
+      return stats.max
+    case 'min':
+      return stats.min
+  }
+}
+
+/** 口径对应的 i18n msgid。 */
+export function metricMsgId(key: MetricKey): string {
+  switch (key) {
+    case 'sum':
+      return 'Sum'
+    case 'average':
+      return 'Average'
+    case 'count':
+      return 'Count'
+    case 'max':
+      return 'Max'
+    case 'min':
+      return 'Min'
+  }
+}
+
 export interface TableStatsDeps {
   t: (s: string) => string
   /** 节点 pos → 视口矩形（main 注入 view.nodeDOM；测试可桩） */
@@ -186,36 +237,44 @@ export function createTableStatsController(
   chipElement.className = 'kc-tschip'
   chipElement.style.display = 'none'
 
+  /** 每列用户选定的主口径（仅内存，换表格即重置） */
+  const metricByCol = new Map<number, MetricKey>()
+  /** 详情浮片当前展示的列；null = 浮片关着 */
+  let chipCol: number | null = null
+  /** 上一次 sync 的表格位置与数据（点浮片换口径后重绘用） */
+  let tablePos: number | null = null
+  let lastData: TableStatsData | null = null
+
   const hide = (): void => {
     element.style.display = 'none'
     chipElement.style.display = 'none'
+    chipCol = null
   }
 
   /** 列名：空表头回退「列 N」 */
   const colName = (data: TableStatsData, index: number): string =>
     data.headers[index] || `${t('Column')} ${index + 1}`
 
+  /** 该列当前生效口径：非数值列恒为计数，否则用户选定或默认合计 */
+  const resolveMetric = (col: number, stats: ColumnStats): MetricKey => {
+    if (stats.numericCount === 0) return 'count'
+    return metricByCol.get(col) ?? defaultMetric(stats)
+  }
+
   const renderBar = (data: TableStatsData): void => {
     element.textContent = ''
     for (let c = 0; c < data.columns.length; c += 1) {
       const stats = data.columns[c]
+      const metric = resolveMetric(c, stats)
       const col = document.createElement('span')
       col.className = 'kc-tsbar-col'
+      col.dataset.col = String(c)
       const name = document.createElement('b')
       name.textContent = colName(data, c)
       col.appendChild(name)
       const meta = document.createElement('span')
       meta.className = 'kc-tsbar-meta'
-      if (stats.numericCount > 0) {
-        meta.textContent =
-          `Σ ${formatStat(stats.sum)} · x̄ ${formatStat(stats.sum / stats.numericCount)} · n ${stats.count}`
-        meta.title =
-          `${t('Sum')} ${formatStat(stats.sum)} / ${t('Average')} ` +
-          `${formatStat(stats.sum / stats.numericCount)} / ${t('Count')} ${stats.count}`
-      } else {
-        meta.textContent = `n ${stats.count}`
-        meta.title = t('Count')
-      }
+      meta.textContent = `${t(metricMsgId(metric))} ${formatStat(metricValue(stats, metric))}`
       col.appendChild(meta)
       element.appendChild(col)
     }
@@ -223,34 +282,61 @@ export function createTableStatsController(
 
   const renderChip = (data: TableStatsData, index: number): void => {
     const stats = data.columns[index]
+    const active = resolveMetric(index, stats)
     chipElement.textContent = ''
     const title = document.createElement('div')
     title.className = 'kc-tschip-title'
     title.textContent = colName(data, index)
     chipElement.appendChild(title)
-    const rows: [string, string][] = [
-      [t('Count'), String(stats.count)],
-      ...(stats.numericCount > 0
-        ? ([
-            [t('Sum'), formatStat(stats.sum)],
-            [t('Average'), formatStat(stats.sum / stats.numericCount)],
-            [t('Max'), formatStat(stats.max)],
-            [t('Min'), formatStat(stats.min)],
-          ] as [string, string][])
-        : []),
-    ]
-    for (const [label, value] of rows) {
+    const keys =
+      stats.numericCount > 0 ? METRIC_KEYS : (['count'] as const)
+    for (const key of keys) {
       const row = document.createElement('div')
       row.className = 'kc-tschip-row'
+      if (key === active) row.classList.add('kc-tschip-row-active')
+      row.dataset.metric = key
       const l = document.createElement('span')
-      l.textContent = label
+      l.textContent = t(metricMsgId(key))
       const v = document.createElement('b')
-      v.textContent = value
+      v.textContent = formatStat(metricValue(stats, key))
       row.appendChild(l)
       row.appendChild(v)
       chipElement.appendChild(row)
     }
   }
+
+  // 点按不抢编辑器焦点（保持 PM 选区），与工具栏/尺寸选择器同款手法
+  element.addEventListener('pointerdown', (e) => e.preventDefault())
+  chipElement.addEventListener('pointerdown', (e) => e.preventDefault())
+
+  // 点汇总条列段：开/关该列详情浮片
+  element.addEventListener('click', (e) => {
+    const colEl = (e.target as HTMLElement).closest(
+      '.kc-tsbar-col',
+    ) as HTMLElement | null
+    if (!colEl || !lastData) return
+    const c = Number(colEl.dataset.col)
+    if (chipCol === c) {
+      chipElement.style.display = 'none'
+      chipCol = null
+      return
+    }
+    chipCol = c
+    renderChip(lastData, c)
+    place(chipElement, colEl.getBoundingClientRect(), 'above')
+  })
+
+  // 点详情浮片某行：设为该列主口径并关浮片（Notion 计算行同款交互）
+  chipElement.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement).closest(
+      '.kc-tschip-row',
+    ) as HTMLElement | null
+    if (!row || !lastData || chipCol === null) return
+    metricByCol.set(chipCol, row.dataset.metric as MetricKey)
+    chipCol = null
+    chipElement.style.display = 'none'
+    renderBar(lastData)
+  })
 
   const sync = (ctx: Ctx): void => {
     if (deps.isSourceMode?.()) {
@@ -260,10 +346,20 @@ export function createTableStatsController(
     const state = ctx.get(editorStateCtx)
     const found = findTable(state.selection.$from)
     if (!found) {
+      tablePos = null
+      lastData = null
+      metricByCol.clear()
       hide()
       return
     }
+    if (found.pos !== tablePos) {
+      // 换了张表：口径偏好与浮片都作废
+      tablePos = found.pos
+      metricByCol.clear()
+      chipCol = null
+    }
     const data = computeTableStats(found.node)
+    lastData = data
     renderBar(data)
     const rect = deps.rectAt(ctx, found.pos)
     if (!rect) {
@@ -272,15 +368,22 @@ export function createTableStatsController(
     }
     place(element, rect, 'below')
 
+    // 整列选中：浮片跟到该列上方（覆盖点按钉住的浮片）
     const col = selectedColumnIndex(state.selection)
     if (col !== null && col < data.columns.length) {
       const cellPos = (state.selection as CellSelection).$anchorCell.pos
       const cellRect = deps.rectAt(ctx, cellPos)
       if (cellRect) {
+        chipCol = col
         renderChip(data, col)
         place(chipElement, cellRect, 'above')
         return
       }
+    }
+    if (chipCol !== null && chipCol < data.columns.length) {
+      // 点按钉住的浮片：原地刷新数字（编辑时实时更新），不重定位
+      renderChip(data, chipCol)
+      return
     }
     chipElement.style.display = 'none'
   }
