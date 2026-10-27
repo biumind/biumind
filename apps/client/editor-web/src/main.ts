@@ -63,6 +63,11 @@ import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
 import { createImageUploadConfig } from './plugins/image-upload'
 import { mermaidPlugins } from './plugins/mermaid'
+import {
+  createTableStatsController,
+  domRectAt,
+  type TableStatsController,
+} from './plugins/table-stats'
 import { applyWikilinkRemark, wikilinkPlugins } from './plugins/wikilink'
 import { SourceModeController } from './source-mode'
 import { formatTimestamp } from './timestamp'
@@ -85,6 +90,8 @@ interface EditorState {
   toolbar: Toolbar | null
   /** 表格尺寸选择器（工具栏/右键菜单插入表格共用） */
   tablePicker: TableSizePicker | null
+  /** 表格统计浮层（底部汇总条 + 列选详情片） */
+  tableStats: TableStatsController | null
   sourceMode: SourceModeController | null
   contextMenu: ContextMenuController | null
   /** 移动端选区浮动工具条（M1；仅 platform = ios/android 时创建） */
@@ -118,6 +125,7 @@ const state: EditorState = {
   crepe: null,
   toolbar: null,
   tablePicker: null,
+  tableStats: null,
   sourceMode: null,
   contextMenu: null,
   selectionToolbar: null,
@@ -209,6 +217,7 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     // 菜单每次打开现构建，换 translator 即刻生效；crepe 自身文案维持 init
     state.contextMenu?.setLocale(payload.locale)
     state.tablePicker?.setTranslator(createTranslator(payload.locale))
+    state.tableStats?.setTranslator(createTranslator(payload.locale))
   }
 }
 
@@ -255,6 +264,8 @@ async function teardownEditor(): Promise<void> {
   state.contextMenu = null
   state.tablePicker?.destroy()
   state.tablePicker = null
+  state.tableStats?.destroy()
+  state.tableStats = null
   state.sourceMode?.destroy()
   state.sourceMode = null
   state.toolbar = null
@@ -341,9 +352,13 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
       // 工具栏选中态：文档或选区变化后重新计算光标格式上下文
       ctx.get(listenerCtx).updated((updatedCtx) => {
         updateToolbarActive(updatedCtx)
+        // 表格统计：文档变化（含键入）后重算
+        state.tableStats?.sync(updatedCtx)
       })
       ctx.get(listenerCtx).selectionUpdated((updatedCtx) => {
         updateToolbarActive(updatedCtx)
+        // 表格统计：选区移入/移出表格、列选中态变化驱动显隐
+        state.tableStats?.sync(updatedCtx)
         pushSelection(updatedCtx)
         // 移动端选区浮动工具条（M1）：选区落定/塌缩驱动显隐
         state.selectionToolbar?.onSelectionUpdated()
@@ -395,6 +410,17 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
   })
   root.appendChild(tablePicker.element)
   state.tablePicker = tablePicker
+
+  // 表格统计：选区所在表格的按列只读统计（汇总条 + 列选详情片）。
+  // 只读不写 AST，markdown 往返零影响。
+  const tableStats = createTableStatsController({
+    t: createTranslator(payload.locale),
+    rectAt: domRectAt,
+    isSourceMode: () => state.sourceMode?.active === true,
+  })
+  root.appendChild(tableStats.element)
+  root.appendChild(tableStats.chipElement)
+  state.tableStats = tableStats
 
   // F2：移动端顶部不再常驻 —— 浮动格式条贴可见视口底部（键盘上沿），
   // 按钮定义与桌面完全同源（createToolbar floating 模式）；桌面保持
@@ -624,6 +650,8 @@ function toggleSourceMode(): void {
   flushDocChanged()
   // 进源码模式收起选区工具条（textarea 场景不出 PM 工具条）
   state.selectionToolbar?.hide()
+  // 表格统计同理：源码模式无 PM 表格语义
+  state.tableStats?.hide()
   state.sourceMode.toggle()
   state.toolbar?.setSourceMode(state.sourceMode.active)
   // F2：源码模式切换后重判浮动条显隐（源码模式恒可见，退出后回焦点驱动）
