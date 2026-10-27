@@ -28,6 +28,7 @@ import type { BridgeClient } from '../bridge/client'
 import { createTranslator } from '../i18n'
 import {
   clearTableCellContents,
+  columnAtSelection,
   duplicateTableColumn,
   duplicateTableRow,
 } from '../plugins/table-add'
@@ -425,6 +426,16 @@ export class ContextMenuController {
       // （右键不挪 PM 选区，光标格即目标格，与 deleteTable 同前提）
       tableEdit: (action) => {
         if (this.deps.getReadOnly()) return
+        // 列对齐公共段：取当前列索引 → 整列选中 → 设 alignment
+        const alignColumn = (dir: 'left' | 'center' | 'right'): void => {
+          let col: number | null = null
+          withView((view) => {
+            col = columnAtSelection(view)
+          })
+          if (col === null) return
+          this.runCommand(selectColCommand, { index: col })
+          this.runCommand(setAlignCommand, dir)
+        }
         switch (action) {
           case 'addRowBefore':
             this.runCommand(addRowBeforeCommand)
@@ -446,15 +457,18 @@ export class ContextMenuController {
             this.runCommand(selectColCommand)
             this.runCommand(deleteSelectedCellsCommand)
             break
-          // 列对齐：attr 序列化成 GFM `:--`/`:-:`/`--:` 语法，落盘不丢
+          // 列对齐：必须先 selectCol 整列选中再 setAlign —— setCellAttr
+          // 在文本光标下只改单格，而序列化只从表头行各格 alignment 生成
+          // GFM `:--`/`:-:`/`--:`（keep-table-align 插件还会把数据格弹回
+          // 表头值），不改表头格等于不落盘。crepe 手柄同款链路。
           case 'alignLeft':
-            this.runCommand(setAlignCommand, 'left')
+            alignColumn('left')
             break
           case 'alignCenter':
-            this.runCommand(setAlignCommand, 'center')
+            alignColumn('center')
             break
           case 'alignRight':
-            this.runCommand(setAlignCommand, 'right')
+            alignColumn('right')
             break
           // 按列排序：重排数据行（表头不动），自研 tr 无现成命令
           case 'sortAsc':
