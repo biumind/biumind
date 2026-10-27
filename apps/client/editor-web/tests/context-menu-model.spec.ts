@@ -41,6 +41,7 @@ function makeDeps(): MenuDeps {
     copySelection: vi.fn(async () => {}),
     pasteMarkdown: vi.fn(async () => {}),
     pastePlainText: vi.fn(async () => {}),
+    openTableSizePicker: vi.fn(),
     selectAll: vi.fn(),
     removeLink: vi.fn(),
     openLink: vi.fn(),

@@ -39,6 +39,7 @@ function makeDeps(): MenuDeps {
     copySelection: asyncNoop,
     pasteMarkdown: asyncNoop,
     pastePlainText: asyncNoop,
+    openTableSizePicker: noop,
     selectAll: noop,
     removeLink: noop,
     openLink: noop,

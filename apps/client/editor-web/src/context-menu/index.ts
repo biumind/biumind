@@ -20,7 +20,7 @@ import type { $Command } from '@milkdown/kit/utils'
 import type { BridgeClient } from '../bridge/client'
 import { createTranslator } from '../i18n'
 import type { SourceModeController } from '../source-mode'
-import type { ToolbarActions } from '../toolbar'
+import type { ToolbarActions, TableSizePicker } from '../toolbar'
 import { createClipboard, type ClipboardBackend } from './clipboard'
 import { detectMenuContext } from './context'
 import { fragmentToHtml } from './html'
@@ -94,6 +94,8 @@ export interface ContextMenuControllerDeps {
   bridge: BridgeClient
   /** 与 toolbar 共用的同一批命令（main.ts 提取的 editorCommands） */
   commands: ToolbarActions
+  /** 表格尺寸选择器：右键「插入表格」调起，与工具栏按钮同一实例 */
+  tableSizePicker: TableSizePicker
   getCrepe: () => Crepe | null
   getSourceMode: () => SourceModeController | null
   getReadOnly: () => boolean
@@ -124,6 +126,8 @@ export class ContextMenuController {
   private readonly view = new MenuView()
   private locale: string
   private attached = false
+  /** 最近一次菜单打开点：菜单关后 run 阶段仍可参照定位（表格尺寸选择器） */
+  private lastMenuPoint: { x: number; y: number } | null = null
 
   constructor(deps: ContextMenuControllerDeps) {
     this.deps = deps
@@ -240,6 +244,7 @@ export class ContextMenuController {
     ctx: MenuContext,
     point: { x: number; y: number },
   ): Promise<void> {
+    this.lastMenuPoint = point
     ctx.canPaste = (await this.clipboard.read()) !== null
     const entries = filterMenuEntries(this.registry, ctx)
     if (entries.length === 0) return
@@ -358,6 +363,15 @@ export class ContextMenuController {
         const data = await clipboard.read()
         if (!data) return
         withView((view) => view.pasteText(data.text))
+      },
+
+      openTableSizePicker: (menuCtx) => {
+        if (this.deps.getReadOnly()) return
+        withView((view) => {
+          this.restoreSelection(view, menuCtx)
+        })
+        const point = this.lastMenuPoint ?? { x: 100, y: 100 }
+        this.deps.tableSizePicker.openAtPoint(point)
       },
 
       selectAll: () => {

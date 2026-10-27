@@ -27,7 +27,9 @@ function makeActions(): ToolbarActions & { calls: string[] } {
     wrapInOrderedList: record('orderedList'),
     toggleTaskList: record('taskList'),
     createCodeBlock: record('codeBlock'),
-    insertTable: record('table'),
+    insertTable: (row, col) => {
+      calls.push(`table:${row}x${col}`)
+    },
     insertTimestamp: record('timestamp'),
     toggleSourceMode: record('source'),
   }
@@ -74,6 +76,25 @@ describe('toolbar', () => {
     const event = new MouseEvent('mousedown', { cancelable: true })
     btn(toolbar.element, 'strong').dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('未注入 openTablePicker 时表格按钮回退直插 3×3', () => {
+    const actions = makeActions()
+    const toolbar = createToolbar(actions)
+    btn(toolbar.element, 'table').click()
+    expect(actions.calls).toEqual(['table:3x3'])
+  })
+
+  it('注入 openTablePicker 时表格按钮调起选择器（按钮为锚）', () => {
+    const actions = makeActions()
+    const anchors: HTMLElement[] = []
+    const toolbar = createToolbar(actions, {
+      openTablePicker: (anchor) => anchors.push(anchor),
+    })
+    const tableBtn = btn(toolbar.element, 'table')
+    tableBtn.click()
+    expect(anchors).toEqual([tableBtn])
+    expect(actions.calls).toEqual([])
   })
 
   it('setDisabled 禁用所有按钮', () => {

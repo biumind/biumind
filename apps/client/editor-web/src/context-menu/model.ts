@@ -72,6 +72,8 @@ export interface MenuDeps {
   pasteMarkdown: () => Promise<void>
   /** 读剪贴板按纯文本插入（不解析 markdown） */
   pastePlainText: () => Promise<void>
+  /** 打开表格尺寸选择器（右键「插入表格」与工具栏按钮同一 picker） */
+  openTableSizePicker: (ctx: MenuContext) => void
   selectAll: () => void
   removeLink: (ctx: MenuContext) => void
   openLink: (href: string) => void
@@ -295,7 +297,7 @@ export function buildMenuRegistry(deps: MenuDeps): MenuEntry[] {
           label: 'Table',
           icon: ICONS.table,
           isActive: (ctx) => isText(ctx) && !ctx.hasSelection,
-          run: () => commands.insertTable(),
+          run: (ctx) => deps.openTableSizePicker(ctx),
         },
       ],
     },

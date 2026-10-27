@@ -14,6 +14,11 @@ export interface ToolbarOptions {
    * 选中态/源码模式逻辑与桌面完全同源。缺省 false = 顶部常驻（桌面现状）。
    */
   floating?: boolean
+  /**
+   * 提供时表格按钮不再直插 3×3，改为弹出尺寸选择器并以按钮为锚定位；
+   * 由 main.ts 注入（picker 在 toolbar 外创建，桌面/浮动两模式共用）。
+   */
+  openTablePicker?: (anchor: HTMLElement) => void
 }
 
 export interface ToolbarActions {
@@ -30,7 +35,7 @@ export interface ToolbarActions {
   wrapInOrderedList: () => void
   toggleTaskList: () => void
   createCodeBlock: () => void
-  insertTable: () => void
+  insertTable: (row: number, col: number) => void
   insertTimestamp: () => void
   toggleSourceMode: () => void
 }
@@ -129,7 +134,7 @@ export function createToolbar(
     ],
     [
       { key: 'codeBlock', title: '代码块', icon: ICONS.codeBlock, run: actions.createCodeBlock, activeKey: 'codeBlock' },
-      { key: 'table', title: '插入表格', icon: ICONS.table, run: actions.insertTable },
+      { key: 'table', title: '插入表格', icon: ICONS.table, run: () => actions.insertTable(3, 3) },
     ],
     [
       { key: 'timestamp', title: '插入时间戳', icon: ICONS.timestamp, run: actions.insertTimestamp },
@@ -174,7 +179,14 @@ export function createToolbar(
       btn.innerHTML = def.icon
       // mousedown 阻止默认行为，避免点击按钮时编辑器失焦丢选区
       btn.addEventListener('mousedown', (event) => event.preventDefault())
-      btn.addEventListener('click', () => def.run())
+      // 表格按钮：宿主注入 picker 时改为弹尺寸选择器（按钮为锚）
+      if (def.key === 'table' && options.openTablePicker) {
+        btn.addEventListener('click', () =>
+          options.openTablePicker?.(btn),
+        )
+      } else {
+        btn.addEventListener('click', () => def.run())
+      }
       element.appendChild(btn)
       buttons.push({ def, el: btn })
     }
@@ -218,3 +230,5 @@ export function createToolbar(
 }
 
 export type { ToolbarActiveState }
+export { createTableSizePicker } from './table-size-picker'
+export type { TableSizePicker } from './table-size-picker'

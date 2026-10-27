@@ -58,7 +58,7 @@ import { imagePosFromDom } from './context-menu/context'
 import { InputModeController } from './context-menu/input-mode'
 import { LongPressController } from './context-menu/long-press'
 import { SelectionToolbar } from './context-menu/selection-toolbar'
-import { buildLocalizedFeatureConfigs } from './i18n'
+import { buildLocalizedFeatureConfigs, createTranslator } from './i18n'
 import { STRINGIFY_OPTIONS } from './markdown/stringify-options'
 import { createImagePresignConfig } from './plugins/image-presign'
 import { createImageUploadConfig } from './plugins/image-upload'
@@ -68,7 +68,7 @@ import { SourceModeController } from './source-mode'
 import { formatTimestamp } from './timestamp'
 import { computeActiveState } from './toolbar/active-state'
 import { FloatingToolbarController } from './toolbar/floating-controller'
-import { createToolbar, type Toolbar, type ToolbarActions } from './toolbar'
+import { createToolbar, createTableSizePicker, type Toolbar, type TableSizePicker, type ToolbarActions } from './toolbar'
 import type {
   CommandPayload,
   InitPayload,
@@ -83,6 +83,8 @@ const DOC_CHANGED_DEBOUNCE_MS = 200
 interface EditorState {
   crepe: Crepe | null
   toolbar: Toolbar | null
+  /** 表格尺寸选择器（工具栏/右键菜单插入表格共用） */
+  tablePicker: TableSizePicker | null
   sourceMode: SourceModeController | null
   contextMenu: ContextMenuController | null
   /** 移动端选区浮动工具条（M1；仅 platform = ios/android 时创建） */
@@ -115,6 +117,7 @@ interface EditorState {
 const state: EditorState = {
   crepe: null,
   toolbar: null,
+  tablePicker: null,
   sourceMode: null,
   contextMenu: null,
   selectionToolbar: null,
@@ -205,6 +208,7 @@ function handleSetOptions(payload: SetOptionsPayload): void {
     state.locale = payload.locale
     // 菜单每次打开现构建，换 translator 即刻生效；crepe 自身文案维持 init
     state.contextMenu?.setLocale(payload.locale)
+    state.tablePicker?.setTranslator(createTranslator(payload.locale))
   }
 }
 
@@ -249,6 +253,8 @@ async function teardownEditor(): Promise<void> {
   state.inputMode = null
   state.contextMenu?.destroy()
   state.contextMenu = null
+  state.tablePicker?.destroy()
+  state.tablePicker = null
   state.sourceMode?.destroy()
   state.sourceMode = null
   state.toolbar = null
@@ -374,18 +380,33 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     wrapInOrderedList: () => runCommand(wrapInOrderedListCommand),
     toggleTaskList,
     createCodeBlock: () => runCommand(createCodeBlockCommand),
-    insertTable: () => runCommand(insertTableCommand, { row: 3, col: 3 }),
+    insertTable: (row, col) => runCommand(insertTableCommand, { row, col }),
     insertTimestamp: () => {
       state.crepe?.editor.action(insert(formatTimestamp(new Date())))
     },
     toggleSourceMode,
   }
+  // 表格尺寸选择器：工具栏按钮与右键菜单「插入表格」共用的网格浮层。
+  // 选区保持靠容器 pointerdown preventDefault（picker 内部），picker 打开
+  // 期间编辑器不失焦，onPick 直接走当前选区插入。
+  const tablePicker = createTableSizePicker({
+    t: createTranslator(payload.locale),
+    onPick: (row, col) => runCommand(insertTableCommand, { row, col }),
+  })
+  root.appendChild(tablePicker.element)
+  state.tablePicker = tablePicker
+
   // F2：移动端顶部不再常驻 —— 浮动格式条贴可见视口底部（键盘上沿），
   // 按钮定义与桌面完全同源（createToolbar floating 模式）；桌面保持
   // 顶部常驻（硬要求，零变化）。
   const toolbar = mobileCustom
-    ? createToolbar(editorCommands, { floating: true })
-    : createToolbar(editorCommands)
+    ? createToolbar(editorCommands, {
+        floating: true,
+        openTablePicker: (anchor) => tablePicker.openAt(anchor),
+      })
+    : createToolbar(editorCommands, {
+        openTablePicker: (anchor) => tablePicker.openAt(anchor),
+      })
   if (mobileCustom) {
     root.appendChild(toolbar.element) // fixed 定位，挂哪都行；不进文档流
   } else {
@@ -409,6 +430,7 @@ async function mountCrepeEditor(payload: InitPayload): Promise<void> {
     const menu = new ContextMenuController({
       bridge,
       commands: editorCommands,
+      tableSizePicker: tablePicker,
       getCrepe: () => state.crepe,
       getSourceMode: () => state.sourceMode,
       getReadOnly: () => state.readOnly,

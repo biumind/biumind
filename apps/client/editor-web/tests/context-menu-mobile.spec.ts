@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ContextMenuController } from '../src/context-menu/index'
+import { ContextMenuController, type ContextMenuControllerDeps } from '../src/context-menu/index'
 import type { MenuContext, MenuEntry, MenuItem } from '../src/context-menu/model'
 import type { ToolbarActions } from '../src/toolbar'
 import type { BridgeClient } from '../src/bridge/client'
@@ -165,6 +165,9 @@ describe('移动端 contextmenu 只 swallow 不弹菜单（双菜单实机 bug�
       imageUpload: false,
       locale: 'zh-Hans',
       resolveImageUrl: async (url: string) => url,
+      tableSizePicker: {
+        openAtPoint: vi.fn(),
+      } as unknown as ContextMenuControllerDeps['tableSizePicker'],
       mobile,
     })
     controller.attach()

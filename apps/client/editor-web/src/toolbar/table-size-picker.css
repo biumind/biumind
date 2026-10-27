@@ -1,0 +1,42 @@
+/* 表格尺寸选择器浮层。颜色走 light.css / dark.css 的 --kc-editor-* 变量。 */
+
+.kc-tsp {
+  position: fixed;
+  display: none;
+  z-index: 1000; /* 菜单 mask(999) / 浮动工具条(980) 之上 */
+  padding: 8px;
+  border: 1px solid var(--kc-editor-border);
+  border-radius: 8px;
+  background: var(--kc-editor-bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.14);
+  user-select: none;
+}
+
+.kc-tsp-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 14px);
+  gap: 3px;
+}
+
+.kc-tsp-cell {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--kc-editor-border);
+  border-radius: 2px;
+  background: var(--kc-editor-bg);
+  cursor: pointer;
+}
+
+.kc-tsp-cell.kc-tsp-on {
+  border-color: var(--kc-editor-accent);
+  background: var(--kc-editor-accent);
+}
+
+.kc-tsp-label {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--kc-editor-fg);
+  min-height: 15px;
+}
