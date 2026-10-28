@@ -837,6 +837,8 @@ jobs:
           export AWS_DEFAULT_REGION=us-east-1
           export AWS_EC2_METADATA_DISABLED=true
           export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+          # OSS 只认 virtual-host 风格寻址（path-style 报 SecondLevelDomainForbidden）
+          aws configure set default.s3.addressing_style virtual
           EP="$OSS_ENDPOINT"
           cd artefacts
           # 产物放根 (稳定 url) + 版本目录 (归档)。

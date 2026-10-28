@@ -494,6 +494,8 @@ jobs:
           export AWS_DEFAULT_REGION=us-east-1
           export AWS_EC2_METADATA_DISABLED=true
           export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+          # OSS 只认 virtual-host 风格寻址（path-style 报 SecondLevelDomainForbidden）
+          aws configure set default.s3.addressing_style virtual
           for f in nightly/*; do
             [ -f "$f" ] || continue
             aws s3 cp "$f" "s3://$OSS_BUCKET/$REL/" --endpoint-url "$OSS_ENDPOINT"
@@ -546,6 +548,7 @@ jobs:
             export AWS_DEFAULT_REGION=us-east-1
             export AWS_EC2_METADATA_DISABLED=true
             export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+            aws configure set default.s3.addressing_style virtual
             for tag in "${OLD[@]}"; do
               aws s3 rm "s3://$OSS_BUCKET/nightly/$tag" --recursive --endpoint-url "$OSS_ENDPOINT" || true
             done
