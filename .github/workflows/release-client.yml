@@ -776,7 +776,7 @@ jobs:
 
   # ── 镜像 stable releases.json + 产物到阿里云 OSS ──────────────
   # 官网 /downloads/releases.json (客户端稳定版更新检测 SoT) 来源。
-  # 与 release-client-nightly.yml 的 OSS 上传同模式 (mc 静态二进制, presence-gated)。
+  # 与 release-client-nightly.yml 的 OSS 上传同模式 (aws CLI S3 兼容, presence-gated)。
   # 布局 (稳定 url):
   #   <bucket>/<filename>          根 (新版覆盖, url 永远指向最新)
   #   <bucket>/<version>/<filename> 版本归档 (历史不丢)
@@ -829,22 +829,26 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -eu
-          # mc 直接用官方静态二进制，不经 docker：GH runner 匿名拉 docker.io
-          # 被限流时报 "pull access denied for minio/mc"（2026-10-27 实发）。
-          curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+          # aws CLI：ubuntu runner 预装，零下载。OSS 走 S3 兼容协议（同原 mc 方案）。
+          # docker.io 匿名拉取限流 + dl.min.io 关停（410），两条外部依赖都已实发断供。
+          # CHECKSUM_CALCULATION=WHEN_REQUIRED：awscli ≥2.23 默认新校验头 S3 兼容端点不认。
+          export AWS_ACCESS_KEY_ID="$OSS_AK"
+          export AWS_SECRET_ACCESS_KEY="$OSS_SK"
+          export AWS_DEFAULT_REGION=us-east-1
+          export AWS_EC2_METADATA_DISABLED=true
+          export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+          EP="$OSS_ENDPOINT"
           cd artefacts
           # 产物放根 (稳定 url) + 版本目录 (归档)。
           # 注意 biu 裸二进制无扩展名 (biumind-<ver>-biu-<platform>)，
           # 只 glob apk/dmg/ipa 会漏掉它们，releases.json 里的 biu-* url 全 404。
           for f in biumind-*.apk biumind-*.dmg biumind-*.ipa biumind-*-biu-*; do
             [ -f "$f" ] || continue
-            ../mc cp "$f" "oss/$OSS_BUCKET/"
-            ../mc cp "$f" "oss/$OSS_BUCKET/$VERSION/"
+            aws s3 cp "$f" "s3://$OSS_BUCKET/" --endpoint-url "$EP"
+            aws s3 cp "$f" "s3://$OSS_BUCKET/$VERSION/" --endpoint-url "$EP"
           done
           # releases.json 放根 (nginx RELEASES_UPSTREAM/releases.json 直取)
-          ../mc cp releases.json "oss/$OSS_BUCKET/releases.json"
+          aws s3 cp releases.json "s3://$OSS_BUCKET/releases.json" --endpoint-url "$EP"
           echo "✓ stable artefacts + releases.json → oss/$OSS_BUCKET/ (+ $VERSION/ archive)"
 
   #

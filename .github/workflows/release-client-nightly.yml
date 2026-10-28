@@ -417,7 +417,7 @@ jobs:
       # stable 根 + stable releases.json 绝不碰。
       # presence-gated: 未配 OSS 凭证则 skip, 不 fail
       # (照搬 release-images.yml 多 registry opt-in 风格)。
-      # mc (S3 兼容) 用官方静态二进制,不引第三方 action (供应链面)。
+      # S3 兼容协议直传 (aws CLI 预装,不引第三方 action,供应链面最小)。
       - name: Upload to Aliyun OSS
         if: vars.OSS_BUCKET != '' && env.HAVE_OSS_KEY == 'true'
         env:
@@ -487,16 +487,18 @@ jobs:
             }' > index.json
           echo "--- nightly/index.json ---"
           cat index.json
-          # mc 直接用官方静态二进制，不经 docker：GH runner 匿名拉 docker.io
-          # 被限流时报 "pull access denied for minio/mc"（2026-10-27 实发）。
-          curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
-          chmod +x mc
-          ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+          # aws CLI：ubuntu runner 预装，零下载。OSS 走 S3 兼容协议（同原 mc 方案）。
+          # docker.io 匿名拉取限流 + dl.min.io 关停（410），两条外部依赖都已实发断供。
+          export AWS_ACCESS_KEY_ID="$OSS_AK"
+          export AWS_SECRET_ACCESS_KEY="$OSS_SK"
+          export AWS_DEFAULT_REGION=us-east-1
+          export AWS_EC2_METADATA_DISABLED=true
+          export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
           for f in nightly/*; do
             [ -f "$f" ] || continue
-            ./mc cp "$f" "oss/$OSS_BUCKET/$REL/"
+            aws s3 cp "$f" "s3://$OSS_BUCKET/$REL/" --endpoint-url "$OSS_ENDPOINT"
           done
-          ./mc cp index.json "oss/$OSS_BUCKET/nightly/index.json"
+          aws s3 cp index.json "s3://$OSS_BUCKET/nightly/index.json" --endpoint-url "$OSS_ENDPOINT"
           echo "✓ nightly artefacts + index.json → oss/$OSS_BUCKET/$REL (+ nightly/index.json)"
 
   # Keep the Releases list tidy: delete every nightly pre-release beyond
@@ -538,12 +540,14 @@ jobs:
           # 3. 镜像删 OSS: 跟 GH 同步, 保持恰好 100 (与 nightly-release 上传布局对称)。
           #    tag 名 client-nightly.<digits> 无 shell 元字符, $TAGS 词分割展开安全。
           if [ "${#OLD[@]}" -gt 0 ] && [ -n "$OSS_BUCKET" ] && [ -n "$OSS_SK" ]; then
-            # mc 官方静态二进制，不经 docker（docker.io 匿名拉取限流）
-            curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
-            chmod +x mc
-            ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+            # aws CLI 预装，OSS 走 S3 兼容协议（同上传步）
+            export AWS_ACCESS_KEY_ID="$OSS_AK"
+            export AWS_SECRET_ACCESS_KEY="$OSS_SK"
+            export AWS_DEFAULT_REGION=us-east-1
+            export AWS_EC2_METADATA_DISABLED=true
+            export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
             for tag in "${OLD[@]}"; do
-              ./mc rm --recursive --force "oss/$OSS_BUCKET/nightly/$tag" || true
+              aws s3 rm "s3://$OSS_BUCKET/nightly/$tag" --recursive --endpoint-url "$OSS_ENDPOINT" || true
             done
             echo "✓ OSS nightly dirs pruned"
           fi
