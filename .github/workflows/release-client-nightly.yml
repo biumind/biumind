@@ -417,7 +417,7 @@ jobs:
       # stable 根 + stable releases.json 绝不碰。
       # presence-gated: 未配 OSS 凭证则 skip, 不 fail
       # (照搬 release-images.yml 多 registry opt-in 风格)。
-      # mc (S3 兼容) 经 docker 跑,不引第三方 action (供应链面)。
+      # mc (S3 兼容) 用官方静态二进制,不引第三方 action (供应链面)。
       - name: Upload to Aliyun OSS
         if: vars.OSS_BUCKET != '' && env.HAVE_OSS_KEY == 'true'
         env:
@@ -487,23 +487,17 @@ jobs:
             }' > index.json
           echo "--- nightly/index.json ---"
           cat index.json
-          # 两挂载: nightly/ (二进制) + index.json (清单); 容器内 mc alias + cp。
-          docker run --rm \
-            -v "$PWD/nightly:/artefacts:ro" \
-            -v "$PWD/index.json:/index.json:ro" \
-            -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
-            -e BUCKET="$OSS_BUCKET" -e REL="$REL" \
-            --entrypoint /bin/sh \
-            docker.io/minio/mc:latest -c '
-              set -eu
-              mc alias set oss "$EP" "$AK" "$SK"
-              for f in /artefacts/*; do
-                [ -f "$f" ] || continue
-                mc cp "$f" "oss/$BUCKET/$REL/"
-              done
-              mc cp /index.json "oss/$BUCKET/nightly/index.json"
-              echo "✓ nightly artefacts + index.json → oss/$BUCKET/$REL (+ nightly/index.json)"
-            '
+          # mc 直接用官方静态二进制，不经 docker：GH runner 匿名拉 docker.io
+          # 被限流时报 "pull access denied for minio/mc"（2026-10-27 实发）。
+          curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+          for f in nightly/*; do
+            [ -f "$f" ] || continue
+            ./mc cp "$f" "oss/$OSS_BUCKET/$REL/"
+          done
+          ./mc cp index.json "oss/$OSS_BUCKET/nightly/index.json"
+          echo "✓ nightly artefacts + index.json → oss/$OSS_BUCKET/$REL (+ nightly/index.json)"
 
   # Keep the Releases list tidy: delete every nightly pre-release beyond
   # the most recent 100 (oldest first), tag included. The legacy rolling
@@ -544,16 +538,12 @@ jobs:
           # 3. 镜像删 OSS: 跟 GH 同步, 保持恰好 100 (与 nightly-release 上传布局对称)。
           #    tag 名 client-nightly.<digits> 无 shell 元字符, $TAGS 词分割展开安全。
           if [ "${#OLD[@]}" -gt 0 ] && [ -n "$OSS_BUCKET" ] && [ -n "$OSS_SK" ]; then
-            docker run --rm \
-              -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
-              -e BUCKET="$OSS_BUCKET" -e TAGS="${OLD[*]}" \
-              --entrypoint /bin/sh \
-              docker.io/minio/mc:latest -c '
-                set -eu
-                mc alias set oss "$EP" "$AK" "$SK"
-                for tag in $TAGS; do
-                  mc rm --recursive --force "oss/$BUCKET/nightly/$tag" || true
-                done
-                echo "✓ OSS nightly dirs pruned"
-              '
+            # mc 官方静态二进制，不经 docker（docker.io 匿名拉取限流）
+            curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
+            chmod +x mc
+            ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+            for tag in "${OLD[@]}"; do
+              ./mc rm --recursive --force "oss/$OSS_BUCKET/nightly/$tag" || true
+            done
+            echo "✓ OSS nightly dirs pruned"
           fi

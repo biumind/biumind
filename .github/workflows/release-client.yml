@@ -776,7 +776,7 @@ jobs:
 
   # ── 镜像 stable releases.json + 产物到阿里云 OSS ──────────────
   # 官网 /downloads/releases.json (客户端稳定版更新检测 SoT) 来源。
-  # 与 release-client-nightly.yml 的 OSS 上传同模式 (mc 经 docker, presence-gated)。
+  # 与 release-client-nightly.yml 的 OSS 上传同模式 (mc 静态二进制, presence-gated)。
   # 布局 (稳定 url):
   #   <bucket>/<filename>          根 (新版覆盖, url 永远指向最新)
   #   <bucket>/<version>/<filename> 版本归档 (历史不丢)
@@ -829,27 +829,23 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -eu
-          docker run --rm \
-            -v "$PWD/artefacts:/artefacts:ro" \
-            -e EP="$OSS_ENDPOINT" -e AK="$OSS_AK" -e SK="$OSS_SK" \
-            -e BUCKET="$OSS_BUCKET" -e VER="$VERSION" \
-            --entrypoint /bin/sh \
-            docker.io/minio/mc:latest -c '
-              set -eu
-              mc alias set oss "$EP" "$AK" "$SK"
-              cd /artefacts
-              # 产物放根 (稳定 url) + 版本目录 (归档)。
-              # 注意 biu 裸二进制无扩展名 (biumind-<ver>-biu-<platform>)，
-              # 只 glob apk/dmg/ipa 会漏掉它们，releases.json 里的 biu-* url 全 404。
-              for f in biumind-*.apk biumind-*.dmg biumind-*.ipa biumind-*-biu-*; do
-                [ -f "$f" ] || continue
-                mc cp "$f" "oss/$BUCKET/"
-                mc cp "$f" "oss/$BUCKET/$VER/"
-              done
-              # releases.json 放根 (nginx RELEASES_UPSTREAM/releases.json 直取)
-              mc cp releases.json "oss/$BUCKET/releases.json"
-              echo "✓ stable artefacts + releases.json → oss/$BUCKET/ (+ $VER/ archive)"
-            '
+          # mc 直接用官方静态二进制，不经 docker：GH runner 匿名拉 docker.io
+          # 被限流时报 "pull access denied for minio/mc"（2026-10-27 实发）。
+          curl -fsSL -o mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x mc
+          ./mc alias set oss "$OSS_ENDPOINT" "$OSS_AK" "$OSS_SK"
+          cd artefacts
+          # 产物放根 (稳定 url) + 版本目录 (归档)。
+          # 注意 biu 裸二进制无扩展名 (biumind-<ver>-biu-<platform>)，
+          # 只 glob apk/dmg/ipa 会漏掉它们，releases.json 里的 biu-* url 全 404。
+          for f in biumind-*.apk biumind-*.dmg biumind-*.ipa biumind-*-biu-*; do
+            [ -f "$f" ] || continue
+            ../mc cp "$f" "oss/$OSS_BUCKET/"
+            ../mc cp "$f" "oss/$OSS_BUCKET/$VERSION/"
+          done
+          # releases.json 放根 (nginx RELEASES_UPSTREAM/releases.json 直取)
+          ../mc cp releases.json "oss/$OSS_BUCKET/releases.json"
+          echo "✓ stable artefacts + releases.json → oss/$OSS_BUCKET/ (+ $VERSION/ archive)"
 
   #
   # ── Linux .AppImage / .deb (TODO) ─────────────────────────
