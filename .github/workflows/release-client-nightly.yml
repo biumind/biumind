@@ -291,7 +291,8 @@ jobs:
     name: Publish nightly pre-release
     needs: [stamp, android-apk, macos-dmg]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 跨太平洋上传到 OSS 北京 (apk+dmg ~160MB), 5 分钟余量不足
+    timeout-minutes: 15
     if: always() && !cancelled()
     # secrets 不能直接出现在 step if: 里 (GitHub 禁止, 防条件跳过泄露 secret) —
     # 在 job env 里先折算成布尔串, step if: 再读 env (照搬 release-images.yml)。
@@ -496,6 +497,8 @@ jobs:
           export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
           # OSS 只认 virtual-host 风格寻址（path-style 报 SecondLevelDomainForbidden）
           aws configure set default.s3.addressing_style virtual
+          # 跨太平洋高延迟链路，提高分片并发
+          aws configure set default.s3.max_concurrent_requests 20
           for f in nightly/*; do
             [ -f "$f" ] || continue
             aws s3 cp "$f" "s3://$OSS_BUCKET/$REL/" --endpoint-url "$OSS_ENDPOINT"
