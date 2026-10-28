@@ -24,7 +24,7 @@ jobs:
       PERF_MODEL_RELAY_URL: ${{ secrets.PERF_MODEL_RELAY_URL }}
       PERF_BRAIN_URL: ${{ secrets.PERF_BRAIN_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Skip if no perf target configured
         if: ${{ env.PERF_MODEL_RELAY_URL == '' }}
